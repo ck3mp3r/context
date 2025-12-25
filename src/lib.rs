@@ -1,3 +1,6 @@
+pub mod api;
+pub mod cli;
+
 pub fn hello() -> &'static str {
     "Hello from context"
 }

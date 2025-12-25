@@ -1,3 +1,3 @@
 fn main() {
-    println!("{}", context::hello());
+    context::cli::run();
 }
