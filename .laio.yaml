@@ -1,0 +1,21 @@
+---
+name: context
+
+path: .
+
+windows:
+  - name: code
+    panes:
+      - name: Editor
+        commands:
+          - command: ^$env.EDITOR
+
+  - name: misc
+    flex_direction: row
+    panes:
+      - flex: 1
+      - flex: 1
+        flex_direction: column
+        panes:
+          - flex: 1
+          - flex: 5

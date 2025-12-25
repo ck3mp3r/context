@@ -1,0 +1,20 @@
+[package]
+name = "context"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Christian Kemper"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "c5t"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "c5t-api"
+path = "src/bin/api.rs"
+
+[dependencies]
+# Dependencies will be added as we research each crate
