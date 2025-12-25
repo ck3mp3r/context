@@ -144,22 +144,46 @@ pub trait NoteRepository {
 }
 
 /// Combined database interface.
+///
+/// Uses associated types to provide access to repositories without dynamic dispatch.
+/// Each implementation defines its own concrete repository types.
 pub trait Database: Send + Sync {
+    /// The project repository type.
+    type Projects<'a>: ProjectRepository
+    where
+        Self: 'a;
+    /// The repo repository type.
+    type Repos<'a>: RepoRepository
+    where
+        Self: 'a;
+    /// The task list repository type.
+    type TaskLists<'a>: TaskListRepository
+    where
+        Self: 'a;
+    /// The task repository type.
+    type Tasks<'a>: TaskRepository
+    where
+        Self: 'a;
+    /// The note repository type.
+    type Notes<'a>: NoteRepository
+    where
+        Self: 'a;
+
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
 
     /// Get the project repository.
-    fn projects(&self) -> &dyn ProjectRepository;
+    fn projects(&self) -> Self::Projects<'_>;
 
     /// Get the repo repository.
-    fn repos(&self) -> &dyn RepoRepository;
+    fn repos(&self) -> Self::Repos<'_>;
 
     /// Get the task list repository.
-    fn task_lists(&self) -> &dyn TaskListRepository;
+    fn task_lists(&self) -> Self::TaskLists<'_>;
 
     /// Get the task repository.
-    fn tasks(&self) -> &dyn TaskRepository;
+    fn tasks(&self) -> Self::Tasks<'_>;
 
     /// Get the note repository.
-    fn notes(&self) -> &dyn NoteRepository;
+    fn notes(&self) -> Self::Notes<'_>;
 }

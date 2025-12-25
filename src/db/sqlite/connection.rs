@@ -5,15 +5,18 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Mutex;
 
-use crate::db::{
-    Database, DbError, DbResult, NoteRepository, ProjectRepository, RepoRepository,
-    TaskListRepository, TaskRepository,
+use super::repositories::{
+    SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteTaskListRepository,
+    SqliteTaskRepository,
 };
+use crate::db::{Database, DbError, DbResult};
 
 // Embed migrations from data/sql/sqlite/ at compile time
 embed_migrations!("data/sql/sqlite");
 
 /// SQLite database implementation.
+///
+/// Provides access to repositories via associated types, avoiding dynamic dispatch.
 pub struct SqliteDatabase {
     conn: Mutex<Connection>,
 }
@@ -57,6 +60,12 @@ impl SqliteDatabase {
 }
 
 impl Database for SqliteDatabase {
+    type Projects<'a> = SqliteProjectRepository<'a>;
+    type Repos<'a> = SqliteRepoRepository<'a>;
+    type TaskLists<'a> = SqliteTaskListRepository<'a>;
+    type Tasks<'a> = SqliteTaskRepository<'a>;
+    type Notes<'a> = SqliteNoteRepository<'a>;
+
     fn migrate(&self) -> DbResult<()> {
         let mut conn = self.conn.lock().map_err(|e| DbError::Database {
             message: format!("Failed to acquire database lock: {}", e),
@@ -71,23 +80,23 @@ impl Database for SqliteDatabase {
         Ok(())
     }
 
-    fn projects(&self) -> &dyn ProjectRepository {
-        todo!("Implement projects repository")
+    fn projects(&self) -> Self::Projects<'_> {
+        SqliteProjectRepository { conn: &self.conn }
     }
 
-    fn repos(&self) -> &dyn RepoRepository {
-        todo!("Implement repos repository")
+    fn repos(&self) -> Self::Repos<'_> {
+        SqliteRepoRepository { conn: &self.conn }
     }
 
-    fn task_lists(&self) -> &dyn TaskListRepository {
-        todo!("Implement task_lists repository")
+    fn task_lists(&self) -> Self::TaskLists<'_> {
+        SqliteTaskListRepository { conn: &self.conn }
     }
 
-    fn tasks(&self) -> &dyn TaskRepository {
-        todo!("Implement tasks repository")
+    fn tasks(&self) -> Self::Tasks<'_> {
+        SqliteTaskRepository { conn: &self.conn }
     }
 
-    fn notes(&self) -> &dyn NoteRepository {
-        todo!("Implement notes repository")
+    fn notes(&self) -> Self::Notes<'_> {
+        SqliteNoteRepository { conn: &self.conn }
     }
 }

@@ -4,8 +4,11 @@
 //! traits defined in the parent module.
 
 mod connection;
+mod repositories;
 
 #[cfg(test)]
 mod connection_test;
+#[cfg(test)]
+mod repositories_test;
 
 pub use connection::SqliteDatabase;
