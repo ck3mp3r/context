@@ -9,7 +9,7 @@ pub struct HealthResponse {
 
 #[instrument]
 pub async fn root() -> &'static str {
-    crate::hello()
+    "c5t-api"
 }
 
 #[instrument]

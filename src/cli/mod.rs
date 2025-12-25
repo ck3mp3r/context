@@ -24,7 +24,7 @@ pub fn run() {
             println!("c5t {}", env!("CARGO_PKG_VERSION"));
         }
         None => {
-            println!("{}", crate::hello());
+            println!("c5t {}", env!("CARGO_PKG_VERSION"));
         }
     }
 }
