@@ -4,7 +4,7 @@
 //! storage backends to be swapped without changing business logic.
 
 use crate::db::{
-    DbResult,
+    DbResult, ListQuery, ListResult,
     models::{Note, Project, Repo, Task, TaskList},
 };
 
@@ -18,6 +18,10 @@ pub trait ProjectRepository {
 
     /// Get all projects.
     fn list(&self) -> DbResult<Vec<Project>>;
+
+    /// Get projects with pagination and sorting at database level.
+    /// Supported sort fields: title, created_at, updated_at
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<Project>>;
 
     /// Update an existing project.
     fn update(&self, project: &Project) -> DbResult<()>;
@@ -49,6 +53,10 @@ pub trait RepoRepository {
     /// Get all repos.
     fn list(&self) -> DbResult<Vec<Repo>>;
 
+    /// Get repos with pagination and sorting at database level.
+    /// Supported sort fields: remote, path, created_at
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<Repo>>;
+
     /// Update an existing repo.
     fn update(&self, repo: &Repo) -> DbResult<()>;
 
@@ -69,6 +77,10 @@ pub trait TaskListRepository {
 
     /// Get all task lists.
     fn list(&self) -> DbResult<Vec<TaskList>>;
+
+    /// Get task lists with pagination and sorting at database level.
+    /// Supported sort fields: name, status, created_at, updated_at
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<TaskList>>;
 
     /// Update an existing task list.
     fn update(&self, task_list: &TaskList) -> DbResult<()>;
@@ -100,6 +112,14 @@ pub trait TaskRepository {
     /// Get all tasks in a list.
     fn list_by_list(&self, list_id: &str) -> DbResult<Vec<Task>>;
 
+    /// Get tasks in a list with pagination and sorting at database level.
+    /// Supported sort fields: content, status, priority, created_at
+    fn list_by_list_paginated(
+        &self,
+        list_id: &str,
+        query: &ListQuery,
+    ) -> DbResult<ListResult<Task>>;
+
     /// Get subtasks of a parent task.
     fn list_by_parent(&self, parent_id: &str) -> DbResult<Vec<Task>>;
 
@@ -121,6 +141,10 @@ pub trait NoteRepository {
     /// Get all notes.
     fn list(&self) -> DbResult<Vec<Note>>;
 
+    /// Get notes with pagination and sorting at database level.
+    /// Supported sort fields: title, note_type, created_at, updated_at
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<Note>>;
+
     /// Update an existing note.
     fn update(&self, note: &Note) -> DbResult<()>;
 
@@ -129,6 +153,10 @@ pub trait NoteRepository {
 
     /// Search notes by content.
     fn search(&self, query: &str) -> DbResult<Vec<Note>>;
+
+    /// Search notes with pagination and sorting at database level.
+    fn search_paginated(&self, search_query: &str, query: &ListQuery)
+    -> DbResult<ListResult<Note>>;
 
     /// Link a note to a project.
     fn link_project(&self, note_id: &str, project_id: &str) -> DbResult<()>;

@@ -932,3 +932,284 @@ fn note_link_and_get_projects() {
     assert_eq!(linked_projects.len(), 1);
     assert_eq!(linked_projects[0].title, "Default");
 }
+
+// =============================================================================
+// Database-Level Pagination Tests (ListQuery)
+// =============================================================================
+
+use crate::db::{ListQuery, SortOrder};
+
+#[test]
+fn note_list_paginated_limit_offset() {
+    let db = setup_db();
+    let notes = db.notes();
+
+    // Create 10 notes with sequential timestamps
+    for i in 0..10 {
+        let mut note = make_note(
+            &format!("notepg{:02}", i),
+            &format!("Note {}", i),
+            &format!("Content {}", i),
+        );
+        note.created_at = format!("2025-01-01 00:00:{:02}", i);
+        notes.create(&note).unwrap();
+    }
+
+    // Test limit
+    let query = ListQuery {
+        limit: Some(3),
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.items.len(), 3);
+    assert_eq!(result.total, 10);
+    assert_eq!(result.limit, Some(3));
+    assert_eq!(result.offset, 0);
+
+    // Test offset
+    let query = ListQuery {
+        limit: Some(3),
+        offset: Some(5),
+        sort_by: None,
+        sort_order: None,
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.items.len(), 3);
+    assert_eq!(result.total, 10);
+    assert_eq!(result.offset, 5);
+}
+
+#[test]
+fn note_list_paginated_sorting() {
+    let db = setup_db();
+    let notes = db.notes();
+
+    // Create notes with different titles
+    let mut note_c = make_note("notesrt1", "Charlie", "Content");
+    note_c.created_at = "2025-01-01 00:00:01".to_string();
+    notes.create(&note_c).unwrap();
+
+    let mut note_a = make_note("notesrt2", "Alpha", "Content");
+    note_a.created_at = "2025-01-01 00:00:02".to_string();
+    notes.create(&note_a).unwrap();
+
+    let mut note_b = make_note("notesrt3", "Bravo", "Content");
+    note_b.created_at = "2025-01-01 00:00:03".to_string();
+    notes.create(&note_b).unwrap();
+
+    // Sort by title ascending
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: Some("title".to_string()),
+        sort_order: Some(SortOrder::Asc),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.items[0].title, "Alpha");
+    assert_eq!(result.items[1].title, "Bravo");
+    assert_eq!(result.items[2].title, "Charlie");
+
+    // Sort by title descending
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: Some("title".to_string()),
+        sort_order: Some(SortOrder::Desc),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.items[0].title, "Charlie");
+    assert_eq!(result.items[1].title, "Bravo");
+    assert_eq!(result.items[2].title, "Alpha");
+
+    // Sort by created_at ascending (default)
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some(SortOrder::Asc),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.items[0].title, "Charlie"); // earliest
+    assert_eq!(result.items[2].title, "Bravo"); // latest
+}
+
+#[test]
+fn project_list_paginated() {
+    let db = setup_db();
+    let projects = db.projects();
+
+    // Create additional projects (default already exists)
+    for i in 0..5 {
+        let project = Project {
+            id: format!("projpg{:02}", i),
+            title: format!("Project {}", i),
+            description: None,
+            created_at: format!("2025-01-01 00:00:{:02}", i + 10),
+            updated_at: format!("2025-01-01 00:00:{:02}", i + 10),
+        };
+        projects.create(&project).unwrap();
+    }
+
+    // Test pagination
+    let query = ListQuery {
+        limit: Some(2),
+        offset: Some(1),
+        sort_by: None,
+        sort_order: None,
+    };
+    let result = projects
+        .list_paginated(&query)
+        .expect("Query should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 6); // 5 + default
+}
+
+#[test]
+fn task_list_paginated() {
+    let db = setup_db();
+    let task_lists = db.task_lists();
+
+    // Create task lists
+    for i in 0..8 {
+        let mut list = make_task_list(&format!("listpg{:02}", i), &format!("List {}", i));
+        list.created_at = format!("2025-01-01 00:00:{:02}", i);
+        task_lists.create(&list).unwrap();
+    }
+
+    // Test limit and offset
+    let query = ListQuery {
+        limit: Some(3),
+        offset: Some(2),
+        sort_by: None,
+        sort_order: None,
+    };
+    let result = task_lists
+        .list_paginated(&query)
+        .expect("Query should succeed");
+    assert_eq!(result.items.len(), 3);
+    assert_eq!(result.total, 8);
+    assert_eq!(result.offset, 2);
+}
+
+#[test]
+fn repo_list_paginated() {
+    let db = setup_db();
+    let repos = db.repos();
+
+    // Create repos
+    for i in 0..6 {
+        let repo = Repo {
+            id: format!("repopg{:02}", i),
+            remote: format!("github:test/repo{}", i),
+            path: None,
+            created_at: format!("2025-01-01 00:00:{:02}", i),
+        };
+        repos.create(&repo).unwrap();
+    }
+
+    // Test pagination with sorting
+    let query = ListQuery {
+        limit: Some(2),
+        offset: Some(0),
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some(SortOrder::Desc),
+    };
+    let result = repos.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 6);
+    // Should be newest first
+    assert_eq!(result.items[0].id, "repopg05");
+    assert_eq!(result.items[1].id, "repopg04");
+}
+
+#[test]
+fn task_list_by_list_paginated() {
+    let db = setup_db();
+
+    // Create a task list
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listpgtk", "Task Pagination Test"))
+        .unwrap();
+
+    let tasks = db.tasks();
+
+    // Create 10 tasks with valid priorities (1-5)
+    for i in 0..10 {
+        let mut task = make_task(
+            &format!("taskpg{:02}", i),
+            "listpgtk",
+            &format!("Task {}", i),
+        );
+        task.created_at = format!("2025-01-01 00:00:{:02}", i);
+        // Priority must be 1-5, so use modulo
+        task.priority = Some(i % 5 + 1);
+        tasks.create(&task).unwrap();
+    }
+
+    // Test pagination
+    let query = ListQuery {
+        limit: Some(4),
+        offset: Some(3),
+        sort_by: None,
+        sort_order: None,
+    };
+    let result = tasks
+        .list_by_list_paginated("listpgtk", &query)
+        .expect("Query should succeed");
+    assert_eq!(result.items.len(), 4);
+    assert_eq!(result.total, 10);
+
+    // Test sorting by priority
+    let query = ListQuery {
+        limit: Some(3),
+        offset: None,
+        sort_by: Some("priority".to_string()),
+        sort_order: Some(SortOrder::Asc),
+    };
+    let result = tasks
+        .list_by_list_paginated("listpgtk", &query)
+        .expect("Query should succeed");
+    // Lowest priority first (priority 1)
+    assert_eq!(result.items[0].priority, Some(1));
+}
+
+#[test]
+fn note_search_paginated() {
+    let db = setup_db();
+    let notes = db.notes();
+
+    // Create notes with searchable content (IDs must be exactly 8 chars)
+    for i in 0..10 {
+        let note = make_note(
+            &format!("srp{:05}", i), // 8 chars: srp + 5 digits
+            &format!("Rust Note {}", i),
+            &format!("This is about Rust programming language {}", i),
+        );
+        notes.create(&note).unwrap();
+    }
+
+    // Create some non-matching notes
+    notes
+        .create(&make_note(
+            "pyth0001",
+            "Python Note",
+            "This is about Python",
+        ))
+        .unwrap();
+
+    // Search with pagination
+    let query = ListQuery {
+        limit: Some(3),
+        offset: Some(2),
+        sort_by: None,
+        sort_order: None,
+    };
+    let result = notes
+        .search_paginated("Rust", &query)
+        .expect("Query should succeed");
+    assert_eq!(result.items.len(), 3);
+    assert_eq!(result.total, 10); // Only Rust notes
+}

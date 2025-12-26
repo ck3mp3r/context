@@ -10,7 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, Repo, RepoRepository};
+use crate::db::{Database, DbError, ListQuery, Repo, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
 
@@ -114,7 +114,19 @@ pub async fn list_repos<D: Database>(
     State(state): State<AppState<D>>,
     Query(query): Query<ListReposQuery>,
 ) -> Result<Json<PaginatedRepos>, (StatusCode, Json<ErrorResponse>)> {
-    let mut repos = state.db().repos().list().map_err(|e| {
+    // Build database query
+    let db_query = ListQuery {
+        limit: query.limit,
+        offset: query.offset,
+        sort_by: query.sort.clone(),
+        sort_order: match query.order.as_deref() {
+            Some("desc") => Some(SortOrder::Desc),
+            Some("asc") => Some(SortOrder::Asc),
+            _ => None,
+        },
+    };
+
+    let result = state.db().repos().list_paginated(&db_query).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -123,35 +135,13 @@ pub async fn list_repos<D: Database>(
         )
     })?;
 
-    // Sort
-    let sort_field = query.sort.as_deref().unwrap_or("created_at");
-    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
-
-    repos.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "remote" => a.remote.cmp(&b.remote),
-            _ => a.created_at.cmp(&b.created_at),
-        };
-        if sort_desc { cmp.reverse() } else { cmp }
-    });
-
-    // Pagination
-    let total = repos.len();
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
-
-    let items: Vec<RepoResponse> = repos
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(RepoResponse::from)
-        .collect();
+    let items: Vec<RepoResponse> = result.items.into_iter().map(RepoResponse::from).collect();
 
     Ok(Json(PaginatedRepos {
         items,
-        total,
-        limit,
-        offset,
+        total: result.total,
+        limit: result.limit.unwrap_or(50),
+        offset: result.offset,
     }))
 }
 

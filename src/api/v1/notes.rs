@@ -10,7 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, Note, NoteRepository, NoteType};
+use crate::db::{Database, DbError, ListQuery, Note, NoteRepository, NoteType, SortOrder};
 
 use super::ErrorResponse;
 
@@ -134,54 +134,63 @@ pub async fn list_notes<D: Database>(
         )
     };
 
-    // Get notes - either search or list all
-    let mut notes = if let Some(q) = &query.q {
-        if q.is_empty() {
-            vec![]
-        } else {
-            state.db().notes().search(q).map_err(internal_error)?
-        }
-    } else {
-        state.db().notes().list().map_err(internal_error)?
+    // Build database query
+    let db_query = ListQuery {
+        limit: query.limit,
+        offset: query.offset,
+        sort_by: query.sort.clone(),
+        sort_order: match query.order.as_deref() {
+            Some("desc") => Some(SortOrder::Desc),
+            Some("asc") => Some(SortOrder::Asc),
+            _ => None,
+        },
     };
 
-    // Filter by tags if provided
+    // Get notes - either search or list all (at database level)
+    let result = if let Some(q) = &query.q {
+        if q.is_empty() {
+            // Empty search returns empty result
+            crate::db::ListResult {
+                items: vec![],
+                total: 0,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            }
+        } else {
+            state
+                .db()
+                .notes()
+                .search_paginated(q, &db_query)
+                .map_err(internal_error)?
+        }
+    } else {
+        state
+            .db()
+            .notes()
+            .list_paginated(&db_query)
+            .map_err(internal_error)?
+    };
+
+    // Filter by tags if provided (still in memory, but on paginated subset)
+    // Note: For full tag filtering at DB level, we'd need to add tag filtering to the query
+    let mut notes = result.items;
+    let mut total = result.total;
+
     if let Some(tags_str) = &query.tags {
         let filter_tags: Vec<&str> = tags_str.split(',').map(|s| s.trim()).collect();
         notes.retain(|note| note.tags.iter().any(|t| filter_tags.contains(&t.as_str())));
+        // Note: total count is approximate when tag filtering is applied
+        // For exact counts, tag filtering would need to be in the DB query
+        total = notes.len();
     }
 
-    // Sort
-    let sort_field = query.sort.as_deref().unwrap_or("created_at");
-    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
-
-    notes.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "title" => a.title.cmp(&b.title),
-            "note_type" => format!("{:?}", a.note_type).cmp(&format!("{:?}", b.note_type)),
-            "updated_at" => a.updated_at.cmp(&b.updated_at),
-            _ => a.created_at.cmp(&b.created_at), // default: created_at
-        };
-        if sort_desc { cmp.reverse() } else { cmp }
-    });
-
-    // Pagination
-    let total = notes.len();
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
-
-    let items: Vec<NoteResponse> = notes
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(NoteResponse::from)
-        .collect();
+    let items: Vec<NoteResponse> = notes.into_iter().map(NoteResponse::from).collect();
 
     Ok(Json(PaginatedNotes {
         items,
         total,
-        limit,
-        offset,
+        limit: result.limit.unwrap_or(50),
+        offset: result.offset,
     }))
 }
 

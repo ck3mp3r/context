@@ -5,6 +5,44 @@
 
 use serde::{Deserialize, Serialize};
 
+// =============================================================================
+// Query Types for Pagination and Sorting
+// =============================================================================
+
+/// Sort order for list queries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
+/// Query parameters for paginated list operations.
+#[derive(Debug, Clone, Default)]
+pub struct ListQuery {
+    /// Maximum number of items to return.
+    pub limit: Option<usize>,
+    /// Number of items to skip.
+    pub offset: Option<usize>,
+    /// Field to sort by (validated per entity type).
+    pub sort_by: Option<String>,
+    /// Sort order (ascending or descending).
+    pub sort_order: Option<SortOrder>,
+}
+
+/// Result of a paginated list query.
+#[derive(Debug, Clone)]
+pub struct ListResult<T> {
+    /// The items in this page.
+    pub items: Vec<T>,
+    /// Total count of all matching items (before pagination).
+    pub total: usize,
+    /// Limit that was applied.
+    pub limit: Option<usize>,
+    /// Offset that was applied.
+    pub offset: usize,
+}
+
 /// 8-character hex ID type used for all entities.
 pub type Id = String;
 

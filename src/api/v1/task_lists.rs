@@ -10,7 +10,9 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, TaskList, TaskListRepository, TaskListStatus};
+use crate::db::{
+    Database, DbError, ListQuery, SortOrder, TaskList, TaskListRepository, TaskListStatus,
+};
 
 use super::ErrorResponse;
 
@@ -125,52 +127,48 @@ pub async fn list_task_lists<D: Database>(
     State(state): State<AppState<D>>,
     Query(query): Query<ListTaskListsQuery>,
 ) -> Result<Json<PaginatedTaskLists>, (StatusCode, Json<ErrorResponse>)> {
-    let mut lists = state.db().task_lists().list().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    // Build database query
+    let db_query = ListQuery {
+        limit: query.limit,
+        offset: query.offset,
+        sort_by: query.sort.clone(),
+        sort_order: match query.order.as_deref() {
+            Some("desc") => Some(SortOrder::Desc),
+            Some("asc") => Some(SortOrder::Asc),
+            _ => None,
+        },
+    };
 
-    // Filter by tags if provided
+    let result = state
+        .db()
+        .task_lists()
+        .list_paginated(&db_query)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    // Filter by tags if provided (still in memory on paginated subset)
+    let mut lists = result.items;
+    let mut total = result.total;
+
     if let Some(tags_str) = &query.tags {
         let filter_tags: Vec<&str> = tags_str.split(',').map(|s| s.trim()).collect();
         lists.retain(|list| list.tags.iter().any(|t| filter_tags.contains(&t.as_str())));
+        total = lists.len();
     }
 
-    // Sort
-    let sort_field = query.sort.as_deref().unwrap_or("created_at");
-    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
-
-    lists.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "name" => a.name.cmp(&b.name),
-            "status" => format!("{:?}", a.status).cmp(&format!("{:?}", b.status)),
-            "updated_at" => a.updated_at.cmp(&b.updated_at),
-            _ => a.created_at.cmp(&b.created_at),
-        };
-        if sort_desc { cmp.reverse() } else { cmp }
-    });
-
-    // Pagination
-    let total = lists.len();
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
-
-    let items: Vec<TaskListResponse> = lists
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(TaskListResponse::from)
-        .collect();
+    let items: Vec<TaskListResponse> = lists.into_iter().map(TaskListResponse::from).collect();
 
     Ok(Json(PaginatedTaskLists {
         items,
         total,
-        limit,
-        offset,
+        limit: result.limit.unwrap_or(50),
+        offset: result.offset,
     }))
 }
 

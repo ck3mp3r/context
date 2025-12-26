@@ -6,9 +6,67 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::Mutex;
 
 use crate::db::{
-    DbError, DbResult, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    Task, TaskList, TaskListRepository, TaskRepository,
+    DbError, DbResult, ListQuery, ListResult, Note, NoteRepository, Project, ProjectRepository,
+    Repo, RepoRepository, SortOrder, Task, TaskList, TaskListRepository, TaskRepository,
 };
+
+// =============================================================================
+// Pagination Helpers
+// =============================================================================
+
+/// Validate and map a sort field to the actual column name.
+/// Returns None for invalid fields (falls back to default).
+fn validate_sort_field(field: &str, allowed: &[&str]) -> Option<&'static str> {
+    for &allowed_field in allowed {
+        if field == allowed_field {
+            // Return static str to avoid lifetime issues
+            return match field {
+                "title" => Some("title"),
+                "name" => Some("name"),
+                "content" => Some("content"),
+                "status" => Some("status"),
+                "priority" => Some("priority"),
+                "note_type" => Some("note_type"),
+                "remote" => Some("remote"),
+                "path" => Some("path"),
+                "created_at" => Some("created_at"),
+                "updated_at" => Some("updated_at"),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// Build ORDER BY clause from query parameters.
+fn build_order_clause(query: &ListQuery, allowed_fields: &[&str], default_field: &str) -> String {
+    let sort_field = query
+        .sort_by
+        .as_deref()
+        .and_then(|f| validate_sort_field(f, allowed_fields))
+        .unwrap_or(default_field);
+
+    let order = match query.sort_order.unwrap_or(SortOrder::Asc) {
+        SortOrder::Asc => "ASC",
+        SortOrder::Desc => "DESC",
+    };
+
+    format!("ORDER BY {} {}", sort_field, order)
+}
+
+/// Build LIMIT/OFFSET clause from query parameters.
+fn build_limit_offset_clause(query: &ListQuery) -> String {
+    let mut clause = String::new();
+    if let Some(limit) = query.limit {
+        clause.push_str(&format!(" LIMIT {}", limit));
+    }
+    if let Some(offset) = query.offset
+        && offset > 0
+    {
+        clause.push_str(&format!(" OFFSET {}", offset));
+    }
+    clause
+}
 
 /// Helper to execute with connection lock.
 fn with_conn<F, T>(conn: &Mutex<Connection>, f: F) -> DbResult<T>
@@ -92,6 +150,43 @@ impl ProjectRepository for SqliteProjectRepository<'_> {
                 })
             })?;
             rows.collect::<Result<Vec<_>, _>>()
+        })
+    }
+
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<Project>> {
+        let allowed_fields = &["title", "created_at", "updated_at"];
+        let order_clause = build_order_clause(query, allowed_fields, "created_at");
+        let limit_offset = build_limit_offset_clause(query);
+
+        with_conn(self.conn, |conn| {
+            // Get total count
+            let total: usize = conn.query_row("SELECT COUNT(*) FROM project", [], |row| {
+                row.get::<_, i64>(0).map(|v| v as usize)
+            })?;
+
+            // Get paginated results
+            let sql = format!(
+                "SELECT id, title, description, created_at, updated_at FROM project {} {}",
+                order_clause, limit_offset
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |row| {
+                Ok(Project {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })?;
+            let items = rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ListResult {
+                items,
+                total,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            })
         })
     }
 
@@ -250,6 +345,42 @@ impl RepoRepository for SqliteRepoRepository<'_> {
                 })
             })?;
             rows.collect::<Result<Vec<_>, _>>()
+        })
+    }
+
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<Repo>> {
+        let allowed_fields = &["remote", "path", "created_at"];
+        let order_clause = build_order_clause(query, allowed_fields, "created_at");
+        let limit_offset = build_limit_offset_clause(query);
+
+        with_conn(self.conn, |conn| {
+            // Get total count
+            let total: usize = conn.query_row("SELECT COUNT(*) FROM repo", [], |row| {
+                row.get::<_, i64>(0).map(|v| v as usize)
+            })?;
+
+            // Get paginated results
+            let sql = format!(
+                "SELECT id, remote, path, created_at FROM repo {} {}",
+                order_clause, limit_offset
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |row| {
+                Ok(Repo {
+                    id: row.get(0)?,
+                    remote: row.get(1)?,
+                    path: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })?;
+            let items = rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ListResult {
+                items,
+                total,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            })
         })
     }
 
@@ -419,6 +550,57 @@ impl TaskListRepository for SqliteTaskListRepository<'_> {
                 })
             })?;
             rows.collect::<Result<Vec<_>, _>>()
+        })
+    }
+
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<TaskList>> {
+        let allowed_fields = &["name", "status", "created_at", "updated_at"];
+        let order_clause = build_order_clause(query, allowed_fields, "created_at");
+        let limit_offset = build_limit_offset_clause(query);
+
+        with_conn(self.conn, |conn| {
+            // Get total count
+            let total: usize = conn.query_row("SELECT COUNT(*) FROM task_list", [], |row| {
+                row.get::<_, i64>(0).map(|v| v as usize)
+            })?;
+
+            // Get paginated results
+            let sql = format!(
+                "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at FROM task_list {} {}",
+                order_clause, limit_offset
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |row| {
+                let tags_json: String = row
+                    .get::<_, Option<String>>(4)?
+                    .unwrap_or_else(|| "[]".to_string());
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                let status_str: String = row.get(6)?;
+                let status = match status_str.as_str() {
+                    "archived" => crate::db::TaskListStatus::Archived,
+                    _ => crate::db::TaskListStatus::Active,
+                };
+                Ok(TaskList {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    notes: row.get(3)?,
+                    tags,
+                    external_ref: row.get(5)?,
+                    status,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    archived_at: row.get(9)?,
+                })
+            })?;
+            let items = rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ListResult {
+                items,
+                total,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            })
         })
     }
 
@@ -652,6 +834,55 @@ impl TaskRepository for SqliteTaskRepository<'_> {
         })
     }
 
+    fn list_by_list_paginated(
+        &self,
+        list_id: &str,
+        query: &ListQuery,
+    ) -> DbResult<ListResult<Task>> {
+        let allowed_fields = &["content", "status", "priority", "created_at"];
+        let order_clause = build_order_clause(query, allowed_fields, "created_at");
+        let limit_offset = build_limit_offset_clause(query);
+
+        with_conn(self.conn, |conn| {
+            // Get total count for this list
+            let total: usize = conn.query_row(
+                "SELECT COUNT(*) FROM task WHERE list_id = ?1",
+                [list_id],
+                |row| row.get::<_, i64>(0).map(|v| v as usize),
+            )?;
+
+            // Get paginated results
+            let sql = format!(
+                "SELECT id, list_id, parent_id, content, status, priority, created_at, started_at, completed_at 
+                 FROM task WHERE list_id = ?1 {} {}",
+                order_clause, limit_offset
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([list_id], |row| {
+                let status_str: String = row.get(4)?;
+                Ok(Task {
+                    id: row.get(0)?,
+                    list_id: row.get(1)?,
+                    parent_id: row.get(2)?,
+                    content: row.get(3)?,
+                    status: task_status_from_str(&status_str),
+                    priority: row.get(5)?,
+                    created_at: row.get(6)?,
+                    started_at: row.get(7)?,
+                    completed_at: row.get(8)?,
+                })
+            })?;
+            let items = rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ListResult {
+                items,
+                total,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            })
+        })
+    }
+
     fn list_by_parent(&self, parent_id: &str) -> DbResult<Vec<Task>> {
         with_conn(self.conn, |conn| {
             let mut stmt = conn.prepare(
@@ -834,6 +1065,50 @@ impl NoteRepository for SqliteNoteRepository<'_> {
         })
     }
 
+    fn list_paginated(&self, query: &ListQuery) -> DbResult<ListResult<Note>> {
+        let allowed_fields = &["title", "note_type", "created_at", "updated_at"];
+        let order_clause = build_order_clause(query, allowed_fields, "created_at");
+        let limit_offset = build_limit_offset_clause(query);
+
+        with_conn(self.conn, |conn| {
+            // Get total count
+            let total: usize = conn.query_row("SELECT COUNT(*) FROM note", [], |row| {
+                row.get::<_, i64>(0).map(|v| v as usize)
+            })?;
+
+            // Get paginated results
+            let sql = format!(
+                "SELECT id, title, content, tags, note_type, created_at, updated_at FROM note {} {}",
+                order_clause, limit_offset
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |row| {
+                let tags_json: String = row
+                    .get::<_, Option<String>>(3)?
+                    .unwrap_or_else(|| "[]".to_string());
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                let note_type_str: String = row.get(4)?;
+                Ok(Note {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    tags,
+                    note_type: note_type_from_str(&note_type_str),
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })?;
+            let items = rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ListResult {
+                items,
+                total,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            })
+        })
+    }
+
     fn update(&self, note: &Note) -> DbResult<()> {
         let tags_json = serde_json::to_string(&note.tags).unwrap_or_else(|_| "[]".to_string());
         let note_type_str = note_type_to_str(&note.note_type);
@@ -902,6 +1177,60 @@ impl NoteRepository for SqliteNoteRepository<'_> {
                 })
             })?;
             rows.collect::<Result<Vec<_>, _>>()
+        })
+    }
+
+    fn search_paginated(
+        &self,
+        search_query: &str,
+        query: &ListQuery,
+    ) -> DbResult<ListResult<Note>> {
+        let limit_offset = build_limit_offset_clause(query);
+
+        with_conn(self.conn, |conn| {
+            // Get total count of search results
+            let total: usize = conn.query_row(
+                "SELECT COUNT(*) FROM note n
+                 INNER JOIN note_fts fts ON n.rowid = fts.rowid
+                 WHERE note_fts MATCH ?1",
+                [search_query],
+                |row| row.get::<_, i64>(0).map(|v| v as usize),
+            )?;
+
+            // Get paginated search results (FTS5 orders by rank by default)
+            let sql = format!(
+                "SELECT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
+                 FROM note n
+                 INNER JOIN note_fts fts ON n.rowid = fts.rowid
+                 WHERE note_fts MATCH ?1
+                 ORDER BY rank {}",
+                limit_offset
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([search_query], |row| {
+                let tags_json: String = row
+                    .get::<_, Option<String>>(3)?
+                    .unwrap_or_else(|| "[]".to_string());
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                let note_type_str: String = row.get(4)?;
+                Ok(Note {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content: row.get(2)?,
+                    tags,
+                    note_type: note_type_from_str(&note_type_str),
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })?;
+            let items = rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ListResult {
+                items,
+                total,
+                limit: query.limit,
+                offset: query.offset.unwrap_or(0),
+            })
         })
     }
 

@@ -10,7 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, Project, ProjectRepository};
+use crate::db::{Database, DbError, ListQuery, Project, ProjectRepository, SortOrder};
 
 // =============================================================================
 // DTOs (Data Transfer Objects)
@@ -124,45 +124,42 @@ pub async fn list_projects<D: Database>(
     State(state): State<AppState<D>>,
     Query(query): Query<ListProjectsQuery>,
 ) -> Result<Json<PaginatedProjects>, (StatusCode, Json<ErrorResponse>)> {
-    let mut projects = state.db().projects().list().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    // Build database query
+    let db_query = ListQuery {
+        limit: query.limit,
+        offset: query.offset,
+        sort_by: query.sort.clone(),
+        sort_order: match query.order.as_deref() {
+            Some("desc") => Some(SortOrder::Desc),
+            Some("asc") => Some(SortOrder::Asc),
+            _ => None,
+        },
+    };
 
-    // Sort
-    let sort_field = query.sort.as_deref().unwrap_or("created_at");
-    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
+    let result = state
+        .db()
+        .projects()
+        .list_paginated(&db_query)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
-    projects.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "title" => a.title.cmp(&b.title),
-            "updated_at" => a.updated_at.cmp(&b.updated_at),
-            _ => a.created_at.cmp(&b.created_at),
-        };
-        if sort_desc { cmp.reverse() } else { cmp }
-    });
-
-    // Pagination
-    let total = projects.len();
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
-
-    let items: Vec<ProjectResponse> = projects
+    let items: Vec<ProjectResponse> = result
+        .items
         .into_iter()
-        .skip(offset)
-        .take(limit)
         .map(ProjectResponse::from)
         .collect();
 
     Ok(Json(PaginatedProjects {
         items,
-        total,
-        limit,
-        offset,
+        total: result.total,
+        limit: result.limit.unwrap_or(50),
+        offset: result.offset,
     }))
 }
 

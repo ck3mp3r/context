@@ -10,7 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, Task, TaskRepository, TaskStatus};
+use crate::db::{Database, DbError, ListQuery, SortOrder, Task, TaskRepository, TaskStatus};
 
 use super::ErrorResponse;
 
@@ -124,46 +124,38 @@ pub async fn list_tasks<D: Database>(
     Path(list_id): Path<String>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<PaginatedTasks>, (StatusCode, Json<ErrorResponse>)> {
-    let mut tasks = state.db().tasks().list_by_list(&list_id).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    // Build database query
+    let db_query = ListQuery {
+        limit: query.limit,
+        offset: query.offset,
+        sort_by: query.sort.clone(),
+        sort_order: match query.order.as_deref() {
+            Some("desc") => Some(SortOrder::Desc),
+            Some("asc") => Some(SortOrder::Asc),
+            _ => None,
+        },
+    };
 
-    // Sort
-    let sort_field = query.sort.as_deref().unwrap_or("created_at");
-    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
+    let result = state
+        .db()
+        .tasks()
+        .list_by_list_paginated(&list_id, &db_query)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
-    tasks.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "content" => a.content.cmp(&b.content),
-            "status" => format!("{:?}", a.status).cmp(&format!("{:?}", b.status)),
-            "priority" => a.priority.cmp(&b.priority),
-            _ => a.created_at.cmp(&b.created_at),
-        };
-        if sort_desc { cmp.reverse() } else { cmp }
-    });
-
-    // Pagination
-    let total = tasks.len();
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
-
-    let items: Vec<TaskResponse> = tasks
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(TaskResponse::from)
-        .collect();
+    let items: Vec<TaskResponse> = result.items.into_iter().map(TaskResponse::from).collect();
 
     Ok(Json(PaginatedTasks {
         items,
-        total,
-        limit,
-        offset,
+        total: result.total,
+        limit: result.limit.unwrap_or(50),
+        offset: result.offset,
     }))
 }
 
