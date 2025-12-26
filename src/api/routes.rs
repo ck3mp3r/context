@@ -6,8 +6,8 @@ use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
 use super::handlers::{
-    self, CreateProjectRequest, ErrorResponse, HealthResponse, ProjectResponse,
-    UpdateProjectRequest,
+    self, CreateProjectRequest, CreateRepoRequest, ErrorResponse, HealthResponse, ProjectResponse,
+    RepoResponse, UpdateProjectRequest, UpdateRepoRequest,
 };
 use super::state::AppState;
 use crate::db::Database;
@@ -45,6 +45,11 @@ macro_rules! routes {
         handlers::create_project,
         handlers::update_project,
         handlers::delete_project,
+        handlers::list_repos,
+        handlers::get_repo,
+        handlers::create_repo,
+        handlers::update_repo,
+        handlers::delete_repo,
     ),
     components(
         schemas(
@@ -52,12 +57,16 @@ macro_rules! routes {
             ProjectResponse,
             CreateProjectRequest,
             UpdateProjectRequest,
+            RepoResponse,
+            CreateRepoRequest,
+            UpdateRepoRequest,
             ErrorResponse,
         )
     ),
     tags(
         (name = "system", description = "System health and status endpoints"),
-        (name = "projects", description = "Project management endpoints")
+        (name = "projects", description = "Project management endpoints"),
+        (name = "repos", description = "Repository management endpoints")
     )
 )]
 pub struct ApiDoc;
@@ -80,8 +89,18 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         delete "/projects/{id}" => handlers::delete_project,
     });
 
+    // Repo routes (generic over Database)
+    let repo_routes = routes!(D => {
+        get "/repos" => handlers::list_repos,
+        get "/repos/{id}" => handlers::get_repo,
+        post "/repos" => handlers::create_repo,
+        put "/repos/{id}" => handlers::update_repo,
+        delete "/repos/{id}" => handlers::delete_repo,
+    });
+
     system_routes
         .merge(project_routes)
+        .merge(repo_routes)
         .merge(Scalar::with_url("/docs", api))
         .with_state(state)
 }
