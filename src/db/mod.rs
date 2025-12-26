@@ -15,11 +15,6 @@ mod models;
 mod repository;
 pub mod sqlite;
 
-#[cfg(test)]
-mod error_test;
-#[cfg(test)]
-mod models_test;
-
 pub use error::{DbError, DbResult};
 pub use models::*;
 pub use repository::*;
