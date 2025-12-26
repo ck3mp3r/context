@@ -10,6 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
     TaskListStatus,
@@ -236,11 +237,9 @@ pub async fn create_task_list<D: Database>(
     State(state): State<AppState<D>>,
     Json(req): Json<CreateTaskListRequest>,
 ) -> Result<(StatusCode, Json<TaskListResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let id = format!("{:08x}", rand_id());
-    let now = chrono_now();
-
+    // Create task list with placeholder values - repository will generate ID and timestamps
     let list = TaskList {
-        id: id.clone(),
+        id: String::new(), // Repository will generate this
         name: req.name,
         description: req.description,
         notes: req.notes,
@@ -249,12 +248,12 @@ pub async fn create_task_list<D: Database>(
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: now.clone(),
-        updated_at: now,
+        created_at: String::new(), // Repository will generate this
+        updated_at: String::new(), // Repository will generate this
         archived_at: None,
     };
 
-    state.db().task_lists().create(&list).await.map_err(|e| {
+    let created_list = state.db().task_lists().create(&list).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -263,7 +262,10 @@ pub async fn create_task_list<D: Database>(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(TaskListResponse::from(list))))
+    Ok((
+        StatusCode::CREATED,
+        Json(TaskListResponse::from(created_list)),
+    ))
 }
 
 #[utoipa::path(
@@ -313,7 +315,7 @@ pub async fn update_task_list<D: Database>(
     if let Some(status) = req.status {
         list.status = match status.as_str() {
             "archived" => {
-                list.archived_at = Some(chrono_now());
+                list.archived_at = Some(current_timestamp());
                 TaskListStatus::Archived
             }
             _ => TaskListStatus::Active,
@@ -374,22 +376,3 @@ pub async fn delete_task_list<D: Database>(
 // =============================================================================
 // Helpers
 // =============================================================================
-
-fn rand_id() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    (duration.as_secs() as u32) ^ (duration.subsec_nanos())
-}
-
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let years = 1970 + (days / 365);
-    format!("{}-01-01 00:00:00", years)
-}

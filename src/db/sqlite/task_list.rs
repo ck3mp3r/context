@@ -5,6 +5,7 @@ use std::str::FromStr;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{
     DbError, DbResult, ListResult, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
@@ -15,7 +16,18 @@ pub struct SqliteTaskListRepository<'a> {
 }
 
 impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
-    async fn create(&self, task_list: &TaskList) -> DbResult<()> {
+    async fn create(&self, task_list: &TaskList) -> DbResult<TaskList> {
+        // Use provided ID if not empty, otherwise generate one
+        let id = if task_list.id.is_empty() {
+            generate_entity_id()
+        } else {
+            task_list.id.clone()
+        };
+
+        // Always generate current timestamps - never use input timestamps
+        let created_at = current_timestamp();
+        let updated_at = created_at.clone();
+
         // Start a transaction for atomic operations
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -65,15 +77,15 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             "INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(&task_list.id)
+        .bind(&id)
         .bind(&task_list.name)
         .bind(&task_list.description)
         .bind(&task_list.notes)
         .bind(&tags_json)
         .bind(&task_list.external_ref)
         .bind(task_list.status.to_string())
-        .bind(&task_list.created_at)
-        .bind(&task_list.updated_at)
+        .bind(&created_at)
+        .bind(&updated_at)
         .bind(&task_list.archived_at)
         .execute(&mut *tx)
         .await
@@ -84,7 +96,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         // Insert task_list <-> repo relationships
         for repo_id in &task_list.repo_ids {
             sqlx::query("INSERT INTO task_list_repo (task_list_id, repo_id) VALUES (?, ?)")
-                .bind(&task_list.id)
+                .bind(&id)
                 .bind(repo_id)
                 .execute(&mut *tx)
                 .await
@@ -97,7 +109,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         for project_id in &task_list.project_ids {
             sqlx::query("INSERT INTO project_task_list (project_id, task_list_id) VALUES (?, ?)")
                 .bind(project_id)
-                .bind(&task_list.id)
+                .bind(&id)
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
@@ -110,7 +122,20 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             message: e.to_string(),
         })?;
 
-        Ok(())
+        Ok(TaskList {
+            id,
+            name: task_list.name.clone(),
+            description: task_list.description.clone(),
+            notes: task_list.notes.clone(),
+            tags: task_list.tags.clone(),
+            external_ref: task_list.external_ref.clone(),
+            status: task_list.status.clone(),
+            created_at,
+            updated_at,
+            archived_at: task_list.archived_at.clone(),
+            repo_ids: task_list.repo_ids.clone(),
+            project_ids: task_list.project_ids.clone(),
+        })
     }
 
     async fn get(&self, id: &str) -> DbResult<TaskList> {

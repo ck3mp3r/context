@@ -10,7 +10,6 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{Database, DbError, PageSort, Repo, RepoQuery, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -232,19 +231,16 @@ pub async fn create_repo<D: Database>(
     State(state): State<AppState<D>>,
     Json(req): Json<CreateRepoRequest>,
 ) -> Result<(StatusCode, Json<RepoResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // Generate 8-character hex ID
-    let id = generate_entity_id();
-    let now = current_timestamp();
-
+    // Create repo with placeholder values - repository will generate ID and timestamps
     let repo = Repo {
-        id: id.clone(),
+        id: String::new(), // Repository will generate this
         remote: req.remote,
         path: req.path,
         tags: req.tags,
-        created_at: now,
+        created_at: String::new(), // Repository will generate this
     };
 
-    state.db().repos().create(&repo).await.map_err(|e| {
+    let created_repo = state.db().repos().create(&repo).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -253,7 +249,7 @@ pub async fn create_repo<D: Database>(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(RepoResponse::from(repo))))
+    Ok((StatusCode::CREATED, Json(RepoResponse::from(created_repo))))
 }
 
 /// Update a repo

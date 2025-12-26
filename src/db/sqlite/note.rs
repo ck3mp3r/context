@@ -5,6 +5,7 @@ use std::str::FromStr;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository, NoteType};
 
 /// SQLx-backed note repository.
@@ -13,7 +14,18 @@ pub struct SqliteNoteRepository<'a> {
 }
 
 impl<'a> NoteRepository for SqliteNoteRepository<'a> {
-    async fn create(&self, note: &Note) -> DbResult<()> {
+    async fn create(&self, note: &Note) -> DbResult<Note> {
+        // Use provided ID if not empty, otherwise generate one
+        let id = if note.id.is_empty() {
+            generate_entity_id()
+        } else {
+            note.id.clone()
+        };
+
+        // Always generate current timestamps - never use input timestamps
+        let created_at = current_timestamp();
+        let updated_at = created_at.clone();
+
         let tags_json = serde_json::to_string(&note.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
@@ -26,20 +38,28 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             VALUES (?, ?, ?, ?, ?, ?, ?)
             "#,
         )
-        .bind(&note.id)
+        .bind(&id)
         .bind(&note.title)
         .bind(&note.content)
         .bind(tags_json)
         .bind(note_type_str)
-        .bind(&note.created_at)
-        .bind(&note.updated_at)
+        .bind(&created_at)
+        .bind(&updated_at)
         .execute(self.pool)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
 
-        Ok(())
+        Ok(Note {
+            id,
+            title: note.title.clone(),
+            content: note.content.clone(),
+            tags: note.tags.clone(),
+            note_type: note.note_type.clone(),
+            created_at,
+            updated_at,
+        })
     }
 
     async fn get(&self, id: &str) -> DbResult<Note> {

@@ -3,6 +3,7 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
 
 /// SQLx-backed repo repository.
@@ -11,22 +12,38 @@ pub struct SqliteRepoRepository<'a> {
 }
 
 impl<'a> RepoRepository for SqliteRepoRepository<'a> {
-    async fn create(&self, repo: &Repo) -> DbResult<()> {
+    async fn create(&self, repo: &Repo) -> DbResult<Repo> {
+        // Use provided ID if not empty, otherwise generate one
+        let id = if repo.id.is_empty() {
+            generate_entity_id()
+        } else {
+            repo.id.clone()
+        };
+
+        // Always generate current timestamp - never use input timestamp
+        let created_at = current_timestamp();
+
         let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
-            .bind(&repo.id)
+            .bind(&id)
             .bind(&repo.remote)
             .bind(&repo.path)
             .bind(&tags_json)
-            .bind(&repo.created_at)
+            .bind(&created_at)
             .execute(self.pool)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
 
-        Ok(())
+        Ok(Repo {
+            id,
+            remote: repo.remote.clone(),
+            path: repo.path.clone(),
+            tags: repo.tags.clone(),
+            created_at,
+        })
     }
 
     async fn get(&self, id: &str) -> DbResult<Repo> {

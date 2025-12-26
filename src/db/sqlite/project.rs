@@ -3,6 +3,7 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository};
 
 /// SQLx-backed project repository.
@@ -11,25 +12,41 @@ pub struct SqliteProjectRepository<'a> {
 }
 
 impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
-    async fn create(&self, project: &Project) -> DbResult<()> {
+    async fn create(&self, project: &Project) -> DbResult<Project> {
+        // Use provided ID if not empty, otherwise generate one
+        let id = if project.id.is_empty() {
+            generate_entity_id()
+        } else {
+            project.id.clone()
+        };
+
+        // Always generate current timestamps - never use input timestamps
+        let created_at = current_timestamp();
+        let updated_at = created_at.clone();
+
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
 
-        sqlx::query(
-            "INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&project.id)
-        .bind(&project.title)
-        .bind(&project.description)
-        .bind(&tags_json)
-        .bind(&project.created_at)
-        .bind(&project.updated_at)
-        .execute(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
+        sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(&id)
+            .bind(&project.title)
+            .bind(&project.description)
+            .bind(&tags_json)
+            .bind(&created_at)
+            .bind(&updated_at)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
 
-        Ok(())
+        Ok(Project {
+            id,
+            title: project.title.clone(),
+            description: project.description.clone(),
+            tags: project.tags.clone(),
+            created_at,
+            updated_at,
+        })
     }
 
     async fn get(&self, id: &str) -> DbResult<Project> {

@@ -10,6 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
 };
@@ -225,9 +226,6 @@ pub async fn create_task<D: Database>(
     Path(list_id): Path<String>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let id = format!("{:08x}", rand_id());
-    let now = chrono_now();
-
     let status = req
         .status
         .as_deref()
@@ -235,25 +233,26 @@ pub async fn create_task<D: Database>(
         .unwrap_or(TaskStatus::Backlog);
 
     let started_at = if matches!(status, TaskStatus::InProgress) {
-        Some(now.clone())
+        Some(current_timestamp())
     } else {
         None
     };
 
+    // Create task with placeholder values - repository will generate ID and timestamp
     let task = Task {
-        id: id.clone(),
+        id: String::new(), // Repository will generate this
         list_id,
         parent_id: req.parent_id,
         content: req.content,
         status,
         priority: req.priority,
         tags: vec![],
-        created_at: now,
+        created_at: String::new(), // Repository will generate this
         started_at,
         completed_at: None,
     };
 
-    state.db().tasks().create(&task).await.map_err(|e| {
+    let created_task = state.db().tasks().create(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -262,7 +261,7 @@ pub async fn create_task<D: Database>(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(TaskResponse::from(task))))
+    Ok((StatusCode::CREATED, Json(TaskResponse::from(created_task))))
 }
 
 #[utoipa::path(
@@ -306,12 +305,12 @@ pub async fn update_task<D: Database>(
 
         // Track timestamps on status transitions
         if matches!(new_status, TaskStatus::InProgress) && task.started_at.is_none() {
-            task.started_at = Some(chrono_now());
+            task.started_at = Some(current_timestamp());
         }
         if matches!(new_status, TaskStatus::Done | TaskStatus::Cancelled)
             && task.completed_at.is_none()
         {
-            task.completed_at = Some(chrono_now());
+            task.completed_at = Some(current_timestamp());
         }
 
         task.status = new_status;
@@ -376,23 +375,4 @@ fn parse_status(s: &str) -> TaskStatus {
         "cancelled" => TaskStatus::Cancelled,
         _ => TaskStatus::Backlog,
     }
-}
-
-fn rand_id() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    (duration.as_secs() as u32) ^ (duration.subsec_nanos())
-}
-
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let years = 1970 + (days / 365);
-    format!("{}-01-01 00:00:00", years)
 }

@@ -244,26 +244,24 @@ pub async fn create_note<D: Database>(
     State(state): State<AppState<D>>,
     Json(req): Json<CreateNoteRequest>,
 ) -> Result<(StatusCode, Json<NoteResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let id = format!("{:08x}", rand_id());
-    let now = chrono_now();
-
     let note_type = req
         .note_type
         .as_deref()
         .map(parse_note_type)
         .unwrap_or(NoteType::Manual);
 
+    // Create note with placeholder values - repository will generate ID and timestamps
     let note = Note {
-        id: id.clone(),
+        id: String::new(), // Repository will generate this
         title: req.title,
         content: req.content,
         tags: req.tags,
         note_type,
-        created_at: now.clone(),
-        updated_at: now,
+        created_at: String::new(), // Repository will generate this
+        updated_at: String::new(), // Repository will generate this
     };
 
-    state.db().notes().create(&note).await.map_err(|e| {
+    let created_note = state.db().notes().create(&note).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -272,7 +270,7 @@ pub async fn create_note<D: Database>(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(NoteResponse::from(note))))
+    Ok((StatusCode::CREATED, Json(NoteResponse::from(created_note))))
 }
 
 #[utoipa::path(
@@ -372,23 +370,4 @@ fn parse_note_type(s: &str) -> NoteType {
         "scratchpad" => NoteType::Scratchpad,
         _ => NoteType::Manual,
     }
-}
-
-fn rand_id() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    (duration.as_secs() as u32) ^ (duration.subsec_nanos())
-}
-
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let years = 1970 + (days / 365);
-    format!("{}-01-01 00:00:00", years)
 }

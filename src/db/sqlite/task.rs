@@ -5,6 +5,7 @@ use std::str::FromStr;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStatus};
 
 /// SQLx-backed task repository.
@@ -13,7 +14,17 @@ pub struct SqliteTaskRepository<'a> {
 }
 
 impl<'a> TaskRepository for SqliteTaskRepository<'a> {
-    async fn create(&self, task: &Task) -> DbResult<()> {
+    async fn create(&self, task: &Task) -> DbResult<Task> {
+        // Use provided ID if not empty, otherwise generate one
+        let id = if task.id.is_empty() {
+            generate_entity_id()
+        } else {
+            task.id.clone()
+        };
+
+        // Always generate current timestamp - never use input timestamp
+        let created_at = current_timestamp();
+
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
@@ -23,14 +34,14 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
-        .bind(&task.id)
+        .bind(&id)
         .bind(&task.list_id)
         .bind(&task.parent_id)
         .bind(&task.content)
         .bind(status_str)
         .bind(task.priority)
         .bind(&tags_json)
-        .bind(&task.created_at)
+        .bind(&created_at)
         .bind(&task.started_at)
         .bind(&task.completed_at)
         .execute(self.pool)
@@ -39,7 +50,18 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             message: e.to_string(),
         })?;
 
-        Ok(())
+        Ok(Task {
+            id,
+            list_id: task.list_id.clone(),
+            parent_id: task.parent_id.clone(),
+            content: task.content.clone(),
+            status: task.status.clone(),
+            priority: task.priority,
+            tags: task.tags.clone(),
+            created_at,
+            started_at: task.started_at.clone(),
+            completed_at: task.completed_at.clone(),
+        })
     }
 
     async fn get(&self, id: &str) -> DbResult<Task> {

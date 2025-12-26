@@ -15,7 +15,7 @@ use crate::db::{
 
 /// Repository for Project operations.
 pub trait ProjectRepository: Send + Sync {
-    fn create(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
+    fn create(&self, project: &Project) -> impl Future<Output = DbResult<Project>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Project>> + Send;
     fn list(
         &self,
@@ -27,7 +27,7 @@ pub trait ProjectRepository: Send + Sync {
 
 /// Repository for Repo operations.
 pub trait RepoRepository: Send + Sync {
-    fn create(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
+    fn create(&self, repo: &Repo) -> impl Future<Output = DbResult<Repo>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Repo>> + Send;
     fn list(
         &self,
@@ -39,7 +39,7 @@ pub trait RepoRepository: Send + Sync {
 
 /// Repository for TaskList operations.
 pub trait TaskListRepository: Send + Sync {
-    fn create(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
+    fn create(&self, task_list: &TaskList) -> impl Future<Output = DbResult<TaskList>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<TaskList>> + Send;
     fn list(
         &self,
@@ -61,7 +61,7 @@ pub trait TaskListRepository: Send + Sync {
 
 /// Repository for Task operations.
 pub trait TaskRepository: Send + Sync {
-    fn create(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
+    fn create(&self, task: &Task) -> impl Future<Output = DbResult<Task>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Task>> + Send;
     fn list(
         &self,
@@ -73,7 +73,7 @@ pub trait TaskRepository: Send + Sync {
 
 /// Repository for Note operations.
 pub trait NoteRepository: Send + Sync {
-    fn create(&self, note: &Note) -> impl Future<Output = DbResult<()>> + Send;
+    fn create(&self, note: &Note) -> impl Future<Output = DbResult<Note>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Note>> + Send;
     fn list(
         &self,

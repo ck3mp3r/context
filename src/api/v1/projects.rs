@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::db::utils::{current_timestamp, generate_entity_id};
-
 use crate::api::AppState;
 use crate::db::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
 
@@ -247,20 +245,17 @@ pub async fn create_project<D: Database>(
     State(state): State<AppState<D>>,
     Json(req): Json<CreateProjectRequest>,
 ) -> Result<(StatusCode, Json<ProjectResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // Generate 8-character hex ID
-    let id = generate_entity_id();
-
-    let now = current_timestamp();
+    // Create project with placeholder values - repository will generate ID and timestamps
     let project = Project {
-        id: id.clone(),
+        id: String::new(), // Repository will generate this
         title: req.title,
         description: req.description,
         tags: req.tags,
-        created_at: now.clone(),
-        updated_at: now,
+        created_at: String::new(), // Repository will generate this
+        updated_at: String::new(), // Repository will generate this
     };
 
-    state.db().projects().create(&project).await.map_err(|e| {
+    let created_project = state.db().projects().create(&project).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -269,7 +264,10 @@ pub async fn create_project<D: Database>(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(ProjectResponse::from(project))))
+    Ok((
+        StatusCode::CREATED,
+        Json(ProjectResponse::from(created_project)),
+    ))
 }
 
 /// Update a project
