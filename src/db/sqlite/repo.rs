@@ -12,10 +12,13 @@ pub struct SqliteRepoRepository<'a> {
 
 impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     async fn create(&self, repo: &Repo) -> DbResult<()> {
-        sqlx::query("INSERT INTO repo (id, remote, path, created_at) VALUES (?, ?, ?, ?)")
+        let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
+
+        sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
             .bind(&repo.id)
             .bind(&repo.remote)
             .bind(&repo.path)
+            .bind(&tags_json)
             .bind(&repo.created_at)
             .execute(self.pool)
             .await
@@ -27,7 +30,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn get(&self, id: &str) -> DbResult<Repo> {
-        let row = sqlx::query("SELECT id, remote, path, created_at FROM repo WHERE id = ?")
+        let row = sqlx::query("SELECT id, remote, path, tags, created_at FROM repo WHERE id = ?")
             .bind(id)
             .fetch_optional(self.pool)
             .await
@@ -40,10 +43,14 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             id: id.to_string(),
         })?;
 
+        let tags_json: String = row.get("tags");
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
         Ok(Repo {
             id: row.get("id"),
             remote: row.get("remote"),
             path: row.get("path"),
+            tags,
             created_at: row.get("created_at"),
         })
     }
@@ -56,12 +63,57 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
 
-        let sql = format!(
-            "SELECT id, remote, path, created_at FROM repo {} {}",
-            order_clause, limit_clause
-        );
+        // Build conditions and bind values
+        let mut conditions: Vec<String> = vec![];
+        let mut bind_values: Vec<String> = vec![];
 
-        let rows = sqlx::query(&sql)
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+
+        if let Some(tags) = &query.tags
+            && !tags.is_empty()
+        {
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+            bind_values.extend(tags.clone());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        // Build SQL based on whether we need json_each
+        let (sql, count_sql) = if needs_json_each {
+            (
+                format!(
+                    "SELECT DISTINCT r.id, r.remote, r.path, r.tags, r.created_at \
+                     FROM repo r, json_each(r.tags) {} {} {}",
+                    where_clause, order_clause, limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT r.id) FROM repo r, json_each(r.tags) {}",
+                    where_clause
+                ),
+            )
+        } else {
+            (
+                format!(
+                    "SELECT id, remote, path, tags, created_at FROM repo {} {}",
+                    order_clause, limit_clause
+                ),
+                "SELECT COUNT(*) FROM repo".to_string(),
+            )
+        };
+
+        // Execute main query
+        let mut sql_query = sqlx::query(&sql);
+        for value in &bind_values {
+            sql_query = sql_query.bind(value);
+        }
+
+        let rows = sql_query
             .fetch_all(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -70,15 +122,26 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
 
         let items: Vec<Repo> = rows
             .into_iter()
-            .map(|row| Repo {
-                id: row.get("id"),
-                remote: row.get("remote"),
-                path: row.get("path"),
-                created_at: row.get("created_at"),
+            .map(|row| {
+                let tags_json: String = row.get("tags");
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                Repo {
+                    id: row.get("id"),
+                    remote: row.get("remote"),
+                    path: row.get("path"),
+                    tags,
+                    created_at: row.get("created_at"),
+                }
             })
             .collect();
 
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM repo")
+        // Execute count query
+        let mut count_query = sqlx::query_scalar(&count_sql);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+
+        let total: i64 = count_query
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -94,9 +157,12 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn update(&self, repo: &Repo) -> DbResult<()> {
-        let result = sqlx::query("UPDATE repo SET remote = ?, path = ? WHERE id = ?")
+        let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
+
+        let result = sqlx::query("UPDATE repo SET remote = ?, path = ?, tags = ? WHERE id = ?")
             .bind(&repo.remote)
             .bind(&repo.path)
+            .bind(&tags_json)
             .bind(&repo.id)
             .execute(self.pool)
             .await

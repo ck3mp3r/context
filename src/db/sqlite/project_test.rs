@@ -1,6 +1,6 @@
 //! Tests for SqliteProjectRepository.
 
-use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
+use crate::db::{Database, Project, ProjectQuery, ProjectRepository, SqliteDatabase};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -19,6 +19,7 @@ async fn create_and_get_project() {
         id: "12345678".to_string(),
         title: "Test Project".to_string(),
         description: Some("A test project".to_string()),
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -54,6 +55,7 @@ async fn list_projects_includes_default_and_created() {
         id: "abcd1234".to_string(),
         title: "My Project".to_string(),
         description: None,
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -73,6 +75,7 @@ async fn update_project() {
         id: "update01".to_string(),
         title: "Original".to_string(),
         description: None,
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -99,6 +102,7 @@ async fn delete_project() {
         id: "delete01".to_string(),
         title: "To Delete".to_string(),
         description: None,
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -110,4 +114,93 @@ async fn delete_project() {
 
     let result = repo.get("delete01").await;
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn project_create_with_tags() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    let project = Project {
+        id: "tagproj1".to_string(),
+        title: "Tagged Project".to_string(),
+        description: None,
+        tags: vec!["rust".to_string(), "backend".to_string()],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    repo.create(&project).await.expect("Create should succeed");
+
+    let retrieved = repo.get("tagproj1").await.expect("Get should succeed");
+    assert_eq!(retrieved.tags.len(), 2);
+    assert!(retrieved.tags.contains(&"rust".to_string()));
+    assert!(retrieved.tags.contains(&"backend".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn project_list_with_tag_filter() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    // Create projects with different tags
+    repo.create(&Project {
+        id: "tagflt01".to_string(),
+        title: "Rust Backend".to_string(),
+        description: None,
+        tags: vec!["rust".to_string(), "backend".to_string()],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Project {
+        id: "tagflt02".to_string(),
+        title: "Rust Frontend".to_string(),
+        description: None,
+        tags: vec!["rust".to_string(), "frontend".to_string()],
+        created_at: "2025-01-01 00:00:01".to_string(),
+        updated_at: "2025-01-01 00:00:01".to_string(),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Project {
+        id: "tagflt03".to_string(),
+        title: "Python Backend".to_string(),
+        description: None,
+        tags: vec!["python".to_string(), "backend".to_string()],
+        created_at: "2025-01-01 00:00:02".to_string(),
+        updated_at: "2025-01-01 00:00:02".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Filter by "rust" tag - should find 2
+    let query = ProjectQuery {
+        tags: Some(vec!["rust".to_string()]),
+        ..Default::default()
+    };
+    let result = repo.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    // Filter by "backend" tag - should find 2
+    let query = ProjectQuery {
+        tags: Some(vec!["backend".to_string()]),
+        ..Default::default()
+    };
+    let result = repo.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    // Filter by "python" tag - should find 1
+    let query = ProjectQuery {
+        tags: Some(vec!["python".to_string()]),
+        ..Default::default()
+    };
+    let result = repo.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Python Backend");
 }

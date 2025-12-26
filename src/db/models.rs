@@ -34,16 +34,20 @@ pub struct PageSort {
     pub sort_order: Option<SortOrder>,
 }
 
-/// Query for Projects - pagination only.
+/// Query for Projects - pagination + tags filter.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectQuery {
     pub page: PageSort,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
 }
 
-/// Query for Repos - pagination only.
+/// Query for Repos - pagination + tags filter.
 #[derive(Debug, Clone, Default)]
 pub struct RepoQuery {
     pub page: PageSort,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
 }
 
 /// Query for TaskLists - pagination + status/tags filters.
@@ -100,6 +104,7 @@ pub struct Project {
     pub id: Id,
     pub title: String,
     pub description: Option<String>,
+    pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -110,6 +115,7 @@ pub struct Repo {
     pub id: Id,
     pub remote: String,
     pub path: Option<String>,
+    pub tags: Vec<String>,
     pub created_at: String,
 }
 

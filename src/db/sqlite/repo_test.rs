@@ -1,6 +1,6 @@
 //! Tests for SqliteRepoRepository.
 
-use crate::db::{Database, Repo, RepoRepository, SqliteDatabase};
+use crate::db::{Database, Repo, RepoQuery, RepoRepository, SqliteDatabase};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -19,6 +19,7 @@ async fn repo_create_and_get() {
         id: "repo1234".to_string(),
         remote: "github:user/project".to_string(),
         path: Some("/home/user/project".to_string()),
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
     };
 
@@ -54,6 +55,7 @@ async fn repo_list() {
             id: "repoaaa1".to_string(),
             remote: "github:a/a".to_string(),
             path: None,
+            tags: vec![],
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -63,6 +65,7 @@ async fn repo_list() {
             id: "repobbb2".to_string(),
             remote: "github:b/b".to_string(),
             path: None,
+            tags: vec![],
             created_at: "2025-01-01 00:00:01".to_string(),
         })
         .await
@@ -81,6 +84,7 @@ async fn repo_update() {
         id: "repoupd1".to_string(),
         remote: "github:old/name".to_string(),
         path: None,
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -101,6 +105,7 @@ async fn repo_delete() {
         id: "repodel1".to_string(),
         remote: "github:to/delete".to_string(),
         path: None,
+        tags: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -112,4 +117,92 @@ async fn repo_delete() {
 
     let result = repos.get("repodel1").await;
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_create_with_tags() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    let repo = Repo {
+        id: "tagrepo1".to_string(),
+        remote: "github:user/tagged".to_string(),
+        path: Some("/home/user/tagged".to_string()),
+        tags: vec!["work".to_string(), "active".to_string()],
+        created_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    repos.create(&repo).await.expect("Create should succeed");
+
+    let retrieved = repos.get("tagrepo1").await.expect("Get should succeed");
+    assert_eq!(retrieved.tags.len(), 2);
+    assert!(retrieved.tags.contains(&"work".to_string()));
+    assert!(retrieved.tags.contains(&"active".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_list_with_tag_filter() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos with different tags
+    repos
+        .create(&Repo {
+            id: "tagflt01".to_string(),
+            remote: "github:work/project-a".to_string(),
+            path: None,
+            tags: vec!["work".to_string(), "active".to_string()],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "tagflt02".to_string(),
+            remote: "github:work/project-b".to_string(),
+            path: None,
+            tags: vec!["work".to_string(), "archived".to_string()],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "tagflt03".to_string(),
+            remote: "github:personal/project".to_string(),
+            path: None,
+            tags: vec!["personal".to_string(), "active".to_string()],
+            created_at: "2025-01-01 00:00:02".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Filter by "work" tag - should find 2
+    let query = RepoQuery {
+        tags: Some(vec!["work".to_string()]),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    // Filter by "active" tag - should find 2
+    let query = RepoQuery {
+        tags: Some(vec!["active".to_string()]),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    // Filter by "personal" tag - should find 1
+    let query = RepoQuery {
+        tags: Some(vec!["personal".to_string()]),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].remote, "github:personal/project");
 }

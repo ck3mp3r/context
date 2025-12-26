@@ -30,6 +30,9 @@ pub struct RepoResponse {
     /// Local filesystem path
     #[schema(example = "/home/user/project")]
     pub path: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["work", "active"]))]
+    pub tags: Vec<String>,
     /// Creation timestamp
     #[schema(example = "2025-01-01 00:00:00")]
     pub created_at: String,
@@ -41,6 +44,7 @@ impl From<Repo> for RepoResponse {
             id: r.id,
             remote: r.remote,
             path: r.path,
+            tags: r.tags,
             created_at: r.created_at,
         }
     }
@@ -55,6 +59,10 @@ pub struct CreateRepoRequest {
     /// Local filesystem path
     #[schema(example = "/home/user/project")]
     pub path: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["work", "active"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Update repo request DTO
@@ -66,6 +74,10 @@ pub struct UpdateRepoRequest {
     /// Local filesystem path
     #[schema(example = "/home/user/project")]
     pub path: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["work", "active"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -82,6 +94,9 @@ pub struct ListReposQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Filter by tags (comma-separated)
+    #[param(example = "work,active")]
+    pub tags: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -114,6 +129,12 @@ pub async fn list_repos<D: Database>(
     State(state): State<AppState<D>>,
     Query(query): Query<ListReposQuery>,
 ) -> Result<Json<PaginatedRepos>, (StatusCode, Json<ErrorResponse>)> {
+    // Parse tags from comma-separated string
+    let tags = query
+        .tags
+        .as_ref()
+        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+
     // Build database query
     let db_query = RepoQuery {
         page: PageSort {
@@ -126,6 +147,7 @@ pub async fn list_repos<D: Database>(
                 _ => None,
             },
         },
+        tags,
     };
 
     let result = state
@@ -217,6 +239,7 @@ pub async fn create_repo<D: Database>(
         id: id.clone(),
         remote: req.remote,
         path: req.path,
+        tags: req.tags,
         created_at: now,
     };
 
@@ -274,6 +297,7 @@ pub async fn update_repo<D: Database>(
     // Update fields
     repo.remote = req.remote;
     repo.path = req.path;
+    repo.tags = req.tags;
 
     state.db().repos().update(&repo).await.map_err(|e| {
         (

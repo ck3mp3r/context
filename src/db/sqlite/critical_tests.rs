@@ -24,6 +24,7 @@ async fn task_list_create_with_relationships() {
             id: "reporel1".to_string(),
             remote: "github:test/rel-repo".to_string(),
             path: None,
+            tags: vec![],
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -80,6 +81,7 @@ async fn task_list_update_replaces_relationships() {
             id: "repoupd1".to_string(),
             remote: "github:test/upd-repo1".to_string(),
             path: None,
+            tags: vec![],
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -89,6 +91,7 @@ async fn task_list_update_replaces_relationships() {
             id: "repoupd2".to_string(),
             remote: "github:test/upd-repo2".to_string(),
             path: None,
+            tags: vec![],
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await

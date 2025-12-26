@@ -12,12 +12,15 @@ pub struct SqliteProjectRepository<'a> {
 
 impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     async fn create(&self, project: &Project) -> DbResult<()> {
+        let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+
         sqlx::query(
-            "INSERT INTO project (id, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&project.id)
         .bind(&project.title)
         .bind(&project.description)
+        .bind(&tags_json)
         .bind(&project.created_at)
         .bind(&project.updated_at)
         .execute(self.pool)
@@ -31,7 +34,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Project> {
         let row = sqlx::query(
-            "SELECT id, title, description, created_at, updated_at FROM project WHERE id = ?",
+            "SELECT id, title, description, tags, created_at, updated_at FROM project WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -45,10 +48,14 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             id: id.to_string(),
         })?;
 
+        let tags_json: String = row.get("tags");
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
         Ok(Project {
             id: row.get("id"),
             title: row.get("title"),
             description: row.get("description"),
+            tags,
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
@@ -62,12 +69,57 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
 
-        let sql = format!(
-            "SELECT id, title, description, created_at, updated_at FROM project {} {}",
-            order_clause, limit_clause
-        );
+        // Build conditions and bind values
+        let mut conditions: Vec<String> = vec![];
+        let mut bind_values: Vec<String> = vec![];
 
-        let rows = sqlx::query(&sql)
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+
+        if let Some(tags) = &query.tags
+            && !tags.is_empty()
+        {
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+            bind_values.extend(tags.clone());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        // Build SQL based on whether we need json_each
+        let (sql, count_sql) = if needs_json_each {
+            (
+                format!(
+                    "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.created_at, p.updated_at \
+                     FROM project p, json_each(p.tags) {} {} {}",
+                    where_clause, order_clause, limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT p.id) FROM project p, json_each(p.tags) {}",
+                    where_clause
+                ),
+            )
+        } else {
+            (
+                format!(
+                    "SELECT id, title, description, tags, created_at, updated_at FROM project {} {}",
+                    order_clause, limit_clause
+                ),
+                "SELECT COUNT(*) FROM project".to_string(),
+            )
+        };
+
+        // Execute main query
+        let mut sql_query = sqlx::query(&sql);
+        for value in &bind_values {
+            sql_query = sql_query.bind(value);
+        }
+
+        let rows = sql_query
             .fetch_all(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -76,16 +128,27 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
         let items: Vec<Project> = rows
             .into_iter()
-            .map(|row| Project {
-                id: row.get("id"),
-                title: row.get("title"),
-                description: row.get("description"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
+            .map(|row| {
+                let tags_json: String = row.get("tags");
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                Project {
+                    id: row.get("id"),
+                    title: row.get("title"),
+                    description: row.get("description"),
+                    tags,
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                }
             })
             .collect();
 
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project")
+        // Execute count query
+        let mut count_query = sqlx::query_scalar(&count_sql);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+
+        let total: i64 = count_query
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -101,11 +164,14 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     }
 
     async fn update(&self, project: &Project) -> DbResult<()> {
+        let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+
         let result = sqlx::query(
-            "UPDATE project SET title = ?, description = ?, updated_at = ? WHERE id = ?",
+            "UPDATE project SET title = ?, description = ?, tags = ?, updated_at = ? WHERE id = ?",
         )
         .bind(&project.title)
         .bind(&project.description)
+        .bind(&tags_json)
         .bind(&project.updated_at)
         .bind(&project.id)
         .execute(self.pool)

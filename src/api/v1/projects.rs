@@ -28,6 +28,9 @@ pub struct ProjectResponse {
     /// Optional description
     #[schema(example = "A description of the project")]
     pub description: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["rust", "backend"]))]
+    pub tags: Vec<String>,
     /// Creation timestamp
     #[schema(example = "2025-01-01 00:00:00")]
     pub created_at: String,
@@ -42,6 +45,7 @@ impl From<Project> for ProjectResponse {
             id: p.id,
             title: p.title,
             description: p.description,
+            tags: p.tags,
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -57,6 +61,10 @@ pub struct CreateProjectRequest {
     /// Optional description
     #[schema(example = "A description of the project")]
     pub description: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["rust", "backend"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Update project request DTO
@@ -68,6 +76,10 @@ pub struct UpdateProjectRequest {
     /// Optional description
     #[schema(example = "Updated description")]
     pub description: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["rust", "backend"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Error response DTO
@@ -92,6 +104,9 @@ pub struct ListProjectsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Filter by tags (comma-separated)
+    #[param(example = "rust,backend")]
+    pub tags: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -124,6 +139,12 @@ pub async fn list_projects<D: Database>(
     State(state): State<AppState<D>>,
     Query(query): Query<ListProjectsQuery>,
 ) -> Result<Json<PaginatedProjects>, (StatusCode, Json<ErrorResponse>)> {
+    // Parse tags from comma-separated string
+    let tags = query
+        .tags
+        .as_ref()
+        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+
     // Build database query
     let db_query = ProjectQuery {
         page: PageSort {
@@ -136,6 +157,7 @@ pub async fn list_projects<D: Database>(
                 _ => None,
             },
         },
+        tags,
     };
 
     let result = state
@@ -231,6 +253,7 @@ pub async fn create_project<D: Database>(
         id: id.clone(),
         title: req.title,
         description: req.description,
+        tags: req.tags,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -289,6 +312,7 @@ pub async fn update_project<D: Database>(
     // Update fields
     project.title = req.title;
     project.description = req.description;
+    project.tags = req.tags;
 
     state.db().projects().update(&project).await.map_err(|e| {
         (
