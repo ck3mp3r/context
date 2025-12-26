@@ -31,6 +31,15 @@ pub struct ProjectResponse {
     /// Tags for categorization
     #[schema(example = json!(["rust", "backend"]))]
     pub tags: Vec<String>,
+    /// Linked repository IDs
+    #[schema(example = json!(["repo0001", "repo0002"]))]
+    pub repo_ids: Vec<String>,
+    /// Linked task list IDs
+    #[schema(example = json!(["list0001", "list0002"]))]
+    pub task_list_ids: Vec<String>,
+    /// Linked note IDs
+    #[schema(example = json!(["note0001", "note0002"]))]
+    pub note_ids: Vec<String>,
     /// Creation timestamp
     #[schema(example = "2025-01-01 00:00:00")]
     pub created_at: String,
@@ -46,6 +55,9 @@ impl From<Project> for ProjectResponse {
             title: p.title,
             description: p.description,
             tags: p.tags,
+            repo_ids: p.repo_ids,
+            task_list_ids: p.task_list_ids,
+            note_ids: p.note_ids,
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -251,6 +263,9 @@ pub async fn create_project<D: Database>(
         title: req.title,
         description: req.description,
         tags: req.tags,
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: String::new(), // Repository will generate this
         updated_at: String::new(), // Repository will generate this
     };

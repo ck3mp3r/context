@@ -105,6 +105,15 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
+    /// Linked repository IDs (M:N relationship via project_repo)
+    #[serde(default)]
+    pub repo_ids: Vec<Id>,
+    /// Linked task list IDs (M:N relationship via project_task_list)
+    #[serde(default)]
+    pub task_list_ids: Vec<Id>,
+    /// Linked note IDs (M:N relationship via project_note)
+    #[serde(default)]
+    pub note_ids: Vec<Id>,
     pub created_at: String,
     pub updated_at: String,
 }

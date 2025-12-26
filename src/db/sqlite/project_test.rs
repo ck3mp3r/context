@@ -20,6 +20,9 @@ async fn create_and_get_project() {
         title: "Test Project".to_string(),
         description: Some("A test project".to_string()),
         tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -56,6 +59,9 @@ async fn list_projects_includes_default_and_created() {
         title: "My Project".to_string(),
         description: None,
         tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -76,6 +82,9 @@ async fn update_project() {
         title: "Original".to_string(),
         description: None,
         tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -103,6 +112,9 @@ async fn delete_project() {
         title: "To Delete".to_string(),
         description: None,
         tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -126,6 +138,9 @@ async fn project_create_with_tags() {
         title: "Tagged Project".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };
@@ -149,6 +164,9 @@ async fn project_list_with_tag_filter() {
         title: "Rust Backend".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     })
@@ -160,6 +178,9 @@ async fn project_list_with_tag_filter() {
         title: "Rust Frontend".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "frontend".to_string()],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:01".to_string(),
         updated_at: "2025-01-01 00:00:01".to_string(),
     })
@@ -171,6 +192,9 @@ async fn project_list_with_tag_filter() {
         title: "Python Backend".to_string(),
         description: None,
         tags: vec!["python".to_string(), "backend".to_string()],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
         created_at: "2025-01-01 00:00:02".to_string(),
         updated_at: "2025-01-01 00:00:02".to_string(),
     })

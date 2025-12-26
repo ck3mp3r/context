@@ -44,6 +44,9 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             title: project.title.clone(),
             description: project.description.clone(),
             tags: project.tags.clone(),
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
             created_at,
             updated_at,
         })
@@ -68,11 +71,44 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let tags_json: String = row.get("tags");
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
+        // Get repo relationships
+        let repo_ids: Vec<String> =
+            sqlx::query_scalar("SELECT repo_id FROM project_repo WHERE project_id = ?")
+                .bind(id)
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+        // Get task list relationships
+        let task_list_ids: Vec<String> =
+            sqlx::query_scalar("SELECT task_list_id FROM project_task_list WHERE project_id = ?")
+                .bind(id)
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+        // Get note relationships
+        let note_ids: Vec<String> =
+            sqlx::query_scalar("SELECT note_id FROM project_note WHERE project_id = ?")
+                .bind(id)
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
         Ok(Project {
             id: row.get("id"),
             title: row.get("title"),
             description: row.get("description"),
             tags,
+            repo_ids,
+            task_list_ids,
+            note_ids,
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
@@ -153,6 +189,9 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                     title: row.get("title"),
                     description: row.get("description"),
                     tags,
+                    repo_ids: vec![],
+                    task_list_ids: vec![],
+                    note_ids: vec![],
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 }
