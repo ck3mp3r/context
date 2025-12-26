@@ -241,28 +241,54 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let default_pagination = ListQuery::default();
         let pagination = pagination.unwrap_or(&default_pagination);
 
-        // Build search query with LIKE and pagination
+        // Build query components
         let order_clause = build_order_clause(
             pagination,
             &["title", "created_at", "updated_at"],
             "created_at",
         );
         let limit_clause = build_limit_offset_clause(pagination);
-
-        let sql = format!(
-            "SELECT id, title, content, tags, note_type, created_at, updated_at 
-             FROM note 
-             WHERE title LIKE ? OR content LIKE ? 
-             {} {}",
-            order_clause, limit_clause
-        );
-
+        let tag_filter = build_tag_filter(pagination);
         let search_pattern = format!("%{}%", query);
 
-        // Get paginated results
-        let rows = sqlx::query(&sql)
-            .bind(&search_pattern)
-            .bind(&search_pattern)
+        // Build query with search and optional tag filtering
+        let (sql, count_sql) = if tag_filter.where_clause.is_empty() {
+            // No tag filtering - simple search
+            (
+                format!(
+                    "SELECT id, title, content, tags, note_type, created_at, updated_at 
+                     FROM note 
+                     WHERE (title LIKE ? OR content LIKE ?)
+                     {} {}",
+                    order_clause, limit_clause
+                ),
+                "SELECT COUNT(*) FROM note WHERE (title LIKE ? OR content LIKE ?)".to_string(),
+            )
+        } else {
+            // With tag filtering using json_each
+            (
+                format!(
+                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
+                     FROM note n, json_each(n.tags)
+                     WHERE (n.title LIKE ? OR n.content LIKE ?) AND {}
+                     {} {}",
+                    tag_filter.where_clause, order_clause, limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE (n.title LIKE ? OR n.content LIKE ?) AND {}",
+                    tag_filter.where_clause
+                ),
+            )
+        };
+
+        // Get paginated results - bind search pattern first, then tag values
+        let mut query_builder = sqlx::query(&sql);
+        query_builder = query_builder.bind(&search_pattern).bind(&search_pattern);
+        for tag in &tag_filter.bind_values {
+            query_builder = query_builder.bind(tag);
+        }
+
+        let rows = query_builder
             .fetch_all(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -292,16 +318,19 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             })
             .collect();
 
-        // Get total count for search
-        let total: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM note WHERE title LIKE ? OR content LIKE ?")
-                .bind(&search_pattern)
-                .bind(&search_pattern)
-                .fetch_one(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
+        // Get total count for search - bind search pattern first, then tag values
+        let mut count_query = sqlx::query_scalar(&count_sql);
+        count_query = count_query.bind(&search_pattern).bind(&search_pattern);
+        for tag in &tag_filter.bind_values {
+            count_query = count_query.bind(tag);
+        }
+
+        let total: i64 = count_query
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
 
         Ok(ListResult {
             items,

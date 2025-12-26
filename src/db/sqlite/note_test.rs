@@ -1,6 +1,6 @@
 //! Tests for SqliteNoteRepository.
 
-use crate::db::{Database, Note, NoteRepository, NoteType, SqliteDatabase};
+use crate::db::{Database, ListQuery, Note, NoteRepository, NoteType, SqliteDatabase};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -169,4 +169,99 @@ async fn note_search() {
         .await
         .expect("Search should succeed");
     assert!(results.items.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_with_tag_filter() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes with different tags
+    let mut note1 = make_note("notetag1", "Rust Guide", "About Rust");
+    note1.tags = vec!["rust".to_string(), "programming".to_string()];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("notetag2", "Python Guide", "About Python");
+    note2.tags = vec!["python".to_string(), "programming".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    let mut note3 = make_note("notetag3", "Cooking Recipe", "About cooking");
+    note3.tags = vec!["cooking".to_string()];
+    notes.create(&note3).await.unwrap();
+
+    // Filter by "rust" tag - should find 1
+    let query = ListQuery {
+        tags: Some(vec!["rust".to_string()]),
+        ..Default::default()
+    };
+    let results = notes.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(results.items.len(), 1);
+    assert_eq!(results.items[0].title, "Rust Guide");
+
+    // Filter by "programming" tag - should find 2
+    let query = ListQuery {
+        tags: Some(vec!["programming".to_string()]),
+        ..Default::default()
+    };
+    let results = notes.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(results.items.len(), 2);
+    assert_eq!(results.total, 2);
+
+    // Filter by nonexistent tag
+    let query = ListQuery {
+        tags: Some(vec!["nonexistent".to_string()]),
+        ..Default::default()
+    };
+    let results = notes.list(Some(&query)).await.expect("List should succeed");
+    assert!(results.items.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_search_with_tag_filter() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes with different tags and content
+    let mut note1 = make_note("srctag01", "API Design", "REST API patterns");
+    note1.tags = vec!["api".to_string(), "backend".to_string()];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("srctag02", "API Testing", "Testing API endpoints");
+    note2.tags = vec!["api".to_string(), "testing".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    let mut note3 = make_note("srctag03", "Frontend APIs", "Calling APIs from React");
+    note3.tags = vec!["frontend".to_string()];
+    notes.create(&note3).await.unwrap();
+
+    // Search for "API" with no tag filter - should find all 3
+    let results = notes
+        .search("API", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 3);
+
+    // Search for "API" with "backend" tag filter - should find 1
+    let query = ListQuery {
+        tags: Some(vec!["backend".to_string()]),
+        ..Default::default()
+    };
+    let results = notes
+        .search("API", Some(&query))
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1);
+    assert_eq!(results.items[0].title, "API Design");
+
+    // Search for "API" with "api" tag filter - should find 2
+    let query = ListQuery {
+        tags: Some(vec!["api".to_string()]),
+        ..Default::default()
+    };
+    let results = notes
+        .search("API", Some(&query))
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 2);
+    assert_eq!(results.total, 2);
 }
