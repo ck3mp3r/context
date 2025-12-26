@@ -249,6 +249,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "http-body-util",
  "miette",
  "refinery",
  "rusqlite",
@@ -257,6 +258,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
