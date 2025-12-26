@@ -13,7 +13,9 @@ use crate::db::{Database, SqliteDatabase};
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory().await.expect("Failed to create test database");
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let state = AppState::new(db);
     routes::create_router(state)
@@ -29,9 +31,9 @@ async fn json_body(response: axum::response::Response) -> Value {
 // GET /v1/repos - List Repos
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn list_repos_initially_empty() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -55,9 +57,9 @@ async fn list_repos_initially_empty() {
 // POST /v1/repos - Create Repo
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_repo_returns_created() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -86,9 +88,9 @@ async fn create_repo_returns_created() {
     assert_eq!(body["id"].as_str().unwrap().len(), 8);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_repo_without_path() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -118,9 +120,9 @@ async fn create_repo_without_path() {
 // GET /v1/repos/{id} - Get Repo
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_repo_returns_repo() {
-    let app = test_app();
+    let app = test_app().await;
 
     // Create a repo first
     let response = app
@@ -162,9 +164,9 @@ async fn get_repo_returns_repo() {
     assert_eq!(body["remote"], "github:test/get-repo");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_repo_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -186,9 +188,9 @@ async fn get_repo_not_found() {
 // PUT /v1/repos/{id} - Update Repo
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn update_repo_returns_updated() {
-    let app = test_app();
+    let app = test_app().await;
 
     // Create a repo first
     let response = app
@@ -238,9 +240,9 @@ async fn update_repo_returns_updated() {
     assert_eq!(body["path"], "/new/path");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn update_repo_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -267,9 +269,9 @@ async fn update_repo_not_found() {
 // DELETE /v1/repos/{id} - Delete Repo
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_repo_returns_no_content() {
-    let app = test_app();
+    let app = test_app().await;
 
     // Create a repo to delete
     let response = app
@@ -322,9 +324,9 @@ async fn delete_repo_returns_no_content() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_repo_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(

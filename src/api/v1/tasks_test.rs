@@ -12,7 +12,9 @@ use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 
 async fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory().await.expect("Failed to create test database");
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let state = AppState::new(db);
     routes::create_router(state)
@@ -43,9 +45,9 @@ async fn create_task_list(app: &axum::Router) -> String {
     body["id"].as_str().unwrap().to_string()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn list_tasks_for_list() {
-    let app = test_app();
+    let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
     // Initially empty
@@ -96,9 +98,9 @@ async fn list_tasks_for_list() {
     assert_eq!(body["total"], 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_task_returns_created() {
-    let app = test_app();
+    let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
     let response = app
@@ -130,9 +132,9 @@ async fn create_task_returns_created() {
     assert!(body["id"].as_str().unwrap().len() == 8);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_task_minimal() {
-    let app = test_app();
+    let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
     let response = app
@@ -157,9 +159,9 @@ async fn create_task_minimal() {
     assert!(body["priority"].is_null());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_task_returns_task() {
-    let app = test_app();
+    let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
     // Create
@@ -198,9 +200,9 @@ async fn get_task_returns_task() {
     assert_eq!(body["content"], "Test task");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_task_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -215,9 +217,9 @@ async fn get_task_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn update_task_returns_updated() {
-    let app = test_app();
+    let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
     // Create
@@ -266,9 +268,9 @@ async fn update_task_returns_updated() {
     assert_eq!(body["priority"], 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn update_task_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -287,9 +289,9 @@ async fn update_task_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_task_returns_no_content() {
-    let app = test_app();
+    let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
     // Create
@@ -340,9 +342,9 @@ async fn delete_task_returns_no_content() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_task_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(

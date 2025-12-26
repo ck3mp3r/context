@@ -13,7 +13,9 @@ use crate::db::{Database, SqliteDatabase};
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory().await.expect("Failed to create test database");
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let state = AppState::new(db);
     routes::create_router(state)
@@ -29,9 +31,9 @@ async fn json_body(response: axum::response::Response) -> Value {
 // GET /v1/projects - List Projects
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn list_projects_returns_default_project() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -58,9 +60,9 @@ async fn list_projects_returns_default_project() {
 // POST /v1/projects - Create Project
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_project_returns_created() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -89,9 +91,9 @@ async fn create_project_returns_created() {
     assert_eq!(body["id"].as_str().unwrap().len(), 8);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_project_without_description() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -121,9 +123,9 @@ async fn create_project_without_description() {
 // GET /v1/projects/{id} - Get Project
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_project_returns_project() {
-    let app = test_app();
+    let app = test_app().await;
 
     // First, list projects to get the default project ID
     let response = app
@@ -157,9 +159,9 @@ async fn get_project_returns_project() {
     assert_eq!(body["id"], default_id);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_project_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -181,9 +183,9 @@ async fn get_project_not_found() {
 // PUT /v1/projects/{id} - Update Project
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn update_project_returns_updated() {
-    let app = test_app();
+    let app = test_app().await;
 
     // Get the default project ID
     let response = app
@@ -226,9 +228,9 @@ async fn update_project_returns_updated() {
     assert_eq!(body["description"], "Updated description");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn update_project_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
@@ -255,9 +257,9 @@ async fn update_project_not_found() {
 // DELETE /v1/projects/{id} - Delete Project
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_project_returns_no_content() {
-    let app = test_app();
+    let app = test_app().await;
 
     // Create a project to delete
     let response = app
@@ -310,9 +312,9 @@ async fn delete_project_returns_no_content() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_project_not_found() {
-    let app = test_app();
+    let app = test_app().await;
 
     let response = app
         .oneshot(
