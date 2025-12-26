@@ -57,7 +57,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             content: note.content.clone(),
             tags: note.tags.clone(),
             note_type: note.note_type.clone(),
-            repo_ids: vec![], // Empty by default - relationships managed separately
             project_ids: vec![], // Empty by default - relationships managed separately
             created_at,
             updated_at,
@@ -87,34 +86,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 message: format!("Invalid note_type: {}", note_type_str),
             })?;
 
-            // Get repo relationships
-            let repo_ids: Vec<String> =
-                sqlx::query_scalar("SELECT repo_id FROM note_repo WHERE note_id = ?")
-                    .bind(id)
-                    .fetch_all(self.pool)
-                    .await
-                    .map_err(|e| DbError::Database {
-                        message: e.to_string(),
-                    })?;
-
-            // Get project relationships
-            let project_ids: Vec<String> =
-                sqlx::query_scalar("SELECT project_id FROM project_note WHERE note_id = ?")
-                    .bind(id)
-                    .fetch_all(self.pool)
-                    .await
-                    .map_err(|e| DbError::Database {
-                        message: e.to_string(),
-                    })?;
-
             Ok(Note {
                 id: row.get("id"),
                 title: row.get("title"),
                 content: row.get("content"),
                 tags,
                 note_type,
-                repo_ids,
-                project_ids,
+                project_ids: vec![], // Empty by default - relationships managed separately
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
             })
@@ -196,8 +174,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     content: row.get("content"),
                     tags,
                     note_type,
-                    repo_ids: vec![], // Empty by default - relationships managed separately
-                    project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 }
@@ -361,8 +337,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     content: row.get("content"),
                     tags,
                     note_type,
-                    repo_ids: vec![], // Empty by default - relationships managed separately
-                    project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 }

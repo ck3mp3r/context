@@ -20,6 +20,7 @@ async fn repo_create_and_get() {
         remote: "github:user/project".to_string(),
         path: Some("/home/user/project".to_string()),
         tags: vec![],
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: "2025-01-01 00:00:00".to_string(),
     };
 
@@ -56,6 +57,7 @@ async fn repo_list() {
             remote: "github:a/a".to_string(),
             path: None,
             tags: vec![],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -66,6 +68,7 @@ async fn repo_list() {
             remote: "github:b/b".to_string(),
             path: None,
             tags: vec![],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:01".to_string(),
         })
         .await
@@ -85,6 +88,7 @@ async fn repo_update() {
         remote: "github:old/name".to_string(),
         path: None,
         tags: vec![],
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: "2025-01-01 00:00:00".to_string(),
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -106,6 +110,7 @@ async fn repo_delete() {
         remote: "github:to/delete".to_string(),
         path: None,
         tags: vec![],
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: "2025-01-01 00:00:00".to_string(),
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -126,9 +131,10 @@ async fn repo_create_with_tags() {
 
     let repo = Repo {
         id: "tagrepo1".to_string(),
-        remote: "github:user/tagged".to_string(),
-        path: Some("/home/user/tagged".to_string()),
+        remote: "https://github.com/user/test-repo.git".to_string(),
+        path: Some("/path/to/repo".to_string()),
         tags: vec!["work".to_string(), "active".to_string()],
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: "2025-01-01 00:00:00".to_string(),
     };
 
@@ -152,6 +158,7 @@ async fn repo_list_with_tag_filter() {
             remote: "github:work/project-a".to_string(),
             path: None,
             tags: vec!["work".to_string(), "active".to_string()],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -163,6 +170,7 @@ async fn repo_list_with_tag_filter() {
             remote: "github:work/project-b".to_string(),
             path: None,
             tags: vec!["work".to_string(), "archived".to_string()],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:01".to_string(),
         })
         .await
@@ -174,6 +182,7 @@ async fn repo_list_with_tag_filter() {
             remote: "github:personal/project".to_string(),
             path: None,
             tags: vec!["personal".to_string(), "active".to_string()],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:02".to_string(),
         })
         .await

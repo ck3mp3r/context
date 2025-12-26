@@ -31,6 +31,12 @@ pub struct NoteResponse {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: String,
+    /// Linked repository IDs (M:N relationship via note_repo)
+    #[schema(example = json!(["repo123a", "repo456b"]))]
+    pub repo_ids: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_note)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    pub project_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -48,6 +54,8 @@ impl From<Note> for NoteResponse {
                 NoteType::Scratchpad => "scratchpad",
             }
             .to_string(),
+            repo_ids: n.repo_ids,
+            project_ids: n.project_ids,
             created_at: n.created_at,
             updated_at: n.updated_at,
         }
@@ -76,6 +84,14 @@ pub struct UpdateNoteRequest {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: Option<String>,
+    /// Linked repository IDs (M:N relationship via note_repo)
+    #[schema(example = json!(["repo123a", "repo456b"]))]
+    #[serde(default)]
+    pub repo_ids: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_note)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -257,6 +273,8 @@ pub async fn create_note<D: Database>(
         content: req.content,
         tags: req.tags,
         note_type,
+        repo_ids: vec![],    // Empty by default - relationships managed separately
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: String::new(), // Repository will generate this
         updated_at: String::new(), // Repository will generate this
     };
@@ -309,6 +327,8 @@ pub async fn update_note<D: Database>(
     note.title = req.title;
     note.content = req.content;
     note.tags = req.tags;
+    note.repo_ids = req.repo_ids;
+    note.project_ids = req.project_ids;
 
     if let Some(note_type_str) = req.note_type {
         note.note_type = parse_note_type(&note_type_str);

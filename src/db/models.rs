@@ -116,6 +116,9 @@ pub struct Repo {
     pub remote: String,
     pub path: Option<String>,
     pub tags: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_repo)
+    #[serde(default)]
+    pub project_ids: Vec<Id>,
     pub created_at: String,
 }
 
@@ -235,6 +238,12 @@ pub struct Note {
     pub content: String,
     pub tags: Vec<String>,
     pub note_type: NoteType,
+    /// Linked repository IDs (M:N relationship via note_repo)
+    #[serde(default)]
+    pub repo_ids: Vec<Id>,
+    /// Linked project IDs (M:N relationship via project_note)
+    #[serde(default)]
+    pub project_ids: Vec<Id>,
     pub created_at: String,
     pub updated_at: String,
 }

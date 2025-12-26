@@ -33,6 +33,9 @@ pub struct RepoResponse {
     /// Tags for categorization
     #[schema(example = json!(["work", "active"]))]
     pub tags: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_repo)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    pub project_ids: Vec<String>,
     /// Creation timestamp
     #[schema(example = "2025-01-01 00:00:00")]
     pub created_at: String,
@@ -45,6 +48,7 @@ impl From<Repo> for RepoResponse {
             remote: r.remote,
             path: r.path,
             tags: r.tags,
+            project_ids: r.project_ids,
             created_at: r.created_at,
         }
     }
@@ -78,6 +82,10 @@ pub struct UpdateRepoRequest {
     #[schema(example = json!(["work", "active"]))]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_repo)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -237,6 +245,7 @@ pub async fn create_repo<D: Database>(
         remote: req.remote,
         path: req.path,
         tags: req.tags,
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: String::new(), // Repository will generate this
     };
 
@@ -295,6 +304,7 @@ pub async fn update_repo<D: Database>(
     repo.remote = req.remote;
     repo.path = req.path;
     repo.tags = req.tags;
+    repo.project_ids = req.project_ids;
 
     state.db().repos().update(&repo).await.map_err(|e| {
         (

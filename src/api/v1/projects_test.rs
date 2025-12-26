@@ -353,3 +353,289 @@ async fn delete_project_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// =============================================================================
+// REPO RELATIONSHIP TESTS - TDD for Missing Functionality
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_repo_with_project_relationships_should_work() {
+    let app = test_app().await;
+
+    // Create a project first
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let project_id = body["id"].as_str().unwrap();
+
+    // Create a repo
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "https://github.com/test/repo.git"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let repo_body = json_body(response).await;
+    let repo_id = repo_body["id"].as_str().unwrap();
+
+    // Update repo with project relationship - THIS SHOULD WORK BUT CURRENTLY FAILS
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/repos/{}", repo_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "https://github.com/test/repo.git",
+                        "path": "/tmp/test",
+                        "tags": ["test"],
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // THIS ASSERTION WILL FAIL - project_ids field missing from UpdateRequest/Response DTOs
+    assert!(body["project_ids"].is_array());
+    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["project_ids"][0], project_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_note_with_project_relationships_should_work() {
+    let app = test_app().await;
+
+    // Create a project
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let project_id = body["id"].as_str().unwrap();
+
+    // Create a repo first (notes require repo_id)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "https://github.com/test/repo.git"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let repo_body = json_body(response).await;
+    let repo_id = repo_body["id"].as_str().unwrap();
+
+    // Create a note
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Note",
+                        "content": "Test content",
+                        "repo_id": repo_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let note_body = json_body(response).await;
+    let note_id = note_body["id"].as_str().unwrap();
+
+    // Update note with project relationship - THIS SHOULD WORK BUT CURRENTLY FAILS
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Updated Note",
+                        "content": "Updated content",
+                        "tags": ["test"],
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // THIS ASSERTION WILL FAIL - project_ids field missing from UpdateRequest/Response DTOs
+    assert!(body["project_ids"].is_array());
+    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["project_ids"][0], project_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_with_tags_should_work() {
+    let app = test_app().await;
+
+    // Create a repo first (task lists require repo_id)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "https://github.com/test/repo.git"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let repo_body = json_body(response).await;
+    let repo_id = repo_body["id"].as_str().unwrap();
+
+    // Create a task list
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Test List"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let task_list_body = json_body(response).await;
+    let task_list_id = task_list_body["id"].as_str().unwrap();
+
+    // Create a task
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", task_list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Test task"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let task_body = json_body(response).await;
+    let task_id = task_body["id"].as_str().unwrap();
+
+    // Update task with tags - THIS SHOULD WORK
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Updated task content",
+                        "status": "todo",
+                        "priority": 2,
+                        "tags": ["urgent", "bug-fix"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["content"], "Updated task content");
+    // THIS ASSERTION WILL FAIL - tags field missing from UpdateRequest/Response DTOs
+    assert!(body["tags"].is_array());
+    assert_eq!(body["tags"].as_array().unwrap().len(), 2);
+    assert!(body["tags"].as_array().unwrap().contains(&json!("urgent")));
+    assert!(body["tags"].as_array().unwrap().contains(&json!("bug-fix")));
+}

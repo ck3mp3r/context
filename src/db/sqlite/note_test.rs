@@ -17,6 +17,8 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         content: content.to_string(),
         tags: vec![],
         note_type: NoteType::Manual,
+        repo_ids: vec![],    // Empty by default - relationships managed separately
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     }
@@ -33,6 +35,8 @@ async fn note_create_and_get() {
         content: "This is markdown content\n\n## Heading\n\nWith paragraphs.".to_string(),
         tags: vec!["session".to_string(), "important".to_string()],
         note_type: NoteType::Manual,
+        repo_ids: vec![],    // Empty by default - relationships managed separately
+        project_ids: vec![], // Empty by default - relationships managed separately
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     };

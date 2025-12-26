@@ -32,6 +32,8 @@ pub struct TaskResponse {
     #[schema(example = "in_progress")]
     pub status: String,
     pub priority: Option<i32>,
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    pub tags: Vec<String>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -54,6 +56,7 @@ impl From<Task> for TaskResponse {
             }
             .to_string(),
             priority: t.priority,
+            tags: t.tags,
             created_at: t.created_at,
             started_at: t.started_at,
             completed_at: t.completed_at,
@@ -78,6 +81,9 @@ pub struct UpdateTaskRequest {
     #[schema(example = "done")]
     pub status: Option<String>,
     pub priority: Option<i32>,
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -299,6 +305,7 @@ pub async fn update_task<D: Database>(
 
     task.content = req.content;
     task.priority = req.priority;
+    task.tags = req.tags;
 
     if let Some(status_str) = req.status {
         let new_status = parse_status(&status_str);

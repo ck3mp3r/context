@@ -25,6 +25,7 @@ async fn task_list_create_with_relationships() {
             remote: "github:test/rel-repo".to_string(),
             path: None,
             tags: vec![],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -82,6 +83,7 @@ async fn task_list_update_replaces_relationships() {
             remote: "github:test/upd-repo1".to_string(),
             path: None,
             tags: vec![],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
@@ -92,6 +94,7 @@ async fn task_list_update_replaces_relationships() {
             remote: "github:test/upd-repo2".to_string(),
             path: None,
             tags: vec![],
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .await

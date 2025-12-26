@@ -170,26 +170,24 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         })?;
 
         // Get repo relationships
-        let repo_ids: Vec<String> = sqlx::query_scalar(
-            "SELECT repo_id FROM task_list_repo WHERE task_list_id = ? ORDER BY repo_id",
-        )
-        .bind(id)
-        .fetch_all(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
+        let repo_ids: Vec<String> =
+            sqlx::query_scalar("SELECT repo_id FROM task_list_repo WHERE task_list_id = ?")
+                .bind(id)
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
 
         // Get project relationships
-        let project_ids: Vec<String> = sqlx::query_scalar(
-            "SELECT project_id FROM project_task_list WHERE task_list_id = ? ORDER BY project_id",
-        )
-        .bind(id)
-        .fetch_all(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
+        let project_ids: Vec<String> =
+            sqlx::query_scalar("SELECT project_id FROM project_task_list WHERE task_list_id = ?")
+                .bind(id)
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
 
         Ok(TaskList {
             id: row.get("id"),

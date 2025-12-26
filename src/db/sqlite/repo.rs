@@ -42,6 +42,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             remote: repo.remote.clone(),
             path: repo.path.clone(),
             tags: repo.tags.clone(),
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at,
         })
     }
@@ -68,6 +69,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             remote: row.get("remote"),
             path: row.get("path"),
             tags,
+            project_ids: vec![], // Empty by default - relationships managed separately
             created_at: row.get("created_at"),
         })
     }
@@ -147,6 +149,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                     remote: row.get("remote"),
                     path: row.get("path"),
                     tags,
+                    project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
                 }
             })
