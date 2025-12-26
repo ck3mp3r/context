@@ -215,3 +215,69 @@ async fn repo_list_with_tag_filter() {
     assert_eq!(result.items.len(), 1);
     assert_eq!(result.items[0].remote, "github:personal/project");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_get_loads_project_relationships() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create projects first (for foreign key constraints)
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0001")
+        .bind("Project One")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert project1 should succeed");
+
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0002")
+        .bind("Project Two")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert project2 should succeed");
+
+    // Create a repo
+    let repo = Repo {
+        id: "reporel1".to_string(),
+        remote: "https://github.com/test/repo.git".to_string(),
+        path: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+    };
+    repos.create(&repo).await.expect("Create should succeed");
+
+    // Insert relationships into junction table
+    sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
+        .bind("proj0001")
+        .bind("reporel1")
+        .execute(db.pool())
+        .await
+        .expect("Insert project_repo should succeed");
+
+    sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
+        .bind("proj0002")
+        .bind("reporel1")
+        .execute(db.pool())
+        .await
+        .expect("Insert project_repo should succeed");
+
+    // Get repo and verify relationships are loaded
+    let retrieved = repos.get("reporel1").await.expect("Get should succeed");
+
+    assert_eq!(
+        retrieved.project_ids.len(),
+        2,
+        "Should load 2 project relationships"
+    );
+    assert!(retrieved.project_ids.contains(&"proj0001".to_string()));
+    assert!(retrieved.project_ids.contains(&"proj0002".to_string()));
+}

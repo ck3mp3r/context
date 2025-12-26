@@ -64,12 +64,22 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         let tags_json: String = row.get("tags");
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
+        // Get project relationships
+        let project_ids: Vec<String> =
+            sqlx::query_scalar("SELECT project_id FROM project_repo WHERE repo_id = ?")
+                .bind(id)
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
         Ok(Repo {
             id: row.get("id"),
             remote: row.get("remote"),
             path: row.get("path"),
             tags,
-            project_ids: vec![], // Empty by default - relationships managed separately
+            project_ids,
             created_at: row.get("created_at"),
         })
     }
