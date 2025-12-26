@@ -140,7 +140,8 @@ pub async fn list_projects<D: Database>(
     let result = state
         .db()
         .projects()
-        .list_paginated(&db_query)
+        .list(Some(&db_query))
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -185,7 +186,7 @@ pub async fn get_project<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let project = state.db().projects().get(&id).map_err(|e| match e {
+    let project = state.db().projects().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -233,7 +234,7 @@ pub async fn create_project<D: Database>(
         updated_at: now,
     };
 
-    state.db().projects().create(&project).map_err(|e| {
+    state.db().projects().create(&project).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -269,7 +270,7 @@ pub async fn update_project<D: Database>(
     Json(req): Json<UpdateProjectRequest>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
     // First get the existing project
-    let mut project = state.db().projects().get(&id).map_err(|e| match e {
+    let mut project = state.db().projects().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -288,7 +289,7 @@ pub async fn update_project<D: Database>(
     project.title = req.title;
     project.description = req.description;
 
-    state.db().projects().update(&project).map_err(|e| {
+    state.db().projects().update(&project).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -298,7 +299,7 @@ pub async fn update_project<D: Database>(
     })?;
 
     // Re-fetch to get updated timestamp
-    let updated = state.db().projects().get(&id).map_err(|e| {
+    let updated = state.db().projects().get(&id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -331,20 +332,25 @@ pub async fn delete_project<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.db().projects().delete(&id).map_err(|e| match e {
-        DbError::NotFound { .. } => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Project '{}' not found", id),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
-    })?;
+    state
+        .db()
+        .projects()
+        .delete(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Project '{}' not found", id),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

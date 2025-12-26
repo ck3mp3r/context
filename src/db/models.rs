@@ -77,6 +77,12 @@ pub struct TaskList {
     pub tags: Vec<String>,
     pub external_ref: Option<String>,
     pub status: TaskListStatus,
+    /// Linked repository IDs (M:N relationship via task_list_repo)
+    #[serde(default)]
+    pub repo_ids: Vec<Id>,
+    /// Linked project IDs (M:N relationship via project_task_list)
+    #[serde(default)]
+    pub project_ids: Vec<Id>,
     pub created_at: String,
     pub updated_at: String,
     pub archived_at: Option<String>,
@@ -89,6 +95,27 @@ pub enum TaskListStatus {
     #[default]
     Active,
     Archived,
+}
+
+impl std::fmt::Display for TaskListStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskListStatus::Active => write!(f, "active"),
+            TaskListStatus::Archived => write!(f, "archived"),
+        }
+    }
+}
+
+impl std::str::FromStr for TaskListStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(TaskListStatus::Active),
+            "archived" => Ok(TaskListStatus::Archived),
+            _ => Err(format!("Unknown task list status: {}", s)),
+        }
+    }
 }
 
 /// An individual work item within a task list.
@@ -118,6 +145,35 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+impl std::fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskStatus::Backlog => write!(f, "backlog"),
+            TaskStatus::Todo => write!(f, "todo"),
+            TaskStatus::InProgress => write!(f, "in_progress"),
+            TaskStatus::Review => write!(f, "review"),
+            TaskStatus::Done => write!(f, "done"),
+            TaskStatus::Cancelled => write!(f, "cancelled"),
+        }
+    }
+}
+
+impl std::str::FromStr for TaskStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "backlog" => Ok(TaskStatus::Backlog),
+            "todo" => Ok(TaskStatus::Todo),
+            "in_progress" => Ok(TaskStatus::InProgress),
+            "review" => Ok(TaskStatus::Review),
+            "done" => Ok(TaskStatus::Done),
+            "cancelled" => Ok(TaskStatus::Cancelled),
+            _ => Err(format!("Invalid TaskStatus: {}", s)),
+        }
+    }
+}
+
 /// A persistent markdown note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
@@ -138,4 +194,28 @@ pub enum NoteType {
     Manual,
     ArchivedTodo,
     Scratchpad,
+}
+
+impl std::fmt::Display for NoteType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            NoteType::Manual => "manual",
+            NoteType::ArchivedTodo => "archived_todo",
+            NoteType::Scratchpad => "scratchpad",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for NoteType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "manual" => Ok(NoteType::Manual),
+            "archived_todo" => Ok(NoteType::ArchivedTodo),
+            "scratchpad" => Ok(NoteType::Scratchpad),
+            _ => Err(format!("Invalid note type: {}", s)),
+        }
+    }
 }

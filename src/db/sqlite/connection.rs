@@ -1,61 +1,80 @@
 //! SQLite database connection and migration management.
 
-use refinery::embed_migrations;
-use rusqlite::Connection;
+use sqlx::{SqlitePool, migrate::MigrateDatabase};
 use std::path::Path;
-use std::sync::Mutex;
 
-use super::repositories::{
+use super::{
     SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteTaskListRepository,
     SqliteTaskRepository,
 };
 use crate::db::{Database, DbError, DbResult};
 
-// Embed migrations from data/sql/sqlite/ at compile time
-embed_migrations!("data/sql/sqlite");
-
-/// SQLite database implementation.
+/// SQLite database implementation using SQLx.
 ///
-/// Provides access to repositories via associated types, avoiding dynamic dispatch.
+/// Provides async access to repositories via associated types, avoiding dynamic dispatch.
 pub struct SqliteDatabase {
-    conn: Mutex<Connection>,
+    pool: SqlitePool,
 }
 
 impl SqliteDatabase {
     /// Open a database at the given path.
-    pub fn open<P: AsRef<Path>>(path: P) -> DbResult<Self> {
-        let conn = Connection::open(path).map_err(|e| DbError::Connection {
-            message: e.to_string(),
-        })?;
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
+    pub async fn open<P: AsRef<Path>>(path: P) -> DbResult<Self> {
+        let database_url = format!("sqlite:{}", path.as_ref().display());
+
+        // Create database file if it doesn't exist
+        if !sqlx::Sqlite::database_exists(&database_url)
+            .await
+            .map_err(|e| DbError::Connection {
+                message: e.to_string(),
+            })?
+        {
+            sqlx::Sqlite::create_database(&database_url)
+                .await
+                .map_err(|e| DbError::Connection {
+                    message: e.to_string(),
+                })?;
+        }
+
+        let pool = SqlitePool::connect(&database_url)
+            .await
+            .map_err(|e| DbError::Connection {
+                message: e.to_string(),
+            })?;
+
+        Ok(Self { pool })
     }
 
     /// Create an in-memory database (useful for testing).
-    pub fn in_memory() -> DbResult<Self> {
-        let conn = Connection::open_in_memory().map_err(|e| DbError::Connection {
-            message: e.to_string(),
-        })?;
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
+    pub async fn in_memory() -> DbResult<Self> {
+        let pool =
+            SqlitePool::connect("sqlite::memory:")
+                .await
+                .map_err(|e| DbError::Connection {
+                    message: e.to_string(),
+                })?;
+        Ok(Self { pool })
     }
 
-    /// Execute a function with access to the underlying connection.
+    /// Get a reference to the connection pool.
     ///
     /// This is useful for testing and advanced operations that need
     /// direct database access.
-    pub fn with_connection<F, T>(&self, f: F) -> DbResult<T>
-    where
-        F: FnOnce(&Connection) -> rusqlite::Result<T>,
-    {
-        let conn = self.conn.lock().map_err(|e| DbError::Database {
-            message: format!("Failed to acquire database lock: {}", e),
-        })?;
-        f(&conn).map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
+    /// Run migrations asynchronously.
+    ///
+    /// This is the async version of migrate() for use when async context is available.
+    pub async fn migrate_async(&self) -> DbResult<()> {
+        sqlx::migrate!("data/sql/sqlite/migrations")
+            .run(&self.pool)
+            .await
+            .map_err(|e| DbError::Migration {
+                message: e.to_string(),
+            })?;
+
+        Ok(())
     }
 }
 
@@ -67,36 +86,29 @@ impl Database for SqliteDatabase {
     type Notes<'a> = SqliteNoteRepository<'a>;
 
     fn migrate(&self) -> DbResult<()> {
-        let mut conn = self.conn.lock().map_err(|e| DbError::Database {
-            message: format!("Failed to acquire database lock: {}", e),
-        })?;
-
-        migrations::runner()
-            .run(&mut *conn)
-            .map_err(|e| DbError::Migration {
-                message: e.to_string(),
-            })?;
-
-        Ok(())
+        // Use tokio::task::block_in_place for sync interface compatibility
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async { self.migrate_async().await })
+        })
     }
 
     fn projects(&self) -> Self::Projects<'_> {
-        SqliteProjectRepository { conn: &self.conn }
+        SqliteProjectRepository { pool: &self.pool }
     }
 
     fn repos(&self) -> Self::Repos<'_> {
-        SqliteRepoRepository { conn: &self.conn }
+        SqliteRepoRepository { pool: &self.pool }
     }
 
     fn task_lists(&self) -> Self::TaskLists<'_> {
-        SqliteTaskListRepository { conn: &self.conn }
+        SqliteTaskListRepository { pool: &self.pool }
     }
 
     fn tasks(&self) -> Self::Tasks<'_> {
-        SqliteTaskRepository { conn: &self.conn }
+        SqliteTaskRepository { pool: &self.pool }
     }
 
     fn notes(&self) -> Self::Notes<'_> {
-        SqliteNoteRepository { conn: &self.conn }
+        SqliteNoteRepository { pool: &self.pool }
     }
 }

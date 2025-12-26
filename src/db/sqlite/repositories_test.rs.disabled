@@ -5,15 +5,15 @@ use crate::db::{
     SqliteDatabase, Task, TaskList, TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
 };
 
-fn setup_db() -> SqliteDatabase {
-    let db = SqliteDatabase::in_memory().expect("Failed to create in-memory database");
+async fn setup_db() -> SqliteDatabase {
+    let db = SqliteDatabase::in_memory().await.expect("Failed to create in-memory database");
     db.migrate().expect("Migration should succeed");
     db
 }
 
-#[test]
-fn create_and_get_project() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn create_and_get_project() {
+    let db = setup_db().await;
     let repo = db.projects();
 
     let project = Project {
@@ -32,18 +32,18 @@ fn create_and_get_project() {
     assert_eq!(retrieved.description, project.description);
 }
 
-#[test]
-fn get_nonexistent_project_returns_not_found() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn get_nonexistent_project_returns_not_found() {
+    let db = setup_db().await;
     let repo = db.projects();
 
     let result = repo.get("nonexist");
     assert!(result.is_err());
 }
 
-#[test]
-fn list_projects_includes_default_and_created() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn list_projects_includes_default_and_created() {
+    let db = setup_db().await;
     let repo = db.projects();
 
     // Default project exists from migration
@@ -65,9 +65,9 @@ fn list_projects_includes_default_and_created() {
     assert!(projects.iter().any(|p| p.title == "My Project"));
 }
 
-#[test]
-fn update_project() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn update_project() {
+    let db = setup_db().await;
     let repo = db.projects();
 
     let mut project = Project {
@@ -91,9 +91,9 @@ fn update_project() {
     );
 }
 
-#[test]
-fn delete_project() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_project() {
+    let db = setup_db().await;
     let repo = db.projects();
 
     let project = Project {
@@ -111,18 +111,19 @@ fn delete_project() {
     assert!(result.is_err());
 }
 
-#[test]
-fn link_and_get_repos() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn link_and_get_repos() {
+    let db = setup_db().await;
 
-    // First create a repo
-    db.with_connection(|conn| {
-        conn.execute(
-            "INSERT INTO repo (id, remote, created_at) VALUES ('repo0001', 'github:test/repo', datetime('now'))",
-            [],
-        )
-    })
-    .expect("Insert repo should succeed");
+    // First create a repo using repository
+    let repos = db.repos();
+    let repo = Repo {
+        id: "repo0001".to_string(),
+        remote: "github:test/repo".to_string(),
+        path: Some("/some/path".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
+    };
+    repos.create(&repo).expect("Insert repo should succeed");
 
     let projects = db.projects();
 
@@ -147,18 +148,19 @@ fn link_and_get_repos() {
     assert_eq!(repos[0].id, "repo0001");
 }
 
-#[test]
-fn unlink_repo() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn unlink_repo() {
+    let db = setup_db().await;
 
-    // Create a repo
-    db.with_connection(|conn| {
-        conn.execute(
-            "INSERT INTO repo (id, remote, created_at) VALUES ('repo0002', 'github:test/repo2', datetime('now'))",
-            [],
-        )
-    })
-    .expect("Insert repo should succeed");
+    // Create a repo using repository
+    let repos = db.repos();
+    let repo = Repo {
+        id: "repo0002".to_string(),
+        remote: "github:test/repo2".to_string(),
+        path: Some("/some/path2".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
+    };
+    repos.create(&repo).expect("Insert repo should succeed");
 
     let projects = db.projects();
 
@@ -187,9 +189,9 @@ fn unlink_repo() {
 // RepoRepository Tests
 // =============================================================================
 
-#[test]
-fn repo_create_and_get() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_create_and_get() {
+    let db = setup_db().await;
     let repos = db.repos();
 
     let repo = Repo {
@@ -207,9 +209,9 @@ fn repo_create_and_get() {
     assert_eq!(retrieved.path, repo.path);
 }
 
-#[test]
-fn repo_get_by_remote() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_get_by_remote() {
+    let db = setup_db().await;
     let repos = db.repos();
 
     let repo = Repo {
@@ -232,9 +234,9 @@ fn repo_get_by_remote() {
     assert!(not_found.is_none());
 }
 
-#[test]
-fn repo_list() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_list() {
+    let db = setup_db().await;
     let repos = db.repos();
 
     // Initially empty
@@ -263,9 +265,9 @@ fn repo_list() {
     assert_eq!(list.len(), 2);
 }
 
-#[test]
-fn repo_update() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_update() {
+    let db = setup_db().await;
     let repos = db.repos();
 
     let mut repo = Repo {
@@ -283,9 +285,9 @@ fn repo_update() {
     assert_eq!(retrieved.path, Some("/new/path".to_string()));
 }
 
-#[test]
-fn repo_delete() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_delete() {
+    let db = setup_db().await;
     let repos = db.repos();
 
     let repo = Repo {
@@ -302,9 +304,9 @@ fn repo_delete() {
     assert!(result.is_err());
 }
 
-#[test]
-fn repo_get_projects() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_get_projects() {
+    let db = setup_db().await;
 
     // Create a repo
     let repos = db.repos();
@@ -342,7 +344,7 @@ fn repo_get_projects() {
 // TaskListRepository Tests
 // =============================================================================
 
-fn make_task_list(id: &str, name: &str) -> TaskList {
+async fn make_task_list(id: &str, name: &str) -> TaskList {
     TaskList {
         id: id.to_string(),
         name: name.to_string(),
@@ -351,15 +353,17 @@ fn make_task_list(id: &str, name: &str) -> TaskList {
         tags: vec![],
         external_ref: None,
         status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
         archived_at: None,
     }
 }
 
-#[test]
-fn task_list_create_and_get() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_create_and_get() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
     let list = TaskList {
@@ -370,6 +374,8 @@ fn task_list_create_and_get() {
         tags: vec!["work".to_string(), "urgent".to_string()],
         external_ref: Some("JIRA-123".to_string()),
         status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_ids: vec![],
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
         archived_at: None,
@@ -387,18 +393,18 @@ fn task_list_create_and_get() {
     assert_eq!(retrieved.status, TaskListStatus::Active);
 }
 
-#[test]
-fn task_list_get_nonexistent_returns_not_found() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_get_nonexistent_returns_not_found() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
     let result = task_lists.get("nonexist");
     assert!(result.is_err());
 }
 
-#[test]
-fn task_list_list_empty_and_with_items() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_list_empty_and_with_items() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
     // Initially empty
@@ -407,22 +413,22 @@ fn task_list_list_empty_and_with_items() {
 
     // Add task lists
     task_lists
-        .create(&make_task_list("listaa01", "First List"))
+        .create(&make_task_list("listaa01", "First List").await)
         .unwrap();
     task_lists
-        .create(&make_task_list("listbb02", "Second List"))
+        .create(&make_task_list("listbb02", "Second List").await)
         .unwrap();
 
     let lists = task_lists.list().expect("List should succeed");
     assert_eq!(lists.len(), 2);
 }
 
-#[test]
-fn task_list_update() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_update() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
-    let mut list = make_task_list("listupd1", "Original Name");
+    let mut list = make_task_list("listupd1", "Original Name").await;
     task_lists.create(&list).expect("Create should succeed");
 
     list.name = "Updated Name".to_string();
@@ -441,12 +447,12 @@ fn task_list_update() {
     assert!(retrieved.archived_at.is_some());
 }
 
-#[test]
-fn task_list_delete() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_delete() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
-    let list = make_task_list("listdel1", "To Delete");
+    let list = make_task_list("listdel1", "To Delete").await;
     task_lists.create(&list).expect("Create should succeed");
 
     task_lists
@@ -457,43 +463,20 @@ fn task_list_delete() {
     assert!(result.is_err());
 }
 
-#[test]
-fn task_list_link_and_get_repos() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_create_with_relationships() {
+    let db = setup_db().await;
 
     // Create a repo first
     let repos = db.repos();
     repos
         .create(&Repo {
-            id: "repolnk1".to_string(),
-            remote: "github:test/link-repo".to_string(),
+            id: "reporel1".to_string(),
+            remote: "github:test/rel-repo".to_string(),
             path: None,
             created_at: "2025-01-01 00:00:00".to_string(),
         })
         .expect("Create repo should succeed");
-
-    // Create a task list
-    let task_lists = db.task_lists();
-    task_lists
-        .create(&make_task_list("listlnk1", "Linked List"))
-        .expect("Create should succeed");
-
-    // Link repo to task list
-    task_lists
-        .link_repo("listlnk1", "repolnk1")
-        .expect("Link should succeed");
-
-    // Get linked repos
-    let linked_repos = task_lists
-        .get_repos("listlnk1")
-        .expect("Get repos should succeed");
-    assert_eq!(linked_repos.len(), 1);
-    assert_eq!(linked_repos[0].id, "repolnk1");
-}
-
-#[test]
-fn task_list_link_and_get_projects() {
-    let db = setup_db();
 
     // Get the default project
     let projects = db.projects();
@@ -504,30 +487,163 @@ fn task_list_link_and_get_projects() {
         .find(|p| p.title == "Default")
         .unwrap();
 
-    // Create a task list
+    // Create a task list with relationships
     let task_lists = db.task_lists();
-    task_lists
-        .create(&make_task_list("listprj1", "Project List"))
-        .expect("Create should succeed");
+    let list = TaskList {
+        id: "listrel1".to_string(),
+        name: "List With Relations".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec!["reporel1".to_string()],
+        project_ids: vec![default_project.id.clone()],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+        archived_at: None,
+    };
 
-    // Link project to task list
-    task_lists
-        .link_project("listprj1", &default_project.id)
-        .expect("Link should succeed");
+    task_lists.create(&list).expect("Create should succeed");
 
-    // Get linked projects
-    let linked_projects = task_lists
-        .get_projects("listprj1")
-        .expect("Get projects should succeed");
-    assert_eq!(linked_projects.len(), 1);
-    assert_eq!(linked_projects[0].title, "Default");
+    // Retrieve and verify relationships are persisted
+    let retrieved = task_lists.get("listrel1").expect("Get should succeed");
+    assert_eq!(retrieved.repo_ids, vec!["reporel1".to_string()]);
+    assert_eq!(retrieved.project_ids, vec![default_project.id]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_update_replaces_relationships() {
+    let db = setup_db().await;
+
+    // Create two repos
+    let repos = db.repos();
+    repos
+        .create(&Repo {
+            id: "repoupd1".to_string(),
+            remote: "github:test/upd-repo1".to_string(),
+            path: None,
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .expect("Create repo1 should succeed");
+    repos
+        .create(&Repo {
+            id: "repoupd2".to_string(),
+            remote: "github:test/upd-repo2".to_string(),
+            path: None,
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .expect("Create repo2 should succeed");
+
+    // Create task list with first repo
+    let task_lists = db.task_lists();
+    let mut list = TaskList {
+        id: "listupdr".to_string(),
+        name: "List To Update".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec!["repoupd1".to_string()],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+        archived_at: None,
+    };
+    task_lists.create(&list).expect("Create should succeed");
+
+    // Update to use second repo instead (replacement semantics)
+    list.repo_ids = vec!["repoupd2".to_string()];
+    task_lists.update(&list).expect("Update should succeed");
+
+    // Verify relationships were replaced
+    let retrieved = task_lists.get("listupdr").expect("Get should succeed");
+    assert_eq!(retrieved.repo_ids, vec!["repoupd2".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_create_validates_repo_ids() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Try to create with non-existent repo_id
+    let list = TaskList {
+        id: "listval1".to_string(),
+        name: "Invalid List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec!["nonexist".to_string()],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+        archived_at: None,
+    };
+
+    let result = task_lists.create(&list);
+    assert!(result.is_err(), "Should reject invalid repo_id");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_create_validates_project_ids() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Try to create with non-existent project_id
+    let list = TaskList {
+        id: "listval2".to_string(),
+        name: "Invalid List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_ids: vec!["nonexist".to_string()],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+        archived_at: None,
+    };
+
+    let result = task_lists.create(&list);
+    assert!(result.is_err(), "Should reject invalid project_id");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_get_returns_empty_relationships() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create task list without relationships
+    let list = TaskList {
+        id: "listnore".to_string(),
+        name: "No Relations".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+        archived_at: None,
+    };
+    task_lists.create(&list).expect("Create should succeed");
+
+    let retrieved = task_lists.get("listnore").expect("Get should succeed");
+    assert!(retrieved.repo_ids.is_empty());
+    assert!(retrieved.project_ids.is_empty());
 }
 
 // =============================================================================
 // TaskRepository Tests
 // =============================================================================
 
-fn make_task(id: &str, list_id: &str, content: &str) -> Task {
+async fn make_task(id: &str, list_id: &str, content: &str) -> Task {
     Task {
         id: id.to_string(),
         list_id: list_id.to_string(),
@@ -541,14 +657,14 @@ fn make_task(id: &str, list_id: &str, content: &str) -> Task {
     }
 }
 
-#[test]
-fn task_create_and_get() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_create_and_get() {
+    let db = setup_db().await;
 
     // Create a task list first (required FK)
     let task_lists = db.task_lists();
     task_lists
-        .create(&make_task_list("tasklst1", "Tasks For Test"))
+        .create(&make_task_list("tasklst1", "Tasks For Test").await)
         .expect("Create task list should succeed");
 
     let tasks = db.tasks();
@@ -579,39 +695,39 @@ fn task_create_and_get() {
     );
 }
 
-#[test]
-fn task_get_nonexistent_returns_not_found() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_get_nonexistent_returns_not_found() {
+    let db = setup_db().await;
     let tasks = db.tasks();
 
     let result = tasks.get("nonexist");
     assert!(result.is_err());
 }
 
-#[test]
-fn task_list_by_list() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_by_list() {
+    let db = setup_db().await;
 
     // Create task lists
     let task_lists = db.task_lists();
     task_lists
-        .create(&make_task_list("listbyl1", "List One"))
+        .create(&make_task_list("listbyl1", "List One").await)
         .expect("Create should succeed");
     task_lists
-        .create(&make_task_list("listbyl2", "List Two"))
+        .create(&make_task_list("listbyl2", "List Two").await)
         .expect("Create should succeed");
 
     let tasks = db.tasks();
 
     // Add tasks to both lists
     tasks
-        .create(&make_task("taskby01", "listbyl1", "Task in list one"))
+        .create(&make_task("taskby01", "listbyl1", "Task in list one").await)
         .unwrap();
     tasks
-        .create(&make_task("taskby02", "listbyl1", "Another in list one"))
+        .create(&make_task("taskby02", "listbyl1", "Another in list one").await)
         .unwrap();
     tasks
-        .create(&make_task("taskby03", "listbyl2", "Task in list two"))
+        .create(&make_task("taskby03", "listbyl2", "Task in list two").await)
         .unwrap();
 
     // Query by list
@@ -626,35 +742,35 @@ fn task_list_by_list() {
     assert_eq!(list_two_tasks.len(), 1);
 }
 
-#[test]
-fn task_list_by_parent() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_by_parent() {
+    let db = setup_db().await;
 
     // Create task list
     let task_lists = db.task_lists();
     task_lists
-        .create(&make_task_list("listpar1", "Parent Test"))
+        .create(&make_task_list("listpar1", "Parent Test").await)
         .expect("Create should succeed");
 
     let tasks = db.tasks();
 
     // Create parent task
     tasks
-        .create(&make_task("taskpar1", "listpar1", "Parent Task"))
+        .create(&make_task("taskpar1", "listpar1", "Parent Task").await)
         .unwrap();
 
     // Create subtasks
-    let mut subtask1 = make_task("subtask1", "listpar1", "Subtask 1");
+    let mut subtask1 = make_task("subtask1", "listpar1", "Subtask 1").await;
     subtask1.parent_id = Some("taskpar1".to_string());
     tasks.create(&subtask1).unwrap();
 
-    let mut subtask2 = make_task("subtask2", "listpar1", "Subtask 2");
+    let mut subtask2 = make_task("subtask2", "listpar1", "Subtask 2").await;
     subtask2.parent_id = Some("taskpar1".to_string());
     tasks.create(&subtask2).unwrap();
 
     // Create another root task with no subtasks
     tasks
-        .create(&make_task("taskpar2", "listpar1", "Another Root"))
+        .create(&make_task("taskpar2", "listpar1", "Another Root").await)
         .unwrap();
 
     // Query subtasks
@@ -669,18 +785,18 @@ fn task_list_by_parent() {
     assert!(no_subtasks.is_empty());
 }
 
-#[test]
-fn task_update() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update() {
+    let db = setup_db().await;
 
     let task_lists = db.task_lists();
     task_lists
-        .create(&make_task_list("listupd2", "Update Test"))
+        .create(&make_task_list("listupd2", "Update Test").await)
         .expect("Create should succeed");
 
     let tasks = db.tasks();
 
-    let mut task = make_task("taskupd1", "listupd2", "Original");
+    let mut task = make_task("taskupd1", "listupd2", "Original").await;
     tasks.create(&task).expect("Create should succeed");
 
     task.content = "Updated content".to_string();
@@ -699,18 +815,18 @@ fn task_update() {
     assert_eq!(retrieved.priority, Some(1));
 }
 
-#[test]
-fn task_delete() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_delete() {
+    let db = setup_db().await;
 
     let task_lists = db.task_lists();
     task_lists
-        .create(&make_task_list("listdel2", "Delete Test"))
+        .create(&make_task_list("listdel2", "Delete Test").await)
         .expect("Create should succeed");
 
     let tasks = db.tasks();
 
-    let task = make_task("taskdel1", "listdel2", "To Delete");
+    let task = make_task("taskdel1", "listdel2", "To Delete").await;
     tasks.create(&task).expect("Create should succeed");
 
     tasks.delete("taskdel1").expect("Delete should succeed");
@@ -723,7 +839,7 @@ fn task_delete() {
 // NoteRepository Tests
 // =============================================================================
 
-fn make_note(id: &str, title: &str, content: &str) -> Note {
+async fn make_note(id: &str, title: &str, content: &str) -> Note {
     Note {
         id: id.to_string(),
         title: title.to_string(),
@@ -735,9 +851,9 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
     }
 }
 
-#[test]
-fn note_create_and_get() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_create_and_get() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     let note = Note {
@@ -760,18 +876,18 @@ fn note_create_and_get() {
     assert_eq!(retrieved.note_type, NoteType::Manual);
 }
 
-#[test]
-fn note_get_nonexistent_returns_not_found() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_get_nonexistent_returns_not_found() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     let result = notes.get("nonexist");
     assert!(result.is_err());
 }
 
-#[test]
-fn note_list() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Initially empty
@@ -780,22 +896,22 @@ fn note_list() {
 
     // Add notes
     notes
-        .create(&make_note("noteaaa1", "First", "Content one"))
+        .create(&make_note("noteaaa1", "First", "Content one").await)
         .unwrap();
     notes
-        .create(&make_note("notebbb2", "Second", "Content two"))
+        .create(&make_note("notebbb2", "Second", "Content two").await)
         .unwrap();
 
     let list = notes.list().expect("List should succeed");
     assert_eq!(list.len(), 2);
 }
 
-#[test]
-fn note_update() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_update() {
+    let db = setup_db().await;
     let notes = db.notes();
 
-    let mut note = make_note("noteupd1", "Original Title", "Original content");
+    let mut note = make_note("noteupd1", "Original Title", "Original content").await;
     notes.create(&note).expect("Create should succeed");
 
     note.title = "Updated Title".to_string();
@@ -811,12 +927,12 @@ fn note_update() {
     assert_eq!(retrieved.note_type, NoteType::ArchivedTodo);
 }
 
-#[test]
-fn note_delete() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_delete() {
+    let db = setup_db().await;
     let notes = db.notes();
 
-    let note = make_note("notedel1", "To Delete", "Will be deleted");
+    let note = make_note("notedel1", "To Delete", "Will be deleted").await;
     notes.create(&note).expect("Create should succeed");
 
     notes.delete("notedel1").expect("Delete should succeed");
@@ -825,9 +941,9 @@ fn note_delete() {
     assert!(result.is_err());
 }
 
-#[test]
-fn note_search_fts() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_search_fts() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Create notes with specific content
@@ -836,21 +952,21 @@ fn note_search_fts() {
             "notesrc1",
             "API Design",
             "REST endpoints for user management",
-        ))
+        ).await)
         .unwrap();
     notes
         .create(&make_note(
             "notesrc2",
             "Database Schema",
             "SQLite tables for user data",
-        ))
+        ).await)
         .unwrap();
     notes
         .create(&make_note(
             "notesrc3",
             "Frontend Guide",
             "React components for dashboard",
-        ))
+        ).await)
         .unwrap();
 
     // Search for "user" - should find 2 notes
@@ -867,9 +983,9 @@ fn note_search_fts() {
     assert!(results.is_empty());
 }
 
-#[test]
-fn note_link_and_get_repos() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_link_and_get_repos() {
+    let db = setup_db().await;
 
     // Create a repo
     let repos = db.repos();
@@ -885,7 +1001,7 @@ fn note_link_and_get_repos() {
     // Create a note
     let notes = db.notes();
     notes
-        .create(&make_note("notelrp1", "Linked Note", "Content"))
+        .create(&make_note("notelrp1", "Linked Note", "Content").await)
         .expect("Create should succeed");
 
     // Link repo to note
@@ -901,9 +1017,9 @@ fn note_link_and_get_repos() {
     assert_eq!(linked_repos[0].id, "reponot1");
 }
 
-#[test]
-fn note_link_and_get_projects() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_link_and_get_projects() {
+    let db = setup_db().await;
 
     // Get the default project
     let projects = db.projects();
@@ -917,7 +1033,7 @@ fn note_link_and_get_projects() {
     // Create a note
     let notes = db.notes();
     notes
-        .create(&make_note("notelpr1", "Project Note", "Content"))
+        .create(&make_note("notelpr1", "Project Note", "Content").await)
         .expect("Create should succeed");
 
     // Link project to note
@@ -939,9 +1055,9 @@ fn note_link_and_get_projects() {
 
 use crate::db::{ListQuery, SortOrder};
 
-#[test]
-fn note_list_paginated_limit_offset() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_paginated_limit_offset() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Create 10 notes with sequential timestamps
@@ -950,7 +1066,7 @@ fn note_list_paginated_limit_offset() {
             &format!("notepg{:02}", i),
             &format!("Note {}", i),
             &format!("Content {}", i),
-        );
+        ).await;
         note.created_at = format!("2025-01-01 00:00:{:02}", i);
         notes.create(&note).unwrap();
     }
@@ -983,21 +1099,21 @@ fn note_list_paginated_limit_offset() {
     assert_eq!(result.offset, 5);
 }
 
-#[test]
-fn note_list_paginated_sorting() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_paginated_sorting() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Create notes with different titles
-    let mut note_c = make_note("notesrt1", "Charlie", "Content");
+    let mut note_c = make_note("notesrt1", "Charlie", "Content").await;
     note_c.created_at = "2025-01-01 00:00:01".to_string();
     notes.create(&note_c).unwrap();
 
-    let mut note_a = make_note("notesrt2", "Alpha", "Content");
+    let mut note_a = make_note("notesrt2", "Alpha", "Content").await;
     note_a.created_at = "2025-01-01 00:00:02".to_string();
     notes.create(&note_a).unwrap();
 
-    let mut note_b = make_note("notesrt3", "Bravo", "Content");
+    let mut note_b = make_note("notesrt3", "Bravo", "Content").await;
     note_b.created_at = "2025-01-01 00:00:03".to_string();
     notes.create(&note_b).unwrap();
 
@@ -1040,9 +1156,9 @@ fn note_list_paginated_sorting() {
     assert_eq!(result.items[2].title, "Bravo"); // latest
 }
 
-#[test]
-fn project_list_paginated() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn project_list_paginated() {
+    let db = setup_db().await;
     let projects = db.projects();
 
     // Create additional projects (default already exists)
@@ -1072,14 +1188,14 @@ fn project_list_paginated() {
     assert_eq!(result.total, 6); // 5 + default
 }
 
-#[test]
-fn task_list_paginated() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_paginated() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
     // Create task lists
     for i in 0..8 {
-        let mut list = make_task_list(&format!("listpg{:02}", i), &format!("List {}", i));
+        let mut list = make_task_list(&format!("listpg{:02}", i), &format!("List {}", i)).await;
         list.created_at = format!("2025-01-01 00:00:{:02}", i);
         task_lists.create(&list).unwrap();
     }
@@ -1100,9 +1216,9 @@ fn task_list_paginated() {
     assert_eq!(result.offset, 2);
 }
 
-#[test]
-fn repo_list_paginated() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_list_paginated() {
+    let db = setup_db().await;
     let repos = db.repos();
 
     // Create repos
@@ -1132,14 +1248,14 @@ fn repo_list_paginated() {
     assert_eq!(result.items[1].id, "repopg04");
 }
 
-#[test]
-fn task_list_by_list_paginated() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_by_list_paginated() {
+    let db = setup_db().await;
 
     // Create a task list
     let task_lists = db.task_lists();
     task_lists
-        .create(&make_task_list("listpgtk", "Task Pagination Test"))
+        .create(&make_task_list("listpgtk", "Task Pagination Test").await)
         .unwrap();
 
     let tasks = db.tasks();
@@ -1150,7 +1266,7 @@ fn task_list_by_list_paginated() {
             &format!("taskpg{:02}", i),
             "listpgtk",
             &format!("Task {}", i),
-        );
+        ).await;
         task.created_at = format!("2025-01-01 00:00:{:02}", i);
         // Priority must be 1-5, so use modulo
         task.priority = Some(i % 5 + 1);
@@ -1186,9 +1302,9 @@ fn task_list_by_list_paginated() {
     assert_eq!(result.items[0].priority, Some(1));
 }
 
-#[test]
-fn note_search_paginated() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_search_paginated() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Create notes with searchable content (IDs must be exactly 8 chars)
@@ -1197,7 +1313,7 @@ fn note_search_paginated() {
             &format!("srp{:05}", i), // 8 chars: srp + 5 digits
             &format!("Rust Note {}", i),
             &format!("This is about Rust programming language {}", i),
-        );
+        ).await;
         notes.create(&note).unwrap();
     }
 
@@ -1207,7 +1323,7 @@ fn note_search_paginated() {
             "pyth0001",
             "Python Note",
             "This is about Python",
-        ))
+        ).await)
         .unwrap();
 
     // Search with pagination
@@ -1229,29 +1345,29 @@ fn note_search_paginated() {
 // Database-Level Tag Filtering Tests
 // =============================================================================
 
-#[test]
-fn note_list_paginated_with_tags() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_paginated_with_tags() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Create notes with different tags
-    let mut note1 = make_note("tagsnt01", "Work Note 1", "Content");
+    let mut note1 = make_note("tagsnt01", "Work Note 1", "Content").await;
     note1.tags = vec!["work".to_string(), "urgent".to_string()];
     notes.create(&note1).unwrap();
 
-    let mut note2 = make_note("tagsnt02", "Work Note 2", "Content");
+    let mut note2 = make_note("tagsnt02", "Work Note 2", "Content").await;
     note2.tags = vec!["work".to_string()];
     notes.create(&note2).unwrap();
 
-    let mut note3 = make_note("tagsnt03", "Personal Note", "Content");
+    let mut note3 = make_note("tagsnt03", "Personal Note", "Content").await;
     note3.tags = vec!["personal".to_string()];
     notes.create(&note3).unwrap();
 
-    let mut note4 = make_note("tagsnt04", "Urgent Personal", "Content");
+    let mut note4 = make_note("tagsnt04", "Urgent Personal", "Content").await;
     note4.tags = vec!["personal".to_string(), "urgent".to_string()];
     notes.create(&note4).unwrap();
 
-    let mut note5 = make_note("tagsnt05", "No Tags", "Content");
+    let mut note5 = make_note("tagsnt05", "No Tags", "Content").await;
     note5.tags = vec![];
     notes.create(&note5).unwrap();
 
@@ -1312,25 +1428,25 @@ fn note_list_paginated_with_tags() {
     assert_eq!(result.total, 5);
 }
 
-#[test]
-fn task_list_paginated_with_tags() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_paginated_with_tags() {
+    let db = setup_db().await;
     let task_lists = db.task_lists();
 
     // Create task lists with different tags
-    let mut list1 = make_task_list("taglst01", "Sprint 1");
+    let mut list1 = make_task_list("taglst01", "Sprint 1").await;
     list1.tags = vec!["sprint".to_string(), "q1".to_string()];
     task_lists.create(&list1).unwrap();
 
-    let mut list2 = make_task_list("taglst02", "Sprint 2");
+    let mut list2 = make_task_list("taglst02", "Sprint 2").await;
     list2.tags = vec!["sprint".to_string(), "q2".to_string()];
     task_lists.create(&list2).unwrap();
 
-    let mut list3 = make_task_list("taglst03", "Bug Fixes");
+    let mut list3 = make_task_list("taglst03", "Bug Fixes").await;
     list3.tags = vec!["bugs".to_string()];
     task_lists.create(&list3).unwrap();
 
-    let mut list4 = make_task_list("taglst04", "No Tags List");
+    let mut list4 = make_task_list("taglst04", "No Tags List").await;
     list4.tags = vec![];
     task_lists.create(&list4).unwrap();
 
@@ -1374,9 +1490,9 @@ fn task_list_paginated_with_tags() {
     assert_eq!(result.total, 4);
 }
 
-#[test]
-fn note_list_paginated_with_tags_and_pagination() {
-    let db = setup_db();
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_paginated_with_tags_and_pagination() {
+    let db = setup_db().await;
     let notes = db.notes();
 
     // Create 10 notes with "test" tag
@@ -1385,7 +1501,7 @@ fn note_list_paginated_with_tags_and_pagination() {
             &format!("pgtag{:03}", i),
             &format!("Test Note {}", i),
             "Content",
-        );
+        ).await;
         note.tags = vec!["test".to_string()];
         note.created_at = format!("2025-01-01 00:00:{:02}", i);
         notes.create(&note).unwrap();
@@ -1397,7 +1513,7 @@ fn note_list_paginated_with_tags_and_pagination() {
             &format!("pgoth{:03}", i),
             &format!("Other Note {}", i),
             "Content",
-        );
+        ).await;
         note.tags = vec!["other".to_string()];
         notes.create(&note).unwrap();
     }

@@ -35,11 +35,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = match &cli.db {
         Some(path) => {
             println!("Opening database at {:?}", path);
-            SqliteDatabase::open(path)?
+            SqliteDatabase::open(path).await?
         }
         None => {
             println!("Using in-memory database");
-            SqliteDatabase::in_memory()?
+            SqliteDatabase::in_memory().await?
         }
     };
 

@@ -150,7 +150,8 @@ pub async fn list_task_lists<D: Database>(
     let result = state
         .db()
         .task_lists()
-        .list_paginated(&db_query)
+        .list(Some(&db_query))
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -190,20 +191,25 @@ pub async fn get_task_list<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let list = state.db().task_lists().get(&id).map_err(|e| match e {
-        DbError::NotFound { .. } => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("TaskList '{}' not found", id),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
-    })?;
+    let list = state
+        .db()
+        .task_lists()
+        .get(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("TaskList '{}' not found", id),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
 
     Ok(Json(TaskListResponse::from(list)))
 }
@@ -234,12 +240,14 @@ pub async fn create_task_list<D: Database>(
         tags: req.tags,
         external_ref: req.external_ref,
         status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_ids: vec![],
         created_at: now.clone(),
         updated_at: now,
         archived_at: None,
     };
 
-    state.db().task_lists().create(&list).map_err(|e| {
+    state.db().task_lists().create(&list).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -269,20 +277,25 @@ pub async fn update_task_list<D: Database>(
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskListRequest>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut list = state.db().task_lists().get(&id).map_err(|e| match e {
-        DbError::NotFound { .. } => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("TaskList '{}' not found", id),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
-    })?;
+    let mut list = state
+        .db()
+        .task_lists()
+        .get(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("TaskList '{}' not found", id),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
 
     list.name = req.name;
     list.description = req.description;
@@ -300,7 +313,7 @@ pub async fn update_task_list<D: Database>(
         };
     }
 
-    state.db().task_lists().update(&list).map_err(|e| {
+    state.db().task_lists().update(&list).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -328,20 +341,25 @@ pub async fn delete_task_list<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.db().task_lists().delete(&id).map_err(|e| match e {
-        DbError::NotFound { .. } => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("TaskList '{}' not found", id),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
-    })?;
+    state
+        .db()
+        .task_lists()
+        .delete(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("TaskList '{}' not found", id),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

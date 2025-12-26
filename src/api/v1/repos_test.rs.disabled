@@ -1,4 +1,4 @@
-//! Integration tests for Task API endpoints.
+//! Integration tests for Repo API endpoints.
 
 use axum::{
     body::Body,
@@ -11,49 +11,32 @@ use tower::ServiceExt;
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 
-fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory().expect("Failed to create test database");
+/// Create a test app with an in-memory database
+async fn test_app() -> axum::Router {
+    let db = SqliteDatabase::in_memory().await.expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let state = AppState::new(db);
     routes::create_router(state)
 }
 
+/// Helper to parse JSON response body
 async fn json_body(response: axum::response::Response) -> Value {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&body).unwrap()
 }
 
-/// Helper to create a task list and return its ID
-async fn create_task_list(app: &axum::Router) -> String {
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Test List"})).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let body = json_body(response).await;
-    body["id"].as_str().unwrap().to_string()
-}
+// =============================================================================
+// GET /v1/repos - List Repos
+// =============================================================================
 
 #[tokio::test]
-async fn list_tasks_for_list() {
+async fn list_repos_initially_empty() {
     let app = test_app();
-    let list_id = create_task_list(&app).await;
 
-    // Initially empty
     let response = app
-        .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri("/v1/repos")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -61,57 +44,31 @@ async fn list_tasks_for_list() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+
     let body = json_body(response).await;
-    assert!(body["items"].as_array().unwrap().is_empty());
+    let repos = body["items"].as_array().expect("Expected items array");
+    assert!(repos.is_empty());
     assert_eq!(body["total"], 0);
-
-    // Create a task
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Do something"})).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Now has one task
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 1);
-    assert_eq!(body["total"], 1);
 }
 
+// =============================================================================
+// POST /v1/repos - Create Repo
+// =============================================================================
+
 #[tokio::test]
-async fn create_task_returns_created() {
+async fn create_repo_returns_created() {
     let app = test_app();
-    let list_id = create_task_list(&app).await;
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Complete the feature",
-                        "priority": 2,
-                        "status": "in_progress"
+                        "remote": "github:user/project",
+                        "path": "/home/user/project"
                     }))
                     .unwrap(),
                 ))
@@ -123,26 +80,27 @@ async fn create_task_returns_created() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Complete the feature");
-    assert_eq!(body["priority"], 2);
-    assert_eq!(body["status"], "in_progress");
-    assert_eq!(body["list_id"], list_id);
-    assert!(body["id"].as_str().unwrap().len() == 8);
+    assert_eq!(body["remote"], "github:user/project");
+    assert_eq!(body["path"], "/home/user/project");
+    assert!(body["id"].is_string());
+    assert_eq!(body["id"].as_str().unwrap().len(), 8);
 }
 
 #[tokio::test]
-async fn create_task_minimal() {
+async fn create_repo_without_path() {
     let app = test_app();
-    let list_id = create_task_list(&app).await;
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Quick task"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "remote": "github:minimal/repo"
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -152,26 +110,31 @@ async fn create_task_minimal() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Quick task");
-    assert_eq!(body["status"], "backlog");
-    assert!(body["priority"].is_null());
+    assert_eq!(body["remote"], "github:minimal/repo");
+    assert!(body["path"].is_null());
 }
 
-#[tokio::test]
-async fn get_task_returns_task() {
-    let app = test_app();
-    let list_id = create_task_list(&app).await;
+// =============================================================================
+// GET /v1/repos/{id} - Get Repo
+// =============================================================================
 
-    // Create
+#[tokio::test]
+async fn get_repo_returns_repo() {
+    let app = test_app();
+
+    // Create a repo first
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Test task"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "remote": "github:test/get-repo"
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -179,13 +142,13 @@ async fn get_task_returns_task() {
         .unwrap();
 
     let body = json_body(response).await;
-    let task_id = body["id"].as_str().unwrap();
+    let repo_id = body["id"].as_str().unwrap();
 
-    // Get
+    // Get that specific repo
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -193,19 +156,20 @@ async fn get_task_returns_task() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+
     let body = json_body(response).await;
-    assert_eq!(body["id"], task_id);
-    assert_eq!(body["content"], "Test task");
+    assert_eq!(body["id"], repo_id);
+    assert_eq!(body["remote"], "github:test/get-repo");
 }
 
 #[tokio::test]
-async fn get_task_not_found() {
+async fn get_repo_not_found() {
     let app = test_app();
 
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/tasks/nonexist")
+                .uri("/v1/repos/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -213,23 +177,32 @@ async fn get_task_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body = json_body(response).await;
+    assert!(body["error"].as_str().unwrap().contains("not found"));
 }
 
-#[tokio::test]
-async fn update_task_returns_updated() {
-    let app = test_app();
-    let list_id = create_task_list(&app).await;
+// =============================================================================
+// PUT /v1/repos/{id} - Update Repo
+// =============================================================================
 
-    // Create
+#[tokio::test]
+async fn update_repo_returns_updated() {
+    let app = test_app();
+
+    // Create a repo first
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Original"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "remote": "github:original/repo"
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -237,20 +210,19 @@ async fn update_task_returns_updated() {
         .unwrap();
 
     let body = json_body(response).await;
-    let task_id = body["id"].as_str().unwrap();
+    let repo_id = body["id"].as_str().unwrap();
 
-    // Update
+    // Update it
     let response = app
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Updated",
-                        "status": "done",
-                        "priority": 1
+                        "remote": "github:updated/repo",
+                        "path": "/new/path"
                     }))
                     .unwrap(),
                 ))
@@ -260,24 +232,28 @@ async fn update_task_returns_updated() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Updated");
-    assert_eq!(body["status"], "done");
-    assert_eq!(body["priority"], 1);
+    assert_eq!(body["remote"], "github:updated/repo");
+    assert_eq!(body["path"], "/new/path");
 }
 
 #[tokio::test]
-async fn update_task_not_found() {
+async fn update_repo_not_found() {
     let app = test_app();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/tasks/nonexist")
+                .uri("/v1/repos/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Wont work"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "remote": "github:wont/work",
+                        "path": null
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -287,21 +263,27 @@ async fn update_task_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
-async fn delete_task_returns_no_content() {
-    let app = test_app();
-    let list_id = create_task_list(&app).await;
+// =============================================================================
+// DELETE /v1/repos/{id} - Delete Repo
+// =============================================================================
 
-    // Create
+#[tokio::test]
+async fn delete_repo_returns_no_content() {
+    let app = test_app();
+
+    // Create a repo to delete
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "To delete"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "remote": "github:to/delete"
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -309,15 +291,15 @@ async fn delete_task_returns_no_content() {
         .unwrap();
 
     let body = json_body(response).await;
-    let task_id = body["id"].as_str().unwrap();
+    let repo_id = body["id"].as_str().unwrap();
 
-    // Delete
+    // Delete it
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -326,11 +308,11 @@ async fn delete_task_returns_no_content() {
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    // Verify gone
+    // Verify it's gone
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -341,14 +323,14 @@ async fn delete_task_returns_no_content() {
 }
 
 #[tokio::test]
-async fn delete_task_not_found() {
+async fn delete_repo_not_found() {
     let app = test_app();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/tasks/nonexist")
+                .uri("/v1/repos/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )

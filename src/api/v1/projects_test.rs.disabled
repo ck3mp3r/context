@@ -12,8 +12,8 @@ use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 
 /// Create a test app with an in-memory database
-fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory().expect("Failed to create test database");
+async fn test_app() -> axum::Router {
+    let db = SqliteDatabase::in_memory().await.expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let state = AppState::new(db);
     routes::create_router(state)

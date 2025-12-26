@@ -140,7 +140,8 @@ pub async fn list_tasks<D: Database>(
     let result = state
         .db()
         .tasks()
-        .list_by_list_paginated(&list_id, &db_query)
+        .list_by_list(&list_id, Some(&db_query))
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -176,7 +177,7 @@ pub async fn get_task<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let task = state.db().tasks().get(&id).map_err(|e| match e {
+    let task = state.db().tasks().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -238,7 +239,7 @@ pub async fn create_task<D: Database>(
         completed_at: None,
     };
 
-    state.db().tasks().create(&task).map_err(|e| {
+    state.db().tasks().create(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -268,7 +269,7 @@ pub async fn update_task<D: Database>(
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut task = state.db().tasks().get(&id).map_err(|e| match e {
+    let mut task = state.db().tasks().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -302,7 +303,7 @@ pub async fn update_task<D: Database>(
         task.status = new_status;
     }
 
-    state.db().tasks().update(&task).map_err(|e| {
+    state.db().tasks().update(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -330,7 +331,7 @@ pub async fn delete_task<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.db().tasks().delete(&id).map_err(|e| match e {
+    state.db().tasks().delete(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {

@@ -168,14 +168,16 @@ pub async fn list_notes<D: Database>(
             state
                 .db()
                 .notes()
-                .search_paginated(q, &db_query)
+                .search(q, Some(&db_query))
+                .await
                 .map_err(internal_error)?
         }
     } else {
         state
             .db()
             .notes()
-            .list_paginated(&db_query)
+            .list(Some(&db_query))
+            .await
             .map_err(internal_error)?
     };
 
@@ -205,7 +207,7 @@ pub async fn get_note<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let note = state.db().notes().get(&id).map_err(|e| match e {
+    let note = state.db().notes().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -257,7 +259,7 @@ pub async fn create_note<D: Database>(
         updated_at: now,
     };
 
-    state.db().notes().create(&note).map_err(|e| {
+    state.db().notes().create(&note).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -287,7 +289,7 @@ pub async fn update_note<D: Database>(
     Path(id): Path<String>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut note = state.db().notes().get(&id).map_err(|e| match e {
+    let mut note = state.db().notes().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -310,7 +312,7 @@ pub async fn update_note<D: Database>(
         note.note_type = parse_note_type(&note_type_str);
     }
 
-    state.db().notes().update(&note).map_err(|e| {
+    state.db().notes().update(&note).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -338,7 +340,7 @@ pub async fn delete_note<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.db().notes().delete(&id).map_err(|e| match e {
+    state.db().notes().delete(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {

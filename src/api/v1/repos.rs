@@ -127,14 +127,19 @@ pub async fn list_repos<D: Database>(
         tags: None, // Repos don't have tags
     };
 
-    let result = state.db().repos().list_paginated(&db_query).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    let result = state
+        .db()
+        .repos()
+        .list(Some(&db_query))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
     let items: Vec<RepoResponse> = result.items.into_iter().map(RepoResponse::from).collect();
 
@@ -167,7 +172,7 @@ pub async fn get_repo<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let repo = state.db().repos().get(&id).map_err(|e| match e {
+    let repo = state.db().repos().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -214,7 +219,7 @@ pub async fn create_repo<D: Database>(
         created_at: now,
     };
 
-    state.db().repos().create(&repo).map_err(|e| {
+    state.db().repos().create(&repo).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -250,7 +255,7 @@ pub async fn update_repo<D: Database>(
     Json(req): Json<UpdateRepoRequest>,
 ) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
     // First get the existing repo
-    let mut repo = state.db().repos().get(&id).map_err(|e| match e {
+    let mut repo = state.db().repos().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -269,7 +274,7 @@ pub async fn update_repo<D: Database>(
     repo.remote = req.remote;
     repo.path = req.path;
 
-    state.db().repos().update(&repo).map_err(|e| {
+    state.db().repos().update(&repo).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -302,7 +307,7 @@ pub async fn delete_repo<D: Database>(
     State(state): State<AppState<D>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.db().repos().delete(&id).map_err(|e| match e {
+    state.db().repos().delete(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
