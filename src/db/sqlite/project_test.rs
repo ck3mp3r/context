@@ -228,3 +228,111 @@ async fn project_list_with_tag_filter() {
     assert_eq!(result.items.len(), 1);
     assert_eq!(result.items[0].title, "Python Backend");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn project_get_loads_all_relationships() {
+    let db = setup_db().await;
+    let projects = db.projects();
+
+    // Create repos first (for foreign key constraints)
+    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind("repo0001")
+        .bind("https://github.com/test/repo1")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert repo should succeed");
+
+    // Create task list first
+    sqlx::query("INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("list0001")
+        .bind("Test List")
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind("[]")
+        .bind(None::<String>)
+        .bind("active")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert task list should succeed");
+
+    // Create note first
+    sqlx::query("INSERT INTO note (id, title, content, tags, note_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind("note0001")
+        .bind("Test Note")
+        .bind("Content")
+        .bind("[]")
+        .bind("manual")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert note should succeed");
+
+    // Create a project
+    let project = Project {
+        id: "projrel1".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    projects
+        .create(&project)
+        .await
+        .expect("Create should succeed");
+
+    // Insert relationships into junction tables
+    sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
+        .bind("projrel1")
+        .bind("repo0001")
+        .execute(db.pool())
+        .await
+        .expect("Insert project_repo should succeed");
+
+    sqlx::query("INSERT INTO project_task_list (project_id, task_list_id) VALUES (?, ?)")
+        .bind("projrel1")
+        .bind("list0001")
+        .execute(db.pool())
+        .await
+        .expect("Insert project_task_list should succeed");
+
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("projrel1")
+        .bind("note0001")
+        .execute(db.pool())
+        .await
+        .expect("Insert project_note should succeed");
+
+    // Get project and verify relationships are loaded
+    let retrieved = projects.get("projrel1").await.expect("Get should succeed");
+
+    assert_eq!(
+        retrieved.repo_ids.len(),
+        1,
+        "Should load 1 repo relationship"
+    );
+    assert!(retrieved.repo_ids.contains(&"repo0001".to_string()));
+
+    assert_eq!(
+        retrieved.task_list_ids.len(),
+        1,
+        "Should load 1 task list relationship"
+    );
+    assert!(retrieved.task_list_ids.contains(&"list0001".to_string()));
+
+    assert_eq!(
+        retrieved.note_ids.len(),
+        1,
+        "Should load 1 note relationship"
+    );
+    assert!(retrieved.note_ids.contains(&"note0001".to_string()));
+}
