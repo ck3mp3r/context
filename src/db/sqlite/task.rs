@@ -195,6 +195,39 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     }
 
     async fn update(&self, task: &Task) -> DbResult<()> {
+        // Fetch current task to detect status transitions
+        let current = self.get(&task.id).await?;
+
+        let mut task = task.clone();
+
+        // Auto-manage timestamps based on status transitions
+        if task.status != current.status {
+            match task.status {
+                TaskStatus::InProgress => {
+                    // Starting work - set started_at only if not already set (idempotent)
+                    if task.started_at.is_none() {
+                        task.started_at = Some(current_timestamp());
+                    }
+                    // Clear completed_at if reverting from done
+                    if current.status == TaskStatus::Done {
+                        task.completed_at = None;
+                    }
+                }
+                TaskStatus::Done => {
+                    // Completing task - set completed_at only if not already set (idempotent)
+                    if task.completed_at.is_none() {
+                        task.completed_at = Some(current_timestamp());
+                    }
+                }
+                _ => {
+                    // Moving to any other status from done - clear completed_at
+                    if current.status == TaskStatus::Done {
+                        task.completed_at = None;
+                    }
+                }
+            }
+        }
+
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 

@@ -355,3 +355,308 @@ async fn task_list_with_tag_filter() {
     assert!(results.items.is_empty());
     assert_eq!(results.total, 0);
 }
+
+// =============================================================================
+// Auto-timestamp tests for status transitions
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_status_to_done_sets_completed_at() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(), // Auto-generate
+            name: "Timestamp Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    // Create task in todo status
+    let created = tasks
+        .create(&Task {
+            id: String::new(), // Auto-generate
+            list_id: list.id.clone(),
+            parent_id: None,
+            content: "Task to complete".to_string(),
+            status: TaskStatus::Todo,
+            priority: None,
+            tags: vec![],
+            created_at: String::new(),
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.status, TaskStatus::Todo);
+    assert!(created.completed_at.is_none());
+
+    // Update status to done
+    let mut updated = created.clone();
+    updated.status = TaskStatus::Done;
+    tasks.update(&updated).await.expect("Update should succeed");
+
+    // completed_at should be auto-set
+    let after = tasks.get(&created.id).await.expect("Get should succeed");
+    assert_eq!(after.status, TaskStatus::Done);
+    assert!(
+        after.completed_at.is_some(),
+        "completed_at should be auto-set when status changes to done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_status_to_done_twice_is_idempotent() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "Idempotent Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    let created = tasks
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            parent_id: None,
+            content: "Task".to_string(),
+            status: TaskStatus::Todo,
+            priority: None,
+            tags: vec![],
+            created_at: String::new(),
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    // First: mark as done
+    let mut first = created.clone();
+    first.status = TaskStatus::Done;
+    tasks.update(&first).await.expect("Update should succeed");
+
+    let after_first = tasks.get(&created.id).await.expect("Get should succeed");
+    let first_completed_at = after_first.completed_at.clone();
+    assert!(first_completed_at.is_some());
+
+    // Second: mark as done again
+    let mut second = after_first.clone();
+    second.status = TaskStatus::Done;
+    tasks.update(&second).await.expect("Update should succeed");
+
+    let after_second = tasks.get(&created.id).await.expect("Get should succeed");
+
+    // completed_at should be unchanged (idempotent)
+    assert_eq!(
+        after_second.completed_at, first_completed_at,
+        "completed_at should not change when status is already done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_status_to_in_progress_sets_started_at() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "Start Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    // Create task in backlog
+    let created = tasks
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            parent_id: None,
+            content: "Task to start".to_string(),
+            status: TaskStatus::Backlog,
+            priority: None,
+            tags: vec![],
+            created_at: String::new(),
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.status, TaskStatus::Backlog);
+    assert!(created.started_at.is_none());
+
+    // Update status to in_progress
+    let mut updated = created.clone();
+    updated.status = TaskStatus::InProgress;
+    tasks.update(&updated).await.expect("Update should succeed");
+
+    // started_at should be auto-set
+    let after = tasks.get(&created.id).await.expect("Get should succeed");
+    assert_eq!(after.status, TaskStatus::InProgress);
+    assert!(
+        after.started_at.is_some(),
+        "started_at should be auto-set when status changes to in_progress"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "Revert Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    // Create task that's already done
+    let created = tasks
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            parent_id: None,
+            content: "Done task".to_string(),
+            status: TaskStatus::Done,
+            priority: None,
+            tags: vec![],
+            created_at: String::new(),
+            started_at: None,
+            completed_at: Some("2025-01-01 12:00:00".to_string()),
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.status, TaskStatus::Done);
+    assert!(created.completed_at.is_some());
+
+    // Revert to in_progress
+    let mut updated = created.clone();
+    updated.status = TaskStatus::InProgress;
+    tasks.update(&updated).await.expect("Update should succeed");
+
+    // completed_at should be cleared
+    let after = tasks.get(&created.id).await.expect("Get should succeed");
+    assert_eq!(after.status, TaskStatus::InProgress);
+    assert!(
+        after.completed_at.is_none(),
+        "completed_at should be cleared when reverting from done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_other_fields_preserves_timestamps() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "Preserve Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    // Create task that's in progress
+    let created = tasks
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            parent_id: None,
+            content: "Active task".to_string(),
+            status: TaskStatus::InProgress,
+            priority: None,
+            tags: vec![],
+            created_at: String::new(),
+            started_at: Some("2025-01-01 10:00:00".to_string()),
+            completed_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    let original_started_at = created.started_at.clone();
+
+    // Update other fields (content, priority) without changing status
+    let mut updated = created.clone();
+    updated.content = "Updated content".to_string();
+    updated.priority = Some(5);
+    tasks.update(&updated).await.expect("Update should succeed");
+
+    // started_at should be preserved
+    let after = tasks.get(&created.id).await.expect("Get should succeed");
+    assert_eq!(after.content, "Updated content");
+    assert_eq!(after.priority, Some(5));
+    assert_eq!(
+        after.started_at, original_started_at,
+        "started_at should be preserved when status doesn't change"
+    );
+}
