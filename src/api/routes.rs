@@ -8,9 +8,10 @@ use utoipa_scalar::{Scalar, Servable};
 use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::v1::{
-    CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest, CreateTaskRequest,
-    ErrorResponse, ProjectResponse, RepoResponse, TaskListResponse, TaskResponse,
-    UpdateProjectRequest, UpdateRepoRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
+    CreateTaskRequest, ErrorResponse, NoteResponse, ProjectResponse, RepoResponse,
+    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    UpdateTaskListRequest, UpdateTaskRequest,
 };
 use crate::db::Database;
 
@@ -62,6 +63,12 @@ macro_rules! routes {
         super::v1::create_task,
         super::v1::update_task,
         super::v1::delete_task,
+        super::v1::list_notes,
+        super::v1::get_note,
+        super::v1::create_note,
+        super::v1::update_note,
+        super::v1::delete_note,
+        super::v1::search_notes,
     ),
     components(
         schemas(
@@ -78,6 +85,9 @@ macro_rules! routes {
             TaskResponse,
             CreateTaskRequest,
             UpdateTaskRequest,
+            NoteResponse,
+            CreateNoteRequest,
+            UpdateNoteRequest,
             ErrorResponse,
         )
     ),
@@ -86,7 +96,8 @@ macro_rules! routes {
         (name = "projects", description = "Project management endpoints"),
         (name = "repos", description = "Repository management endpoints"),
         (name = "task-lists", description = "Task list management endpoints"),
-        (name = "tasks", description = "Task management endpoints")
+        (name = "tasks", description = "Task management endpoints"),
+        (name = "notes", description = "Note management endpoints with FTS search")
     )
 )]
 pub struct ApiDoc;
@@ -126,6 +137,13 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         get "/v1/tasks/{id}" => super::v1::get_task,
         put "/v1/tasks/{id}" => super::v1::update_task,
         delete "/v1/tasks/{id}" => super::v1::delete_task,
+        // Notes
+        get "/v1/notes" => super::v1::list_notes,
+        get "/v1/notes/search" => super::v1::search_notes,
+        get "/v1/notes/{id}" => super::v1::get_note,
+        post "/v1/notes" => super::v1::create_note,
+        put "/v1/notes/{id}" => super::v1::update_note,
+        delete "/v1/notes/{id}" => super::v1::delete_note,
     });
 
     system_routes
