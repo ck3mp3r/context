@@ -2,6 +2,38 @@
 
 use crate::db::{ListQuery, SortOrder};
 
+/// Tag filter result containing the WHERE clause fragment and bind values.
+pub struct TagFilter {
+    /// SQL WHERE clause fragment (e.g., "(json_each.value IN (?, ?))").
+    /// Empty string if no tags to filter.
+    pub where_clause: String,
+    /// Values to bind for the placeholders.
+    pub bind_values: Vec<String>,
+}
+
+/// Build a tag filter clause for JSON array stored tags.
+///
+/// SQLite stores tags as JSON arrays like `["rust", "programming"]`.
+/// This uses json_each to match if ANY tag in the filter matches ANY tag in the record.
+///
+/// Returns the WHERE clause fragment and bind values. The caller must join
+/// using `json_each(tags)` in the FROM clause when there are tags to filter.
+pub fn build_tag_filter(query: &ListQuery) -> TagFilter {
+    match &query.tags {
+        Some(tags) if !tags.is_empty() => {
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            TagFilter {
+                where_clause: format!("json_each.value IN ({})", placeholders.join(", ")),
+                bind_values: tags.clone(),
+            }
+        }
+        _ => TagFilter {
+            where_clause: String::new(),
+            bind_values: vec![],
+        },
+    }
+}
+
 /// Validate and map a sort field to the actual column name.
 /// Returns None for invalid fields (falls back to default).
 pub fn validate_sort_field(field: &str, allowed: &[&str]) -> Option<&'static str> {

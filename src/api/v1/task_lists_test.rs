@@ -105,7 +105,6 @@ async fn list_task_lists_with_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "Tag filtering not yet implemented in repository layer"]
 async fn list_task_lists_with_tag_filter() {
     let app = test_app().await;
 

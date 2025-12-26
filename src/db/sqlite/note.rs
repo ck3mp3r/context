@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause};
+use super::helpers::{build_limit_offset_clause, build_order_clause, build_tag_filter};
 use crate::db::{DbError, DbResult, ListQuery, ListResult, Note, NoteRepository, NoteType};
 
 /// SQLx-backed note repository.
@@ -89,18 +89,45 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["title", "created_at", "updated_at"];
 
-        // Build query with pagination and sorting
+        // Build query components
         let order_clause = build_order_clause(query, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(query);
+        let tag_filter = build_tag_filter(query);
 
-        let sql = format!(
-            "SELECT id, title, content, tags, note_type, created_at, updated_at 
-             FROM note {} {}",
-            order_clause, limit_clause
-        );
+        // Build query with optional tag filtering
+        let (sql, count_sql) = if tag_filter.where_clause.is_empty() {
+            // No tag filtering
+            (
+                format!(
+                    "SELECT id, title, content, tags, note_type, created_at, updated_at 
+                     FROM note {} {}",
+                    order_clause, limit_clause
+                ),
+                "SELECT COUNT(*) FROM note".to_string(),
+            )
+        } else {
+            // With tag filtering using json_each
+            (
+                format!(
+                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
+                     FROM note n, json_each(n.tags)
+                     WHERE {} {} {}",
+                    tag_filter.where_clause, order_clause, limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE {}",
+                    tag_filter.where_clause
+                ),
+            )
+        };
 
         // Get paginated results
-        let rows = sqlx::query(&sql)
+        let mut query_builder = sqlx::query(&sql);
+        for tag in &tag_filter.bind_values {
+            query_builder = query_builder.bind(tag);
+        }
+
+        let rows = query_builder
             .fetch_all(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -131,7 +158,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .collect();
 
         // Get total count
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM note")
+        let mut count_query = sqlx::query_scalar(&count_sql);
+        for tag in &tag_filter.bind_values {
+            count_query = count_query.bind(tag);
+        }
+
+        let total: i64 = count_query
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {

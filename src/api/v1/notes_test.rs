@@ -530,7 +530,6 @@ async fn delete_note_not_found() {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "Tag filtering not yet implemented in repository layer"]
 async fn list_notes_with_tag_filter() {
     let app = test_app().await;
 
