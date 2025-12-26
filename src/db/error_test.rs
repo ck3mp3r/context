@@ -1,6 +1,6 @@
 //! Tests for database error types.
 
-use crate::db::{DbError, DbResult};
+use crate::db::DbError;
 
 #[test]
 fn not_found_error_displays_correctly() {
@@ -32,7 +32,10 @@ fn invalid_data_error_displays_correctly() {
         message: "title cannot be empty".to_string(),
         help: "Provide a non-empty title".to_string(),
     };
-    assert_eq!(err.to_string(), "Invalid data: title cannot be empty");
+    assert_eq!(
+        err.to_string(),
+        "Invalid data: title cannot be empty (hint: Provide a non-empty title)"
+    );
 }
 
 #[test]
@@ -60,19 +63,4 @@ fn connection_error_displays_correctly() {
         message: "unable to open database".to_string(),
     };
     assert_eq!(err.to_string(), "Connection error: unable to open database");
-}
-
-#[test]
-fn db_result_ok_returns_value() {
-    let result: DbResult<i32> = Ok(42);
-    assert_eq!(result.unwrap(), 42);
-}
-
-#[test]
-fn db_result_err_returns_error() {
-    let result: DbResult<i32> = Err(DbError::NotFound {
-        entity_type: "task".to_string(),
-        id: "12345678".to_string(),
-    });
-    assert!(result.is_err());
 }

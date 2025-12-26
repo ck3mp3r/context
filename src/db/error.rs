@@ -18,8 +18,8 @@ pub enum DbError {
     #[diagnostic(code(context::db::already_exists))]
     AlreadyExists { entity_type: String, id: String },
 
-    #[error("Invalid data: {message}")]
-    #[diagnostic(code(context::db::invalid_data), help("{help}"))]
+    #[error("Invalid data: {message} (hint: {help})")]
+    #[diagnostic(code(context::db::invalid_data))]
     InvalidData { message: String, help: String },
 
     #[error("Database error: {message}")]
@@ -27,17 +27,11 @@ pub enum DbError {
     Database { message: String },
 
     #[error("Migration error: {message}")]
-    #[diagnostic(
-        code(context::db::migration_error),
-        help("Check your migration files and database state")
-    )]
+    #[diagnostic(code(context::db::migration_error))]
     Migration { message: String },
 
     #[error("Connection error: {message}")]
-    #[diagnostic(
-        code(context::db::connection_error),
-        help("Verify the database path and permissions")
-    )]
+    #[diagnostic(code(context::db::connection_error))]
     Connection { message: String },
 }
 
