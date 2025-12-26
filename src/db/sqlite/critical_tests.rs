@@ -1,8 +1,7 @@
-//! Critical M:N relationship tests for SQLx migration verification.
+//! Critical integration tests for relationship handling.
 
 use crate::db::{
-    Database, ProjectRepository, Repo, RepoRepository, SqliteDatabase, TaskList, TaskListQuery,
-    TaskListRepository, TaskListStatus,
+    Database, SqliteDatabase, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
 
 async fn setup_db() -> SqliteDatabase {
@@ -16,124 +15,155 @@ async fn setup_db() -> SqliteDatabase {
 #[tokio::test(flavor = "multi_thread")]
 async fn task_list_create_with_relationships() {
     let db = setup_db().await;
-
-    // Create a repo first
-    let repos = db.repos();
-    repos
-        .create(&Repo {
-            id: "reporel1".to_string(),
-            remote: "github:test/rel-repo".to_string(),
-            path: None,
-            tags: vec![],
-            project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:00".to_string(),
-        })
-        .await
-        .expect("Create repo should succeed");
-
-    // Get the default project
-    let projects = db.projects();
-    let list_result = projects.list(None).await.unwrap();
-    let default_project = list_result
-        .items
-        .into_iter()
-        .find(|p| p.title == "Default")
-        .unwrap();
-
-    // Create a task list with relationships
     let task_lists = db.task_lists();
-    let list = TaskList {
-        id: "listrel1".to_string(),
-        name: "List With Relations".to_string(),
-        description: None,
-        notes: None,
-        tags: vec![],
-        external_ref: None,
-        status: TaskListStatus::Active,
-        repo_ids: vec!["reporel1".to_string()],
-        project_ids: vec![default_project.id.clone()],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
-        archived_at: None,
-    };
 
+    // Create prerequisite repo and project for relationships
+    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind("repo0001")
+        .bind("https://github.com/test/repo")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert repo should succeed");
+
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0001")
+        .bind("Test Project")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert project should succeed");
+
+    // Create task list with relationships
     task_lists
-        .create(&list)
+        .create(&TaskList {
+            id: "list0001".to_string(),
+            name: "Test List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec!["repo0001".to_string()],
+            project_ids: vec!["proj0001".to_string()],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
         .await
         .expect("Create should succeed");
 
-    // Retrieve and verify relationships are persisted
+    // Verify relationships were persisted
     let retrieved = task_lists
-        .get("listrel1")
+        .get("list0001")
         .await
         .expect("Get should succeed");
-    assert_eq!(retrieved.repo_ids, vec!["reporel1".to_string()]);
-    assert_eq!(retrieved.project_ids, vec![default_project.id]);
+    assert_eq!(retrieved.repo_ids.len(), 1);
+    assert_eq!(retrieved.repo_ids[0], "repo0001");
+    assert_eq!(retrieved.project_ids.len(), 1);
+    assert_eq!(retrieved.project_ids[0], "proj0001");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn task_list_update_replaces_relationships() {
     let db = setup_db().await;
-
-    // Create two repos
-    let repos = db.repos();
-    repos
-        .create(&Repo {
-            id: "repoupd1".to_string(),
-            remote: "github:test/upd-repo1".to_string(),
-            path: None,
-            tags: vec![],
-            project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:00".to_string(),
-        })
-        .await
-        .expect("Create repo1 should succeed");
-    repos
-        .create(&Repo {
-            id: "repoupd2".to_string(),
-            remote: "github:test/upd-repo2".to_string(),
-            path: None,
-            tags: vec![],
-            project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:00".to_string(),
-        })
-        .await
-        .expect("Create repo2 should succeed");
-
-    // Create task list with first repo
     let task_lists = db.task_lists();
-    let mut list = TaskList {
-        id: "listupdr".to_string(),
-        name: "List To Update".to_string(),
-        description: None,
-        notes: None,
-        tags: vec![],
-        external_ref: None,
-        status: TaskListStatus::Active,
-        repo_ids: vec!["repoupd1".to_string()],
-        project_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
-        archived_at: None,
-    };
+
+    // Create prerequisite repos and projects
+    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind("repo0001")
+        .bind("https://github.com/test/repo1")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert repo1 should succeed");
+
+    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind("repo0002")
+        .bind("https://github.com/test/repo2")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert repo2 should succeed");
+
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0001")
+        .bind("Project 1")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert project1 should succeed");
+
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0002")
+        .bind("Project 2")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert project2 should succeed");
+
+    // Create task list with initial relationships
     task_lists
-        .create(&list)
+        .create(&TaskList {
+            id: "listupd1".to_string(),
+            name: "Test List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec!["repo0001".to_string()],
+            project_ids: vec!["proj0001".to_string()],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
         .await
         .expect("Create should succeed");
 
-    // Update to use second repo instead (replacement semantics)
-    list.repo_ids = vec!["repoupd2".to_string()];
+    // Update with different relationships
     task_lists
-        .update(&list)
+        .update(&TaskList {
+            id: "listupd1".to_string(),
+            name: "Updated List".to_string(),
+            description: Some("Updated".to_string()),
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec!["repo0002".to_string()],
+            project_ids: vec!["proj0002".to_string()],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:01".to_string(),
+            archived_at: None,
+        })
         .await
         .expect("Update should succeed");
 
     // Verify relationships were replaced
     let retrieved = task_lists
-        .get("listupdr")
+        .get("listupd1")
         .await
         .expect("Get should succeed");
-    assert_eq!(retrieved.repo_ids, vec!["repoupd2".to_string()]);
+    assert_eq!(retrieved.repo_ids.len(), 1);
+    assert_eq!(retrieved.repo_ids[0], "repo0002");
+    assert_eq!(retrieved.project_ids.len(), 1);
+    assert_eq!(retrieved.project_ids[0], "proj0002");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -141,24 +171,25 @@ async fn task_list_create_validates_repo_ids() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
 
-    // Try to create with non-existent repo_id
-    let list = TaskList {
-        id: "listval1".to_string(),
-        name: "Invalid List".to_string(),
-        description: None,
-        notes: None,
-        tags: vec![],
-        external_ref: None,
-        status: TaskListStatus::Active,
-        repo_ids: vec!["nonexist".to_string()],
-        project_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
-        archived_at: None,
-    };
+    // Attempt to create task list with non-existent repo
+    let result = task_lists
+        .create(&TaskList {
+            id: "invalid1".to_string(),
+            name: "Invalid List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec!["nonexist".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await;
 
-    let result = task_lists.create(&list).await;
-    assert!(result.is_err(), "Should reject invalid repo_id");
+    assert!(result.is_err(), "Should fail with invalid repo_id");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -166,24 +197,25 @@ async fn task_list_create_validates_project_ids() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
 
-    // Try to create with non-existent project_id
-    let list = TaskList {
-        id: "listval2".to_string(),
-        name: "Invalid List".to_string(),
-        description: None,
-        notes: None,
-        tags: vec![],
-        external_ref: None,
-        status: TaskListStatus::Active,
-        repo_ids: vec![],
-        project_ids: vec!["nonexist".to_string()],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
-        archived_at: None,
-    };
+    // Attempt to create task list with non-existent project
+    let result = task_lists
+        .create(&TaskList {
+            id: "invalid2".to_string(),
+            name: "Invalid List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec!["nonexist".to_string()],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await;
 
-    let result = task_lists.create(&list).await;
-    assert!(result.is_err(), "Should reject invalid project_id");
+    assert!(result.is_err(), "Should fail with invalid project_id");
 }
 
 #[tokio::test(flavor = "multi_thread")]
