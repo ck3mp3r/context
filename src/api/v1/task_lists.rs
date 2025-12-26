@@ -34,6 +34,10 @@ pub struct TaskListResponse {
     pub external_ref: Option<String>,
     #[schema(example = "active")]
     pub status: String,
+    /// Repository IDs linked to this task list
+    pub repo_ids: Vec<String>,
+    /// Project IDs linked to this task list
+    pub project_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
     pub archived_at: Option<String>,
@@ -52,6 +56,8 @@ impl From<TaskList> for TaskListResponse {
                 TaskListStatus::Active => "active".to_string(),
                 TaskListStatus::Archived => "archived".to_string(),
             },
+            repo_ids: t.repo_ids,
+            project_ids: t.project_ids,
             created_at: t.created_at,
             updated_at: t.updated_at,
             archived_at: t.archived_at,
@@ -81,6 +87,12 @@ pub struct UpdateTaskListRequest {
     pub external_ref: Option<String>,
     #[schema(example = "active")]
     pub status: Option<String>,
+    /// Repository IDs to link to this task list
+    #[serde(default)]
+    pub repo_ids: Vec<String>,
+    /// Project IDs to link to this task list  
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -311,6 +323,8 @@ pub async fn update_task_list<D: Database>(
     list.notes = req.notes;
     list.tags = req.tags;
     list.external_ref = req.external_ref;
+    list.repo_ids = req.repo_ids;
+    list.project_ids = req.project_ids;
 
     if let Some(status) = req.status {
         list.status = match status.as_str() {

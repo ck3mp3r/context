@@ -490,3 +490,116 @@ async fn delete_task_list_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_list_handles_relationships() {
+    let app = test_app().await;
+
+    // First create a project and repo to link to
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "title": "Test Project",
+                        "description": "For relationship testing"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap();
+
+    let repo_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "remote": "github:user/test-repo",
+                        "path": "/test/path"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let repo_body = json_body(repo_response).await;
+    let repo_id = repo_body["id"].as_str().unwrap();
+
+    // Create task list without relationships
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "Test TaskList",
+                        "description": "For relationship testing"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let create_body = json_body(create_response).await;
+    let task_list_id = create_body["id"].as_str().unwrap();
+
+    // Update task list WITH relationships - this should work but currently doesn't
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/task-lists/{}", task_list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "Updated TaskList with Relationships",
+                        "description": "Testing relationship updates",
+                        "repo_ids": [repo_id],
+                        "project_ids": [project_id]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Verify the task list was updated
+    assert_eq!(body["name"], "Updated TaskList with Relationships");
+    assert_eq!(body["description"], "Testing relationship updates");
+
+    // Verify relationships are included and correct
+    assert!(
+        body["repo_ids"].is_array(),
+        "repo_ids should be included in response"
+    );
+    assert!(
+        body["project_ids"].is_array(),
+        "project_ids should be included in response"
+    );
+
+    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["repo_ids"][0], repo_id);
+    assert_eq!(body["project_ids"][0], project_id);
+}
