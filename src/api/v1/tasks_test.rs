@@ -218,11 +218,11 @@ async fn get_task_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn update_task_returns_updated() {
+async fn update_task_with_tags() {
     let app = test_app().await;
     let list_id = create_task_list(&app).await;
 
-    // Create
+    // Create a task
     let response = app
         .clone()
         .oneshot(
@@ -231,17 +231,20 @@ async fn update_task_returns_updated() {
                 .uri(format!("/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Original"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "content": "Test task"
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    let body = json_body(response).await;
-    let task_id = body["id"].as_str().unwrap();
+    let task_body = json_body(response).await;
+    let task_id = task_body["id"].as_str().unwrap();
 
-    // Update
+    // Update task with tags
     let response = app
         .oneshot(
             Request::builder()
@@ -250,9 +253,10 @@ async fn update_task_returns_updated() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Updated",
-                        "status": "done",
-                        "priority": 1
+                        "content": "Updated task content",
+                        "status": "todo",
+                        "priority": 2,
+                        "tags": ["urgent", "bug-fix"]
                     }))
                     .unwrap(),
                 ))
@@ -262,10 +266,13 @@ async fn update_task_returns_updated() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Updated");
-    assert_eq!(body["status"], "done");
-    assert_eq!(body["priority"], 1);
+    assert_eq!(body["content"], "Updated task content");
+    assert!(body["tags"].is_array());
+    assert_eq!(body["tags"].as_array().unwrap().len(), 2);
+    assert!(body["tags"].as_array().unwrap().contains(&json!("urgent")));
+    assert!(body["tags"].as_array().unwrap().contains(&json!("bug-fix")));
 }
 
 #[tokio::test(flavor = "multi_thread")]
