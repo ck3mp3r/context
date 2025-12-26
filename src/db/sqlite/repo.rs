@@ -3,7 +3,7 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
-use crate::db::{DbError, DbResult, ListQuery, ListResult, Repo, RepoRepository};
+use crate::db::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
 
 /// SQLx-backed repo repository.
 pub struct SqliteRepoRepository<'a> {
@@ -48,21 +48,19 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         })
     }
 
-    async fn list(&self, query: Option<&ListQuery>) -> DbResult<ListResult<Repo>> {
-        let default_query = ListQuery::default();
+    async fn list(&self, query: Option<&RepoQuery>) -> DbResult<ListResult<Repo>> {
+        let default_query = RepoQuery::default();
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["remote", "path", "created_at"];
 
-        // Build query with pagination and sorting
-        let order_clause = build_order_clause(query, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(query);
+        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        let limit_clause = build_limit_offset_clause(&query.page);
 
         let sql = format!(
             "SELECT id, remote, path, created_at FROM repo {} {}",
             order_clause, limit_clause
         );
 
-        // Get paginated results
         let rows = sqlx::query(&sql)
             .fetch_all(self.pool)
             .await
@@ -80,7 +78,6 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             })
             .collect();
 
-        // Get total count
         let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM repo")
             .fetch_one(self.pool)
             .await
@@ -91,8 +88,8 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         Ok(ListResult {
             items,
             total: total as usize,
-            limit: query.limit,
-            offset: query.offset.unwrap_or(0),
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
         })
     }
 

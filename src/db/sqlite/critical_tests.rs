@@ -1,7 +1,7 @@
 //! Critical M:N relationship tests for SQLx migration verification.
 
 use crate::db::{
-    Database, ListQuery, ProjectRepository, Repo, RepoRepository, SqliteDatabase, TaskList,
+    Database, ProjectRepository, Repo, RepoRepository, SqliteDatabase, TaskList, TaskListQuery,
     TaskListRepository, TaskListStatus,
 };
 
@@ -223,7 +223,7 @@ async fn task_list_list_with_tag_filter() {
         .expect("Create should succeed");
 
     // Filter by "work" tag - should find 1
-    let query = ListQuery {
+    let query = TaskListQuery {
         tags: Some(vec!["work".to_string()]),
         ..Default::default()
     };
@@ -236,7 +236,7 @@ async fn task_list_list_with_tag_filter() {
     assert_eq!(results.items[0].name, "Work List");
 
     // Filter by "urgent" tag - should find 1
-    let query = ListQuery {
+    let query = TaskListQuery {
         tags: Some(vec!["urgent".to_string()]),
         ..Default::default()
     };
@@ -248,7 +248,7 @@ async fn task_list_list_with_tag_filter() {
     assert_eq!(results.total, 1);
 
     // Filter by nonexistent tag
-    let query = ListQuery {
+    let query = TaskListQuery {
         tags: Some(vec!["nonexistent".to_string()]),
         ..Default::default()
     };

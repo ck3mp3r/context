@@ -3,7 +3,7 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
-use crate::db::{DbError, DbResult, ListQuery, ListResult, Project, ProjectRepository};
+use crate::db::{DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository};
 
 /// SQLx-backed project repository.
 pub struct SqliteProjectRepository<'a> {
@@ -54,21 +54,19 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         })
     }
 
-    async fn list(&self, query: Option<&ListQuery>) -> DbResult<ListResult<Project>> {
-        let default_query = ListQuery::default();
+    async fn list(&self, query: Option<&ProjectQuery>) -> DbResult<ListResult<Project>> {
+        let default_query = ProjectQuery::default();
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["title", "created_at", "updated_at"];
 
-        // Build query with pagination and sorting
-        let order_clause = build_order_clause(query, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(query);
+        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        let limit_clause = build_limit_offset_clause(&query.page);
 
         let sql = format!(
             "SELECT id, title, description, created_at, updated_at FROM project {} {}",
             order_clause, limit_clause
         );
 
-        // Get paginated results
         let rows = sqlx::query(&sql)
             .fetch_all(self.pool)
             .await
@@ -87,7 +85,6 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             })
             .collect();
 
-        // Get total count
         let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project")
             .fetch_one(self.pool)
             .await
@@ -98,8 +95,8 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         Ok(ListResult {
             items,
             total: total as usize,
-            limit: query.limit,
-            offset: query.offset.unwrap_or(0),
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
         })
     }
 

@@ -11,7 +11,8 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::db::{
-    Database, DbError, ListQuery, SortOrder, TaskList, TaskListRepository, TaskListStatus,
+    Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
+    TaskListStatus,
 };
 
 use super::ErrorResponse;
@@ -138,18 +139,19 @@ pub async fn list_task_lists<D: Database>(
             .collect::<Vec<_>>()
     });
 
-    let db_query = ListQuery {
-        limit: query.limit,
-        offset: query.offset,
-        sort_by: query.sort.clone(),
-        sort_order: match query.order.as_deref() {
-            Some("desc") => Some(SortOrder::Desc),
-            Some("asc") => Some(SortOrder::Asc),
-            _ => None,
+    let db_query = TaskListQuery {
+        page: PageSort {
+            limit: query.limit,
+            offset: query.offset,
+            sort_by: query.sort.clone(),
+            sort_order: match query.order.as_deref() {
+                Some("desc") => Some(SortOrder::Desc),
+                Some("asc") => Some(SortOrder::Asc),
+                _ => None,
+            },
         },
-        tags,
         status: query.status.clone(),
-        ..Default::default()
+        tags,
     };
 
     let result = state

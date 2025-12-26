@@ -4,9 +4,9 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_filters, build_limit_offset_clause, build_order_clause};
+use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::{
-    DbError, DbResult, ListQuery, ListResult, TaskList, TaskListRepository, TaskListStatus,
+    DbError, DbResult, ListResult, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
 
 /// SQLx-backed task list repository.
@@ -182,20 +182,42 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         })
     }
 
-    async fn list(&self, query: Option<&ListQuery>) -> DbResult<ListResult<TaskList>> {
-        let default_query = ListQuery::default();
+    async fn list(&self, query: Option<&TaskListQuery>) -> DbResult<ListResult<TaskList>> {
+        let default_query = TaskListQuery::default();
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["name", "status", "created_at", "updated_at"];
 
-        // Build query components
-        let order_clause = build_order_clause(query, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(query);
-        let filters = build_filters(query, Some("tl"));
+        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        let limit_clause = build_limit_offset_clause(&query.page);
 
-        // Build query with optional filtering
-        let (sql, count_sql) = if filters.needs_json_each {
-            // With tag filtering - needs json_each join
-            let where_clause = filters.where_clause();
+        // Build filter conditions
+        let mut conditions: Vec<String> = Vec::new();
+        let mut bind_values: Vec<String> = Vec::new();
+
+        if let Some(status) = &query.status {
+            conditions.push("tl.status = ?".to_string());
+            bind_values.push(status.clone());
+        }
+
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+
+        if let Some(tags) = &query.tags
+            && !tags.is_empty()
+        {
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+            bind_values.extend(tags.clone());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        // Build SQL based on whether we need json_each
+        let (sql, count_sql) = if needs_json_each {
             (
                 format!(
                     "SELECT DISTINCT tl.id, tl.name, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.created_at, tl.updated_at, tl.archived_at 
@@ -208,9 +230,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     where_clause
                 ),
             )
-        } else if !filters.conditions.is_empty() {
-            // Filters but no tag filtering
-            let where_clause = filters.where_clause();
+        } else if !conditions.is_empty() {
             (
                 format!(
                     "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at 
@@ -220,7 +240,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 format!("SELECT COUNT(*) FROM task_list tl {}", where_clause),
             )
         } else {
-            // No filtering
             (
                 format!(
                     "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at 
@@ -233,7 +252,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         // Get paginated results
         let mut query_builder = sqlx::query(&sql);
-        for value in &filters.bind_values {
+        for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
 
@@ -247,11 +266,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let items: Vec<TaskList> = rows
             .into_iter()
             .map(|row| {
-                // Parse tags JSON
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-                // Parse status
                 let status_str: String = row.get("status");
                 let status = TaskListStatus::from_str(&status_str).unwrap_or_default();
 
@@ -263,8 +280,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     tags,
                     external_ref: row.get("external_ref"),
                     status,
-                    repo_ids: vec![], // TODO: Load relationships if needed for list view
-                    project_ids: vec![], // TODO: Load relationships if needed for list view
+                    repo_ids: vec![],
+                    project_ids: vec![],
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                     archived_at: row.get("archived_at"),
@@ -274,7 +291,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         // Get total count
         let mut count_query = sqlx::query_scalar(&count_sql);
-        for value in &filters.bind_values {
+        for value in &bind_values {
             count_query = count_query.bind(value);
         }
 
@@ -288,8 +305,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         Ok(ListResult {
             items,
             total: total as usize,
-            limit: query.limit,
-            offset: query.offset.unwrap_or(0),
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
         })
     }
 

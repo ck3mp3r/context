@@ -10,7 +10,9 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, ListQuery, SortOrder, Task, TaskRepository, TaskStatus};
+use crate::db::{
+    Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
+};
 
 use super::ErrorResponse;
 
@@ -131,24 +133,27 @@ pub async fn list_tasks<D: Database>(
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<PaginatedTasks>, (StatusCode, Json<ErrorResponse>)> {
     // Build database query
-    let db_query = ListQuery {
-        limit: query.limit,
-        offset: query.offset,
-        sort_by: query.sort.clone(),
-        sort_order: match query.order.as_deref() {
-            Some("desc") => Some(SortOrder::Desc),
-            Some("asc") => Some(SortOrder::Asc),
-            _ => None,
+    let db_query = TaskQuery {
+        page: PageSort {
+            limit: query.limit,
+            offset: query.offset,
+            sort_by: query.sort.clone(),
+            sort_order: match query.order.as_deref() {
+                Some("desc") => Some(SortOrder::Desc),
+                Some("asc") => Some(SortOrder::Asc),
+                _ => None,
+            },
         },
-        status: query.status.clone(),
+        list_id: Some(list_id),
         parent_id: query.parent_id.clone(),
-        ..Default::default()
+        status: query.status.clone(),
+        tags: None,
     };
 
     let result = state
         .db()
         .tasks()
-        .list_by_list(&list_id, Some(&db_query))
+        .list(Some(&db_query))
         .await
         .map_err(|e| {
             (
@@ -242,6 +247,7 @@ pub async fn create_task<D: Database>(
         content: req.content,
         status,
         priority: req.priority,
+        tags: vec![],
         created_at: now,
         started_at,
         completed_at: None,

@@ -17,9 +17,13 @@ pub enum SortOrder {
     Desc,
 }
 
-/// Query parameters for paginated list operations.
+// =============================================================================
+// Composable Query Types
+// =============================================================================
+
+/// Base pagination and sorting options - composed into entity-specific queries.
 #[derive(Debug, Clone, Default)]
-pub struct ListQuery {
+pub struct PageSort {
     /// Maximum number of items to return.
     pub limit: Option<usize>,
     /// Number of items to skip.
@@ -28,12 +32,50 @@ pub struct ListQuery {
     pub sort_by: Option<String>,
     /// Sort order (ascending or descending).
     pub sort_order: Option<SortOrder>,
+}
+
+/// Query for Projects - pagination only.
+#[derive(Debug, Clone, Default)]
+pub struct ProjectQuery {
+    pub page: PageSort,
+}
+
+/// Query for Repos - pagination only.
+#[derive(Debug, Clone, Default)]
+pub struct RepoQuery {
+    pub page: PageSort,
+}
+
+/// Query for TaskLists - pagination + status/tags filters.
+#[derive(Debug, Clone, Default)]
+pub struct TaskListQuery {
+    pub page: PageSort,
+    /// Filter by status (active, archived).
+    pub status: Option<String>,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
-    /// Filter by status (exact match).
-    pub status: Option<String>,
-    /// Filter by parent_id (for hierarchical entities like Tasks).
+}
+
+/// Query for Tasks - pagination + list/parent/status/tags filters.
+#[derive(Debug, Clone, Default)]
+pub struct TaskQuery {
+    pub page: PageSort,
+    /// Filter by task list ID (required context for tasks).
+    pub list_id: Option<String>,
+    /// Filter by parent task ID (for subtasks).
     pub parent_id: Option<String>,
+    /// Filter by status (backlog, todo, in_progress, review, done, cancelled).
+    pub status: Option<String>,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
+}
+
+/// Query for Notes - pagination + tags filter.
+#[derive(Debug, Clone, Default)]
+pub struct NoteQuery {
+    pub page: PageSort,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
 }
 
 /// Result of a paginated list query.
@@ -131,6 +173,7 @@ pub struct Task {
     pub content: String,
     pub status: TaskStatus,
     pub priority: Option<i32>,
+    pub tags: Vec<String>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,

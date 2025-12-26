@@ -9,7 +9,7 @@
 use std::future::Future;
 
 use crate::db::{
-    DbResult, ListQuery, ListResult,
+    DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
     models::{Note, Project, Repo, Task, TaskList},
 };
 
@@ -19,7 +19,7 @@ pub trait ProjectRepository: Send + Sync {
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Project>> + Send;
     fn list(
         &self,
-        query: Option<&ListQuery>,
+        query: Option<&ProjectQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
     fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
@@ -31,7 +31,7 @@ pub trait RepoRepository: Send + Sync {
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Repo>> + Send;
     fn list(
         &self,
-        query: Option<&ListQuery>,
+        query: Option<&RepoQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Repo>>> + Send;
     fn update(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
@@ -43,7 +43,7 @@ pub trait TaskListRepository: Send + Sync {
     fn get(&self, id: &str) -> impl Future<Output = DbResult<TaskList>> + Send;
     fn list(
         &self,
-        query: Option<&ListQuery>,
+        query: Option<&TaskListQuery>,
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
@@ -63,12 +63,10 @@ pub trait TaskListRepository: Send + Sync {
 pub trait TaskRepository: Send + Sync {
     fn create(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Task>> + Send;
-    fn list_by_list(
+    fn list(
         &self,
-        list_id: &str,
-        query: Option<&ListQuery>,
+        query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
-    fn list_by_parent(&self, parent_id: &str) -> impl Future<Output = DbResult<Vec<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
@@ -79,14 +77,14 @@ pub trait NoteRepository: Send + Sync {
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Note>> + Send;
     fn list(
         &self,
-        query: Option<&ListQuery>,
+        query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
     fn update(&self, note: &Note) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
         &self,
-        query: &str,
-        pagination: Option<&ListQuery>,
+        search_term: &str,
+        query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
 }
 

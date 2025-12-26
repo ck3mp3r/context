@@ -10,7 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, ListQuery, Project, ProjectRepository, SortOrder};
+use crate::db::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
 
 // =============================================================================
 // DTOs (Data Transfer Objects)
@@ -125,16 +125,17 @@ pub async fn list_projects<D: Database>(
     Query(query): Query<ListProjectsQuery>,
 ) -> Result<Json<PaginatedProjects>, (StatusCode, Json<ErrorResponse>)> {
     // Build database query
-    let db_query = ListQuery {
-        limit: query.limit,
-        offset: query.offset,
-        sort_by: query.sort.clone(),
-        sort_order: match query.order.as_deref() {
-            Some("desc") => Some(SortOrder::Desc),
-            Some("asc") => Some(SortOrder::Asc),
-            _ => None,
+    let db_query = ProjectQuery {
+        page: PageSort {
+            limit: query.limit,
+            offset: query.offset,
+            sort_by: query.sort.clone(),
+            sort_order: match query.order.as_deref() {
+                Some("desc") => Some(SortOrder::Desc),
+                Some("asc") => Some(SortOrder::Asc),
+                _ => None,
+            },
         },
-        ..Default::default()
     };
 
     let result = state

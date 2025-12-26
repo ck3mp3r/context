@@ -1,6 +1,6 @@
 //! Tests for SqliteNoteRepository.
 
-use crate::db::{Database, ListQuery, Note, NoteRepository, NoteType, SqliteDatabase};
+use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, SqliteDatabase};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -190,7 +190,7 @@ async fn note_list_with_tag_filter() {
     notes.create(&note3).await.unwrap();
 
     // Filter by "rust" tag - should find 1
-    let query = ListQuery {
+    let query = NoteQuery {
         tags: Some(vec!["rust".to_string()]),
         ..Default::default()
     };
@@ -199,7 +199,7 @@ async fn note_list_with_tag_filter() {
     assert_eq!(results.items[0].title, "Rust Guide");
 
     // Filter by "programming" tag - should find 2
-    let query = ListQuery {
+    let query = NoteQuery {
         tags: Some(vec!["programming".to_string()]),
         ..Default::default()
     };
@@ -208,7 +208,7 @@ async fn note_list_with_tag_filter() {
     assert_eq!(results.total, 2);
 
     // Filter by nonexistent tag
-    let query = ListQuery {
+    let query = NoteQuery {
         tags: Some(vec!["nonexistent".to_string()]),
         ..Default::default()
     };
@@ -242,7 +242,7 @@ async fn note_search_with_tag_filter() {
     assert_eq!(results.items.len(), 3);
 
     // Search for "API" with "backend" tag filter - should find 1
-    let query = ListQuery {
+    let query = NoteQuery {
         tags: Some(vec!["backend".to_string()]),
         ..Default::default()
     };
@@ -254,7 +254,7 @@ async fn note_search_with_tag_filter() {
     assert_eq!(results.items[0].title, "API Design");
 
     // Search for "API" with "api" tag filter - should find 2
-    let query = ListQuery {
+    let query = NoteQuery {
         tags: Some(vec!["api".to_string()]),
         ..Default::default()
     };

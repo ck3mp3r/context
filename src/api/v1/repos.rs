@@ -10,7 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, ListQuery, Repo, RepoRepository, SortOrder};
+use crate::db::{Database, DbError, PageSort, Repo, RepoQuery, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
 
@@ -115,16 +115,17 @@ pub async fn list_repos<D: Database>(
     Query(query): Query<ListReposQuery>,
 ) -> Result<Json<PaginatedRepos>, (StatusCode, Json<ErrorResponse>)> {
     // Build database query
-    let db_query = ListQuery {
-        limit: query.limit,
-        offset: query.offset,
-        sort_by: query.sort.clone(),
-        sort_order: match query.order.as_deref() {
-            Some("desc") => Some(SortOrder::Desc),
-            Some("asc") => Some(SortOrder::Asc),
-            _ => None,
+    let db_query = RepoQuery {
+        page: PageSort {
+            limit: query.limit,
+            offset: query.offset,
+            sort_by: query.sort.clone(),
+            sort_order: match query.order.as_deref() {
+                Some("desc") => Some(SortOrder::Desc),
+                Some("asc") => Some(SortOrder::Asc),
+                _ => None,
+            },
         },
-        ..Default::default()
     };
 
     let result = state

@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause, build_tag_filter};
-use crate::db::{DbError, DbResult, ListQuery, ListResult, Note, NoteRepository, NoteType};
+use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository, NoteType};
 
 /// SQLx-backed note repository.
 pub struct SqliteNoteRepository<'a> {
@@ -54,14 +54,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         })?;
 
         if let Some(row) = row {
-            // Parse tags JSON
             let tags_json: String = row.get("tags");
             let tags: Vec<String> =
                 serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
                     message: format!("Failed to parse tags JSON: {}", e),
                 })?;
 
-            // Parse note_type
             let note_type_str: String = row.get("note_type");
             let note_type = NoteType::from_str(&note_type_str).map_err(|_| DbError::Database {
                 message: format!("Invalid note_type: {}", note_type_str),
@@ -84,19 +82,38 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         }
     }
 
-    async fn list(&self, query: Option<&ListQuery>) -> DbResult<ListResult<Note>> {
-        let default_query = ListQuery::default();
+    async fn list(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
+        let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["title", "created_at", "updated_at"];
 
-        // Build query components
-        let order_clause = build_order_clause(query, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(query);
-        let tag_filter = build_tag_filter(query);
+        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        let limit_clause = build_limit_offset_clause(&query.page);
 
-        // Build query with optional tag filtering
-        let (sql, count_sql) = if tag_filter.where_clause.is_empty() {
-            // No tag filtering
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let mut bind_values: Vec<String> = Vec::new();
+
+        let (sql, count_sql) = if needs_json_each {
+            let tags = query.tags.as_ref().unwrap();
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            bind_values.extend(tags.clone());
+
+            (
+                format!(
+                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
+                     FROM note n, json_each(n.tags)
+                     WHERE json_each.value IN ({}) {} {}",
+                    placeholders.join(", "),
+                    order_clause,
+                    limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE json_each.value IN ({})",
+                    placeholders.join(", ")
+                ),
+            )
+        } else {
             (
                 format!(
                     "SELECT id, title, content, tags, note_type, created_at, updated_at 
@@ -105,26 +122,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 ),
                 "SELECT COUNT(*) FROM note".to_string(),
             )
-        } else {
-            // With tag filtering using json_each
-            (
-                format!(
-                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
-                     FROM note n, json_each(n.tags)
-                     WHERE {} {} {}",
-                    tag_filter.where_clause, order_clause, limit_clause
-                ),
-                format!(
-                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE {}",
-                    tag_filter.where_clause
-                ),
-            )
         };
 
         // Get paginated results
         let mut query_builder = sqlx::query(&sql);
-        for tag in &tag_filter.bind_values {
-            query_builder = query_builder.bind(tag);
+        for value in &bind_values {
+            query_builder = query_builder.bind(value);
         }
 
         let rows = query_builder
@@ -137,11 +140,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let items: Vec<Note> = rows
             .into_iter()
             .map(|row| {
-                // Parse tags JSON
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-                // Parse note_type
                 let note_type_str: String = row.get("note_type");
                 let note_type = NoteType::from_str(&note_type_str).unwrap_or_default();
 
@@ -159,8 +160,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         // Get total count
         let mut count_query = sqlx::query_scalar(&count_sql);
-        for tag in &tag_filter.bind_values {
-            count_query = count_query.bind(tag);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
         }
 
         let total: i64 = count_query
@@ -173,8 +174,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         Ok(ListResult {
             items,
             total: total as usize,
-            limit: query.limit,
-            offset: query.offset.unwrap_or(0),
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
         })
     }
 
@@ -235,25 +236,45 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
     async fn search(
         &self,
-        query: &str,
-        pagination: Option<&ListQuery>,
+        search_term: &str,
+        query: Option<&NoteQuery>,
     ) -> DbResult<ListResult<Note>> {
-        let default_pagination = ListQuery::default();
-        let pagination = pagination.unwrap_or(&default_pagination);
+        let default_query = NoteQuery::default();
+        let query = query.unwrap_or(&default_query);
 
-        // Build query components
         let order_clause = build_order_clause(
-            pagination,
+            &query.page,
             &["title", "created_at", "updated_at"],
             "created_at",
         );
-        let limit_clause = build_limit_offset_clause(pagination);
-        let tag_filter = build_tag_filter(pagination);
-        let search_pattern = format!("%{}%", query);
+        let limit_clause = build_limit_offset_clause(&query.page);
+        let search_pattern = format!("%{}%", search_term);
 
-        // Build query with search and optional tag filtering
-        let (sql, count_sql) = if tag_filter.where_clause.is_empty() {
-            // No tag filtering - simple search
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let mut bind_values: Vec<String> = vec![search_pattern.clone(), search_pattern.clone()];
+
+        let (sql, count_sql) = if needs_json_each {
+            let tags = query.tags.as_ref().unwrap();
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            bind_values.extend(tags.clone());
+
+            (
+                format!(
+                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
+                     FROM note n, json_each(n.tags)
+                     WHERE (n.title LIKE ? OR n.content LIKE ?) AND json_each.value IN ({})
+                     {} {}",
+                    placeholders.join(", "),
+                    order_clause,
+                    limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE (n.title LIKE ? OR n.content LIKE ?) AND json_each.value IN ({})",
+                    placeholders.join(", ")
+                ),
+            )
+        } else {
             (
                 format!(
                     "SELECT id, title, content, tags, note_type, created_at, updated_at 
@@ -264,28 +285,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 ),
                 "SELECT COUNT(*) FROM note WHERE (title LIKE ? OR content LIKE ?)".to_string(),
             )
-        } else {
-            // With tag filtering using json_each
-            (
-                format!(
-                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
-                     FROM note n, json_each(n.tags)
-                     WHERE (n.title LIKE ? OR n.content LIKE ?) AND {}
-                     {} {}",
-                    tag_filter.where_clause, order_clause, limit_clause
-                ),
-                format!(
-                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE (n.title LIKE ? OR n.content LIKE ?) AND {}",
-                    tag_filter.where_clause
-                ),
-            )
         };
 
-        // Get paginated results - bind search pattern first, then tag values
+        // Get paginated results
         let mut query_builder = sqlx::query(&sql);
-        query_builder = query_builder.bind(&search_pattern).bind(&search_pattern);
-        for tag in &tag_filter.bind_values {
-            query_builder = query_builder.bind(tag);
+        for value in &bind_values {
+            query_builder = query_builder.bind(value);
         }
 
         let rows = query_builder
@@ -298,11 +303,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let items: Vec<Note> = rows
             .into_iter()
             .map(|row| {
-                // Parse tags JSON
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-                // Parse note_type
                 let note_type_str: String = row.get("note_type");
                 let note_type = NoteType::from_str(&note_type_str).unwrap_or_default();
 
@@ -318,11 +321,10 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             })
             .collect();
 
-        // Get total count for search - bind search pattern first, then tag values
+        // Get total count
         let mut count_query = sqlx::query_scalar(&count_sql);
-        count_query = count_query.bind(&search_pattern).bind(&search_pattern);
-        for tag in &tag_filter.bind_values {
-            count_query = count_query.bind(tag);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
         }
 
         let total: i64 = count_query
@@ -335,8 +337,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         Ok(ListResult {
             items,
             total: total as usize,
-            limit: pagination.limit,
-            offset: pagination.offset.unwrap_or(0),
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
         })
     }
 }
