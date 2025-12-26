@@ -297,3 +297,159 @@ async fn task_list_list_with_tag_filter() {
     assert!(results.items.is_empty());
     assert_eq!(results.total, 0);
 }
+
+// =============================================================================
+// Auto-timestamp tests for TaskList archival
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_archive_sets_archived_at() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create active task list
+    let created = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "List to archive".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.status, TaskListStatus::Active);
+    assert!(created.archived_at.is_none());
+
+    // Archive it
+    let mut updated = created.clone();
+    updated.status = TaskListStatus::Archived;
+    task_lists
+        .update(&updated)
+        .await
+        .expect("Update should succeed");
+
+    // archived_at should be auto-set
+    let after = task_lists
+        .get(&created.id)
+        .await
+        .expect("Get should succeed");
+    assert_eq!(after.status, TaskListStatus::Archived);
+    assert!(
+        after.archived_at.is_some(),
+        "archived_at should be auto-set when status changes to archived"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_archive_twice_is_idempotent() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    let created = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "Idempotent archive".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    // First: archive
+    let mut first = created.clone();
+    first.status = TaskListStatus::Archived;
+    task_lists
+        .update(&first)
+        .await
+        .expect("Update should succeed");
+
+    let after_first = task_lists
+        .get(&created.id)
+        .await
+        .expect("Get should succeed");
+    let first_archived_at = after_first.archived_at.clone();
+    assert!(first_archived_at.is_some());
+
+    // Second: archive again
+    let mut second = after_first.clone();
+    second.status = TaskListStatus::Archived;
+    task_lists
+        .update(&second)
+        .await
+        .expect("Update should succeed");
+
+    let after_second = task_lists
+        .get(&created.id)
+        .await
+        .expect("Get should succeed");
+
+    // archived_at should be unchanged (idempotent)
+    assert_eq!(
+        after_second.archived_at, first_archived_at,
+        "archived_at should not change when status is already archived"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_unarchive_clears_archived_at() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create archived task list
+    let created = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            name: "Archived list".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Archived,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: Some("2025-01-01 12:00:00".to_string()),
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.status, TaskListStatus::Archived);
+    assert!(created.archived_at.is_some());
+
+    // Unarchive it
+    let mut updated = created.clone();
+    updated.status = TaskListStatus::Active;
+    task_lists
+        .update(&updated)
+        .await
+        .expect("Update should succeed");
+
+    // archived_at should be cleared
+    let after = task_lists
+        .get(&created.id)
+        .await
+        .expect("Get should succeed");
+    assert_eq!(after.status, TaskListStatus::Active);
+    assert!(
+        after.archived_at.is_none(),
+        "archived_at should be cleared when unarchiving"
+    );
+}

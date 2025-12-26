@@ -334,6 +334,29 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     }
 
     async fn update(&self, task_list: &TaskList) -> DbResult<()> {
+        // Fetch current to detect status transitions
+        let current = self.get(&task_list.id).await?;
+
+        let mut task_list = task_list.clone();
+
+        // Auto-manage archived_at timestamp based on status transitions
+        if task_list.status != current.status {
+            match task_list.status {
+                TaskListStatus::Archived => {
+                    // Archiving - set archived_at only if not already set (idempotent)
+                    if task_list.archived_at.is_none() {
+                        task_list.archived_at = Some(current_timestamp());
+                    }
+                }
+                TaskListStatus::Active => {
+                    // Unarchiving - clear archived_at
+                    if current.status == TaskListStatus::Archived {
+                        task_list.archived_at = None;
+                    }
+                }
+            }
+        }
+
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
