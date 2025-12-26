@@ -15,9 +15,14 @@ mod task_list;
 mod connection_test;
 #[cfg(test)]
 mod critical_tests;
-// TODO: Re-enable after updating for async - see repositories_test.rs.disabled
-// #[cfg(test)]
-// mod repositories_test;
+#[cfg(test)]
+mod note_test;
+#[cfg(test)]
+mod project_test;
+#[cfg(test)]
+mod repo_test;
+#[cfg(test)]
+mod task_test;
 
 pub use connection::SqliteDatabase;
 pub use note::SqliteNoteRepository;
