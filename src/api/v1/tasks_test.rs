@@ -1,4 +1,4 @@
-//! Integration tests for TaskList API endpoints.
+//! Integration tests for Task API endpoints.
 
 use axum::{
     body::Body,
@@ -23,98 +23,14 @@ async fn json_body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&body).unwrap()
 }
 
-#[tokio::test]
-async fn list_task_lists_initially_empty() {
-    let app = test_app();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/task-lists")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn create_task_list_returns_created() {
-    let app = test_app();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "name": "Sprint 1",
-                        "description": "First sprint tasks",
-                        "tags": ["work", "urgent"],
-                        "external_ref": "JIRA-123"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-
-    let body = json_body(response).await;
-    assert_eq!(body["name"], "Sprint 1");
-    assert_eq!(body["description"], "First sprint tasks");
-    assert_eq!(body["tags"], json!(["work", "urgent"]));
-    assert_eq!(body["external_ref"], "JIRA-123");
-    assert_eq!(body["status"], "active");
-    assert!(body["id"].as_str().unwrap().len() == 8);
-}
-
-#[tokio::test]
-async fn create_task_list_minimal() {
-    let app = test_app();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Quick List"})).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-
-    let body = json_body(response).await;
-    assert_eq!(body["name"], "Quick List");
-    assert!(body["description"].is_null());
-    assert_eq!(body["tags"], json!([]));
-}
-
-#[tokio::test]
-async fn get_task_list_returns_task_list() {
-    let app = test_app();
-
-    // Create first
+/// Helper to create a task list and return its ID
+async fn create_task_list(app: &axum::Router) -> String {
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/task-lists")
+                .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"name": "Test List"})).unwrap(),
@@ -123,15 +39,21 @@ async fn get_task_list_returns_task_list() {
         )
         .await
         .unwrap();
-
     let body = json_body(response).await;
-    let id = body["id"].as_str().unwrap();
+    body["id"].as_str().unwrap().to_string()
+}
 
-    // Get it
+#[tokio::test]
+async fn list_tasks_for_list() {
+    let app = test_app();
+    let list_id = create_task_list(&app).await;
+
+    // Initially empty
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/task-lists/{}", id))
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -140,18 +62,148 @@ async fn get_task_list_returns_task_list() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(body["id"], id);
-    assert_eq!(body["name"], "Test List");
+    assert!(body.as_array().unwrap().is_empty());
+
+    // Create a task
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"content": "Do something"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Now has one task
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body.as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn get_task_list_not_found() {
+async fn create_task_returns_created() {
+    let app = test_app();
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Complete the feature",
+                        "priority": 2,
+                        "status": "in_progress"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = json_body(response).await;
+    assert_eq!(body["content"], "Complete the feature");
+    assert_eq!(body["priority"], 2);
+    assert_eq!(body["status"], "in_progress");
+    assert_eq!(body["list_id"], list_id);
+    assert!(body["id"].as_str().unwrap().len() == 8);
+}
+
+#[tokio::test]
+async fn create_task_minimal() {
+    let app = test_app();
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"content": "Quick task"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = json_body(response).await;
+    assert_eq!(body["content"], "Quick task");
+    assert_eq!(body["status"], "backlog");
+    assert!(body["priority"].is_null());
+}
+
+#[tokio::test]
+async fn get_task_returns_task() {
+    let app = test_app();
+    let list_id = create_task_list(&app).await;
+
+    // Create
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"content": "Test task"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let task_id = body["id"].as_str().unwrap();
+
+    // Get
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/tasks/{}", task_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["id"], task_id);
+    assert_eq!(body["content"], "Test task");
+}
+
+#[tokio::test]
+async fn get_task_not_found() {
     let app = test_app();
 
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/task-lists/nonexist")
+                .uri("/v1/tasks/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -162,8 +214,9 @@ async fn get_task_list_not_found() {
 }
 
 #[tokio::test]
-async fn update_task_list_returns_updated() {
+async fn update_task_returns_updated() {
     let app = test_app();
+    let list_id = create_task_list(&app).await;
 
     // Create
     let response = app
@@ -171,10 +224,10 @@ async fn update_task_list_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/task-lists")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Original"})).unwrap(),
+                    serde_json::to_vec(&json!({"content": "Original"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -182,20 +235,20 @@ async fn update_task_list_returns_updated() {
         .unwrap();
 
     let body = json_body(response).await;
-    let id = body["id"].as_str().unwrap();
+    let task_id = body["id"].as_str().unwrap();
 
     // Update
     let response = app
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/task-lists/{}", id))
+                .uri(format!("/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Updated",
-                        "description": "Now with description",
-                        "status": "archived"
+                        "content": "Updated",
+                        "status": "done",
+                        "priority": 1
                     }))
                     .unwrap(),
                 ))
@@ -206,23 +259,23 @@ async fn update_task_list_returns_updated() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(body["name"], "Updated");
-    assert_eq!(body["description"], "Now with description");
-    assert_eq!(body["status"], "archived");
+    assert_eq!(body["content"], "Updated");
+    assert_eq!(body["status"], "done");
+    assert_eq!(body["priority"], 1);
 }
 
 #[tokio::test]
-async fn update_task_list_not_found() {
+async fn update_task_not_found() {
     let app = test_app();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/task-lists/nonexist")
+                .uri("/v1/tasks/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Wont Work"})).unwrap(),
+                    serde_json::to_vec(&json!({"content": "Wont work"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -233,8 +286,9 @@ async fn update_task_list_not_found() {
 }
 
 #[tokio::test]
-async fn delete_task_list_returns_no_content() {
+async fn delete_task_returns_no_content() {
     let app = test_app();
+    let list_id = create_task_list(&app).await;
 
     // Create
     let response = app
@@ -242,10 +296,10 @@ async fn delete_task_list_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/task-lists")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "To Delete"})).unwrap(),
+                    serde_json::to_vec(&json!({"content": "To delete"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -253,7 +307,7 @@ async fn delete_task_list_returns_no_content() {
         .unwrap();
 
     let body = json_body(response).await;
-    let id = body["id"].as_str().unwrap();
+    let task_id = body["id"].as_str().unwrap();
 
     // Delete
     let response = app
@@ -261,7 +315,7 @@ async fn delete_task_list_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/task-lists/{}", id))
+                .uri(format!("/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -274,7 +328,7 @@ async fn delete_task_list_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/task-lists/{}", id))
+                .uri(format!("/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -285,14 +339,14 @@ async fn delete_task_list_returns_no_content() {
 }
 
 #[tokio::test]
-async fn delete_task_list_not_found() {
+async fn delete_task_not_found() {
     let app = test_app();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/task-lists/nonexist")
+                .uri("/v1/tasks/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )

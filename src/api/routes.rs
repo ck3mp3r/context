@@ -5,12 +5,13 @@ use axum::routing::{delete, get, post, put};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
-use super::handlers::{
-    self, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest, ErrorResponse,
-    HealthResponse, ProjectResponse, RepoResponse, TaskListResponse, UpdateProjectRequest,
-    UpdateRepoRequest, UpdateTaskListRequest,
-};
+use super::handlers::{self, HealthResponse};
 use super::state::AppState;
+use super::v1::{
+    CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest, CreateTaskRequest,
+    ErrorResponse, ProjectResponse, RepoResponse, TaskListResponse, TaskResponse,
+    UpdateProjectRequest, UpdateRepoRequest, UpdateTaskListRequest, UpdateTaskRequest,
+};
 use crate::db::Database;
 
 /// Build routes with generic database type.
@@ -41,21 +42,26 @@ macro_rules! routes {
     paths(
         handlers::root,
         handlers::health,
-        handlers::list_projects,
-        handlers::get_project,
-        handlers::create_project,
-        handlers::update_project,
-        handlers::delete_project,
-        handlers::list_repos,
-        handlers::get_repo,
-        handlers::create_repo,
-        handlers::update_repo,
-        handlers::delete_repo,
-        handlers::list_task_lists,
-        handlers::get_task_list,
-        handlers::create_task_list,
-        handlers::update_task_list,
-        handlers::delete_task_list,
+        super::v1::list_projects,
+        super::v1::get_project,
+        super::v1::create_project,
+        super::v1::update_project,
+        super::v1::delete_project,
+        super::v1::list_repos,
+        super::v1::get_repo,
+        super::v1::create_repo,
+        super::v1::update_repo,
+        super::v1::delete_repo,
+        super::v1::list_task_lists,
+        super::v1::get_task_list,
+        super::v1::create_task_list,
+        super::v1::update_task_list,
+        super::v1::delete_task_list,
+        super::v1::list_tasks,
+        super::v1::get_task,
+        super::v1::create_task,
+        super::v1::update_task,
+        super::v1::delete_task,
     ),
     components(
         schemas(
@@ -69,6 +75,9 @@ macro_rules! routes {
             TaskListResponse,
             CreateTaskListRequest,
             UpdateTaskListRequest,
+            TaskResponse,
+            CreateTaskRequest,
+            UpdateTaskRequest,
             ErrorResponse,
         )
     ),
@@ -76,7 +85,8 @@ macro_rules! routes {
         (name = "system", description = "System health and status endpoints"),
         (name = "projects", description = "Project management endpoints"),
         (name = "repos", description = "Repository management endpoints"),
-        (name = "task-lists", description = "Task list management endpoints")
+        (name = "task-lists", description = "Task list management endpoints"),
+        (name = "tasks", description = "Task management endpoints")
     )
 )]
 pub struct ApiDoc;
@@ -85,42 +95,41 @@ pub struct ApiDoc;
 pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
     let api = ApiDoc::openapi();
 
-    // System routes (non-generic)
+    // System routes (non-generic, not versioned)
     let system_routes = Router::new()
         .route("/", get(handlers::root))
         .route("/health", get(handlers::health));
 
-    // Project routes (generic over Database)
-    let project_routes = routes!(D => {
-        get "/projects" => handlers::list_projects,
-        get "/projects/{id}" => handlers::get_project,
-        post "/projects" => handlers::create_project,
-        put "/projects/{id}" => handlers::update_project,
-        delete "/projects/{id}" => handlers::delete_project,
-    });
-
-    // Repo routes (generic over Database)
-    let repo_routes = routes!(D => {
-        get "/repos" => handlers::list_repos,
-        get "/repos/{id}" => handlers::get_repo,
-        post "/repos" => handlers::create_repo,
-        put "/repos/{id}" => handlers::update_repo,
-        delete "/repos/{id}" => handlers::delete_repo,
-    });
-
-    // TaskList routes (generic over Database)
-    let task_list_routes = routes!(D => {
-        get "/task-lists" => handlers::list_task_lists,
-        get "/task-lists/{id}" => handlers::get_task_list,
-        post "/task-lists" => handlers::create_task_list,
-        put "/task-lists/{id}" => handlers::update_task_list,
-        delete "/task-lists/{id}" => handlers::delete_task_list,
+    // V1 API routes (generic over Database)
+    let v1_routes = routes!(D => {
+        // Projects
+        get "/v1/projects" => super::v1::list_projects,
+        get "/v1/projects/{id}" => super::v1::get_project,
+        post "/v1/projects" => super::v1::create_project,
+        put "/v1/projects/{id}" => super::v1::update_project,
+        delete "/v1/projects/{id}" => super::v1::delete_project,
+        // Repos
+        get "/v1/repos" => super::v1::list_repos,
+        get "/v1/repos/{id}" => super::v1::get_repo,
+        post "/v1/repos" => super::v1::create_repo,
+        put "/v1/repos/{id}" => super::v1::update_repo,
+        delete "/v1/repos/{id}" => super::v1::delete_repo,
+        // TaskLists
+        get "/v1/task-lists" => super::v1::list_task_lists,
+        get "/v1/task-lists/{id}" => super::v1::get_task_list,
+        post "/v1/task-lists" => super::v1::create_task_list,
+        put "/v1/task-lists/{id}" => super::v1::update_task_list,
+        delete "/v1/task-lists/{id}" => super::v1::delete_task_list,
+        // Tasks
+        get "/v1/task-lists/{list_id}/tasks" => super::v1::list_tasks,
+        post "/v1/task-lists/{list_id}/tasks" => super::v1::create_task,
+        get "/v1/tasks/{id}" => super::v1::get_task,
+        put "/v1/tasks/{id}" => super::v1::update_task,
+        delete "/v1/tasks/{id}" => super::v1::delete_task,
     });
 
     system_routes
-        .merge(project_routes)
-        .merge(repo_routes)
-        .merge(task_list_routes)
+        .merge(v1_routes)
         .merge(Scalar::with_url("/docs", api))
         .with_state(state)
 }

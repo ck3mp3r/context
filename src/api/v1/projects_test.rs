@@ -26,7 +26,7 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 // =============================================================================
-// GET /projects - List Projects
+// GET /v1/projects - List Projects
 // =============================================================================
 
 #[tokio::test]
@@ -36,7 +36,7 @@ async fn list_projects_returns_default_project() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/projects")
+                .uri("/v1/projects")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -54,7 +54,7 @@ async fn list_projects_returns_default_project() {
 }
 
 // =============================================================================
-// POST /projects - Create Project
+// POST /v1/projects - Create Project
 // =============================================================================
 
 #[tokio::test]
@@ -65,7 +65,7 @@ async fn create_project_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/projects")
+                .uri("/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -96,7 +96,7 @@ async fn create_project_without_description() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/projects")
+                .uri("/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -117,7 +117,7 @@ async fn create_project_without_description() {
 }
 
 // =============================================================================
-// GET /projects/{id} - Get Project
+// GET /v1/projects/{id} - Get Project
 // =============================================================================
 
 #[tokio::test]
@@ -129,7 +129,7 @@ async fn get_project_returns_project() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/projects")
+                .uri("/v1/projects")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -143,7 +143,7 @@ async fn get_project_returns_project() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/projects/{}", default_id))
+                .uri(format!("/v1/projects/{}", default_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -163,7 +163,7 @@ async fn get_project_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/projects/nonexist")
+                .uri("/v1/projects/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -177,7 +177,7 @@ async fn get_project_not_found() {
 }
 
 // =============================================================================
-// PUT /projects/{id} - Update Project
+// PUT /v1/projects/{id} - Update Project
 // =============================================================================
 
 #[tokio::test]
@@ -189,7 +189,7 @@ async fn update_project_returns_updated() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/projects")
+                .uri("/v1/projects")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -204,7 +204,7 @@ async fn update_project_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/projects/{}", default_id))
+                .uri(format!("/v1/projects/{}", default_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -233,7 +233,7 @@ async fn update_project_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/projects/nonexist")
+                .uri("/v1/projects/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -251,7 +251,7 @@ async fn update_project_not_found() {
 }
 
 // =============================================================================
-// DELETE /projects/{id} - Delete Project
+// DELETE /v1/projects/{id} - Delete Project
 // =============================================================================
 
 #[tokio::test]
@@ -264,7 +264,7 @@ async fn delete_project_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/projects")
+                .uri("/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -286,7 +286,7 @@ async fn delete_project_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/projects/{}", project_id))
+                .uri(format!("/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -299,7 +299,7 @@ async fn delete_project_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/projects/{}", project_id))
+                .uri(format!("/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -317,7 +317,7 @@ async fn delete_project_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/projects/nonexist")
+                .uri("/v1/projects/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )

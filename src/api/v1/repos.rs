@@ -77,7 +77,7 @@ pub struct UpdateRepoRequest {
 /// Returns a list of all registered repositories
 #[utoipa::path(
     get,
-    path = "/repos",
+    path = "/v1/repos",
     tag = "repos",
     responses(
         (status = 200, description = "List of repos", body = Vec<RepoResponse>),
@@ -105,7 +105,7 @@ pub async fn list_repos<D: Database>(
 /// Returns a single repository by its ID
 #[utoipa::path(
     get,
-    path = "/repos/{id}",
+    path = "/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -144,7 +144,7 @@ pub async fn get_repo<D: Database>(
 /// Registers a new repository and returns it
 #[utoipa::path(
     post,
-    path = "/repos",
+    path = "/v1/repos",
     tag = "repos",
     request_body = CreateRepoRequest,
     responses(
@@ -185,7 +185,7 @@ pub async fn create_repo<D: Database>(
 /// Updates an existing repository
 #[utoipa::path(
     put,
-    path = "/repos/{id}",
+    path = "/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -240,7 +240,7 @@ pub async fn update_repo<D: Database>(
 /// Deletes a repository by its ID
 #[utoipa::path(
     delete,
-    path = "/repos/{id}",
+    path = "/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")

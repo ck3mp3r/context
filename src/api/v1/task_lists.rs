@@ -85,7 +85,7 @@ pub struct UpdateTaskListRequest {
 
 #[utoipa::path(
     get,
-    path = "/task-lists",
+    path = "/v1/task-lists",
     tag = "task-lists",
     responses(
         (status = 200, description = "List of task lists", body = Vec<TaskListResponse>),
@@ -112,7 +112,7 @@ pub async fn list_task_lists<D: Database>(
 
 #[utoipa::path(
     get,
-    path = "/task-lists/{id}",
+    path = "/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(
@@ -146,7 +146,7 @@ pub async fn get_task_list<D: Database>(
 
 #[utoipa::path(
     post,
-    path = "/task-lists",
+    path = "/v1/task-lists",
     tag = "task-lists",
     request_body = CreateTaskListRequest,
     responses(
@@ -189,7 +189,7 @@ pub async fn create_task_list<D: Database>(
 
 #[utoipa::path(
     put,
-    path = "/task-lists/{id}",
+    path = "/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     request_body = UpdateTaskListRequest,
@@ -250,7 +250,7 @@ pub async fn update_task_list<D: Database>(
 
 #[utoipa::path(
     delete,
-    path = "/task-lists/{id}",
+    path = "/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(

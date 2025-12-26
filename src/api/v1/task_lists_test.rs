@@ -1,0 +1,303 @@
+//! Integration tests for TaskList API endpoints.
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use http_body_util::BodyExt;
+use serde_json::{Value, json};
+use tower::ServiceExt;
+
+use crate::api::{AppState, routes};
+use crate::db::{Database, SqliteDatabase};
+
+fn test_app() -> axum::Router {
+    let db = SqliteDatabase::in_memory().expect("Failed to create test database");
+    db.migrate().expect("Failed to run migrations");
+    let state = AppState::new(db);
+    routes::create_router(state)
+}
+
+async fn json_body(response: axum::response::Response) -> Value {
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn list_task_lists_initially_empty() {
+    let app = test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert!(body.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn create_task_list_returns_created() {
+    let app = test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Sprint 1",
+                        "description": "First sprint tasks",
+                        "tags": ["work", "urgent"],
+                        "external_ref": "JIRA-123"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = json_body(response).await;
+    assert_eq!(body["name"], "Sprint 1");
+    assert_eq!(body["description"], "First sprint tasks");
+    assert_eq!(body["tags"], json!(["work", "urgent"]));
+    assert_eq!(body["external_ref"], "JIRA-123");
+    assert_eq!(body["status"], "active");
+    assert!(body["id"].as_str().unwrap().len() == 8);
+}
+
+#[tokio::test]
+async fn create_task_list_minimal() {
+    let app = test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"name": "Quick List"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = json_body(response).await;
+    assert_eq!(body["name"], "Quick List");
+    assert!(body["description"].is_null());
+    assert_eq!(body["tags"], json!([]));
+}
+
+#[tokio::test]
+async fn get_task_list_returns_task_list() {
+    let app = test_app();
+
+    // Create first
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"name": "Test List"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // Get it
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/task-lists/{}", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["id"], id);
+    assert_eq!(body["name"], "Test List");
+}
+
+#[tokio::test]
+async fn get_task_list_not_found() {
+    let app = test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists/nonexist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn update_task_list_returns_updated() {
+    let app = test_app();
+
+    // Create
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"name": "Original"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // Update
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/task-lists/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Updated",
+                        "description": "Now with description",
+                        "status": "archived"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["name"], "Updated");
+    assert_eq!(body["description"], "Now with description");
+    assert_eq!(body["status"], "archived");
+}
+
+#[tokio::test]
+async fn update_task_list_not_found() {
+    let app = test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/v1/task-lists/nonexist")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"name": "Wont Work"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn delete_task_list_returns_no_content() {
+    let app = test_app();
+
+    // Create
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"name": "To Delete"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // Delete
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/v1/task-lists/{}", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Verify gone
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/task-lists/{}", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn delete_task_list_not_found() {
+    let app = test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/v1/task-lists/nonexist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

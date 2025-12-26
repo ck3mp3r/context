@@ -87,7 +87,7 @@ pub struct ErrorResponse {
 /// Returns a list of all projects
 #[utoipa::path(
     get,
-    path = "/projects",
+    path = "/v1/projects",
     tag = "projects",
     responses(
         (status = 200, description = "List of projects", body = Vec<ProjectResponse>),
@@ -117,7 +117,7 @@ pub async fn list_projects<D: Database>(
 /// Returns a single project by its ID
 #[utoipa::path(
     get,
-    path = "/projects/{id}",
+    path = "/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")
@@ -156,7 +156,7 @@ pub async fn get_project<D: Database>(
 /// Creates a new project and returns it
 #[utoipa::path(
     post,
-    path = "/projects",
+    path = "/v1/projects",
     tag = "projects",
     request_body = CreateProjectRequest,
     responses(
@@ -198,7 +198,7 @@ pub async fn create_project<D: Database>(
 /// Updates an existing project
 #[utoipa::path(
     put,
-    path = "/projects/{id}",
+    path = "/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")
@@ -263,7 +263,7 @@ pub async fn update_project<D: Database>(
 /// Deletes a project by its ID
 #[utoipa::path(
     delete,
-    path = "/projects/{id}",
+    path = "/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")

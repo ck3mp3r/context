@@ -26,7 +26,7 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 // =============================================================================
-// GET /repos - List Repos
+// GET /v1/repos - List Repos
 // =============================================================================
 
 #[tokio::test]
@@ -36,7 +36,7 @@ async fn list_repos_initially_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/repos")
+                .uri("/v1/repos")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -51,7 +51,7 @@ async fn list_repos_initially_empty() {
 }
 
 // =============================================================================
-// POST /repos - Create Repo
+// POST /v1/repos - Create Repo
 // =============================================================================
 
 #[tokio::test]
@@ -62,7 +62,7 @@ async fn create_repo_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/repos")
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -93,7 +93,7 @@ async fn create_repo_without_path() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/repos")
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -114,7 +114,7 @@ async fn create_repo_without_path() {
 }
 
 // =============================================================================
-// GET /repos/{id} - Get Repo
+// GET /v1/repos/{id} - Get Repo
 // =============================================================================
 
 #[tokio::test]
@@ -127,7 +127,7 @@ async fn get_repo_returns_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/repos")
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -147,7 +147,7 @@ async fn get_repo_returns_repo() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/repos/{}", repo_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -168,7 +168,7 @@ async fn get_repo_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/repos/nonexist")
+                .uri("/v1/repos/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -182,7 +182,7 @@ async fn get_repo_not_found() {
 }
 
 // =============================================================================
-// PUT /repos/{id} - Update Repo
+// PUT /v1/repos/{id} - Update Repo
 // =============================================================================
 
 #[tokio::test]
@@ -195,7 +195,7 @@ async fn update_repo_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/repos")
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -216,7 +216,7 @@ async fn update_repo_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/repos/{}", repo_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -245,7 +245,7 @@ async fn update_repo_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/repos/nonexist")
+                .uri("/v1/repos/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -263,7 +263,7 @@ async fn update_repo_not_found() {
 }
 
 // =============================================================================
-// DELETE /repos/{id} - Delete Repo
+// DELETE /v1/repos/{id} - Delete Repo
 // =============================================================================
 
 #[tokio::test]
@@ -276,7 +276,7 @@ async fn delete_repo_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/repos")
+                .uri("/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -298,7 +298,7 @@ async fn delete_repo_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/repos/{}", repo_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -311,7 +311,7 @@ async fn delete_repo_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/repos/{}", repo_id))
+                .uri(format!("/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -329,7 +329,7 @@ async fn delete_repo_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/repos/nonexist")
+                .uri("/v1/repos/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )

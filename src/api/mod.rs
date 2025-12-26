@@ -3,8 +3,9 @@
 //! Provides REST API endpoints for managing context data.
 
 mod handlers;
-mod routes;
+pub(crate) mod routes;
 mod state;
+pub mod v1;
 
 use std::net::IpAddr;
 
