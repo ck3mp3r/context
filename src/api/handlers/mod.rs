@@ -1,20 +1,7 @@
-use axum::Json;
-use serde::Serialize;
-use tracing::instrument;
+//! API request handlers.
 
-#[derive(Serialize)]
-pub struct HealthResponse {
-    pub status: String,
-}
+mod projects;
+mod system;
 
-#[instrument]
-pub async fn root() -> &'static str {
-    "c5t-api"
-}
-
-#[instrument]
-pub async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok".to_string(),
-    })
-}
+pub use projects::*;
+pub use system::*;
