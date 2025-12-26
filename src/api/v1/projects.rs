@@ -2,12 +2,12 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::db::{Database, DbError, Project, ProjectRepository};
@@ -78,27 +78,53 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListProjectsQuery {
+    /// Maximum number of items to return
+    #[param(example = 20)]
+    pub limit: Option<usize>,
+    /// Number of items to skip
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+    /// Field to sort by (title, created_at, updated_at)
+    #[param(example = "created_at")]
+    pub sort: Option<String>,
+    /// Sort order (asc, desc)
+    #[param(example = "desc")]
+    pub order: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedProjects {
+    pub items: Vec<ProjectResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
 // =============================================================================
 // Handlers
 // =============================================================================
 
 /// List all projects
 ///
-/// Returns a list of all projects
+/// Returns a paginated list of projects with optional sorting
 #[utoipa::path(
     get,
     path = "/v1/projects",
     tag = "projects",
+    params(ListProjectsQuery),
     responses(
-        (status = 200, description = "List of projects", body = Vec<ProjectResponse>),
+        (status = 200, description = "Paginated list of projects", body = PaginatedProjects),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 #[instrument(skip(state))]
 pub async fn list_projects<D: Database>(
     State(state): State<AppState<D>>,
-) -> Result<Json<Vec<ProjectResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let projects = state.db().projects().list().map_err(|e| {
+    Query(query): Query<ListProjectsQuery>,
+) -> Result<Json<PaginatedProjects>, (StatusCode, Json<ErrorResponse>)> {
+    let mut projects = state.db().projects().list().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -107,9 +133,37 @@ pub async fn list_projects<D: Database>(
         )
     })?;
 
-    Ok(Json(
-        projects.into_iter().map(ProjectResponse::from).collect(),
-    ))
+    // Sort
+    let sort_field = query.sort.as_deref().unwrap_or("created_at");
+    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
+
+    projects.sort_by(|a, b| {
+        let cmp = match sort_field {
+            "title" => a.title.cmp(&b.title),
+            "updated_at" => a.updated_at.cmp(&b.updated_at),
+            _ => a.created_at.cmp(&b.created_at),
+        };
+        if sort_desc { cmp.reverse() } else { cmp }
+    });
+
+    // Pagination
+    let total = projects.len();
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+
+    let items: Vec<ProjectResponse> = projects
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(ProjectResponse::from)
+        .collect();
+
+    Ok(Json(PaginatedProjects {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 /// Get a project by ID

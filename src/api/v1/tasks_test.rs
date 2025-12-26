@@ -62,7 +62,8 @@ async fn list_tasks_for_list() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
+    assert!(body["items"].as_array().unwrap().is_empty());
+    assert_eq!(body["total"], 0);
 
     // Create a task
     app.clone()
@@ -91,7 +92,8 @@ async fn list_tasks_for_list() {
         .unwrap();
 
     let body = json_body(response).await;
-    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+    assert_eq!(body["total"], 1);
 }
 
 #[tokio::test]

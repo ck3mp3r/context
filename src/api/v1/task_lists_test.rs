@@ -23,6 +23,10 @@ async fn json_body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&body).unwrap()
 }
 
+// =============================================================================
+// GET /v1/task-lists - List TaskLists (with tags, pagination, ordering)
+// =============================================================================
+
 #[tokio::test]
 async fn list_task_lists_initially_empty() {
     let app = test_app();
@@ -40,8 +44,179 @@ async fn list_task_lists_initially_empty() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
+    assert!(body["items"].as_array().unwrap().is_empty());
+    assert_eq!(body["total"], 0);
 }
+
+#[tokio::test]
+async fn list_task_lists_with_pagination() {
+    let app = test_app();
+
+    // Create 5 task lists
+    for i in 1..=5 {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/task-lists")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({"name": format!("List {}", i)})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Get first page
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists?limit=2&offset=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+    assert_eq!(body["total"], 5);
+    assert_eq!(body["limit"], 2);
+    assert_eq!(body["offset"], 0);
+
+    // Get last page
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists?limit=2&offset=4")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn list_task_lists_with_tag_filter() {
+    let app = test_app();
+
+    // Create task lists with different tags
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Work Tasks",
+                        "tags": ["work", "urgent"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Personal Tasks",
+                        "tags": ["personal"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by "work" tag
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists?tags=work")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["name"], "Work Tasks");
+}
+
+#[tokio::test]
+async fn list_task_lists_with_ordering() {
+    let app = test_app();
+
+    // Create task lists
+    for name in ["Zebra", "Apple", "Mango"] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/task-lists")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({"name": name})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Sort by name ascending
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists?sort=name&order=asc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items[0]["name"], "Apple");
+    assert_eq!(items[1]["name"], "Mango");
+    assert_eq!(items[2]["name"], "Zebra");
+
+    // Sort by name descending
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists?sort=name&order=desc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items[0]["name"], "Zebra");
+}
+
+// =============================================================================
+// POST /v1/task-lists - Create TaskList
+// =============================================================================
 
 #[tokio::test]
 async fn create_task_list_returns_created() {
@@ -104,6 +279,10 @@ async fn create_task_list_minimal() {
     assert_eq!(body["tags"], json!([]));
 }
 
+// =============================================================================
+// GET /v1/task-lists/{id} - Get TaskList
+// =============================================================================
+
 #[tokio::test]
 async fn get_task_list_returns_task_list() {
     let app = test_app();
@@ -160,6 +339,10 @@ async fn get_task_list_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// =============================================================================
+// PUT /v1/task-lists/{id} - Update TaskList
+// =============================================================================
 
 #[tokio::test]
 async fn update_task_list_returns_updated() {
@@ -231,6 +414,10 @@ async fn update_task_list_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// =============================================================================
+// DELETE /v1/task-lists/{id} - Delete TaskList
+// =============================================================================
 
 #[tokio::test]
 async fn delete_task_list_returns_no_content() {

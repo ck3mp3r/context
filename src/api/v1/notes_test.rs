@@ -24,7 +24,7 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 // =============================================================================
-// GET /v1/notes - List Notes
+// GET /v1/notes - List Notes (with optional search & pagination)
 // =============================================================================
 
 #[tokio::test]
@@ -44,7 +44,186 @@ async fn list_notes_initially_empty() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
+    assert!(body["items"].as_array().unwrap().is_empty());
+    assert_eq!(body["total"], 0);
+}
+
+#[tokio::test]
+async fn list_notes_with_search_query() {
+    let app = test_app();
+
+    // Create notes with different content
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Programming",
+                        "content": "Rust is a systems programming language"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Scripting",
+                        "content": "Python is great for scripting"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for "rust"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let notes = body["items"].as_array().unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["title"], "Rust Programming");
+    assert_eq!(body["total"], 1);
+}
+
+#[tokio::test]
+async fn list_notes_with_pagination() {
+    let app = test_app();
+
+    // Create 5 notes
+    for i in 1..=5 {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/notes")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "title": format!("Note {}", i),
+                            "content": format!("Content {}", i)
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Get first page (limit 2)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?limit=2&offset=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+    assert_eq!(body["total"], 5);
+    assert_eq!(body["limit"], 2);
+    assert_eq!(body["offset"], 0);
+
+    // Get second page
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?limit=2&offset=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+    assert_eq!(body["offset"], 2);
+
+    // Get last page (partial)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?limit=2&offset=4")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn list_notes_search_no_match_returns_empty() {
+    let app = test_app();
+
+    // Create a note
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Some Note",
+                        "content": "Some content"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for non-existent term
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert!(body["items"].as_array().unwrap().is_empty());
+    assert_eq!(body["total"], 0);
 }
 
 // =============================================================================
@@ -345,14 +524,14 @@ async fn delete_note_not_found() {
 }
 
 // =============================================================================
-// GET /v1/notes/search?q= - Search Notes (FTS)
+// Tag Filtering
 // =============================================================================
 
 #[tokio::test]
-async fn search_notes_returns_matching() {
+async fn list_notes_with_tag_filter() {
     let app = test_app();
 
-    // Create notes with different content
+    // Create notes with different tags
     app.clone()
         .oneshot(
             Request::builder()
@@ -361,8 +540,9 @@ async fn search_notes_returns_matching() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Rust Programming",
-                        "content": "Rust is a systems programming language"
+                        "title": "Rust Note",
+                        "content": "About Rust",
+                        "tags": ["rust", "programming"]
                     }))
                     .unwrap(),
                 ))
@@ -379,8 +559,9 @@ async fn search_notes_returns_matching() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Python Scripting",
-                        "content": "Python is great for scripting"
+                        "title": "Python Note",
+                        "content": "About Python",
+                        "tags": ["python", "programming"]
                     }))
                     .unwrap(),
                 ))
@@ -389,81 +570,117 @@ async fn search_notes_returns_matching() {
         .await
         .unwrap();
 
-    // Search for "rust"
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Cooking Note",
+                        "content": "About cooking",
+                        "tags": ["cooking"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by "rust" tag
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes/search?q=rust")
+                .uri("/v1/notes?tags=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Rust Note");
+
+    // Filter by "programming" tag (should match 2)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?tags=programming")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     let body = json_body(response).await;
-    let notes = body.as_array().unwrap();
-    assert_eq!(notes.len(), 1);
-    assert_eq!(notes[0]["title"], "Rust Programming");
+    assert_eq!(body["total"], 2);
 }
 
-#[tokio::test]
-async fn search_notes_empty_query_returns_empty() {
-    let app = test_app();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/v1/notes/search?q=")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
-}
+// =============================================================================
+// Ordering
+// =============================================================================
 
 #[tokio::test]
-async fn search_notes_no_match_returns_empty() {
+async fn list_notes_with_ordering() {
     let app = test_app();
 
-    // Create a note
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Some Note",
-                        "content": "Some content"
-                    }))
+    // Create notes with different titles
+    for title in ["Zebra", "Apple", "Mango"] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/notes")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "title": title,
+                            "content": "content"
+                        }))
+                        .unwrap(),
+                    ))
                     .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+            )
+            .await
+            .unwrap();
+    }
 
-    // Search for non-existent term
+    // Sort by title ascending
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes/search?q=nonexistent")
+                .uri("/v1/notes?sort=title&order=asc")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items[0]["title"], "Apple");
+    assert_eq!(items[1]["title"], "Mango");
+    assert_eq!(items[2]["title"], "Zebra");
+
+    // Sort by title descending
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?sort=title&order=desc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items[0]["title"], "Zebra");
+    assert_eq!(items[1]["title"], "Mango");
+    assert_eq!(items[2]["title"], "Apple");
 }

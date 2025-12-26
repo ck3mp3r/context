@@ -77,10 +77,33 @@ pub struct UpdateNoteRequest {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
-pub struct SearchQuery {
-    /// FTS5 search query
+pub struct ListNotesQuery {
+    /// FTS5 search query (optional)
     #[param(example = "rust programming")]
-    pub q: String,
+    pub q: Option<String>,
+    /// Filter by tags (comma-separated)
+    #[param(example = "api,session")]
+    pub tags: Option<String>,
+    /// Maximum number of items to return
+    #[param(example = 20)]
+    pub limit: Option<usize>,
+    /// Number of items to skip
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+    /// Field to sort by (title, note_type, created_at, updated_at)
+    #[param(example = "created_at")]
+    pub sort: Option<String>,
+    /// Sort order (asc, desc)
+    #[param(example = "desc")]
+    pub order: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedNotes {
+    pub items: Vec<NoteResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
 }
 
 // =============================================================================
@@ -91,25 +114,75 @@ pub struct SearchQuery {
     get,
     path = "/v1/notes",
     tag = "notes",
+    params(ListNotesQuery),
     responses(
-        (status = 200, description = "List of notes", body = Vec<NoteResponse>),
+        (status = 200, description = "Paginated list of notes", body = PaginatedNotes),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 #[instrument(skip(state))]
 pub async fn list_notes<D: Database>(
     State(state): State<AppState<D>>,
-) -> Result<Json<Vec<NoteResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let notes = state.db().notes().list().map_err(|e| {
+    Query(query): Query<ListNotesQuery>,
+) -> Result<Json<PaginatedNotes>, (StatusCode, Json<ErrorResponse>)> {
+    let internal_error = |e: crate::db::DbError| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: e.to_string(),
             }),
         )
-    })?;
+    };
 
-    Ok(Json(notes.into_iter().map(NoteResponse::from).collect()))
+    // Get notes - either search or list all
+    let mut notes = if let Some(q) = &query.q {
+        if q.is_empty() {
+            vec![]
+        } else {
+            state.db().notes().search(q).map_err(internal_error)?
+        }
+    } else {
+        state.db().notes().list().map_err(internal_error)?
+    };
+
+    // Filter by tags if provided
+    if let Some(tags_str) = &query.tags {
+        let filter_tags: Vec<&str> = tags_str.split(',').map(|s| s.trim()).collect();
+        notes.retain(|note| note.tags.iter().any(|t| filter_tags.contains(&t.as_str())));
+    }
+
+    // Sort
+    let sort_field = query.sort.as_deref().unwrap_or("created_at");
+    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
+
+    notes.sort_by(|a, b| {
+        let cmp = match sort_field {
+            "title" => a.title.cmp(&b.title),
+            "note_type" => format!("{:?}", a.note_type).cmp(&format!("{:?}", b.note_type)),
+            "updated_at" => a.updated_at.cmp(&b.updated_at),
+            _ => a.created_at.cmp(&b.created_at), // default: created_at
+        };
+        if sort_desc { cmp.reverse() } else { cmp }
+    });
+
+    // Pagination
+    let total = notes.len();
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+
+    let items: Vec<NoteResponse> = notes
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(NoteResponse::from)
+        .collect();
+
+    Ok(Json(PaginatedNotes {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 #[utoipa::path(
@@ -277,37 +350,6 @@ pub async fn delete_note<D: Database>(
     })?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/notes/search",
-    tag = "notes",
-    params(SearchQuery),
-    responses(
-        (status = 200, description = "Search results", body = Vec<NoteResponse>),
-        (status = 500, description = "Internal server error", body = ErrorResponse)
-    )
-)]
-#[instrument(skip(state))]
-pub async fn search_notes<D: Database>(
-    State(state): State<AppState<D>>,
-    Query(query): Query<SearchQuery>,
-) -> Result<Json<Vec<NoteResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    if query.q.is_empty() {
-        return Ok(Json(vec![]));
-    }
-
-    let notes = state.db().notes().search(&query.q).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    Ok(Json(notes.into_iter().map(NoteResponse::from).collect()))
 }
 
 // =============================================================================

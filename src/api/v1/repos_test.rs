@@ -46,8 +46,9 @@ async fn list_repos_initially_empty() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = json_body(response).await;
-    let repos = body.as_array().expect("Expected array");
+    let repos = body["items"].as_array().expect("Expected items array");
     assert!(repos.is_empty());
+    assert_eq!(body["total"], 0);
 }
 
 // =============================================================================

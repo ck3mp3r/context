@@ -2,12 +2,12 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::db::{Database, DbError, Repo, RepoRepository};
@@ -68,27 +68,53 @@ pub struct UpdateRepoRequest {
     pub path: Option<String>,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListReposQuery {
+    /// Maximum number of items to return
+    #[param(example = 20)]
+    pub limit: Option<usize>,
+    /// Number of items to skip
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+    /// Field to sort by (remote, created_at)
+    #[param(example = "created_at")]
+    pub sort: Option<String>,
+    /// Sort order (asc, desc)
+    #[param(example = "desc")]
+    pub order: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedRepos {
+    pub items: Vec<RepoResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
 // =============================================================================
 // Handlers
 // =============================================================================
 
 /// List all repos
 ///
-/// Returns a list of all registered repositories
+/// Returns a paginated list of repositories with optional sorting
 #[utoipa::path(
     get,
     path = "/v1/repos",
     tag = "repos",
+    params(ListReposQuery),
     responses(
-        (status = 200, description = "List of repos", body = Vec<RepoResponse>),
+        (status = 200, description = "Paginated list of repos", body = PaginatedRepos),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 #[instrument(skip(state))]
 pub async fn list_repos<D: Database>(
     State(state): State<AppState<D>>,
-) -> Result<Json<Vec<RepoResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let repos = state.db().repos().list().map_err(|e| {
+    Query(query): Query<ListReposQuery>,
+) -> Result<Json<PaginatedRepos>, (StatusCode, Json<ErrorResponse>)> {
+    let mut repos = state.db().repos().list().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -97,7 +123,36 @@ pub async fn list_repos<D: Database>(
         )
     })?;
 
-    Ok(Json(repos.into_iter().map(RepoResponse::from).collect()))
+    // Sort
+    let sort_field = query.sort.as_deref().unwrap_or("created_at");
+    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
+
+    repos.sort_by(|a, b| {
+        let cmp = match sort_field {
+            "remote" => a.remote.cmp(&b.remote),
+            _ => a.created_at.cmp(&b.created_at),
+        };
+        if sort_desc { cmp.reverse() } else { cmp }
+    });
+
+    // Pagination
+    let total = repos.len();
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+
+    let items: Vec<RepoResponse> = repos
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(RepoResponse::from)
+        .collect();
+
+    Ok(Json(PaginatedRepos {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 /// Get a repo by ID

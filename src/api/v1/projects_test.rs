@@ -46,11 +46,12 @@ async fn list_projects_returns_default_project() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = json_body(response).await;
-    let projects = body.as_array().expect("Expected array");
+    let projects = body["items"].as_array().expect("Expected items array");
 
     // Should have at least the default project from migrations
     assert!(!projects.is_empty());
     assert!(projects.iter().any(|p| p["title"] == "Default"));
+    assert!(body["total"].as_u64().unwrap() >= 1);
 }
 
 // =============================================================================
@@ -137,7 +138,7 @@ async fn get_project_returns_project() {
         .unwrap();
 
     let body = json_body(response).await;
-    let default_id = body[0]["id"].as_str().unwrap();
+    let default_id = body["items"][0]["id"].as_str().unwrap();
 
     // Now get that specific project
     let response = app
@@ -197,7 +198,7 @@ async fn update_project_returns_updated() {
         .unwrap();
 
     let body = json_body(response).await;
-    let default_id = body[0]["id"].as_str().unwrap();
+    let default_id = body["items"][0]["id"].as_str().unwrap();
 
     // Update it
     let response = app

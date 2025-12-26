@@ -2,12 +2,12 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::db::{Database, DbError, Task, TaskRepository, TaskStatus};
@@ -77,6 +77,30 @@ pub struct UpdateTaskRequest {
     pub priority: Option<i32>,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListTasksQuery {
+    /// Maximum number of items to return
+    #[param(example = 20)]
+    pub limit: Option<usize>,
+    /// Number of items to skip
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+    /// Field to sort by (content, status, priority, created_at)
+    #[param(example = "created_at")]
+    pub sort: Option<String>,
+    /// Sort order (asc, desc)
+    #[param(example = "desc")]
+    pub order: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedTasks {
+    pub items: Vec<TaskResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
 // =============================================================================
 // Handlers
 // =============================================================================
@@ -85,9 +109,12 @@ pub struct UpdateTaskRequest {
     get,
     path = "/v1/task-lists/{list_id}/tasks",
     tag = "tasks",
-    params(("list_id" = String, Path, description = "TaskList ID")),
+    params(
+        ("list_id" = String, Path, description = "TaskList ID"),
+        ListTasksQuery
+    ),
     responses(
-        (status = 200, description = "List of tasks", body = Vec<TaskResponse>),
+        (status = 200, description = "Paginated list of tasks", body = PaginatedTasks),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -95,8 +122,9 @@ pub struct UpdateTaskRequest {
 pub async fn list_tasks<D: Database>(
     State(state): State<AppState<D>>,
     Path(list_id): Path<String>,
-) -> Result<Json<Vec<TaskResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let tasks = state.db().tasks().list_by_list(&list_id).map_err(|e| {
+    Query(query): Query<ListTasksQuery>,
+) -> Result<Json<PaginatedTasks>, (StatusCode, Json<ErrorResponse>)> {
+    let mut tasks = state.db().tasks().list_by_list(&list_id).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -105,7 +133,38 @@ pub async fn list_tasks<D: Database>(
         )
     })?;
 
-    Ok(Json(tasks.into_iter().map(TaskResponse::from).collect()))
+    // Sort
+    let sort_field = query.sort.as_deref().unwrap_or("created_at");
+    let sort_desc = query.order.as_deref().unwrap_or("desc") == "desc";
+
+    tasks.sort_by(|a, b| {
+        let cmp = match sort_field {
+            "content" => a.content.cmp(&b.content),
+            "status" => format!("{:?}", a.status).cmp(&format!("{:?}", b.status)),
+            "priority" => a.priority.cmp(&b.priority),
+            _ => a.created_at.cmp(&b.created_at),
+        };
+        if sort_desc { cmp.reverse() } else { cmp }
+    });
+
+    // Pagination
+    let total = tasks.len();
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+
+    let items: Vec<TaskResponse> = tasks
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(TaskResponse::from)
+        .collect();
+
+    Ok(Json(PaginatedTasks {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 #[utoipa::path(
