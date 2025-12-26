@@ -6,8 +6,9 @@ use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
 use super::handlers::{
-    self, CreateProjectRequest, CreateRepoRequest, ErrorResponse, HealthResponse, ProjectResponse,
-    RepoResponse, UpdateProjectRequest, UpdateRepoRequest,
+    self, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest, ErrorResponse,
+    HealthResponse, ProjectResponse, RepoResponse, TaskListResponse, UpdateProjectRequest,
+    UpdateRepoRequest, UpdateTaskListRequest,
 };
 use super::state::AppState;
 use crate::db::Database;
@@ -50,6 +51,11 @@ macro_rules! routes {
         handlers::create_repo,
         handlers::update_repo,
         handlers::delete_repo,
+        handlers::list_task_lists,
+        handlers::get_task_list,
+        handlers::create_task_list,
+        handlers::update_task_list,
+        handlers::delete_task_list,
     ),
     components(
         schemas(
@@ -60,13 +66,17 @@ macro_rules! routes {
             RepoResponse,
             CreateRepoRequest,
             UpdateRepoRequest,
+            TaskListResponse,
+            CreateTaskListRequest,
+            UpdateTaskListRequest,
             ErrorResponse,
         )
     ),
     tags(
         (name = "system", description = "System health and status endpoints"),
         (name = "projects", description = "Project management endpoints"),
-        (name = "repos", description = "Repository management endpoints")
+        (name = "repos", description = "Repository management endpoints"),
+        (name = "task-lists", description = "Task list management endpoints")
     )
 )]
 pub struct ApiDoc;
@@ -98,9 +108,19 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         delete "/repos/{id}" => handlers::delete_repo,
     });
 
+    // TaskList routes (generic over Database)
+    let task_list_routes = routes!(D => {
+        get "/task-lists" => handlers::list_task_lists,
+        get "/task-lists/{id}" => handlers::get_task_list,
+        post "/task-lists" => handlers::create_task_list,
+        put "/task-lists/{id}" => handlers::update_task_list,
+        delete "/task-lists/{id}" => handlers::delete_task_list,
+    });
+
     system_routes
         .merge(project_routes)
         .merge(repo_routes)
+        .merge(task_list_routes)
         .merge(Scalar::with_url("/docs", api))
         .with_state(state)
 }
