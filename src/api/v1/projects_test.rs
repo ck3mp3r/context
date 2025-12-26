@@ -537,3 +537,200 @@ async fn update_note_with_project_relationships_should_work() {
     assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["project_ids"][0], project_id);
 }
+
+// =============================================================================
+// PATCH /v1/projects/{id} - Partial Update Project
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_project_partial_title_update() {
+    let app = test_app().await;
+
+    // Create a project
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Original Title",
+                        "description": "Original description",
+                        "tags": ["tag1", "tag2"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap();
+
+    // PATCH only the title
+    let patch_response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Updated Title"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+
+    let patched = json_body(patch_response).await;
+
+    // Title should be updated
+    assert_eq!(patched["title"], "Updated Title");
+
+    // Other fields should be preserved
+    assert_eq!(patched["description"], "Original description");
+    assert_eq!(patched["tags"].as_array().unwrap().len(), 2);
+    assert_eq!(patched["tags"][0], "tag1");
+    assert_eq!(patched["tags"][1], "tag2");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_project_omit_field_preserves_it() {
+    let app = test_app().await;
+
+    // Create a project with description
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Test Project",
+                        "description": "Has description"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap();
+    assert!(created["description"].is_string());
+
+    // PATCH - omit description field (no change)
+    let patch_response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Test Project Updated"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+
+    let patched = json_body(patch_response).await;
+
+    // Description should still be there (unchanged)
+    assert_eq!(patched["description"], "Has description");
+
+    // Title should be updated
+    assert_eq!(patched["title"], "Test Project Updated");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_project_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/v1/projects/notfound")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "New Title"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_project_empty_body_preserves_all() {
+    let app = test_app().await;
+
+    // Create a project
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Original",
+                        "description": "Desc",
+                        "tags": ["tag1"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap();
+
+    // PATCH with empty body
+    let patch_response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+
+    let patched = json_body(patch_response).await;
+
+    // Everything should be unchanged
+    assert_eq!(patched["title"], "Original");
+    assert_eq!(patched["description"], "Desc");
+    assert_eq!(patched["tags"].as_array().unwrap().len(), 1);
+}

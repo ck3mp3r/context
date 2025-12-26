@@ -1,7 +1,7 @@
 //! API route configuration.
 
 use axum::Router;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
@@ -9,9 +9,9 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
-    CreateTaskRequest, ErrorResponse, NoteResponse, ProjectResponse, RepoResponse,
-    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateTaskListRequest, UpdateTaskRequest,
+    CreateTaskRequest, ErrorResponse, NoteResponse, PatchProjectRequest, ProjectResponse,
+    RepoResponse, TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest,
+    UpdateRepoRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 use crate::db::Database;
 
@@ -47,6 +47,7 @@ macro_rules! routes {
         super::v1::get_project,
         super::v1::create_project,
         super::v1::update_project,
+        super::v1::patch_project,
         super::v1::delete_project,
         super::v1::list_repos,
         super::v1::get_repo,
@@ -75,6 +76,7 @@ macro_rules! routes {
             ProjectResponse,
             CreateProjectRequest,
             UpdateProjectRequest,
+            PatchProjectRequest,
             super::v1::PaginatedProjects,
             RepoResponse,
             CreateRepoRequest,
@@ -122,6 +124,7 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         get "/v1/projects/{id}" => super::v1::get_project,
         post "/v1/projects" => super::v1::create_project,
         put "/v1/projects/{id}" => super::v1::update_project,
+        patch "/v1/projects/{id}" => super::v1::patch_project,
         delete "/v1/projects/{id}" => super::v1::delete_project,
         // Repos
         get "/v1/repos" => super::v1::list_repos,

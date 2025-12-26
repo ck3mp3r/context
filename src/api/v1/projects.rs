@@ -94,6 +94,52 @@ pub struct UpdateProjectRequest {
     pub tags: Vec<String>,
 }
 
+/// Patch project request DTO (partial update)
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct PatchProjectRequest {
+    /// Project title
+    #[schema(example = "Updated Project")]
+    pub title: Option<String>,
+    /// Optional description  
+    #[schema(example = "Updated description")]
+    pub description: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["rust", "backend"]))]
+    pub tags: Option<Vec<String>>,
+    /// Linked repository IDs
+    #[schema(example = json!(["repo0001", "repo0002"]))]
+    pub repo_ids: Option<Vec<String>>,
+    /// Linked task list IDs
+    #[schema(example = json!(["list0001", "list0002"]))]
+    pub task_list_ids: Option<Vec<String>>,
+    /// Linked note IDs
+    #[schema(example = json!(["note0001", "note0002"]))]
+    pub note_ids: Option<Vec<String>>,
+}
+
+impl PatchProjectRequest {
+    fn merge_into(self, target: &mut Project) {
+        if let Some(title) = self.title {
+            target.title = title;
+        }
+        if let Some(description) = self.description {
+            target.description = Some(description);
+        }
+        if let Some(tags) = self.tags {
+            target.tags = tags;
+        }
+        if let Some(repo_ids) = self.repo_ids {
+            target.repo_ids = repo_ids;
+        }
+        if let Some(task_list_ids) = self.task_list_ids {
+            target.task_list_ids = task_list_ids;
+        }
+        if let Some(note_ids) = self.note_ids {
+            target.note_ids = note_ids;
+        }
+    }
+}
+
 /// Error response DTO
 #[derive(Serialize, ToSchema)]
 pub struct ErrorResponse {
@@ -329,6 +375,71 @@ pub async fn update_project<D: Database>(
     project.description = req.description;
     project.tags = req.tags;
 
+    state.db().projects().update(&project).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Re-fetch to get updated timestamp
+    let updated = state.db().projects().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(ProjectResponse::from(updated)))
+}
+
+/// Partially update a project
+///
+/// Updates only the fields provided in the request (PATCH semantics)
+#[utoipa::path(
+    patch,
+    path = "/v1/projects/{id}",
+    tag = "projects",
+    params(
+        ("id" = String, Path, description = "Project ID (8-character hex)")
+    ),
+    request_body = PatchProjectRequest,
+    responses(
+        (status = 200, description = "Project updated", body = ProjectResponse),
+        (status = 404, description = "Project not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn patch_project<D: Database>(
+    State(state): State<AppState<D>>,
+    Path(id): Path<String>,
+    Json(req): Json<PatchProjectRequest>,
+) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Fetch existing project
+    let mut project = state.db().projects().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Project '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Merge PATCH changes
+    req.merge_into(&mut project);
+
+    // Save
     state.db().projects().update(&project).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
