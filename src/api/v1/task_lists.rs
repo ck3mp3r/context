@@ -127,7 +127,14 @@ pub async fn list_task_lists<D: Database>(
     State(state): State<AppState<D>>,
     Query(query): Query<ListTaskListsQuery>,
 ) -> Result<Json<PaginatedTaskLists>, (StatusCode, Json<ErrorResponse>)> {
-    // Build database query
+    // Build database query with tag filtering at DB level
+    let tags = query.tags.as_ref().map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
     let db_query = ListQuery {
         limit: query.limit,
         offset: query.offset,
@@ -137,6 +144,7 @@ pub async fn list_task_lists<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
+        tags,
     };
 
     let result = state
@@ -152,21 +160,15 @@ pub async fn list_task_lists<D: Database>(
             )
         })?;
 
-    // Filter by tags if provided (still in memory on paginated subset)
-    let mut lists = result.items;
-    let mut total = result.total;
-
-    if let Some(tags_str) = &query.tags {
-        let filter_tags: Vec<&str> = tags_str.split(',').map(|s| s.trim()).collect();
-        lists.retain(|list| list.tags.iter().any(|t| filter_tags.contains(&t.as_str())));
-        total = lists.len();
-    }
-
-    let items: Vec<TaskListResponse> = lists.into_iter().map(TaskListResponse::from).collect();
+    let items: Vec<TaskListResponse> = result
+        .items
+        .into_iter()
+        .map(TaskListResponse::from)
+        .collect();
 
     Ok(Json(PaginatedTaskLists {
         items,
-        total,
+        total: result.total,
         limit: result.limit.unwrap_or(50),
         offset: result.offset,
     }))

@@ -134,7 +134,14 @@ pub async fn list_notes<D: Database>(
         )
     };
 
-    // Build database query
+    // Build database query with tag filtering at DB level
+    let tags = query.tags.as_ref().map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
     let db_query = ListQuery {
         limit: query.limit,
         offset: query.offset,
@@ -144,6 +151,7 @@ pub async fn list_notes<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
+        tags,
     };
 
     // Get notes - either search or list all (at database level)
@@ -171,24 +179,11 @@ pub async fn list_notes<D: Database>(
             .map_err(internal_error)?
     };
 
-    // Filter by tags if provided (still in memory, but on paginated subset)
-    // Note: For full tag filtering at DB level, we'd need to add tag filtering to the query
-    let mut notes = result.items;
-    let mut total = result.total;
-
-    if let Some(tags_str) = &query.tags {
-        let filter_tags: Vec<&str> = tags_str.split(',').map(|s| s.trim()).collect();
-        notes.retain(|note| note.tags.iter().any(|t| filter_tags.contains(&t.as_str())));
-        // Note: total count is approximate when tag filtering is applied
-        // For exact counts, tag filtering would need to be in the DB query
-        total = notes.len();
-    }
-
-    let items: Vec<NoteResponse> = notes.into_iter().map(NoteResponse::from).collect();
+    let items: Vec<NoteResponse> = result.items.into_iter().map(NoteResponse::from).collect();
 
     Ok(Json(PaginatedNotes {
         items,
-        total,
+        total: result.total,
         limit: result.limit.unwrap_or(50),
         offset: result.offset,
     }))

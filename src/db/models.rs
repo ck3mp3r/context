@@ -28,6 +28,8 @@ pub struct ListQuery {
     pub sort_by: Option<String>,
     /// Sort order (ascending or descending).
     pub sort_order: Option<SortOrder>,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
 }
 
 /// Result of a paginated list query.

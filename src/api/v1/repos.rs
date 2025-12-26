@@ -124,6 +124,7 @@ pub async fn list_repos<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
+        tags: None, // Repos don't have tags
     };
 
     let result = state.db().repos().list_paginated(&db_query).map_err(|e| {

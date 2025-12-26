@@ -134,6 +134,7 @@ pub async fn list_projects<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
+        tags: None, // Projects don't have tags
     };
 
     let result = state

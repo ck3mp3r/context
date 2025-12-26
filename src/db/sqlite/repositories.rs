@@ -68,6 +68,27 @@ fn build_limit_offset_clause(query: &ListQuery) -> String {
     clause
 }
 
+/// Build WHERE clause for tag filtering using SQLite JSON functions.
+/// Tags are stored as JSON arrays, so we use json_each() to search.
+/// Returns (where_clause, params) - clause starts with "WHERE" if tags provided.
+fn build_tag_filter_clause(tags: &Option<Vec<String>>) -> (String, Vec<String>) {
+    match tags {
+        Some(tag_list) if !tag_list.is_empty() => {
+            // Build OR conditions for each tag
+            // Uses: EXISTS (SELECT 1 FROM json_each(tags) WHERE json_each.value = ?)
+            let conditions: Vec<String> = tag_list
+                .iter()
+                .map(|_| {
+                    "EXISTS (SELECT 1 FROM json_each(tags) WHERE json_each.value = ?)".to_string()
+                })
+                .collect();
+            let where_clause = format!("WHERE ({})", conditions.join(" OR "));
+            (where_clause, tag_list.clone())
+        }
+        _ => (String::new(), vec![]),
+    }
+}
+
 /// Helper to execute with connection lock.
 fn with_conn<F, T>(conn: &Mutex<Connection>, f: F) -> DbResult<T>
 where
@@ -557,20 +578,34 @@ impl TaskListRepository for SqliteTaskListRepository<'_> {
         let allowed_fields = &["name", "status", "created_at", "updated_at"];
         let order_clause = build_order_clause(query, allowed_fields, "created_at");
         let limit_offset = build_limit_offset_clause(query);
+        let (tag_where, tag_params) = build_tag_filter_clause(&query.tags);
 
         with_conn(self.conn, |conn| {
-            // Get total count
-            let total: usize = conn.query_row("SELECT COUNT(*) FROM task_list", [], |row| {
-                row.get::<_, i64>(0).map(|v| v as usize)
-            })?;
+            // Get total count (with tag filter if present)
+            let count_sql = format!("SELECT COUNT(*) FROM task_list {}", tag_where);
+            let total: usize = if tag_params.is_empty() {
+                conn.query_row(&count_sql, [], |row| {
+                    row.get::<_, i64>(0).map(|v| v as usize)
+                })?
+            } else {
+                let params: Vec<&dyn rusqlite::ToSql> = tag_params
+                    .iter()
+                    .map(|s| s as &dyn rusqlite::ToSql)
+                    .collect();
+                conn.query_row(&count_sql, params.as_slice(), |row| {
+                    row.get::<_, i64>(0).map(|v| v as usize)
+                })?
+            };
 
             // Get paginated results
             let sql = format!(
-                "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at FROM task_list {} {}",
-                order_clause, limit_offset
+                "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at FROM task_list {} {} {}",
+                tag_where, order_clause, limit_offset
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], |row| {
+
+            // Map row to TaskList
+            let map_row = |row: &rusqlite::Row| -> rusqlite::Result<TaskList> {
                 let tags_json: String = row
                     .get::<_, Option<String>>(4)?
                     .unwrap_or_else(|| "[]".to_string());
@@ -592,8 +627,19 @@ impl TaskListRepository for SqliteTaskListRepository<'_> {
                     updated_at: row.get(8)?,
                     archived_at: row.get(9)?,
                 })
-            })?;
-            let items = rows.collect::<Result<Vec<_>, _>>()?;
+            };
+
+            let items: Vec<TaskList> = if tag_params.is_empty() {
+                stmt.query_map([], map_row)?
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                let params: Vec<&dyn rusqlite::ToSql> = tag_params
+                    .iter()
+                    .map(|s| s as &dyn rusqlite::ToSql)
+                    .collect();
+                stmt.query_map(params.as_slice(), map_row)?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
 
             Ok(ListResult {
                 items,
@@ -1069,20 +1115,34 @@ impl NoteRepository for SqliteNoteRepository<'_> {
         let allowed_fields = &["title", "note_type", "created_at", "updated_at"];
         let order_clause = build_order_clause(query, allowed_fields, "created_at");
         let limit_offset = build_limit_offset_clause(query);
+        let (tag_where, tag_params) = build_tag_filter_clause(&query.tags);
 
         with_conn(self.conn, |conn| {
-            // Get total count
-            let total: usize = conn.query_row("SELECT COUNT(*) FROM note", [], |row| {
-                row.get::<_, i64>(0).map(|v| v as usize)
-            })?;
+            // Get total count (with tag filter if present)
+            let count_sql = format!("SELECT COUNT(*) FROM note {}", tag_where);
+            let total: usize = if tag_params.is_empty() {
+                conn.query_row(&count_sql, [], |row| {
+                    row.get::<_, i64>(0).map(|v| v as usize)
+                })?
+            } else {
+                let params: Vec<&dyn rusqlite::ToSql> = tag_params
+                    .iter()
+                    .map(|s| s as &dyn rusqlite::ToSql)
+                    .collect();
+                conn.query_row(&count_sql, params.as_slice(), |row| {
+                    row.get::<_, i64>(0).map(|v| v as usize)
+                })?
+            };
 
             // Get paginated results
             let sql = format!(
-                "SELECT id, title, content, tags, note_type, created_at, updated_at FROM note {} {}",
-                order_clause, limit_offset
+                "SELECT id, title, content, tags, note_type, created_at, updated_at FROM note {} {} {}",
+                tag_where, order_clause, limit_offset
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], |row| {
+
+            // Map row to Note
+            let map_row = |row: &rusqlite::Row| -> rusqlite::Result<Note> {
                 let tags_json: String = row
                     .get::<_, Option<String>>(3)?
                     .unwrap_or_else(|| "[]".to_string());
@@ -1097,8 +1157,19 @@ impl NoteRepository for SqliteNoteRepository<'_> {
                     created_at: row.get(5)?,
                     updated_at: row.get(6)?,
                 })
-            })?;
-            let items = rows.collect::<Result<Vec<_>, _>>()?;
+            };
+
+            let items: Vec<Note> = if tag_params.is_empty() {
+                stmt.query_map([], map_row)?
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                let params: Vec<&dyn rusqlite::ToSql> = tag_params
+                    .iter()
+                    .map(|s| s as &dyn rusqlite::ToSql)
+                    .collect();
+                stmt.query_map(params.as_slice(), map_row)?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
 
             Ok(ListResult {
                 items,

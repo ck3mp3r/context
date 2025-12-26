@@ -134,6 +134,7 @@ pub async fn list_tasks<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
+        tags: None, // Tasks don't have tags
     };
 
     let result = state

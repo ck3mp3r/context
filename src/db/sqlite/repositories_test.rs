@@ -961,6 +961,7 @@ fn note_list_paginated_limit_offset() {
         offset: None,
         sort_by: None,
         sort_order: None,
+        tags: None,
     };
     let result = notes.list_paginated(&query).expect("Query should succeed");
     assert_eq!(result.items.len(), 3);
@@ -974,6 +975,7 @@ fn note_list_paginated_limit_offset() {
         offset: Some(5),
         sort_by: None,
         sort_order: None,
+        tags: None,
     };
     let result = notes.list_paginated(&query).expect("Query should succeed");
     assert_eq!(result.items.len(), 3);
@@ -1005,6 +1007,7 @@ fn note_list_paginated_sorting() {
         offset: None,
         sort_by: Some("title".to_string()),
         sort_order: Some(SortOrder::Asc),
+        tags: None,
     };
     let result = notes.list_paginated(&query).expect("Query should succeed");
     assert_eq!(result.items[0].title, "Alpha");
@@ -1017,6 +1020,7 @@ fn note_list_paginated_sorting() {
         offset: None,
         sort_by: Some("title".to_string()),
         sort_order: Some(SortOrder::Desc),
+        tags: None,
     };
     let result = notes.list_paginated(&query).expect("Query should succeed");
     assert_eq!(result.items[0].title, "Charlie");
@@ -1029,6 +1033,7 @@ fn note_list_paginated_sorting() {
         offset: None,
         sort_by: Some("created_at".to_string()),
         sort_order: Some(SortOrder::Asc),
+        tags: None,
     };
     let result = notes.list_paginated(&query).expect("Query should succeed");
     assert_eq!(result.items[0].title, "Charlie"); // earliest
@@ -1058,6 +1063,7 @@ fn project_list_paginated() {
         offset: Some(1),
         sort_by: None,
         sort_order: None,
+        tags: None,
     };
     let result = projects
         .list_paginated(&query)
@@ -1084,6 +1090,7 @@ fn task_list_paginated() {
         offset: Some(2),
         sort_by: None,
         sort_order: None,
+        tags: None,
     };
     let result = task_lists
         .list_paginated(&query)
@@ -1115,6 +1122,7 @@ fn repo_list_paginated() {
         offset: Some(0),
         sort_by: Some("created_at".to_string()),
         sort_order: Some(SortOrder::Desc),
+        tags: None,
     };
     let result = repos.list_paginated(&query).expect("Query should succeed");
     assert_eq!(result.items.len(), 2);
@@ -1155,6 +1163,7 @@ fn task_list_by_list_paginated() {
         offset: Some(3),
         sort_by: None,
         sort_order: None,
+        tags: None,
     };
     let result = tasks
         .list_by_list_paginated("listpgtk", &query)
@@ -1168,6 +1177,7 @@ fn task_list_by_list_paginated() {
         offset: None,
         sort_by: Some("priority".to_string()),
         sort_order: Some(SortOrder::Asc),
+        tags: None,
     };
     let result = tasks
         .list_by_list_paginated("listpgtk", &query)
@@ -1206,10 +1216,206 @@ fn note_search_paginated() {
         offset: Some(2),
         sort_by: None,
         sort_order: None,
+        tags: None,
     };
     let result = notes
         .search_paginated("Rust", &query)
         .expect("Query should succeed");
     assert_eq!(result.items.len(), 3);
     assert_eq!(result.total, 10); // Only Rust notes
+}
+
+// =============================================================================
+// Database-Level Tag Filtering Tests
+// =============================================================================
+
+#[test]
+fn note_list_paginated_with_tags() {
+    let db = setup_db();
+    let notes = db.notes();
+
+    // Create notes with different tags
+    let mut note1 = make_note("tagsnt01", "Work Note 1", "Content");
+    note1.tags = vec!["work".to_string(), "urgent".to_string()];
+    notes.create(&note1).unwrap();
+
+    let mut note2 = make_note("tagsnt02", "Work Note 2", "Content");
+    note2.tags = vec!["work".to_string()];
+    notes.create(&note2).unwrap();
+
+    let mut note3 = make_note("tagsnt03", "Personal Note", "Content");
+    note3.tags = vec!["personal".to_string()];
+    notes.create(&note3).unwrap();
+
+    let mut note4 = make_note("tagsnt04", "Urgent Personal", "Content");
+    note4.tags = vec!["personal".to_string(), "urgent".to_string()];
+    notes.create(&note4).unwrap();
+
+    let mut note5 = make_note("tagsnt05", "No Tags", "Content");
+    note5.tags = vec![];
+    notes.create(&note5).unwrap();
+
+    // Filter by single tag "work" - should get 2 notes
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: Some(vec!["work".to_string()]),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.total, 2);
+    assert_eq!(result.items.len(), 2);
+
+    // Filter by "urgent" tag - should get 2 notes
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: Some(vec!["urgent".to_string()]),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.total, 2);
+
+    // Filter by multiple tags (OR logic) - "work" OR "personal" = 4 notes
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: Some(vec!["work".to_string(), "personal".to_string()]),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.total, 4);
+
+    // Filter by non-existent tag - should get 0 notes
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: Some(vec!["nonexistent".to_string()]),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.total, 0);
+
+    // No tag filter - should get all 5 notes
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: None,
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.total, 5);
+}
+
+#[test]
+fn task_list_paginated_with_tags() {
+    let db = setup_db();
+    let task_lists = db.task_lists();
+
+    // Create task lists with different tags
+    let mut list1 = make_task_list("taglst01", "Sprint 1");
+    list1.tags = vec!["sprint".to_string(), "q1".to_string()];
+    task_lists.create(&list1).unwrap();
+
+    let mut list2 = make_task_list("taglst02", "Sprint 2");
+    list2.tags = vec!["sprint".to_string(), "q2".to_string()];
+    task_lists.create(&list2).unwrap();
+
+    let mut list3 = make_task_list("taglst03", "Bug Fixes");
+    list3.tags = vec!["bugs".to_string()];
+    task_lists.create(&list3).unwrap();
+
+    let mut list4 = make_task_list("taglst04", "No Tags List");
+    list4.tags = vec![];
+    task_lists.create(&list4).unwrap();
+
+    // Filter by "sprint" tag - should get 2 lists
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: Some(vec!["sprint".to_string()]),
+    };
+    let result = task_lists
+        .list_paginated(&query)
+        .expect("Query should succeed");
+    assert_eq!(result.total, 2);
+
+    // Filter by "q1" tag - should get 1 list
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: Some(vec!["q1".to_string()]),
+    };
+    let result = task_lists
+        .list_paginated(&query)
+        .expect("Query should succeed");
+    assert_eq!(result.total, 1);
+
+    // No tag filter - should get all 4 lists
+    let query = ListQuery {
+        limit: None,
+        offset: None,
+        sort_by: None,
+        sort_order: None,
+        tags: None,
+    };
+    let result = task_lists
+        .list_paginated(&query)
+        .expect("Query should succeed");
+    assert_eq!(result.total, 4);
+}
+
+#[test]
+fn note_list_paginated_with_tags_and_pagination() {
+    let db = setup_db();
+    let notes = db.notes();
+
+    // Create 10 notes with "test" tag
+    for i in 0..10 {
+        let mut note = make_note(
+            &format!("pgtag{:03}", i),
+            &format!("Test Note {}", i),
+            "Content",
+        );
+        note.tags = vec!["test".to_string()];
+        note.created_at = format!("2025-01-01 00:00:{:02}", i);
+        notes.create(&note).unwrap();
+    }
+
+    // Create 5 notes without the tag
+    for i in 0..5 {
+        let mut note = make_note(
+            &format!("pgoth{:03}", i),
+            &format!("Other Note {}", i),
+            "Content",
+        );
+        note.tags = vec!["other".to_string()];
+        notes.create(&note).unwrap();
+    }
+
+    // Filter by "test" tag with pagination
+    let query = ListQuery {
+        limit: Some(3),
+        offset: Some(2),
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some(SortOrder::Asc),
+        tags: Some(vec!["test".to_string()]),
+    };
+    let result = notes.list_paginated(&query).expect("Query should succeed");
+    assert_eq!(result.total, 10); // Total matching the filter
+    assert_eq!(result.items.len(), 3); // Page size
+    assert_eq!(result.offset, 2);
+    // Should be notes 2, 3, 4 (0-indexed after offset)
+    assert_eq!(result.items[0].title, "Test Note 2");
+    assert_eq!(result.items[1].title, "Test Note 3");
+    assert_eq!(result.items[2].title, "Test Note 4");
 }
