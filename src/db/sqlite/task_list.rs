@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause, build_tag_filter};
+use super::helpers::{build_filters, build_limit_offset_clause, build_order_clause};
 use crate::db::{
     DbError, DbResult, ListQuery, ListResult, TaskList, TaskListRepository, TaskListStatus,
 };
@@ -190,11 +190,37 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         // Build query components
         let order_clause = build_order_clause(query, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(query);
-        let tag_filter = build_tag_filter(query);
+        let filters = build_filters(query, Some("tl"));
 
-        // Build query with optional tag filtering
-        let (sql, count_sql) = if tag_filter.where_clause.is_empty() {
-            // No tag filtering
+        // Build query with optional filtering
+        let (sql, count_sql) = if filters.needs_json_each {
+            // With tag filtering - needs json_each join
+            let where_clause = filters.where_clause();
+            (
+                format!(
+                    "SELECT DISTINCT tl.id, tl.name, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.created_at, tl.updated_at, tl.archived_at 
+                     FROM task_list tl, json_each(tl.tags)
+                     {} {} {}",
+                    where_clause, order_clause, limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT tl.id) FROM task_list tl, json_each(tl.tags) {}",
+                    where_clause
+                ),
+            )
+        } else if !filters.conditions.is_empty() {
+            // Filters but no tag filtering
+            let where_clause = filters.where_clause();
+            (
+                format!(
+                    "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at 
+                     FROM task_list tl {} {} {}",
+                    where_clause, order_clause, limit_clause
+                ),
+                format!("SELECT COUNT(*) FROM task_list tl {}", where_clause),
+            )
+        } else {
+            // No filtering
             (
                 format!(
                     "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at 
@@ -203,26 +229,12 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 ),
                 "SELECT COUNT(*) FROM task_list".to_string(),
             )
-        } else {
-            // With tag filtering using json_each
-            (
-                format!(
-                    "SELECT DISTINCT tl.id, tl.name, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.created_at, tl.updated_at, tl.archived_at 
-                     FROM task_list tl, json_each(tl.tags)
-                     WHERE {} {} {}",
-                    tag_filter.where_clause, order_clause, limit_clause
-                ),
-                format!(
-                    "SELECT COUNT(DISTINCT tl.id) FROM task_list tl, json_each(tl.tags) WHERE {}",
-                    tag_filter.where_clause
-                ),
-            )
         };
 
         // Get paginated results
         let mut query_builder = sqlx::query(&sql);
-        for tag in &tag_filter.bind_values {
-            query_builder = query_builder.bind(tag);
+        for value in &filters.bind_values {
+            query_builder = query_builder.bind(value);
         }
 
         let rows = query_builder
@@ -262,8 +274,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         // Get total count
         let mut count_query = sqlx::query_scalar(&count_sql);
-        for tag in &tag_filter.bind_values {
-            count_query = count_query.bind(tag);
+        for value in &filters.bind_values {
+            count_query = count_query.bind(value);
         }
 
         let total: i64 = count_query

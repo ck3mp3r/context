@@ -91,3 +91,64 @@ pub fn build_limit_offset_clause(query: &ListQuery) -> String {
     }
     clause
 }
+
+/// Combined filter result for building WHERE clauses with multiple conditions.
+pub struct QueryFilters {
+    /// Whether tag filtering requires json_each join.
+    pub needs_json_each: bool,
+    /// WHERE clause conditions (without "WHERE" keyword).
+    pub conditions: Vec<String>,
+    /// Bind values in order.
+    pub bind_values: Vec<String>,
+}
+
+impl QueryFilters {
+    /// Build WHERE clause string (includes "WHERE" if there are conditions).
+    pub fn where_clause(&self) -> String {
+        if self.conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", self.conditions.join(" AND "))
+        }
+    }
+}
+
+/// Build combined filters for a query.
+///
+/// Handles tags, status, and parent_id filters.
+/// The `table_alias` is used for column prefixes when json_each is needed.
+pub fn build_filters(query: &ListQuery, table_alias: Option<&str>) -> QueryFilters {
+    let mut conditions = Vec::new();
+    let mut bind_values = Vec::new();
+    let mut needs_json_each = false;
+
+    let prefix = table_alias.map(|a| format!("{}.", a)).unwrap_or_default();
+
+    // Tag filter
+    if let Some(tags) = &query.tags
+        && !tags.is_empty()
+    {
+        needs_json_each = true;
+        let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+        conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+        bind_values.extend(tags.clone());
+    }
+
+    // Status filter
+    if let Some(status) = &query.status {
+        conditions.push(format!("{}status = ?", prefix));
+        bind_values.push(status.clone());
+    }
+
+    // Parent ID filter
+    if let Some(parent_id) = &query.parent_id {
+        conditions.push(format!("{}parent_id = ?", prefix));
+        bind_values.push(parent_id.clone());
+    }
+
+    QueryFilters {
+        needs_json_each,
+        conditions,
+        bind_values,
+    }
+}

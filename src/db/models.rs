@@ -30,6 +30,10 @@ pub struct ListQuery {
     pub sort_order: Option<SortOrder>,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by status (exact match).
+    pub status: Option<String>,
+    /// Filter by parent_id (for hierarchical entities like Tasks).
+    pub parent_id: Option<String>,
 }
 
 /// Result of a paginated list query.

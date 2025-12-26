@@ -152,6 +152,7 @@ pub async fn list_notes<D: Database>(
             _ => None,
         },
         tags,
+        ..Default::default()
     };
 
     // Get notes - either search or list all (at database level)

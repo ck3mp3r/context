@@ -79,6 +79,12 @@ pub struct UpdateTaskRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListTasksQuery {
+    /// Filter by status (backlog, todo, in_progress, review, done, cancelled)
+    #[param(example = "in_progress")]
+    pub status: Option<String>,
+    /// Filter by parent task ID (for subtasks)
+    #[param(example = "a1b2c3d4")]
+    pub parent_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -134,7 +140,9 @@ pub async fn list_tasks<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
-        tags: None, // Tasks don't have tags
+        status: query.status.clone(),
+        parent_id: query.parent_id.clone(),
+        ..Default::default()
     };
 
     let result = state

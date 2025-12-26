@@ -92,17 +92,38 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let order_clause = build_order_clause(query, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(query);
 
+        // Build additional filter conditions
+        let mut conditions = vec!["list_id = ?".to_string()];
+        let mut bind_values: Vec<String> = vec![list_id.to_string()];
+
+        if let Some(status) = &query.status {
+            conditions.push("status = ?".to_string());
+            bind_values.push(status.clone());
+        }
+
+        if let Some(parent_id) = &query.parent_id {
+            conditions.push("parent_id = ?".to_string());
+            bind_values.push(parent_id.clone());
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+
         let sql = format!(
             "SELECT id, list_id, parent_id, content, status, priority, created_at, started_at, completed_at
              FROM task 
-             WHERE list_id = ? 
-             {} {}",
-            order_clause, limit_clause
+             {} {} {}",
+            where_clause, order_clause, limit_clause
         );
 
+        let count_sql = format!("SELECT COUNT(*) FROM task {}", where_clause);
+
         // Get paginated results
-        let rows = sqlx::query(&sql)
-            .bind(list_id)
+        let mut query_builder = sqlx::query(&sql);
+        for value in &bind_values {
+            query_builder = query_builder.bind(value);
+        }
+
+        let rows = query_builder
             .fetch_all(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -128,8 +149,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .collect();
 
         // Get total count
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task WHERE list_id = ?")
-            .bind(list_id)
+        let mut count_query = sqlx::query_scalar(&count_sql);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+
+        let total: i64 = count_query
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {

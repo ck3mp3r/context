@@ -86,6 +86,9 @@ pub struct ListTaskListsQuery {
     /// Filter by tags (comma-separated)
     #[param(example = "work,urgent")]
     pub tags: Option<String>,
+    /// Filter by status (active, archived)
+    #[param(example = "active")]
+    pub status: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -145,6 +148,8 @@ pub async fn list_task_lists<D: Database>(
             _ => None,
         },
         tags,
+        status: query.status.clone(),
+        ..Default::default()
     };
 
     let result = state

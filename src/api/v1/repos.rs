@@ -124,7 +124,7 @@ pub async fn list_repos<D: Database>(
             Some("asc") => Some(SortOrder::Asc),
             _ => None,
         },
-        tags: None, // Repos don't have tags
+        ..Default::default()
     };
 
     let result = state
