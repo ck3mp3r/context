@@ -1,7 +1,7 @@
 //! Critical M:N relationship tests for SQLx migration verification.
 
 use crate::db::{
-    Database, ProjectRepository, Repo, RepoRepository, SqliteDatabase, TaskList,
+    Database, ListQuery, ProjectRepository, Repo, RepoRepository, SqliteDatabase, TaskList,
     TaskListRepository, TaskListStatus,
 };
 
@@ -178,4 +178,84 @@ async fn task_list_create_validates_project_ids() {
 
     let result = task_lists.create(&list).await;
     assert!(result.is_err(), "Should reject invalid project_id");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_list_with_tag_filter() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create task lists with different tags
+    task_lists
+        .create(&TaskList {
+            id: "listtag1".to_string(),
+            name: "Work List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec!["work".to_string(), "urgent".to_string()],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    task_lists
+        .create(&TaskList {
+            id: "listtag2".to_string(),
+            name: "Personal List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec!["personal".to_string()],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    // Filter by "work" tag - should find 1
+    let query = ListQuery {
+        tags: Some(vec!["work".to_string()]),
+        ..Default::default()
+    };
+    let results = task_lists
+        .list(Some(&query))
+        .await
+        .expect("List should succeed");
+    assert_eq!(results.items.len(), 1);
+    assert_eq!(results.total, 1); // DB-level filtering verified by total
+    assert_eq!(results.items[0].name, "Work List");
+
+    // Filter by "urgent" tag - should find 1
+    let query = ListQuery {
+        tags: Some(vec!["urgent".to_string()]),
+        ..Default::default()
+    };
+    let results = task_lists
+        .list(Some(&query))
+        .await
+        .expect("List should succeed");
+    assert_eq!(results.items.len(), 1);
+    assert_eq!(results.total, 1);
+
+    // Filter by nonexistent tag
+    let query = ListQuery {
+        tags: Some(vec!["nonexistent".to_string()]),
+        ..Default::default()
+    };
+    let results = task_lists
+        .list(Some(&query))
+        .await
+        .expect("List should succeed");
+    assert!(results.items.is_empty());
+    assert_eq!(results.total, 0);
 }
