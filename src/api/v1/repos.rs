@@ -10,6 +10,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{Database, DbError, PageSort, Repo, RepoQuery, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -232,8 +233,8 @@ pub async fn create_repo<D: Database>(
     Json(req): Json<CreateRepoRequest>,
 ) -> Result<(StatusCode, Json<RepoResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Generate 8-character hex ID
-    let id = format!("{:08x}", rand_id());
-    let now = chrono_now();
+    let id = generate_entity_id();
+    let now = current_timestamp();
 
     let repo = Repo {
         id: id.clone(),
@@ -348,29 +349,4 @@ pub async fn delete_repo<D: Database>(
     })?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/// Generate a random 32-bit ID
-fn rand_id() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    (duration.as_secs() as u32) ^ (duration.subsec_nanos())
-}
-
-/// Get current datetime as string
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let years = 1970 + (days / 365);
-    format!("{}-01-01 00:00:00", years)
 }

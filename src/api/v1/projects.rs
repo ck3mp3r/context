@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::db::utils::{current_timestamp, generate_entity_id};
+
 use crate::api::AppState;
 use crate::db::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
 
@@ -246,9 +248,9 @@ pub async fn create_project<D: Database>(
     Json(req): Json<CreateProjectRequest>,
 ) -> Result<(StatusCode, Json<ProjectResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Generate 8-character hex ID
-    let id = format!("{:08x}", rand_id());
+    let id = generate_entity_id();
 
-    let now = chrono_now();
+    let now = current_timestamp();
     let project = Project {
         id: id.clone(),
         title: req.title,
@@ -378,32 +380,4 @@ pub async fn delete_project<D: Database>(
         })?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/// Generate a random 32-bit ID
-fn rand_id() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    // Mix time with some randomness from the nanoseconds
-    (duration.as_secs() as u32) ^ (duration.subsec_nanos())
-}
-
-/// Get current datetime as string
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    // Simple ISO-like format
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let years = 1970 + (days / 365);
-    // Simplified - not accurate for leap years but good enough for now
-    format!("{}-01-01 00:00:00", years)
 }

@@ -89,6 +89,30 @@ async fn create_project_returns_created() {
     assert_eq!(body["description"], "A test project");
     assert!(body["id"].is_string());
     assert_eq!(body["id"].as_str().unwrap().len(), 8);
+
+    // Validate timestamps are realistic (not hardcoded 2025-01-01 00:00:00)
+    let created_at = body["created_at"].as_str().unwrap();
+    let updated_at = body["updated_at"].as_str().unwrap();
+    assert!(
+        !created_at.ends_with("01-01 00:00:00"),
+        "created_at should not be hardcoded: {}",
+        created_at
+    );
+    assert!(
+        !updated_at.ends_with("01-01 00:00:00"),
+        "updated_at should not be hardcoded: {}",
+        updated_at
+    );
+
+    // Validate timestamps are valid datetime strings (basic format check)
+    assert!(
+        created_at.len() >= 19,
+        "created_at should be at least YYYY-MM-DD HH:MM:SS format"
+    );
+    assert!(
+        updated_at.len() >= 19,
+        "updated_at should be at least YYYY-MM-DD HH:MM:SS format"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

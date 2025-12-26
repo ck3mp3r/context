@@ -9,11 +9,13 @@
 //! - `error`: Storage-agnostic error types
 //! - `models`: Domain entities (Project, Repo, TaskList, Task, Note)
 //! - `repository`: Trait definitions for data access
+//! - `utils`: Database utility functions
 
 mod error;
 mod models;
 mod repository;
 pub mod sqlite;
+pub mod utils;
 
 pub use error::{DbError, DbResult};
 pub use models::*;
