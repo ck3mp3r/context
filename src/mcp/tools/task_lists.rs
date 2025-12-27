@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::db::{
     Database, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
+use crate::mcp::tools::map_db_error;
 
 // =============================================================================
 // Parameter Structs
@@ -141,12 +142,12 @@ impl<D: Database + 'static> TaskListTools<D> {
             tags,
         };
 
-        let result = self.db.task_lists().list(Some(&query)).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let result = self
+            .db
+            .task_lists()
+            .list(Some(&query))
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let response = json!({
             "items": result.items,
@@ -169,12 +170,12 @@ impl<D: Database + 'static> TaskListTools<D> {
         &self,
         params: Parameters<GetTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
-        let list = self.db.task_lists().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let list = self
+            .db
+            .task_lists()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
         let content = serde_json::to_string_pretty(&list).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -204,12 +205,12 @@ impl<D: Database + 'static> TaskListTools<D> {
             archived_at: None,
         };
 
-        let created = self.db.task_lists().create(&list).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let created = self
+            .db
+            .task_lists()
+            .create(&list)
+            .await
+            .map_err(|e| map_db_error(e))?;
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -225,12 +226,12 @@ impl<D: Database + 'static> TaskListTools<D> {
         params: Parameters<UpdateTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
         // Fetch existing
-        let mut list = self.db.task_lists().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let mut list = self
+            .db
+            .task_lists()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Update fields - only update if provided to preserve existing values
         list.name = params.0.name;
@@ -267,18 +268,17 @@ impl<D: Database + 'static> TaskListTools<D> {
         }
 
         // Update returns (), must fetch again
-        self.db.task_lists().update(&list).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
-        let updated = self.db.task_lists().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .task_lists()
+            .update(&list)
+            .await
+            .map_err(|e| map_db_error(e))?;
+        let updated = self
+            .db
+            .task_lists()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(

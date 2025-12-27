@@ -13,6 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::db::{Database, PageSort, Task, TaskQuery, TaskRepository, TaskStatus};
+use crate::mcp::tools::map_db_error;
 
 // =============================================================================
 // Parameter Structs
@@ -121,12 +122,12 @@ impl<D: Database + 'static> TaskTools<D> {
             tags: params.0.tags.clone(),
         };
 
-        let result = self.db.tasks().list(Some(&query)).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let result = self
+            .db
+            .tasks()
+            .list(Some(&query))
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let response = json!({
             "items": result.items,
@@ -184,12 +185,12 @@ impl<D: Database + 'static> TaskTools<D> {
             completed_at: None,
         };
 
-        let created = self.db.tasks().create(&task).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let created = self
+            .db
+            .tasks()
+            .create(&task)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
@@ -225,20 +226,19 @@ impl<D: Database + 'static> TaskTools<D> {
             task.tags = tags.clone();
         }
 
-        self.db.tasks().update(&task).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .tasks()
+            .update(&task)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Fetch updated task to get auto-set timestamps
-        let updated = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let updated = self
+            .db
+            .tasks()
+            .get(&params.0.task_id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&updated).unwrap(),
@@ -263,20 +263,19 @@ impl<D: Database + 'static> TaskTools<D> {
         // Set status to done
         task.status = TaskStatus::Done;
 
-        self.db.tasks().update(&task).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .tasks()
+            .update(&task)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Fetch updated task to get auto-set completed_at
-        let completed = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let completed = self
+            .db
+            .tasks()
+            .get(&params.0.task_id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&completed).unwrap(),

@@ -4,6 +4,7 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::db::{Database, Project, ProjectRepository};
+use crate::mcp::tools::map_db_error;
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -81,12 +82,12 @@ impl<D: Database + 'static> ProjectTools<D> {
     /// List all projects in the database
     #[tool(description = "List all projects")]
     pub async fn list_projects(&self) -> Result<CallToolResult, McpError> {
-        let result = self.db.projects().list(None).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let result = self
+            .db
+            .projects()
+            .list(None)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&result.items).map_err(|e| {
             McpError::internal_error(
@@ -104,12 +105,12 @@ impl<D: Database + 'static> ProjectTools<D> {
         &self,
         params: Parameters<GetProjectParams>,
     ) -> Result<CallToolResult, McpError> {
-        let project = self.db.projects().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let project = self
+            .db
+            .projects()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&project).map_err(|e| {
             McpError::internal_error(
@@ -139,12 +140,12 @@ impl<D: Database + 'static> ProjectTools<D> {
             updated_at: String::new(), // Repository generates this
         };
 
-        let created = self.db.projects().create(&project).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let created = self
+            .db
+            .projects()
+            .create(&project)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
@@ -163,12 +164,12 @@ impl<D: Database + 'static> ProjectTools<D> {
         params: Parameters<UpdateProjectParams>,
     ) -> Result<CallToolResult, McpError> {
         // Get existing project
-        let mut project = self.db.projects().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let mut project = self
+            .db
+            .projects()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Update fields if provided
         if let Some(t) = params.0.title {
@@ -181,20 +182,19 @@ impl<D: Database + 'static> ProjectTools<D> {
             project.tags = tags;
         }
 
-        self.db.projects().update(&project).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .projects()
+            .update(&project)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Get the updated project to return it
-        let updated = self.db.projects().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let updated = self
+            .db
+            .projects()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(
@@ -212,12 +212,11 @@ impl<D: Database + 'static> ProjectTools<D> {
         &self,
         params: Parameters<DeleteProjectParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.db.projects().delete(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .projects()
+            .delete(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::json!({
             "success": true,
