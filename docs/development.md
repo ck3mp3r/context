@@ -74,8 +74,7 @@ cargo clippy -- -D warnings
 ## Database
 
 ### Location
-- Production: `~/.local/share/c5t/context.db`
-- Development: `~/.local/share/c5t-test/context.db`
+- Default: `~/.local/share/c5t/context.db`
 
 ### Migrations
 

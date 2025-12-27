@@ -7,19 +7,16 @@ use std::path::PathBuf;
 
 /// Get XDG-compliant data directory for c5t.
 ///
-/// HARDCODED: Always uses "c5t-test" for testing phase.
-/// To switch to production, change "c5t-test" to "c5t".
-///
 /// # Arguments
 /// * `home_override` - Optional data home directory override
 ///
 /// # Returns
-/// Path to data directory: `{home_override or XDG_DATA_HOME or ~/.local/share}/c5t-test/`
+/// Path to data directory: `{home_override or XDG_DATA_HOME or ~/.local/share}/c5t/`
 ///
 /// # Panics
 /// Panics if HOME environment variable is not set and no override provided.
 pub fn get_data_dir(home_override: Option<PathBuf>) -> PathBuf {
-    // HARDCODED: Always use c5t-test for now
+    // TODO: Hardcoded to c5t-test during development, will be changed to "c5t" later
     let base = "c5t-test";
 
     let data_home = home_override.unwrap_or_else(|| {
@@ -37,7 +34,7 @@ pub fn get_data_dir(home_override: Option<PathBuf>) -> PathBuf {
 /// Get sync directory (data_dir/sync).
 ///
 /// # Returns
-/// Path to sync directory: `~/.local/share/c5t-test/sync/`
+/// Path to sync directory: `~/.local/share/c5t/sync/`
 pub fn get_sync_dir() -> PathBuf {
     get_data_dir(None).join("sync")
 }
@@ -48,7 +45,7 @@ pub fn get_sync_dir() -> PathBuf {
 /// * `home_override` - Optional data home directory override
 ///
 /// # Returns
-/// Path to database file: `{home_override or XDG_DATA_HOME or ~/.local/share}/c5t-test/context.db`
+/// Path to database file: `{home_override or XDG_DATA_HOME or ~/.local/share}/c5t/context.db`
 pub fn get_db_path(home_override: Option<PathBuf>) -> PathBuf {
     get_data_dir(home_override).join("context.db")
 }
