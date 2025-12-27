@@ -94,6 +94,48 @@ pub struct UpdateNoteRequest {
     pub project_ids: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct PatchNoteRequest {
+    #[schema(example = "Updated Note")]
+    pub title: Option<String>,
+    #[schema(example = "Updated content")]
+    pub content: Option<String>,
+    pub tags: Option<Vec<String>>,
+    #[schema(example = "manual")]
+    pub note_type: Option<String>,
+    /// Linked repository IDs (M:N relationship via note_repo)
+    #[schema(example = json!(["repo123a", "repo456b"]))]
+    pub repo_ids: Option<Vec<String>>,
+    /// Linked project IDs (M:N relationship via project_note)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    pub project_ids: Option<Vec<String>>,
+}
+
+impl PatchNoteRequest {
+    fn merge_into(self, target: &mut Note) {
+        if let Some(title) = self.title {
+            target.title = title;
+        }
+        if let Some(content) = self.content {
+            target.content = content;
+        }
+        if let Some(tags) = self.tags {
+            target.tags = tags;
+        }
+        if let Some(note_type_str) = self.note_type
+            && let Ok(note_type) = note_type_str.parse::<NoteType>()
+        {
+            target.note_type = note_type;
+        }
+        if let Some(repo_ids) = self.repo_ids {
+            target.repo_ids = repo_ids;
+        }
+        if let Some(project_ids) = self.project_ids {
+            target.project_ids = project_ids;
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListNotesQuery {
     /// FTS5 search query (optional)
@@ -334,6 +376,56 @@ pub async fn update_note<D: Database>(
         note.note_type = parse_note_type(&note_type_str);
     }
 
+    state.db().notes().update(&note).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(NoteResponse::from(note)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/v1/notes/{id}",
+    tag = "notes",
+    params(("id" = String, Path, description = "Note ID")),
+    request_body = PatchNoteRequest,
+    responses(
+        (status = 200, description = "Note partially updated", body = NoteResponse),
+        (status = 404, description = "Note not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn patch_note<D: Database>(
+    State(state): State<AppState<D>>,
+    Path(id): Path<String>,
+    Json(req): Json<PatchNoteRequest>,
+) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Fetch existing note
+    let mut note = state.db().notes().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Note '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Merge PATCH changes
+    req.merge_into(&mut note);
+
+    // Save
     state.db().notes().update(&note).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

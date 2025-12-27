@@ -686,3 +686,138 @@ async fn list_notes_with_ordering() {
     assert_eq!(items[1]["title"], "Mango");
     assert_eq!(items[2]["title"], "Apple");
 }
+
+// =============================================================================
+// PATCH /v1/notes/{id} - Partial Update Note
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_note_partial_title_update() {
+    let app = test_app().await;
+
+    // Create a note
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Original Title",
+                        "content": "Original Content",
+                        "tags": ["original", "tag"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // Partially update only the title
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/notes/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Updated Title"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Title should be updated
+    assert_eq!(body["title"], "Updated Title");
+
+    // Other fields should remain unchanged
+    assert_eq!(body["content"], "Original Content");
+    assert_eq!(body["tags"], json!(["original", "tag"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_note_omit_field_preserves_it() {
+    let app = test_app().await;
+
+    // Create a note
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Note",
+                        "content": "Test Content",
+                        "tags": ["test"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // PATCH with empty body should preserve all fields
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/notes/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // All fields should remain unchanged
+    assert_eq!(body["title"], "Test Note");
+    assert_eq!(body["content"], "Test Content");
+    assert_eq!(body["tags"], json!(["test"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_note_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/v1/notes/nonexist")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Won't Work"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

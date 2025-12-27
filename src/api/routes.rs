@@ -9,9 +9,9 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
-    CreateTaskRequest, ErrorResponse, NoteResponse, PatchProjectRequest, PatchRepoRequest,
-    PatchTaskListRequest, PatchTaskRequest, ProjectResponse, RepoResponse, TaskListResponse,
-    TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest, PatchProjectRequest,
+    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, RepoResponse,
+    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
     UpdateTaskListRequest, UpdateTaskRequest,
 };
 use crate::db::Database;
@@ -72,6 +72,7 @@ macro_rules! routes {
         super::v1::get_note,
         super::v1::create_note,
         super::v1::update_note,
+        super::v1::patch_note,
         super::v1::delete_note,
     ),
     components(
@@ -100,6 +101,7 @@ macro_rules! routes {
             NoteResponse,
             CreateNoteRequest,
             UpdateNoteRequest,
+            PatchNoteRequest,
             super::v1::PaginatedNotes,
             ErrorResponse,
         )
@@ -159,6 +161,7 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         get "/v1/notes/{id}" => super::v1::get_note,
         post "/v1/notes" => super::v1::create_note,
         put "/v1/notes/{id}" => super::v1::update_note,
+        patch "/v1/notes/{id}" => super::v1::patch_note,
         delete "/v1/notes/{id}" => super::v1::delete_note,
     });
 
