@@ -425,3 +425,84 @@ async fn delete_repo_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// =============================================================================
+// PATCH /v1/repos/{id} - Relationship Relinking
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_repo_link_to_project() {
+    let app = test_app().await;
+
+    // Create a project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap().to_string();
+
+    // Create a repo without relationships
+    let repo_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:user/test-repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let repo_body = json_body(repo_response).await;
+    let repo_id = repo_body["id"].as_str().unwrap();
+
+    // Verify no relationships initially
+    assert!(repo_body["project_ids"].as_array().unwrap().is_empty());
+
+    // PATCH to link to project
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/repos/{}", repo_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Verify relationship was added
+    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["project_ids"][0], project_id);
+}

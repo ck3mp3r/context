@@ -747,3 +747,110 @@ async fn patch_task_list_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// =============================================================================
+// PATCH /v1/task-lists/{id} - Relationship Relinking
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_list_link_to_project_and_repo() {
+    let app = test_app().await;
+
+    // Create a project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap().to_string();
+
+    // Create a repo
+    let repo_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:user/test-repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let repo_body = json_body(repo_response).await;
+    let repo_id = repo_body["id"].as_str().unwrap().to_string();
+
+    // Create a task list without relationships
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Test List"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let list_body = json_body(list_response).await;
+    let list_id = list_body["id"].as_str().unwrap();
+
+    // Verify no relationships initially
+    assert!(list_body["project_ids"].as_array().unwrap().is_empty());
+    assert!(list_body["repo_ids"].as_array().unwrap().is_empty());
+
+    // PATCH to link to both project and repo
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "project_ids": [project_id],
+                        "repo_ids": [repo_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Verify relationships were added
+    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["project_ids"][0], project_id);
+    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["repo_ids"][0], repo_id);
+}
