@@ -44,8 +44,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 })?;
 
             if !exists {
-                return Err(DbError::Database {
-                    message: format!("Repo with id '{}' not found", repo_id),
+                return Err(DbError::NotFound {
+                    entity_type: "Repo".to_string(),
+                    id: repo_id.clone(),
                 });
             }
         }
@@ -60,8 +61,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             })?;
 
         if !exists {
-            return Err(DbError::Database {
-                message: format!("Project with id '{}' not found", task_list.project_id),
+            return Err(DbError::NotFound {
+                entity_type: "Project".to_string(),
+                id: task_list.project_id.clone(),
             });
         }
 
