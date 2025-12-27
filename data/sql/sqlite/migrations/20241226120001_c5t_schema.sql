@@ -125,10 +125,11 @@ CREATE TABLE task_list_new (
     tags TEXT DEFAULT '[]',  -- JSON array
     external_ref TEXT,
     status TEXT DEFAULT 'active' CHECK(status IN ('active', 'archived')),
-    project_id TEXT CHECK(length(project_id) == 8 OR project_id IS NULL),
+    project_id TEXT NOT NULL CHECK(length(project_id) == 8),
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
-    archived_at TEXT
+    archived_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
 );
 
 -- Migrate data from old task_list, setting project_id to Default project
