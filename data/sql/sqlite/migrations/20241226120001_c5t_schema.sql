@@ -1,5 +1,6 @@
--- c5t Database Schema Migration: Add Projects with M:N Relationships
--- Adds project entity and converts direct foreign keys to join tables
+-- c5t Database Schema Migration: Complete c5t MCP Schema
+-- Consolidates all migrations from c5t-mcp development to current state
+-- This represents the evolution from basic task/note tracking to full project management
 
 -- ============================================================================
 -- 1. CREATE PROJECT TABLE
@@ -9,6 +10,7 @@ CREATE TABLE IF NOT EXISTS project (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
     title TEXT NOT NULL,
     description TEXT,
+    tags TEXT DEFAULT '[]',  -- JSON array
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -30,16 +32,6 @@ CREATE TABLE IF NOT EXISTS project_repo (
     PRIMARY KEY (project_id, repo_id),
     FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE,
     FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE
-);
-
--- Project <-> Task List (M:N)
-CREATE TABLE IF NOT EXISTS project_task_list (
-    project_id TEXT NOT NULL CHECK(length(project_id) == 8),
-    task_list_id TEXT NOT NULL CHECK(length(task_list_id) == 8),
-    created_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (project_id, task_list_id),
-    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE,
-    FOREIGN KEY (task_list_id) REFERENCES task_list(id) ON DELETE CASCADE
 );
 
 -- Project <-> Note (M:N)
@@ -79,9 +71,6 @@ CREATE TABLE IF NOT EXISTS note_repo (
 CREATE INDEX IF NOT EXISTS idx_project_repo_project ON project_repo(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_repo_repo ON project_repo(repo_id);
 
-CREATE INDEX IF NOT EXISTS idx_project_task_list_project ON project_task_list(project_id);
-CREATE INDEX IF NOT EXISTS idx_project_task_list_task_list ON project_task_list(task_list_id);
-
 CREATE INDEX IF NOT EXISTS idx_project_note_project ON project_note(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_note_note ON project_note(note_id);
 
@@ -105,12 +94,6 @@ SELECT p.id, r.id
 FROM project p, repo r
 WHERE p.title = 'Default';
 
--- Link all existing task_lists to Default project
-INSERT INTO project_task_list (project_id, task_list_id)
-SELECT p.id, tl.id
-FROM project p, task_list tl
-WHERE p.title = 'Default';
-
 -- Link all existing notes to Default project
 INSERT INTO project_note (project_id, note_id)
 SELECT p.id, n.id
@@ -130,35 +113,48 @@ FROM note
 WHERE repo_id IS NOT NULL;
 
 -- ============================================================================
--- 5. REMOVE OLD FOREIGN KEY COLUMNS
+-- 5. RECREATE TABLES WITHOUT OLD FOREIGN KEYS
 -- ============================================================================
 
--- SQLite doesn't support DROP COLUMN directly (before 3.35.0)
--- We need to recreate the tables without the repo_id column
-
--- Recreate task_list without repo_id
+-- Recreate task_list without repo_id, but WITH project_id (1:N relationship)
 CREATE TABLE task_list_new (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
     name TEXT NOT NULL,
     description TEXT,
     notes TEXT,
-    tags TEXT,
+    tags TEXT DEFAULT '[]',  -- JSON array
     external_ref TEXT,
     status TEXT DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+    project_id TEXT CHECK(length(project_id) == 8 OR project_id IS NULL),
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     archived_at TEXT
 );
 
-INSERT INTO task_list_new (id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at)
-SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at
-FROM task_list;
+-- Migrate data from old task_list, setting project_id to Default project
+INSERT INTO task_list_new (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at)
+SELECT 
+    tl.id, 
+    tl.name, 
+    tl.description, 
+    tl.notes, 
+    tl.tags, 
+    tl.external_ref, 
+    tl.status,
+    p.id,  -- Set all existing task lists to Default project
+    tl.created_at, 
+    tl.updated_at, 
+    tl.archived_at
+FROM task_list tl
+CROSS JOIN project p
+WHERE p.title = 'Default';
 
 DROP TABLE task_list;
 ALTER TABLE task_list_new RENAME TO task_list;
 
 -- Recreate indexes for task_list
 CREATE INDEX IF NOT EXISTS idx_task_list_status ON task_list(status);
+CREATE INDEX IF NOT EXISTS idx_task_list_project ON task_list(project_id);
 
 -- Recreate task_list_update trigger
 CREATE TRIGGER IF NOT EXISTS task_list_update AFTER UPDATE ON task_list BEGIN
@@ -170,7 +166,7 @@ CREATE TABLE note_new (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
     title TEXT NOT NULL,
     content TEXT NOT NULL,
-    tags TEXT,
+    tags TEXT DEFAULT '[]',  -- JSON array
     note_type TEXT DEFAULT 'manual' CHECK(note_type IN ('manual', 'archived_todo', 'scratchpad')),
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -212,3 +208,13 @@ END;
 
 -- Rebuild FTS index to sync with new rowids
 INSERT INTO note_fts(note_fts) VALUES('rebuild');
+
+-- ============================================================================
+-- 6. ADD TAGS TO REPO AND TASK TABLES
+-- ============================================================================
+
+-- Add tags column to repo (JSON array stored as TEXT, default empty array)
+ALTER TABLE repo ADD COLUMN tags TEXT DEFAULT '[]';
+
+-- Add tags column to task (JSON array stored as TEXT, default empty array)
+ALTER TABLE task ADD COLUMN tags TEXT DEFAULT '[]';
