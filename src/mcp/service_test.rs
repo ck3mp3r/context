@@ -4,9 +4,8 @@
 
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header::CONTENT_TYPE},
+    http::{Request, StatusCode},
 };
-use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use crate::db::SqliteDatabase;

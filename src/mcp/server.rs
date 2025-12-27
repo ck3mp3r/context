@@ -39,12 +39,16 @@ use super::tools::{
 /// - NoteTools: Note operations
 #[derive(Clone)]
 pub struct McpServer<D: Database> {
+    #[allow(dead_code)] // Will be used when Task/Note tools are implemented
     db: Arc<D>,
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
     task_list_tools: TaskListTools<D>,
+    #[allow(dead_code)] // Will be used in Phase 4
     task_tools: TaskTools<D>,
+    #[allow(dead_code)] // Will be used in Phase 5
     note_tools: NoteTools<D>,
+    #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
 
