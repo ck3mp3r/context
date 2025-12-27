@@ -36,8 +36,8 @@ pub struct TaskListResponse {
     pub status: String,
     /// Repository IDs linked to this task list
     pub repo_ids: Vec<String>,
-    /// Project IDs linked to this task list
-    pub project_ids: Vec<String>,
+    /// Project ID this task list belongs to (one project per task list)
+    pub project_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub archived_at: Option<String>,
@@ -57,7 +57,7 @@ impl From<TaskList> for TaskListResponse {
                 TaskListStatus::Archived => "archived".to_string(),
             },
             repo_ids: t.repo_ids,
-            project_ids: t.project_ids,
+            project_id: t.project_id,
             created_at: t.created_at,
             updated_at: t.updated_at,
             archived_at: t.archived_at,
@@ -90,9 +90,8 @@ pub struct UpdateTaskListRequest {
     /// Repository IDs to link to this task list
     #[serde(default)]
     pub repo_ids: Vec<String>,
-    /// Project IDs to link to this task list  
-    #[serde(default)]
-    pub project_ids: Vec<String>,
+    /// Project ID this task list belongs to (one project per task list)
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, ToSchema)]
@@ -107,8 +106,8 @@ pub struct PatchTaskListRequest {
     pub status: Option<String>,
     /// Repository IDs to link to this task list
     pub repo_ids: Option<Vec<String>>,
-    /// Project IDs to link to this task list
-    pub project_ids: Option<Vec<String>>,
+    /// Project ID this task list belongs to (one project per task list)
+    pub project_id: Option<String>,
 }
 
 impl PatchTaskListRequest {
@@ -136,8 +135,8 @@ impl PatchTaskListRequest {
         if let Some(repo_ids) = self.repo_ids {
             target.repo_ids = repo_ids;
         }
-        if let Some(project_ids) = self.project_ids {
-            target.project_ids = project_ids;
+        if let Some(project_id) = self.project_id {
+            target.project_id = Some(project_id);
         }
     }
 }
@@ -306,7 +305,7 @@ pub async fn create_task_list<D: Database>(
         external_ref: req.external_ref,
         status: TaskListStatus::Active,
         repo_ids: vec![],
-        project_ids: vec![],
+        project_id: None,
         created_at: String::new(), // Repository will generate this
         updated_at: String::new(), // Repository will generate this
         archived_at: None,
@@ -371,7 +370,7 @@ pub async fn update_task_list<D: Database>(
     list.tags = req.tags;
     list.external_ref = req.external_ref;
     list.repo_ids = req.repo_ids;
-    list.project_ids = req.project_ids;
+    list.project_id = req.project_id;
 
     if let Some(status) = req.status {
         list.status = match status.as_str() {

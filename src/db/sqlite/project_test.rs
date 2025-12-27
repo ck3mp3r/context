@@ -298,12 +298,13 @@ async fn project_get_loads_all_relationships() {
         .await
         .expect("Insert project_repo should succeed");
 
-    sqlx::query("INSERT INTO project_task_list (project_id, task_list_id) VALUES (?, ?)")
+    // Update task_list to belong to this project (1:N relationship)
+    sqlx::query("UPDATE task_list SET project_id = ? WHERE id = ?")
         .bind("projrel1")
         .bind("list0001")
         .execute(db.pool())
         .await
-        .expect("Insert project_task_list should succeed");
+        .expect("Update task_list project_id should succeed");
 
     sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
         .bind("projrel1")

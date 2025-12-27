@@ -34,7 +34,6 @@ async fn migrate_creates_all_tables() {
         "project",
         "project_note",
         "project_repo",
-        "project_task_list",
         "repo",
         "task",
         "task_list",

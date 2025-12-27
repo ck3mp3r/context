@@ -50,8 +50,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             }
         }
 
-        // Validate project_ids exist
-        for project_id in &task_list.project_ids {
+        // Validate project_id exists (if provided)
+        if let Some(project_id) = &task_list.project_id {
             let exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project WHERE id = ?)")
                     .bind(project_id)
@@ -74,8 +74,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         })?;
 
         sqlx::query(
-            "INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&task_list.name)
@@ -84,6 +84,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         .bind(&tags_json)
         .bind(&task_list.external_ref)
         .bind(task_list.status.to_string())
+        .bind(&task_list.project_id)
         .bind(&created_at)
         .bind(&updated_at)
         .bind(&task_list.archived_at)
@@ -98,18 +99,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             sqlx::query("INSERT INTO task_list_repo (task_list_id, repo_id) VALUES (?, ?)")
                 .bind(&id)
                 .bind(repo_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-        }
-
-        // Insert task_list <-> project relationships
-        for project_id in &task_list.project_ids {
-            sqlx::query("INSERT INTO project_task_list (project_id, task_list_id) VALUES (?, ?)")
-                .bind(project_id)
-                .bind(&id)
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
@@ -134,14 +123,14 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             updated_at,
             archived_at: task_list.archived_at.clone(),
             repo_ids: task_list.repo_ids.clone(),
-            project_ids: task_list.project_ids.clone(),
+            project_id: task_list.project_id.clone(),
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<TaskList> {
         // Get the main task_list record
         let row = sqlx::query(
-            "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at
+            "SELECT id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at
              FROM task_list WHERE id = ?",
         )
         .bind(id)
@@ -179,16 +168,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     message: e.to_string(),
                 })?;
 
-        // Get project relationships
-        let project_ids: Vec<String> =
-            sqlx::query_scalar("SELECT project_id FROM project_task_list WHERE task_list_id = ?")
-                .bind(id)
-                .fetch_all(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-
         Ok(TaskList {
             id: row.get("id"),
             name: row.get("name"),
@@ -198,7 +177,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             external_ref: row.get("external_ref"),
             status,
             repo_ids,
-            project_ids,
+            project_id: row.get("project_id"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
             archived_at: row.get("archived_at"),
@@ -304,7 +283,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     external_ref: row.get("external_ref"),
                     status,
                     repo_ids: vec![],
-                    project_ids: vec![],
+                    project_id: None,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                     archived_at: row.get("archived_at"),
@@ -372,7 +351,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             r#"
             UPDATE task_list 
             SET name = ?, description = ?, notes = ?, tags = ?, external_ref = ?, 
-                status = ?, updated_at = ?, archived_at = ?
+                status = ?, project_id = ?, updated_at = ?, archived_at = ?
             WHERE id = ?
             "#,
         )
@@ -382,6 +361,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         .bind(tags_json)
         .bind(&task_list.external_ref)
         .bind(status_str)
+        .bind(&task_list.project_id)
         .bind(&task_list.updated_at)
         .bind(&task_list.archived_at)
         .bind(&task_list.id)
@@ -411,26 +391,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 })?;
         }
 
-        // Replace project relationships (delete all, then insert new ones)
-        sqlx::query("DELETE FROM project_task_list WHERE task_list_id = ?")
-            .bind(&task_list.id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
-
-        for project_id in &task_list.project_ids {
-            sqlx::query("INSERT INTO project_task_list (project_id, task_list_id) VALUES (?, ?)")
-                .bind(project_id)
-                .bind(&task_list.id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-        }
-
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
@@ -445,15 +405,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         // Delete related task_list_repo relationships
         sqlx::query("DELETE FROM task_list_repo WHERE task_list_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
-
-        // Delete related project_task_list relationships
-        sqlx::query("DELETE FROM project_task_list WHERE task_list_id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await
@@ -518,17 +469,15 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             });
         }
 
-        // Insert the relationship (ignore if it already exists)
-        sqlx::query(
-            "INSERT OR IGNORE INTO project_task_list (project_id, task_list_id) VALUES (?, ?)",
-        )
-        .bind(project_id)
-        .bind(task_list_id)
-        .execute(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
+        // Update the project_id column directly
+        sqlx::query("UPDATE task_list SET project_id = ? WHERE id = ?")
+            .bind(project_id)
+            .bind(task_list_id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
 
         Ok(())
     }

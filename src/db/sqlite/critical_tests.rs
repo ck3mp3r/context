@@ -50,7 +50,7 @@ async fn task_list_create_with_relationships() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0001".to_string()],
-            project_ids: vec!["proj0001".to_string()],
+            project_id: Some("proj0001".to_string()),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -65,8 +65,7 @@ async fn task_list_create_with_relationships() {
         .expect("Get should succeed");
     assert_eq!(retrieved.repo_ids.len(), 1);
     assert_eq!(retrieved.repo_ids[0], "repo0001");
-    assert_eq!(retrieved.project_ids.len(), 1);
-    assert_eq!(retrieved.project_ids[0], "proj0001");
+    assert_eq!(retrieved.project_id, Some("proj0001".to_string()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -128,7 +127,7 @@ async fn task_list_update_replaces_relationships() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0001".to_string()],
-            project_ids: vec!["proj0001".to_string()],
+            project_id: Some("proj0001".to_string()),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -147,7 +146,7 @@ async fn task_list_update_replaces_relationships() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0002".to_string()],
-            project_ids: vec!["proj0002".to_string()],
+            project_id: Some("proj0002".to_string()),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:01".to_string(),
             archived_at: None,
@@ -162,8 +161,7 @@ async fn task_list_update_replaces_relationships() {
         .expect("Get should succeed");
     assert_eq!(retrieved.repo_ids.len(), 1);
     assert_eq!(retrieved.repo_ids[0], "repo0002");
-    assert_eq!(retrieved.project_ids.len(), 1);
-    assert_eq!(retrieved.project_ids[0], "proj0002");
+    assert_eq!(retrieved.project_id, Some("proj0002".to_string()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -182,7 +180,7 @@ async fn task_list_create_validates_repo_ids() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["nonexist".to_string()],
-            project_ids: vec![],
+            project_id: None,
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -208,7 +206,7 @@ async fn task_list_create_validates_project_ids() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_ids: vec!["nonexist".to_string()],
+            project_id: Some("nonexist".to_string()),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -234,7 +232,7 @@ async fn task_list_list_with_tag_filter() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_ids: vec![],
+            project_id: None,
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -252,7 +250,7 @@ async fn task_list_list_with_tag_filter() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_ids: vec![],
+            project_id: None,
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -318,7 +316,7 @@ async fn task_list_archive_sets_archived_at() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_ids: vec![],
+            project_id: None,
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -364,7 +362,7 @@ async fn task_list_archive_twice_is_idempotent() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_ids: vec![],
+            project_id: None,
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -423,7 +421,7 @@ async fn task_list_unarchive_clears_archived_at() {
             external_ref: None,
             status: TaskListStatus::Archived,
             repo_ids: vec![],
-            project_ids: vec![],
+            project_id: None,
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: Some("2025-01-01 12:00:00".to_string()),
@@ -452,4 +450,139 @@ async fn task_list_unarchive_clears_archived_at() {
         after.archived_at.is_none(),
         "archived_at should be cleared when unarchiving"
     );
+}
+
+// =============================================================================
+// TaskList belongs to ONE project (1:N relationship)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_belongs_to_one_project() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create a project
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0001")
+        .bind("Test Project")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert project should succeed");
+
+    // Create task list belonging to ONE project (not an array)
+    let created = task_lists
+        .create(&TaskList {
+            id: "list0001".to_string(),
+            name: "Test List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: Some("proj0001".to_string()), // Single project, not array
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    // Verify it belongs to the project
+    assert_eq!(created.project_id, Some("proj0001".to_string()));
+
+    // Retrieve and verify
+    let retrieved = task_lists
+        .get("list0001")
+        .await
+        .expect("Get should succeed");
+    assert_eq!(retrieved.project_id, Some("proj0001".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_can_have_no_project() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create task list without a project
+    let created = task_lists
+        .create(&TaskList {
+            id: "list0001".to_string(),
+            name: "Orphan List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: None, // No project
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.project_id, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_can_change_project() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+
+    // Create two projects
+    for (id, title) in [("proj0001", "Project 1"), ("proj0002", "Project 2")] {
+        sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(id)
+            .bind(title)
+            .bind(None::<String>)
+            .bind("[]")
+            .bind("2025-01-01 00:00:00")
+            .bind("2025-01-01 00:00:00")
+            .execute(db.pool())
+            .await
+            .expect("Insert project should succeed");
+    }
+
+    // Create task list in project 1
+    let created = task_lists
+        .create(&TaskList {
+            id: "list0001".to_string(),
+            name: "Test List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: Some("proj0001".to_string()),
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(created.project_id, Some("proj0001".to_string()));
+
+    // Move to project 2
+    let mut updated = created.clone();
+    updated.project_id = Some("proj0002".to_string());
+
+    task_lists
+        .update(&updated)
+        .await
+        .expect("Update should succeed");
+
+    // Verify it moved
+    let retrieved = task_lists
+        .get("list0001")
+        .await
+        .expect("Get should succeed");
+    assert_eq!(retrieved.project_id, Some("proj0002".to_string()));
 }

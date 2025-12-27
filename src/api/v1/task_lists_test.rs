@@ -572,7 +572,7 @@ async fn update_task_list_handles_relationships() {
                         "name": "Updated TaskList with Relationships",
                         "description": "Testing relationship updates",
                         "repo_ids": [repo_id],
-                        "project_ids": [project_id]
+                        "project_id": project_id
                     })
                     .to_string(),
                 ))
@@ -593,15 +593,10 @@ async fn update_task_list_handles_relationships() {
         body["repo_ids"].is_array(),
         "repo_ids should be included in response"
     );
-    assert!(
-        body["project_ids"].is_array(),
-        "project_ids should be included in response"
-    );
+    assert_eq!(body["project_id"], project_id);
 
     assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["repo_ids"][0], repo_id);
-    assert_eq!(body["project_ids"][0], project_id);
 }
 
 // =============================================================================
@@ -823,7 +818,7 @@ async fn patch_task_list_link_to_project_and_repo() {
     let list_id = list_body["id"].as_str().unwrap();
 
     // Verify no relationships initially
-    assert!(list_body["project_ids"].as_array().unwrap().is_empty());
+    assert!(list_body["project_id"].is_null());
     assert!(list_body["repo_ids"].as_array().unwrap().is_empty());
 
     // PATCH to link to both project and repo
@@ -835,7 +830,7 @@ async fn patch_task_list_link_to_project_and_repo() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "project_ids": [project_id],
+                        "project_id": project_id,
                         "repo_ids": [repo_id]
                     }))
                     .unwrap(),
@@ -849,8 +844,7 @@ async fn patch_task_list_link_to_project_and_repo() {
     let body = json_body(response).await;
 
     // Verify relationships were added
-    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["project_ids"][0], project_id);
+    assert_eq!(body["project_id"], project_id);
     assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["repo_ids"][0], repo_id);
 }

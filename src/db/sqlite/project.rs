@@ -81,9 +81,9 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                     message: e.to_string(),
                 })?;
 
-        // Get task list relationships
+        // Get task list relationships (now 1:N from task_list.project_id)
         let task_list_ids: Vec<String> =
-            sqlx::query_scalar("SELECT task_list_id FROM project_task_list WHERE project_id = ?")
+            sqlx::query_scalar("SELECT id FROM task_list WHERE project_id = ?")
                 .bind(id)
                 .fetch_all(self.pool)
                 .await
