@@ -43,6 +43,10 @@ struct Cli {
     /// Database file path (defaults to XDG data directory: ~/.local/share/c5t-test/context.db)
     #[arg(long)]
     db: Option<PathBuf>,
+
+    /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 #[tokio::main]
@@ -70,6 +74,7 @@ async fn main() -> Result<(), BinaryError> {
         Config {
             host: cli.host,
             port: cli.port,
+            verbosity: cli.verbose,
         },
         db,
     )
