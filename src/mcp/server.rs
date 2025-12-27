@@ -46,12 +46,12 @@ impl<D: Database> McpServer<D> {
     /// Create a new MCP server with the given database
     ///
     /// # Arguments
-    /// * `db` - Database instance implementing the Database trait
+    /// * `db` - Database instance (can be Arc<D> or D)
     ///
     /// # Returns
     /// A new McpServer instance with all tool handlers initialized
-    pub fn new(db: D) -> Self {
-        let db = Arc::new(db);
+    pub fn new(db: impl Into<Arc<D>>) -> Self {
+        let db = db.into();
 
         Self {
             _project_tools: ProjectTools::new(Arc::clone(&db)),
