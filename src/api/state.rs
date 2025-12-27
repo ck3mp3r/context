@@ -31,4 +31,11 @@ impl<D: Database> AppState<D> {
     pub fn db(&self) -> &D {
         &self.db
     }
+
+    /// Get a cloned Arc to the database.
+    ///
+    /// Useful for passing the database to services that need Arc<D>.
+    pub fn db_arc(&self) -> Arc<D> {
+        Arc::clone(&self.db)
+    }
 }

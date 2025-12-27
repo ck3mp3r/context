@@ -43,10 +43,10 @@ use super::server::McpServer;
 /// # }
 /// ```
 pub fn create_mcp_service<D: Database + 'static>(
-    db: D,
+    db: impl Into<Arc<D>>,
     cancellation_token: CancellationToken,
 ) -> StreamableHttpService<McpServer<D>> {
-    let db = Arc::new(db);
+    let db = db.into();
 
     // Service factory: creates new McpServer instance per session
     // Note: Returns io::Error to match rmcp's expected signature
