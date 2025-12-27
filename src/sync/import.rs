@@ -4,21 +4,25 @@ use crate::db::{
     Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Task,
     TaskList, TaskListRepository, TaskRepository,
 };
+use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
 
 use super::jsonl::{JsonlError, read_jsonl};
 
 /// Errors that can occur during import.
-#[derive(Error, Debug)]
+#[derive(Error, Diagnostic, Debug)]
 pub enum ImportError {
     #[error("Database error: {0}")]
+    #[diagnostic(code(c5t::sync::import::database))]
     Database(#[from] crate::db::DbError),
 
     #[error("JSONL error: {0}")]
+    #[diagnostic(code(c5t::sync::import::jsonl))]
     Jsonl(#[from] JsonlError),
 
     #[error("File not found: {0}")]
+    #[diagnostic(code(c5t::sync::import::file_not_found))]
     FileNotFound(String),
 }
 

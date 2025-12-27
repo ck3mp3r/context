@@ -3,6 +3,7 @@
 //! This module provides a trait-based abstraction over git commands
 //! to enable easy mocking in tests.
 
+use miette::Diagnostic;
 use std::path::Path;
 use std::process::{Command, Output};
 use thiserror::Error;
@@ -11,15 +12,18 @@ use thiserror::Error;
 use mockall::automock;
 
 /// Errors that can occur during git operations.
-#[derive(Error, Debug)]
+#[derive(Error, Diagnostic, Debug)]
 pub enum GitError {
     #[error("Git command failed: {0}")]
+    #[diagnostic(code(c5t::sync::git::command_failed))]
     CommandFailed(String),
 
     #[error("Git command returned non-zero exit code {code}: {stderr}")]
+    #[diagnostic(code(c5t::sync::git::non_zero_exit))]
     NonZeroExit { code: i32, stderr: String },
 
     #[error("Git not installed or not in PATH")]
+    #[diagnostic(code(c5t::sync::git::not_found))]
     GitNotFound,
 }
 

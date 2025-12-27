@@ -3,18 +3,21 @@
 use crate::db::{
     Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
 };
+use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
 
 use super::jsonl::{JsonlError, write_jsonl};
 
 /// Errors that can occur during export.
-#[derive(Error, Debug)]
+#[derive(Error, Diagnostic, Debug)]
 pub enum ExportError {
     #[error("Database error: {0}")]
+    #[diagnostic(code(c5t::sync::export::database))]
     Database(#[from] crate::db::DbError),
 
     #[error("JSONL error: {0}")]
+    #[diagnostic(code(c5t::sync::export::jsonl))]
     Jsonl(#[from] JsonlError),
 }
 

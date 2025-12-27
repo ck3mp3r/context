@@ -5,6 +5,7 @@
 use crate::db::{
     Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
 };
+use miette::Diagnostic;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -17,24 +18,30 @@ use super::{
 };
 
 /// Errors that can occur during sync operations.
-#[derive(Error, Debug)]
+#[derive(Error, Diagnostic, Debug)]
 pub enum SyncError {
     #[error("Git error: {0}")]
+    #[diagnostic(code(c5t::sync::git))]
     Git(#[from] GitError),
 
     #[error("Export error: {0}")]
+    #[diagnostic(code(c5t::sync::export))]
     Export(#[from] ExportError),
 
     #[error("Import error: {0}")]
+    #[diagnostic(code(c5t::sync::import))]
     Import(#[from] ImportError),
 
     #[error("Database error: {0}")]
+    #[diagnostic(code(c5t::sync::database))]
     Database(#[from] crate::db::DbError),
 
     #[error("Sync not initialized - run init first")]
+    #[diagnostic(code(c5t::sync::not_initialized))]
     NotInitialized,
 
     #[error("IO error: {0}")]
+    #[diagnostic(code(c5t::sync::io))]
     Io(#[from] std::io::Error),
 }
 

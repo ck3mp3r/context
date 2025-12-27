@@ -3,6 +3,7 @@
 //! Provides functions to serialize and deserialize entities to/from JSONL format.
 //! JSONL format: One JSON object per line, newline-delimited.
 
+use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -10,15 +11,18 @@ use std::path::Path;
 use thiserror::Error;
 
 /// Errors that can occur during JSONL operations.
-#[derive(Error, Debug)]
+#[derive(Error, Diagnostic, Debug)]
 pub enum JsonlError {
     #[error("IO error: {0}")]
+    #[diagnostic(code(c5t::sync::jsonl::io))]
     Io(#[from] std::io::Error),
 
     #[error("JSON serialization error: {0}")]
+    #[diagnostic(code(c5t::sync::jsonl::serialize))]
     Serialize(#[from] serde_json::Error),
 
     #[error("Invalid JSONL line {line}: {error}")]
+    #[diagnostic(code(c5t::sync::jsonl::invalid_line))]
     InvalidLine { line: usize, error: String },
 }
 
