@@ -57,7 +57,7 @@ impl From<TaskList> for TaskListResponse {
                 TaskListStatus::Archived => "archived".to_string(),
             },
             repo_ids: t.repo_ids,
-            project_id: t.project_id,
+            project_id: Some(t.project_id),
             created_at: t.created_at,
             updated_at: t.updated_at,
             archived_at: t.archived_at,
@@ -74,6 +74,8 @@ pub struct CreateTaskListRequest {
     #[serde(default)]
     pub tags: Vec<String>,
     pub external_ref: Option<String>,
+    /// Project ID this task list belongs to (REQUIRED - one project per task list)
+    pub project_id: String,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -136,7 +138,7 @@ impl PatchTaskListRequest {
             target.repo_ids = repo_ids;
         }
         if let Some(project_id) = self.project_id {
-            target.project_id = Some(project_id);
+            target.project_id = project_id;
         }
     }
 }
@@ -305,7 +307,7 @@ pub async fn create_task_list<D: Database>(
         external_ref: req.external_ref,
         status: TaskListStatus::Active,
         repo_ids: vec![],
-        project_id: None,
+        project_id: req.project_id,
         created_at: String::new(), // Repository will generate this
         updated_at: String::new(), // Repository will generate this
         archived_at: None,
@@ -370,7 +372,9 @@ pub async fn update_task_list<D: Database>(
     list.tags = req.tags;
     list.external_ref = req.external_ref;
     list.repo_ids = req.repo_ids;
-    list.project_id = req.project_id;
+    if let Some(project_id) = req.project_id {
+        list.project_id = project_id;
+    }
 
     if let Some(status) = req.status {
         list.status = match status.as_str() {

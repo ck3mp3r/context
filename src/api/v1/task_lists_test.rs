@@ -16,6 +16,19 @@ async fn test_app() -> axum::Router {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+
+    // Create a test project with known ID for API tests
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
     let state = AppState::new(db);
     routes::create_router(state)
 }
@@ -63,7 +76,10 @@ async fn list_task_lists_with_pagination() {
                     .uri("/v1/task-lists")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::to_vec(&json!({"name": format!("List {}", i)})).unwrap(),
+                        serde_json::to_vec(
+                            &json!({"name": format!("List {}", i), "project_id": "test0000"}),
+                        )
+                        .unwrap(),
                     ))
                     .unwrap(),
             )
@@ -118,7 +134,8 @@ async fn list_task_lists_with_tag_filter() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "name": "Work Tasks",
-                        "tags": ["work", "urgent"]
+                        "tags": ["work", "urgent"],
+                        "project_id": "test0000"
                     }))
                     .unwrap(),
                 ))
@@ -136,7 +153,8 @@ async fn list_task_lists_with_tag_filter() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "name": "Personal Tasks",
-                        "tags": ["personal"]
+                        "tags": ["personal"],
+                        "project_id": "test0000"
                     }))
                     .unwrap(),
                 ))
@@ -174,7 +192,8 @@ async fn list_task_lists_with_ordering() {
                     .uri("/v1/task-lists")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::to_vec(&json!({"name": name})).unwrap(),
+                        serde_json::to_vec(&json!({"name": name, "project_id": "test0000"}))
+                            .unwrap(),
                     ))
                     .unwrap(),
             )
@@ -235,7 +254,8 @@ async fn create_task_list_returns_created() {
                         "name": "Sprint 1",
                         "description": "First sprint tasks",
                         "tags": ["work", "urgent"],
-                        "external_ref": "JIRA-123"
+                        "external_ref": "JIRA-123",
+                        "project_id": "test0000"
                     }))
                     .unwrap(),
                 ))
@@ -266,7 +286,8 @@ async fn create_task_list_minimal() {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Quick List"})).unwrap(),
+                    serde_json::to_vec(&json!({"name": "Quick List", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -298,7 +319,8 @@ async fn get_task_list_returns_task_list() {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Test List"})).unwrap(),
+                    serde_json::to_vec(&json!({"name": "Test List", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -359,7 +381,8 @@ async fn update_task_list_returns_updated() {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Original"})).unwrap(),
+                    serde_json::to_vec(&json!({"name": "Original", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -407,7 +430,8 @@ async fn update_task_list_not_found() {
                 .uri("/v1/task-lists/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Wont Work"})).unwrap(),
+                    serde_json::to_vec(&json!({"name": "Wont Work", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -434,7 +458,8 @@ async fn delete_task_list_returns_no_content() {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "To Delete"})).unwrap(),
+                    serde_json::to_vec(&json!({"name": "To Delete", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -548,8 +573,9 @@ async fn update_task_list_handles_relationships() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "name": "Test TaskList",
-                        "description": "For relationship testing"
+                        "name": "Personal Tasks",
+                        "tags": ["personal"],
+                        "project_id": "test0000"
                     })
                     .to_string(),
                 ))
@@ -619,7 +645,8 @@ async fn patch_task_list_partial_name_update() {
                     serde_json::to_vec(&json!({
                         "name": "Original Name",
                         "description": "Original Description",
-                        "tags": ["original", "tag"]
+                        "tags": ["original", "tag"],
+                        "project_id": "test0000"
                     }))
                     .unwrap(),
                 ))
@@ -674,7 +701,8 @@ async fn patch_task_list_status_to_archived_sets_archived_at() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Active List"
+                        "name": "Active List",
+                        "project_id": "test0000"
                     }))
                     .unwrap(),
                 ))
@@ -805,7 +833,8 @@ async fn patch_task_list_link_to_project_and_repo() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Test List"
+                        "name": "Test List",
+                        "project_id": "test0000"
                     }))
                     .unwrap(),
                 ))
@@ -817,8 +846,8 @@ async fn patch_task_list_link_to_project_and_repo() {
     let list_body = json_body(list_response).await;
     let list_id = list_body["id"].as_str().unwrap();
 
-    // Verify no relationships initially
-    assert!(list_body["project_id"].is_null());
+    // Verify initial relationships
+    assert_eq!(list_body["project_id"], "test0000");
     assert!(list_body["repo_ids"].as_array().unwrap().is_empty());
 
     // PATCH to link to both project and repo

@@ -9,6 +9,19 @@ async fn setup_db() -> SqliteDatabase {
         .await
         .expect("Failed to create in-memory database");
     db.migrate().expect("Migration should succeed");
+
+    // Create a test project with known ID for tests that don't care about projects
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
     db
 }
 
@@ -50,7 +63,7 @@ async fn task_list_create_with_relationships() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0001".to_string()],
-            project_id: Some("proj0001".to_string()),
+            project_id: "proj0001".to_string(),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -65,7 +78,7 @@ async fn task_list_create_with_relationships() {
         .expect("Get should succeed");
     assert_eq!(retrieved.repo_ids.len(), 1);
     assert_eq!(retrieved.repo_ids[0], "repo0001");
-    assert_eq!(retrieved.project_id, Some("proj0001".to_string()));
+    assert_eq!(retrieved.project_id, "proj0001");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -127,7 +140,7 @@ async fn task_list_update_replaces_relationships() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0001".to_string()],
-            project_id: Some("proj0001".to_string()),
+            project_id: "proj0001".to_string(),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -146,7 +159,7 @@ async fn task_list_update_replaces_relationships() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0002".to_string()],
-            project_id: Some("proj0002".to_string()),
+            project_id: "proj0002".to_string(),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:01".to_string(),
             archived_at: None,
@@ -161,7 +174,7 @@ async fn task_list_update_replaces_relationships() {
         .expect("Get should succeed");
     assert_eq!(retrieved.repo_ids.len(), 1);
     assert_eq!(retrieved.repo_ids[0], "repo0002");
-    assert_eq!(retrieved.project_id, Some("proj0002".to_string()));
+    assert_eq!(retrieved.project_id, "proj0002");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -180,7 +193,7 @@ async fn task_list_create_validates_repo_ids() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec!["nonexist".to_string()],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -206,7 +219,7 @@ async fn task_list_create_validates_project_ids() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: Some("nonexist".to_string()),
+            project_id: "nonexist".to_string(),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -232,7 +245,7 @@ async fn task_list_list_with_tag_filter() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -250,7 +263,7 @@ async fn task_list_list_with_tag_filter() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -316,7 +329,7 @@ async fn task_list_archive_sets_archived_at() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -362,7 +375,7 @@ async fn task_list_archive_twice_is_idempotent() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -421,7 +434,7 @@ async fn task_list_unarchive_clears_archived_at() {
             external_ref: None,
             status: TaskListStatus::Archived,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: Some("2025-01-01 12:00:00".to_string()),
@@ -484,7 +497,7 @@ async fn task_list_belongs_to_one_project() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: Some("proj0001".to_string()), // Single project, not array
+            project_id: "proj0001".to_string(), // Single project, not array
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -493,42 +506,18 @@ async fn task_list_belongs_to_one_project() {
         .expect("Create should succeed");
 
     // Verify it belongs to the project
-    assert_eq!(created.project_id, Some("proj0001".to_string()));
+    assert_eq!(created.project_id, "proj0001");
 
     // Retrieve and verify
     let retrieved = task_lists
         .get("list0001")
         .await
         .expect("Get should succeed");
-    assert_eq!(retrieved.project_id, Some("proj0001".to_string()));
+    assert_eq!(retrieved.project_id, "proj0001");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn task_list_can_have_no_project() {
-    let db = setup_db().await;
-    let task_lists = db.task_lists();
-
-    // Create task list without a project
-    let created = task_lists
-        .create(&TaskList {
-            id: "list0001".to_string(),
-            name: "Orphan List".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_ref: None,
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: None, // No project
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
-            archived_at: None,
-        })
-        .await
-        .expect("Create should succeed");
-
-    assert_eq!(created.project_id, None);
-}
+// Note: task_list_requires_project test removed because Rust's type system now enforces
+// that project_id is required at compile time (not Option<String>, just String).
 
 #[tokio::test(flavor = "multi_thread")]
 async fn task_list_can_change_project() {
@@ -560,7 +549,7 @@ async fn task_list_can_change_project() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: Some("proj0001".to_string()),
+            project_id: "proj0001".to_string(),
             created_at: "2025-01-01 00:00:00".to_string(),
             updated_at: "2025-01-01 00:00:00".to_string(),
             archived_at: None,
@@ -568,11 +557,11 @@ async fn task_list_can_change_project() {
         .await
         .expect("Create should succeed");
 
-    assert_eq!(created.project_id, Some("proj0001".to_string()));
+    assert_eq!(created.project_id, "proj0001");
 
     // Move to project 2
     let mut updated = created.clone();
-    updated.project_id = Some("proj0002".to_string());
+    updated.project_id = "proj0002".to_string();
 
     task_lists
         .update(&updated)
@@ -584,5 +573,5 @@ async fn task_list_can_change_project() {
         .get("list0001")
         .await
         .expect("Get should succeed");
-    assert_eq!(retrieved.project_id, Some("proj0002".to_string()));
+    assert_eq!(retrieved.project_id, "proj0002");
 }

@@ -16,6 +16,19 @@ async fn test_app() -> axum::Router {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+
+    // Create a test project with known ID for API tests
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
     let state = AppState::new(db);
     routes::create_router(state)
 }
@@ -35,7 +48,8 @@ async fn create_task_list(app: &axum::Router) -> String {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Test List"})).unwrap(),
+                    serde_json::to_vec(&json!({"name": "Test List", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -234,7 +248,8 @@ async fn patch_task_partial_content_update() {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({"name": "Test List"})).unwrap(),
+                    serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -306,7 +321,8 @@ async fn patch_task_status_to_done_sets_completed_at() {
                 .uri("/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({"name": "Test List"})).unwrap(),
+                    serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )

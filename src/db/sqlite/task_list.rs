@@ -50,22 +50,19 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             }
         }
 
-        // Validate project_id exists (if provided)
-        if let Some(project_id) = &task_list.project_id {
-            let exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project WHERE id = ?)")
-                    .bind(project_id)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(|e| DbError::Database {
-                        message: e.to_string(),
-                    })?;
+        // Validate project_id exists (REQUIRED - not optional)
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project WHERE id = ?)")
+            .bind(&task_list.project_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
 
-            if !exists {
-                return Err(DbError::Database {
-                    message: format!("Project with id '{}' not found", project_id),
-                });
-            }
+        if !exists {
+            return Err(DbError::Database {
+                message: format!("Project with id '{}' not found", task_list.project_id),
+            });
         }
 
         // Insert the task_list record
@@ -222,7 +219,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             (
                 format!(
-                    "SELECT DISTINCT tl.id, tl.name, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.created_at, tl.updated_at, tl.archived_at 
+                    "SELECT DISTINCT tl.id, tl.name, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at 
                      FROM task_list tl, json_each(tl.tags)
                      {} {} {}",
                     where_clause, order_clause, limit_clause
@@ -235,7 +232,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else if !conditions.is_empty() {
             (
                 format!(
-                    "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at 
+                    "SELECT id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
                      FROM task_list tl {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -244,7 +241,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, name, description, notes, tags, external_ref, status, created_at, updated_at, archived_at 
+                    "SELECT id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
                      FROM task_list {} {}",
                     order_clause, limit_clause
                 ),
@@ -283,7 +280,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     external_ref: row.get("external_ref"),
                     status,
                     repo_ids: vec![],
-                    project_id: None,
+                    project_id: row.get("project_id"),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                     archived_at: row.get("archived_at"),

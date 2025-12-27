@@ -144,8 +144,8 @@ pub struct TaskList {
     /// Linked repository IDs (M:N relationship via task_list_repo)
     #[serde(default)]
     pub repo_ids: Vec<Id>,
-    /// Project this task list belongs to (1:N relationship - task list belongs to ONE project)
-    pub project_id: Option<Id>,
+    /// Project this task list belongs to (1:N relationship - task list belongs to ONE project, REQUIRED)
+    pub project_id: Id,
     pub created_at: String,
     pub updated_at: String,
     pub archived_at: Option<String>,

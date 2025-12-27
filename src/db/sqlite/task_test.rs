@@ -10,6 +10,19 @@ async fn setup_db() -> SqliteDatabase {
         .await
         .expect("Failed to create in-memory database");
     db.migrate().expect("Migration should succeed");
+
+    // Create a test project with known ID for tests
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
     db
 }
 
@@ -23,7 +36,7 @@ fn make_task_list(id: &str, name: &str) -> TaskList {
         external_ref: None,
         status: TaskListStatus::Active,
         repo_ids: vec![],
-        project_id: None,
+        project_id: "test0000".to_string(), // Test project (created by setup_db)
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
         archived_at: None,
@@ -375,7 +388,7 @@ async fn task_update_status_to_done_sets_completed_at() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -434,7 +447,7 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -498,7 +511,7 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -557,7 +570,7 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
@@ -616,7 +629,7 @@ async fn task_update_other_fields_preserves_timestamps() {
             external_ref: None,
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: None,
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
             created_at: String::new(),
             updated_at: String::new(),
             archived_at: None,
