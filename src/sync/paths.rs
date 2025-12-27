@@ -10,21 +10,26 @@ use std::path::PathBuf;
 /// HARDCODED: Always uses "c5t-test" for testing phase.
 /// To switch to production, change "c5t-test" to "c5t".
 ///
+/// # Arguments
+/// * `home_override` - Optional data home directory override
+///
 /// # Returns
-/// Path to data directory: `~/.local/share/c5t-test/`
+/// Path to data directory: `{home_override or XDG_DATA_HOME or ~/.local/share}/c5t-test/`
 ///
 /// # Panics
-/// Panics if HOME environment variable is not set and XDG_DATA_HOME is also not set.
-pub fn get_data_dir() -> PathBuf {
+/// Panics if HOME environment variable is not set and no override provided.
+pub fn get_data_dir(home_override: Option<PathBuf>) -> PathBuf {
     // HARDCODED: Always use c5t-test for now
     let base = "c5t-test";
 
-    let data_home = env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = env::var("HOME").expect("HOME environment variable not set");
-            PathBuf::from(home).join(".local/share")
-        });
+    let data_home = home_override.unwrap_or_else(|| {
+        env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let home = env::var("HOME").expect("HOME environment variable not set");
+                PathBuf::from(home).join(".local/share")
+            })
+    });
 
     data_home.join(base)
 }
@@ -34,15 +39,18 @@ pub fn get_data_dir() -> PathBuf {
 /// # Returns
 /// Path to sync directory: `~/.local/share/c5t-test/sync/`
 pub fn get_sync_dir() -> PathBuf {
-    get_data_dir().join("sync")
+    get_data_dir(None).join("sync")
 }
 
 /// Get database file path (data_dir/context.db).
 ///
+/// # Arguments
+/// * `home_override` - Optional data home directory override
+///
 /// # Returns
-/// Path to database file: `~/.local/share/c5t-test/context.db`
-pub fn get_db_path() -> PathBuf {
-    get_data_dir().join("context.db")
+/// Path to database file: `{home_override or XDG_DATA_HOME or ~/.local/share}/c5t-test/context.db`
+pub fn get_db_path(home_override: Option<PathBuf>) -> PathBuf {
+    get_data_dir(home_override).join("context.db")
 }
 
 #[cfg(test)]
@@ -52,7 +60,7 @@ mod tests {
     #[test]
     fn test_get_data_dir_contains_c5t_test() {
         // Just verify it ends with c5t-test (env vars are unreliable in parallel tests)
-        let path = get_data_dir();
+        let path = get_data_dir(None);
         assert!(path.ends_with("c5t-test"));
     }
 
@@ -65,7 +73,7 @@ mod tests {
 
     #[test]
     fn test_get_db_path_ends_with_context_db() {
-        let path = get_db_path();
+        let path = get_db_path(None);
         assert!(path.ends_with("c5t-test/context.db"));
     }
 }

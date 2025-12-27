@@ -40,9 +40,9 @@ struct Cli {
     #[arg(short, long, default_value = "3000")]
     port: u16,
 
-    /// Database file path (defaults to XDG data directory: ~/.local/share/c5t-test/context.db)
+    /// Override data home directory (defaults to XDG_DATA_HOME or ~/.local/share)
     #[arg(long)]
-    db: Option<PathBuf>,
+    home: Option<PathBuf>,
 
     /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -54,7 +54,7 @@ async fn main() -> Result<(), BinaryError> {
     let cli = Cli::parse();
 
     // Create the concrete database implementation
-    let db_path = cli.db.unwrap_or_else(get_db_path);
+    let db_path = get_db_path(cli.home);
 
     println!("Opening database at {:?}", db_path);
 
