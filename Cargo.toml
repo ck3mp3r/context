@@ -17,4 +17,29 @@ name = "c5t-api"
 path = "src/bin/api.rs"
 
 [dependencies]
-# Dependencies will be added as we research each crate
+axum = "0.8.8"
+clap = { version = "4.5.53", features = ["derive"] }
+miette = { version = "7.5", features = ["fancy"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.147"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"] }
+thiserror = "2.0"
+tokio = { version = "1.48.0", features = ["full"] }
+tower-http = { version = "0.6.8", features = ["trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+utoipa-scalar = { version = "0.3", features = ["axum"] }
+
+[dev-dependencies]
+tempfile = "3.20"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Single codegen unit for better optimization
+panic = "abort"     # Smaller binary, no unwinding
+strip = true        # Strip symbols
