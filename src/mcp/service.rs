@@ -37,7 +37,7 @@ use super::server::McpServer;
 /// let ct = CancellationToken::new();
 /// let mcp_service = create_mcp_service(db, ct);
 ///
-/// let app = Router::new()
+/// let app: Router = Router::new()
 ///     .nest_service("/mcp", mcp_service);
 /// # Ok(())
 /// # }
