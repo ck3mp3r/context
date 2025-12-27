@@ -4,6 +4,7 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::db::Database;
+use rmcp::{handler::server::router::tool::ToolRouter, tool_router};
 use std::sync::Arc;
 
 /// Task management tools
@@ -15,12 +16,23 @@ use std::sync::Arc;
 /// - **Dependency Inversion**: Depends on Database trait
 #[derive(Clone)]
 pub struct TaskTools<D: Database> {
+    #[allow(dead_code)]
     db: Arc<D>,
+    tool_router: ToolRouter<Self>,
 }
 
-impl<D: Database> TaskTools<D> {
+#[tool_router]
+impl<D: Database + 'static> TaskTools<D> {
     /// Create new TaskTools with database
     pub fn new(db: Arc<D>) -> Self {
-        Self { db }
+        Self {
+            db,
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Get the tool router for this handler
+    pub fn router(&self) -> &ToolRouter<Self> {
+        &self.tool_router
     }
 }
