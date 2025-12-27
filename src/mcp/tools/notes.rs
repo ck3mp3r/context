@@ -13,6 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, PageSort};
+use crate::mcp::tools::map_db_error;
 
 // =============================================================================
 // Parameter Structs
@@ -128,12 +129,12 @@ impl<D: Database + 'static> NoteTools<D> {
             tags: params.0.tags.clone(),
         };
 
-        let result = self.db.notes().list(Some(&query)).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let result = self
+            .db
+            .notes()
+            .list(Some(&query))
+            .await
+            .map_err(map_db_error)?;
 
         // Filter by note_type if specified (note_type not in NoteQuery yet)
         let filtered_items: Vec<Note> = if let Some(note_type_str) = &params.0.note_type {
@@ -204,12 +205,7 @@ impl<D: Database + 'static> NoteTools<D> {
             updated_at: String::new(), // Will be set by DB
         };
 
-        let created = self.db.notes().create(&note).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let created = self.db.notes().create(&note).await.map_err(map_db_error)?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
@@ -222,12 +218,12 @@ impl<D: Database + 'static> NoteTools<D> {
         params: Parameters<UpdateNoteParams>,
     ) -> Result<CallToolResult, McpError> {
         // Get existing note
-        let mut note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
-            McpError::resource_not_found(
-                "note_not_found",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let mut note = self
+            .db
+            .notes()
+            .get(&params.0.note_id)
+            .await
+            .map_err(map_db_error)?;
 
         // Update fields
         if let Some(title) = &params.0.title {
@@ -246,12 +242,7 @@ impl<D: Database + 'static> NoteTools<D> {
             note.project_ids = project_ids.clone();
         }
 
-        self.db.notes().update(&note).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db.notes().update(&note).await.map_err(map_db_error)?;
 
         // Fetch updated note to get auto-set updated_at
         let updated = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
@@ -275,12 +266,7 @@ impl<D: Database + 'static> NoteTools<D> {
             .notes()
             .delete(&params.0.note_id)
             .await
-            .map_err(|e| {
-                McpError::resource_not_found(
-                    "note_not_found",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
+            .map_err(map_db_error)?;
 
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Note {} deleted successfully",
