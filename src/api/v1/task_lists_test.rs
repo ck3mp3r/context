@@ -839,7 +839,7 @@ async fn patch_task_list_status_to_archived_sets_archived_at() {
 
     // archived_at should be set automatically by repository layer
     assert!(!body["archived_at"].is_null());
-    assert!(body["archived_at"].as_str().unwrap().len() > 0);
+    assert!(!body["archived_at"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

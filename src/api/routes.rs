@@ -117,9 +117,16 @@ macro_rules! routes {
 )]
 pub struct ApiDoc;
 
-/// Create the API router with OpenAPI documentation
+/// Create the API router with OpenAPI documentation and MCP server
 pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
     let api = ApiDoc::openapi();
+
+    // Create MCP service (Model Context Protocol server)
+    // Uses the same database as the REST API for consistency
+    let ct = tokio_util::sync::CancellationToken::new();
+    let mcp_service: rmcp::transport::streamable_http_server::StreamableHttpService<
+        crate::mcp::McpServer<D>,
+    > = crate::mcp::create_mcp_service(state.db_arc(), ct);
 
     // System routes (non-generic, not versioned)
     let system_routes = Router::new()
@@ -167,6 +174,7 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
 
     system_routes
         .merge(v1_routes)
+        .nest_service("/mcp", mcp_service) // MCP server endpoint
         .merge(Scalar::with_url("/docs", api))
         .with_state(state)
 }
