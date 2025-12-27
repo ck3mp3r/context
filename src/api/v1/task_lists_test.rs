@@ -364,6 +364,101 @@ async fn get_task_list_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn get_task_list_loads_relationships() {
+    let app = test_app().await;
+
+    // Create a repo to link to
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:test/repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let repo_body = json_body(response).await;
+    let repo_id = repo_body["id"].as_str().unwrap();
+
+    // Create a task list with relationships
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Test List with Relationships",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(response).await;
+    let list_id = created["id"].as_str().unwrap();
+
+    // Update to add repo relationship
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Test List with Relationships",
+                        "repo_ids": [repo_id],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // GET the task list and verify relationships are loaded
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/task-lists/{}", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Verify project_id is loaded
+    assert_eq!(body["project_id"], "test0000");
+
+    // Verify repo_ids is loaded
+    assert!(body["repo_ids"].is_array(), "repo_ids should be an array");
+    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["repo_ids"][0], repo_id);
+}
+
 // =============================================================================
 // PUT /v1/task-lists/{id} - Update TaskList
 // =============================================================================
