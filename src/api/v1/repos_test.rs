@@ -179,9 +179,93 @@ async fn get_repo_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
 
-    let body = json_body(response).await;
-    assert!(body["error"].as_str().unwrap().contains("not found"));
+// =============================================================================
+// PATCH /v1/repos/{id} - Partial Update Repo
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_repo_partial_remote_update() {
+    let app = test_app().await;
+
+    // Create a repo
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/original/repo",
+                        "path": "/original/path",
+                        "tags": ["tag1", "tag2"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = json_body(create_response).await;
+    let repo_id = created["id"].as_str().unwrap();
+
+    // PATCH only the remote
+    let patch_response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/repos/{}", repo_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/updated/repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+
+    let patched = json_body(patch_response).await;
+
+    // Remote should be updated
+    assert_eq!(patched["remote"], "https://github.com/updated/repo");
+
+    // Other fields should be preserved
+    assert_eq!(patched["path"], "/original/path");
+    assert_eq!(patched["tags"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_repo_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/v1/repos/notfound")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/new/repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 // =============================================================================

@@ -88,6 +88,40 @@ pub struct UpdateRepoRequest {
     pub project_ids: Vec<String>,
 }
 
+/// Patch repo request DTO (partial update)
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct PatchRepoRequest {
+    /// Remote URL
+    #[schema(example = "github:user/project")]
+    pub remote: Option<String>,
+    /// Local filesystem path
+    #[schema(example = "/home/user/project")]
+    pub path: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["work", "active"]))]
+    pub tags: Option<Vec<String>>,
+    /// Linked project IDs
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    pub project_ids: Option<Vec<String>>,
+}
+
+impl PatchRepoRequest {
+    fn merge_into(self, target: &mut Repo) {
+        if let Some(remote) = self.remote {
+            target.remote = remote;
+        }
+        if let Some(path) = self.path {
+            target.path = Some(path);
+        }
+        if let Some(tags) = self.tags {
+            target.tags = tags;
+        }
+        if let Some(project_ids) = self.project_ids {
+            target.project_ids = project_ids;
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReposQuery {
     /// Maximum number of items to return
@@ -306,6 +340,61 @@ pub async fn update_repo<D: Database>(
     repo.tags = req.tags;
     repo.project_ids = req.project_ids;
 
+    state.db().repos().update(&repo).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(RepoResponse::from(repo)))
+}
+
+/// Partially update a repo
+///
+/// Updates only the fields provided in the request (PATCH semantics)
+#[utoipa::path(
+    patch,
+    path = "/v1/repos/{id}",
+    tag = "repos",
+    params(
+        ("id" = String, Path, description = "Repo ID (8-character hex)")
+    ),
+    request_body = PatchRepoRequest,
+    responses(
+        (status = 200, description = "Repo updated", body = RepoResponse),
+        (status = 404, description = "Repo not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn patch_repo<D: Database>(
+    State(state): State<AppState<D>>,
+    Path(id): Path<String>,
+    Json(req): Json<PatchRepoRequest>,
+) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Fetch existing repo
+    let mut repo = state.db().repos().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Repo '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Merge PATCH changes
+    req.merge_into(&mut repo);
+
+    // Save
     state.db().repos().update(&repo).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

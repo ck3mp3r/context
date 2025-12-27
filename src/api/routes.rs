@@ -9,9 +9,9 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
-    CreateTaskRequest, ErrorResponse, NoteResponse, PatchProjectRequest, ProjectResponse,
-    RepoResponse, TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest,
-    UpdateRepoRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    CreateTaskRequest, ErrorResponse, NoteResponse, PatchProjectRequest, PatchRepoRequest,
+    ProjectResponse, RepoResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
+    UpdateProjectRequest, UpdateRepoRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 use crate::db::Database;
 
@@ -53,6 +53,7 @@ macro_rules! routes {
         super::v1::get_repo,
         super::v1::create_repo,
         super::v1::update_repo,
+        super::v1::patch_repo,
         super::v1::delete_repo,
         super::v1::list_task_lists,
         super::v1::get_task_list,
@@ -81,6 +82,7 @@ macro_rules! routes {
             RepoResponse,
             CreateRepoRequest,
             UpdateRepoRequest,
+            PatchRepoRequest,
             super::v1::PaginatedRepos,
             TaskListResponse,
             CreateTaskListRequest,
@@ -131,6 +133,7 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         get "/v1/repos/{id}" => super::v1::get_repo,
         post "/v1/repos" => super::v1::create_repo,
         put "/v1/repos/{id}" => super::v1::update_repo,
+        patch "/v1/repos/{id}" => super::v1::patch_repo,
         delete "/v1/repos/{id}" => super::v1::delete_repo,
         // TaskLists
         get "/v1/task-lists" => super::v1::list_task_lists,
