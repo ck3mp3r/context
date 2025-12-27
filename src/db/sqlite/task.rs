@@ -113,8 +113,16 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         if let Some(status) = &query.status {
-            conditions.push("status = ?".to_string());
-            bind_values.push(status.clone());
+            // Handle multiple statuses (comma-separated OR logic)
+            let statuses: Vec<&str> = status.split(',').map(|s| s.trim()).collect();
+            if statuses.len() == 1 {
+                conditions.push("status = ?".to_string());
+                bind_values.push(status.clone());
+            } else {
+                let placeholders: Vec<&str> = statuses.iter().map(|_| "?").collect();
+                conditions.push(format!("status IN ({})", placeholders.join(", ")));
+                bind_values.extend(statuses.iter().map(|s| s.to_string()));
+            }
         }
 
         // Tag filtering requires json_each join

@@ -282,6 +282,46 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             });
         }
 
+        // Sync repo relationships (delete old, insert new)
+        sqlx::query("DELETE FROM note_repo WHERE note_id = ?")
+            .bind(&note.id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        for repo_id in &note.repo_ids {
+            sqlx::query("INSERT INTO note_repo (note_id, repo_id) VALUES (?, ?)")
+                .bind(&note.id)
+                .bind(repo_id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        // Sync project relationships (delete old, insert new)
+        sqlx::query("DELETE FROM project_note WHERE note_id = ?")
+            .bind(&note.id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        for project_id in &note.project_ids {
+            sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+                .bind(project_id)
+                .bind(&note.id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
         Ok(())
     }
 
