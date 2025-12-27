@@ -13,7 +13,9 @@ mod repos_test;
 pub mod task_lists;
 #[cfg(test)]
 mod task_lists_test;
-mod tasks;
+pub mod tasks;
+#[cfg(test)]
+mod tasks_test;
 
 pub use notes::NoteTools;
 pub use projects::ProjectTools;
