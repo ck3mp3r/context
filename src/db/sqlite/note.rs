@@ -51,14 +51,38 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             message: e.to_string(),
         })?;
 
+        // Insert repo relationships
+        for repo_id in &note.repo_ids {
+            sqlx::query("INSERT INTO note_repo (note_id, repo_id) VALUES (?, ?)")
+                .bind(&id)
+                .bind(repo_id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        // Insert project relationships
+        for project_id in &note.project_ids {
+            sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+                .bind(project_id)
+                .bind(&id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
         Ok(Note {
             id,
             title: note.title.clone(),
             content: note.content.clone(),
             tags: note.tags.clone(),
             note_type: note.note_type.clone(),
-            repo_ids: vec![], // Empty by default - relationships managed separately
-            project_ids: vec![], // Empty by default - relationships managed separately
+            repo_ids: note.repo_ids.clone(),
+            project_ids: note.project_ids.clone(),
             created_at,
             updated_at,
         })
@@ -256,6 +280,46 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 entity_type: "Note".to_string(),
                 id: note.id.clone(),
             });
+        }
+
+        // Sync repo relationships (delete old, insert new)
+        sqlx::query("DELETE FROM note_repo WHERE note_id = ?")
+            .bind(&note.id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        for repo_id in &note.repo_ids {
+            sqlx::query("INSERT INTO note_repo (note_id, repo_id) VALUES (?, ?)")
+                .bind(&note.id)
+                .bind(repo_id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        // Sync project relationships (delete old, insert new)
+        sqlx::query("DELETE FROM project_note WHERE note_id = ?")
+            .bind(&note.id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        for project_id in &note.project_ids {
+            sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+                .bind(project_id)
+                .bind(&note.id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
         }
 
         Ok(())

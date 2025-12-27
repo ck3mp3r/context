@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::db::{
     Database, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
+use crate::mcp::tools::map_db_error;
 
 // =============================================================================
 // Parameter Structs
@@ -54,6 +55,8 @@ pub struct CreateTaskListParams {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "External reference (e.g., Jira ticket) (optional)")]
     pub external_ref: Option<String>,
+    #[schemars(description = "Repository IDs to link (optional)")]
+    pub repo_ids: Option<Vec<String>>,
     #[schemars(description = "Project ID this task list belongs to (REQUIRED)")]
     pub project_id: String,
 }
@@ -139,12 +142,12 @@ impl<D: Database + 'static> TaskListTools<D> {
             tags,
         };
 
-        let result = self.db.task_lists().list(Some(&query)).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let result = self
+            .db
+            .task_lists()
+            .list(Some(&query))
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let response = json!({
             "items": result.items,
@@ -167,12 +170,12 @@ impl<D: Database + 'static> TaskListTools<D> {
         &self,
         params: Parameters<GetTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
-        let list = self.db.task_lists().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let list = self
+            .db
+            .task_lists()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
         let content = serde_json::to_string_pretty(&list).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -195,19 +198,19 @@ impl<D: Database + 'static> TaskListTools<D> {
             tags: params.0.tags.unwrap_or_default(),
             external_ref: params.0.external_ref,
             status: TaskListStatus::Active,
-            repo_ids: vec![],
+            repo_ids: params.0.repo_ids.unwrap_or_default(),
             project_id: params.0.project_id,
             created_at: String::new(), // Repository generates
             updated_at: String::new(), // Repository generates
             archived_at: None,
         };
 
-        let created = self.db.task_lists().create(&list).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let created = self
+            .db
+            .task_lists()
+            .create(&list)
+            .await
+            .map_err(|e| map_db_error(e))?;
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -223,19 +226,31 @@ impl<D: Database + 'static> TaskListTools<D> {
         params: Parameters<UpdateTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
         // Fetch existing
-        let mut list = self.db.task_lists().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let mut list = self
+            .db
+            .task_lists()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
-        // Update fields
+        // Update fields - only update if provided to preserve existing values
         list.name = params.0.name;
-        list.description = params.0.description;
-        list.notes = params.0.notes;
-        list.tags = params.0.tags.unwrap_or_default();
-        list.external_ref = params.0.external_ref;
+
+        if let Some(description) = params.0.description {
+            list.description = Some(description);
+        }
+
+        if let Some(notes) = params.0.notes {
+            list.notes = Some(notes);
+        }
+
+        if let Some(tags) = params.0.tags {
+            list.tags = tags;
+        }
+
+        if let Some(external_ref) = params.0.external_ref {
+            list.external_ref = Some(external_ref);
+        }
 
         if let Some(repo_ids) = params.0.repo_ids {
             list.repo_ids = repo_ids;
@@ -253,18 +268,17 @@ impl<D: Database + 'static> TaskListTools<D> {
         }
 
         // Update returns (), must fetch again
-        self.db.task_lists().update(&list).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
-        let updated = self.db.task_lists().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .task_lists()
+            .update(&list)
+            .await
+            .map_err(|e| map_db_error(e))?;
+        let updated = self
+            .db
+            .task_lists()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(

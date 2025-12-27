@@ -15,8 +15,8 @@ use rmcp::{
 use crate::db::Database;
 
 use super::tools::{
-    NoteTools, ProjectTools, RepoTools, TaskListTools, TaskTools, projects::*, repos::*,
-    task_lists::*,
+    NoteTools, ProjectTools, RepoTools, TaskListTools, TaskTools, notes::*, projects::*, repos::*,
+    task_lists::*, tasks::*,
 };
 
 /// Main MCP server coordinator
@@ -199,6 +199,110 @@ impl<D: Database + 'static> McpServer<D> {
         params: Parameters<DeleteTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
         self.task_list_tools.delete_task_list(params).await
+    }
+
+    // =========================================================================
+    // Task Tools
+    // =========================================================================
+
+    #[tool(description = "List tasks for a task list with optional filtering")]
+    pub async fn list_tasks(
+        &self,
+        params: Parameters<ListTasksParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.list_tasks(params).await
+    }
+
+    #[tool(description = "Get a task by ID")]
+    pub async fn get_task(
+        &self,
+        params: Parameters<GetTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.get_task(params).await
+    }
+
+    #[tool(description = "Create a new task")]
+    pub async fn create_task(
+        &self,
+        params: Parameters<CreateTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.create_task(params).await
+    }
+
+    #[tool(description = "Update an existing task")]
+    pub async fn update_task(
+        &self,
+        params: Parameters<UpdateTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.update_task(params).await
+    }
+
+    #[tool(description = "Mark a task as complete")]
+    pub async fn complete_task(
+        &self,
+        params: Parameters<CompleteTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.complete_task(params).await
+    }
+
+    #[tool(description = "Delete a task")]
+    pub async fn delete_task(
+        &self,
+        params: Parameters<DeleteTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.delete_task(params).await
+    }
+
+    // =========================================================================
+    // Note Tools
+    // =========================================================================
+
+    #[tool(description = "List notes with optional filtering")]
+    pub async fn list_notes(
+        &self,
+        params: Parameters<ListNotesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.list_notes(params).await
+    }
+
+    #[tool(description = "Get a note by ID")]
+    pub async fn get_note(
+        &self,
+        params: Parameters<GetNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.get_note(params).await
+    }
+
+    #[tool(description = "Create a new note")]
+    pub async fn create_note(
+        &self,
+        params: Parameters<CreateNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.create_note(params).await
+    }
+
+    #[tool(description = "Update an existing note")]
+    pub async fn update_note(
+        &self,
+        params: Parameters<UpdateNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.update_note(params).await
+    }
+
+    #[tool(description = "Delete a note")]
+    pub async fn delete_note(
+        &self,
+        params: Parameters<DeleteNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.delete_note(params).await
+    }
+
+    #[tool(description = "Full-text search notes using FTS5")]
+    pub async fn search_notes(
+        &self,
+        params: Parameters<SearchNotesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.search_notes(params).await
     }
 }
 

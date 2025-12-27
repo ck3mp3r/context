@@ -4,6 +4,7 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::db::{Database, Repo, RepoRepository};
+use crate::mcp::tools::map_db_error;
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -81,12 +82,12 @@ impl<D: Database + 'static> RepoTools<D> {
     /// List all repositories
     #[tool(description = "List all repositories")]
     pub async fn list_repos(&self) -> Result<CallToolResult, McpError> {
-        let result = self.db.repos().list(None).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let result = self
+            .db
+            .repos()
+            .list(None)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&result.items).map_err(|e| {
             McpError::internal_error(
@@ -104,12 +105,12 @@ impl<D: Database + 'static> RepoTools<D> {
         &self,
         params: Parameters<GetRepoParams>,
     ) -> Result<CallToolResult, McpError> {
-        let repo = self.db.repos().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let repo = self
+            .db
+            .repos()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&repo).map_err(|e| {
             McpError::internal_error(
@@ -136,12 +137,12 @@ impl<D: Database + 'static> RepoTools<D> {
             created_at: String::new(), // Repository generates this
         };
 
-        let created = self.db.repos().create(&repo).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let created = self
+            .db
+            .repos()
+            .create(&repo)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
@@ -160,12 +161,12 @@ impl<D: Database + 'static> RepoTools<D> {
         params: Parameters<UpdateRepoParams>,
     ) -> Result<CallToolResult, McpError> {
         // Get existing repo
-        let mut repo = self.db.repos().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let mut repo = self
+            .db
+            .repos()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Update fields if provided
         if let Some(r) = params.0.remote {
@@ -178,20 +179,19 @@ impl<D: Database + 'static> RepoTools<D> {
             repo.tags = tags;
         }
 
-        self.db.repos().update(&repo).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .repos()
+            .update(&repo)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         // Get the updated repo to return it
-        let updated = self.db.repos().get(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        let updated = self
+            .db
+            .repos()
+            .get(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(
@@ -209,12 +209,11 @@ impl<D: Database + 'static> RepoTools<D> {
         &self,
         params: Parameters<DeleteRepoParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.db.repos().delete(&params.0.id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        self.db
+            .repos()
+            .delete(&params.0.id)
+            .await
+            .map_err(|e| map_db_error(e))?;
 
         let content = serde_json::json!({
             "success": true,

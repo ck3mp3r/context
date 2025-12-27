@@ -234,46 +234,7 @@ async fn project_get_loads_all_relationships() {
     let db = setup_db().await;
     let projects = db.projects();
 
-    // Create repos first (for foreign key constraints)
-    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
-        .bind("repo0001")
-        .bind("https://github.com/test/repo1")
-        .bind(None::<String>)
-        .bind("[]")
-        .bind("2025-01-01 00:00:00")
-        .execute(db.pool())
-        .await
-        .expect("Insert repo should succeed");
-
-    // Create task list first
-    sqlx::query("INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind("list0001")
-        .bind("Test List")
-        .bind(None::<String>)
-        .bind(None::<String>)
-        .bind("[]")
-        .bind(None::<String>)
-        .bind("active")
-        .bind("2025-01-01 00:00:00")
-        .bind("2025-01-01 00:00:00")
-        .execute(db.pool())
-        .await
-        .expect("Insert task list should succeed");
-
-    // Create note first
-    sqlx::query("INSERT INTO note (id, title, content, tags, note_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind("note0001")
-        .bind("Test Note")
-        .bind("Content")
-        .bind("[]")
-        .bind("manual")
-        .bind("2025-01-01 00:00:00")
-        .bind("2025-01-01 00:00:00")
-        .execute(db.pool())
-        .await
-        .expect("Insert note should succeed");
-
-    // Create a project
+    // Create project FIRST (required for task_list FK)
     let project = Project {
         id: "projrel1".to_string(),
         title: "Test Project".to_string(),
@@ -290,6 +251,46 @@ async fn project_get_loads_all_relationships() {
         .await
         .expect("Create should succeed");
 
+    // Create repos (for foreign key constraints)
+    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind("repo0001")
+        .bind("https://github.com/test/repo1")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert repo should succeed");
+
+    // Create task list WITH project_id (NOT NULL constraint)
+    sqlx::query("INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("list0001")
+        .bind("Test List")
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind("[]")
+        .bind(None::<String>)
+        .bind("active")
+        .bind("projrel1")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert task list should succeed");
+
+    // Create note
+    sqlx::query("INSERT INTO note (id, title, content, tags, note_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind("note0001")
+        .bind("Test Note")
+        .bind("Content")
+        .bind("[]")
+        .bind("manual")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Insert note should succeed");
+
     // Insert relationships into junction tables
     sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
         .bind("projrel1")
@@ -297,14 +298,6 @@ async fn project_get_loads_all_relationships() {
         .execute(db.pool())
         .await
         .expect("Insert project_repo should succeed");
-
-    // Update task_list to belong to this project (1:N relationship)
-    sqlx::query("UPDATE task_list SET project_id = ? WHERE id = ?")
-        .bind("projrel1")
-        .bind("list0001")
-        .execute(db.pool())
-        .await
-        .expect("Update task_list project_id should succeed");
 
     sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
         .bind("projrel1")
