@@ -1,6 +1,6 @@
 //! Tests for Note MCP tools
 
-use crate::db::{Database, Note, NoteRepository, NoteType, ProjectRepository, SqliteDatabase};
+use crate::db::{Database, Note, NoteRepository, NoteType, SqliteDatabase};
 use crate::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools,
     SearchNotesParams, UpdateNoteParams,
