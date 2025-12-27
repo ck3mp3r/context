@@ -1,8 +1,7 @@
 //! Export database entities to JSONL files.
 
 use crate::db::{
-    Database, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, TaskListRepository,
-    TaskRepository,
+    Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
 };
 use std::path::Path;
 use thiserror::Error;
@@ -87,7 +86,7 @@ impl ExportSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::SqliteDatabase;
+    use crate::db::{Project, Repo, SqliteDatabase};
     use crate::sync::jsonl::read_jsonl;
     use tempfile::TempDir;
 

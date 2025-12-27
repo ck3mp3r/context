@@ -4,13 +4,12 @@ use crate::db::Database;
 use crate::mcp::tools::map_db_error;
 use crate::sync::{RealGit, SyncError, SyncManager};
 use rmcp::{
+    ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
     schemars,
     schemars::JsonSchema,
-    tool,
-    tool_router,
-    ErrorData as McpError,
+    tool, tool_router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -108,10 +107,7 @@ impl<D: Database + 'static> SyncTools<D> {
             }
 
             SyncOperation::Import => {
-                let summary = manager
-                    .import(&*self.db)
-                    .await
-                    .map_err(map_sync_error)?;
+                let summary = manager.import(&*self.db).await.map_err(map_sync_error)?;
 
                 serde_json::json!({
                     "status": "success",

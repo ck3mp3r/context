@@ -15,8 +15,8 @@ use rmcp::{
 use crate::db::Database;
 
 use super::tools::{
-    NoteTools, ProjectTools, RepoTools, TaskListTools, TaskTools, notes::*, projects::*, repos::*,
-    task_lists::*, tasks::*,
+    NoteTools, ProjectTools, RepoTools, SyncTools, TaskListTools, TaskTools, notes::*, projects::*,
+    repos::*, sync::*, task_lists::*, tasks::*,
 };
 
 /// Main MCP server coordinator
@@ -44,10 +44,9 @@ pub struct McpServer<D: Database> {
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
     task_list_tools: TaskListTools<D>,
-    #[allow(dead_code)] // Will be used in Phase 4
     task_tools: TaskTools<D>,
-    #[allow(dead_code)] // Will be used in Phase 5
     note_tools: NoteTools<D>,
+    sync_tools: SyncTools<D>,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
@@ -70,6 +69,7 @@ impl<D: Database + 'static> McpServer<D> {
             task_list_tools: TaskListTools::new(Arc::clone(&db)),
             task_tools: TaskTools::new(Arc::clone(&db)),
             note_tools: NoteTools::new(Arc::clone(&db)),
+            sync_tools: SyncTools::new(Arc::clone(&db)),
             db,
             tool_router: Self::tool_router(),
         }
@@ -303,6 +303,15 @@ impl<D: Database + 'static> McpServer<D> {
         params: Parameters<SearchNotesParams>,
     ) -> Result<CallToolResult, McpError> {
         self.note_tools.search_notes(params).await
+    }
+
+    // =========================================================================
+    // Sync Tools
+    // =========================================================================
+
+    #[tool(description = "Git-based sync: init, export, import, or status")]
+    pub async fn sync(&self, params: Parameters<SyncParams>) -> Result<CallToolResult, McpError> {
+        self.sync_tools.sync(params).await
     }
 }
 

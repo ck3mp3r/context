@@ -37,6 +37,14 @@ pub fn get_sync_dir() -> PathBuf {
     get_data_dir().join("sync")
 }
 
+/// Get database file path (data_dir/context.db).
+///
+/// # Returns
+/// Path to database file: `~/.local/share/c5t-test/context.db`
+pub fn get_db_path() -> PathBuf {
+    get_data_dir().join("context.db")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +61,11 @@ mod tests {
         // Just verify it ends with c5t-test/sync
         let path = get_sync_dir();
         assert!(path.ends_with("c5t-test/sync"));
+    }
+
+    #[test]
+    fn test_get_db_path_ends_with_context_db() {
+        let path = get_db_path();
+        assert!(path.ends_with("c5t-test/context.db"));
     }
 }
