@@ -40,7 +40,7 @@ struct Cli {
     #[arg(short, long, default_value = "3000")]
     port: u16,
 
-    /// Override data home directory (defaults to XDG_DATA_HOME or ~/.local/share)
+    /// Override data home directory (defaults to XDG_DATA_HOME/c5t or ~/.local/share/c5t)
     #[arg(long)]
     home: Option<PathBuf>,
 
