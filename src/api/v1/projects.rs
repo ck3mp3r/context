@@ -95,6 +95,10 @@ pub struct UpdateProjectRequest {
 }
 
 /// Patch project request DTO (partial update)
+///
+/// Note: Project relationships (repo_ids, task_list_ids, note_ids) are managed
+/// from the other side - i.e., you link a Repo/TaskList/Note TO a Project,
+/// not the other way around. These fields are read-only on Project responses.
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct PatchProjectRequest {
     /// Project title
@@ -106,15 +110,6 @@ pub struct PatchProjectRequest {
     /// Tags for categorization
     #[schema(example = json!(["rust", "backend"]))]
     pub tags: Option<Vec<String>>,
-    /// Linked repository IDs
-    #[schema(example = json!(["repo0001", "repo0002"]))]
-    pub repo_ids: Option<Vec<String>>,
-    /// Linked task list IDs
-    #[schema(example = json!(["list0001", "list0002"]))]
-    pub task_list_ids: Option<Vec<String>>,
-    /// Linked note IDs
-    #[schema(example = json!(["note0001", "note0002"]))]
-    pub note_ids: Option<Vec<String>>,
 }
 
 impl PatchProjectRequest {
@@ -127,15 +122,6 @@ impl PatchProjectRequest {
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
-        }
-        if let Some(repo_ids) = self.repo_ids {
-            target.repo_ids = repo_ids;
-        }
-        if let Some(task_list_ids) = self.task_list_ids {
-            target.task_list_ids = task_list_ids;
-        }
-        if let Some(note_ids) = self.note_ids {
-            target.note_ids = note_ids;
         }
     }
 }
