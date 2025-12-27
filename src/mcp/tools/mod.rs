@@ -3,7 +3,9 @@
 //! This module contains tool handlers organized by entity type.
 //! Each module follows Single Responsibility Principle (SRP).
 
-mod notes;
+pub mod notes;
+#[cfg(test)]
+mod notes_test;
 pub mod projects;
 #[cfg(test)]
 mod projects_test;
