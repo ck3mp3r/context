@@ -95,6 +95,53 @@ pub struct UpdateTaskListRequest {
     pub project_ids: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct PatchTaskListRequest {
+    #[schema(example = "Sprint 1")]
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub notes: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub external_ref: Option<String>,
+    #[schema(example = "active")]
+    pub status: Option<String>,
+    /// Repository IDs to link to this task list
+    pub repo_ids: Option<Vec<String>>,
+    /// Project IDs to link to this task list
+    pub project_ids: Option<Vec<String>>,
+}
+
+impl PatchTaskListRequest {
+    fn merge_into(self, target: &mut TaskList) {
+        if let Some(name) = self.name {
+            target.name = name;
+        }
+        if let Some(description) = self.description {
+            target.description = Some(description);
+        }
+        if let Some(notes) = self.notes {
+            target.notes = Some(notes);
+        }
+        if let Some(tags) = self.tags {
+            target.tags = tags;
+        }
+        if let Some(external_ref) = self.external_ref {
+            target.external_ref = Some(external_ref);
+        }
+        if let Some(status_str) = self.status
+            && let Ok(status) = status_str.parse::<TaskListStatus>()
+        {
+            target.status = status;
+        }
+        if let Some(repo_ids) = self.repo_ids {
+            target.repo_ids = repo_ids;
+        }
+        if let Some(project_ids) = self.project_ids {
+            target.project_ids = project_ids;
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListTaskListsQuery {
     /// Filter by tags (comma-separated)
@@ -346,6 +393,71 @@ pub async fn update_task_list<D: Database>(
     })?;
 
     Ok(Json(TaskListResponse::from(list)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/v1/task-lists/{id}",
+    tag = "task-lists",
+    params(("id" = String, Path, description = "TaskList ID")),
+    request_body = PatchTaskListRequest,
+    responses(
+        (status = 200, description = "TaskList partially updated", body = TaskListResponse),
+        (status = 404, description = "TaskList not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn patch_task_list<D: Database>(
+    State(state): State<AppState<D>>,
+    Path(id): Path<String>,
+    Json(req): Json<PatchTaskListRequest>,
+) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Fetch existing task list
+    let mut list = state
+        .db()
+        .task_lists()
+        .get(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("TaskList '{}' not found", id),
+                }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
+
+    // Merge PATCH changes
+    req.merge_into(&mut list);
+
+    // Save (repository handles auto-timestamps for archived_at)
+    state.db().task_lists().update(&list).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Re-fetch to get updated timestamps
+    let updated = state.db().task_lists().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(TaskListResponse::from(updated)))
 }
 
 #[utoipa::path(

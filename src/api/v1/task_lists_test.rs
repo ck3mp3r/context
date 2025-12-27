@@ -603,3 +603,147 @@ async fn update_task_list_handles_relationships() {
     assert_eq!(body["repo_ids"][0], repo_id);
     assert_eq!(body["project_ids"][0], project_id);
 }
+
+// =============================================================================
+// PATCH /v1/task-lists/{id} - Partial Update TaskList
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_list_partial_name_update() {
+    let app = test_app().await;
+
+    // Create a task list
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Original Name",
+                        "description": "Original Description",
+                        "tags": ["original", "tag"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // Partially update only the name
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/task-lists/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Updated Name"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Name should be updated
+    assert_eq!(body["name"], "Updated Name");
+
+    // Other fields should remain unchanged
+    assert_eq!(body["description"], "Original Description");
+    assert_eq!(body["tags"], json!(["original", "tag"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_list_status_to_archived_sets_archived_at() {
+    let app = test_app().await;
+
+    // Create an active task list
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Active List"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let id = body["id"].as_str().unwrap();
+
+    // Verify initially active with no archived_at
+    assert_eq!(body["status"], "active");
+    assert!(body["archived_at"].is_null());
+
+    // PATCH status to archived
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/task-lists/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "status": "archived"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    // Status should be archived
+    assert_eq!(body["status"], "archived");
+
+    // archived_at should be set automatically by repository layer
+    assert!(!body["archived_at"].is_null());
+    assert!(body["archived_at"].as_str().unwrap().len() > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_list_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/v1/task-lists/nonexist")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Won't Work"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
