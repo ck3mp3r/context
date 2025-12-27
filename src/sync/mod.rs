@@ -4,6 +4,9 @@
 //! and sync them via Git to enable multi-machine synchronization.
 
 mod git;
+mod jsonl;
 mod paths;
 
+pub use git::{GitError, GitOps, RealGit};
+pub use jsonl::{JsonlError, read_jsonl, write_jsonl};
 pub use paths::{get_data_dir, get_sync_dir};
