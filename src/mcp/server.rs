@@ -9,7 +9,7 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, ServerCapabilities, ServerInfo},
-    tool, tool_router,
+    tool, tool_handler, tool_router,
 };
 
 use crate::db::Database;
@@ -202,6 +202,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 }
 
+#[tool_handler]
 impl<D: Database + 'static> ServerHandler for McpServer<D> {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
