@@ -43,6 +43,8 @@ pub struct Config {
     pub port: u16,
     /// Logging verbosity (0=warn, 1=info, 2=debug, 3=trace)
     pub verbosity: u8,
+    /// Enable OpenAPI documentation endpoint at /docs
+    pub enable_docs: bool,
 }
 
 impl Default for Config {
@@ -51,6 +53,7 @@ impl Default for Config {
             host: "0.0.0.0".parse().unwrap(),
             port: 3000,
             verbosity: 0,
+            enable_docs: false,
         }
     }
 }
@@ -82,7 +85,7 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     // Create application state
     let state = AppState::new(db);
 
-    let app = routes::create_router(state).layer(TraceLayer::new_for_http());
+    let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener =

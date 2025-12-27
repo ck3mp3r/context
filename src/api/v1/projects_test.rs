@@ -18,7 +18,7 @@ async fn test_app() -> axum::Router {
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let state = AppState::new(db);
-    routes::create_router(state)
+    routes::create_router(state, false)
 }
 
 /// Helper to parse JSON response body

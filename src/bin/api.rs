@@ -47,6 +47,10 @@ struct Cli {
     /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
+
+    /// Enable OpenAPI documentation endpoint at /docs
+    #[arg(long)]
+    docs: bool,
 }
 
 #[tokio::main]
@@ -75,6 +79,7 @@ async fn main() -> Result<(), BinaryError> {
             host: cli.host,
             port: cli.port,
             verbosity: cli.verbose,
+            enable_docs: cli.docs,
         },
         db,
     )

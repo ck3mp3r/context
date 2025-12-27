@@ -118,9 +118,7 @@ macro_rules! routes {
 pub struct ApiDoc;
 
 /// Create the API router with OpenAPI documentation and MCP server
-pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
-    let api = ApiDoc::openapi();
-
+pub fn create_router<D: Database + 'static>(state: AppState<D>, enable_docs: bool) -> Router {
     // Create MCP service (Model Context Protocol server)
     // Uses the same database as the REST API for consistency
     let ct = tokio_util::sync::CancellationToken::new();
@@ -172,9 +170,15 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         delete "/v1/notes/{id}" => super::v1::delete_note,
     });
 
-    system_routes
+    let mut router = system_routes
         .merge(v1_routes)
-        .nest_service("/mcp", mcp_service) // MCP server endpoint
-        .merge(Scalar::with_url("/docs", api))
-        .with_state(state)
+        .nest_service("/mcp", mcp_service); // MCP server endpoint
+
+    // Conditionally add OpenAPI docs endpoint
+    if enable_docs {
+        let api = ApiDoc::openapi();
+        router = router.merge(Scalar::with_url("/docs", api));
+    }
+
+    router.with_state(state)
 }
