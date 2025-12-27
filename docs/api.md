@@ -2,9 +2,9 @@
 
 ## Server
 
-**Endpoint**: `http://localhost:3000`
+**Endpoint**: `http://localhost:3737`
 
-**Documentation**: `/scalar` (Scalar UI with OpenAPI spec)
+**Documentation**: `/docs` (Scalar UI with OpenAPI spec, requires `--docs` flag)
 
 ## Endpoints
 
@@ -62,25 +62,30 @@ cargo build --release
 C5T_PORT=8080 cargo run --bin c5t-api
 ```
 
-## Environment Variables
+## Configuration
 
-- `C5T_PORT` - API server port (default: 3000)
-- `RUST_LOG` - Logging level (default: info)
+**Port**: Default 3737 (override with `-p` or `--port`)
+
+**Logging**: Default warn (increase with `-v`, `-vv`, or `-vvv`)
+
+**Documentation**: Disabled by default (enable with `--docs`)
+
+**Data Directory**: `~/.local/share/c5t` (override with `--home`)
 
 ## Example Requests
 
 ```sh
 # Create project
-curl -X POST http://localhost:3000/api/v1/projects \
+curl -X POST http://localhost:3737/api/v1/projects \
   -H "Content-Type: application/json" \
   -d '{"title": "My Project", "description": "Project description"}'
 
 # List active task lists
-curl http://localhost:3000/api/v1/task-lists?status=active
+curl http://localhost:3737/api/v1/task-lists?status=active
 
 # Search notes
-curl "http://localhost:3000/api/v1/notes/search?q=rust+async"
+curl "http://localhost:3737/api/v1/notes/search?q=rust+async"
 
 # Complete a task
-curl -X PATCH http://localhost:3000/api/v1/tasks/abc12345/complete
+curl -X PATCH http://localhost:3737/api/v1/tasks/abc12345/complete
 ```

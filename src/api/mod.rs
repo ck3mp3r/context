@@ -51,7 +51,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".parse().unwrap(),
-            port: 3000,
+            port: 3737,
             verbosity: 0,
             enable_docs: false,
         }

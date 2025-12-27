@@ -37,7 +37,7 @@ struct Cli {
     host: IpAddr,
 
     /// Port to listen on
-    #[arg(short, long, default_value = "3000")]
+    #[arg(short, long, default_value = "3737")]
     port: u16,
 
     /// Override data home directory (defaults to XDG_DATA_HOME/c5t or ~/.local/share/c5t)
