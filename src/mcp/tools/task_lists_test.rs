@@ -73,6 +73,7 @@ async fn test_create_and_get_task_list() {
         notes: Some("Planning notes".to_string()),
         tags: Some(vec!["work".to_string()]),
         external_ref: Some("JIRA-123".to_string()),
+        repo_ids: None,
         project_id: created_project.id.clone(),
     };
 

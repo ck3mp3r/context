@@ -54,6 +54,8 @@ pub struct CreateTaskListParams {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "External reference (e.g., Jira ticket) (optional)")]
     pub external_ref: Option<String>,
+    #[schemars(description = "Repository IDs to link (optional)")]
+    pub repo_ids: Option<Vec<String>>,
     #[schemars(description = "Project ID this task list belongs to (REQUIRED)")]
     pub project_id: String,
 }
@@ -195,7 +197,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             tags: params.0.tags.unwrap_or_default(),
             external_ref: params.0.external_ref,
             status: TaskListStatus::Active,
-            repo_ids: vec![],
+            repo_ids: params.0.repo_ids.unwrap_or_default(),
             project_id: params.0.project_id,
             created_at: String::new(), // Repository generates
             updated_at: String::new(), // Repository generates
