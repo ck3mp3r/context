@@ -9,6 +9,8 @@ pub mod v1;
 
 use std::net::IpAddr;
 
+use miette::Diagnostic;
+use thiserror::Error;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -16,6 +18,22 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub use state::AppState;
 
 use crate::db::Database;
+
+/// API server errors.
+#[derive(Error, Diagnostic, Debug)]
+pub enum ApiError {
+    #[error("Failed to bind to address {addr}: {source}")]
+    #[diagnostic(code(c5t::api::bind_failed))]
+    BindFailed {
+        addr: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("Server error: {0}")]
+    #[diagnostic(code(c5t::api::server_error))]
+    ServerError(#[from] std::io::Error),
+}
 
 /// API server configuration
 pub struct Config {
@@ -49,10 +67,7 @@ fn init_tracing() {
 ///
 /// The caller is responsible for creating and migrating the database.
 /// This keeps the API layer agnostic of the concrete database implementation.
-pub async fn run<D: Database + 'static>(
-    config: Config,
-    db: D,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), ApiError> {
     init_tracing();
 
     // Create application state
@@ -61,7 +76,13 @@ pub async fn run<D: Database + 'static>(
     let app = routes::create_router(state).layer(TraceLayer::new_for_http());
 
     let addr = format!("{}:{}", config.host, config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let listener =
+        tokio::net::TcpListener::bind(&addr)
+            .await
+            .map_err(|e| ApiError::BindFailed {
+                addr: addr.clone(),
+                source: e,
+            })?;
     info!("API server listening on http://{}", addr);
     info!("API docs available at http://{}/docs", addr);
 
