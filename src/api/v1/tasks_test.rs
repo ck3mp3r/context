@@ -425,6 +425,96 @@ async fn update_task_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn update_task_with_tags() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create a task without tags
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Task without tags"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created = json_body(response).await;
+    let task_id = created["id"].as_str().unwrap();
+
+    // Verify task has no tags initially
+    assert_eq!(created["tags"], json!([]));
+
+    // Update task with tags using PUT
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Updated task with tags",
+                        "tags": ["updated", "bug-fix", "urgent"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let updated = json_body(response).await;
+
+    // Verify content was updated
+    assert_eq!(updated["content"], "Updated task with tags");
+
+    // Verify tags were set correctly via PUT
+    assert_eq!(updated["tags"], json!(["updated", "bug-fix", "urgent"]));
+    assert_eq!(updated["tags"].as_array().unwrap().len(), 3);
+
+    // Update again with different tags to verify replacement (not merge)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Updated task with different tags",
+                        "tags": ["production", "critical"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let updated2 = json_body(response).await;
+
+    // Verify tags were replaced, not merged
+    assert_eq!(updated2["tags"], json!(["production", "critical"]));
+    assert_eq!(updated2["tags"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn delete_task_returns_no_content() {
     let app = test_app().await;
     let list_id = create_task_list(&app).await;
