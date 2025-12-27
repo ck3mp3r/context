@@ -10,8 +10,9 @@ use super::state::AppState;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
     CreateTaskRequest, ErrorResponse, NoteResponse, PatchProjectRequest, PatchRepoRequest,
-    ProjectResponse, RepoResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
-    UpdateProjectRequest, UpdateRepoRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    PatchTaskRequest, ProjectResponse, RepoResponse, TaskListResponse, TaskResponse,
+    UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest, UpdateTaskListRequest,
+    UpdateTaskRequest,
 };
 use crate::db::Database;
 
@@ -64,6 +65,7 @@ macro_rules! routes {
         super::v1::get_task,
         super::v1::create_task,
         super::v1::update_task,
+        super::v1::patch_task,
         super::v1::delete_task,
         super::v1::list_notes,
         super::v1::get_note,
@@ -91,6 +93,7 @@ macro_rules! routes {
             TaskResponse,
             CreateTaskRequest,
             UpdateTaskRequest,
+            PatchTaskRequest,
             super::v1::PaginatedTasks,
             NoteResponse,
             CreateNoteRequest,
@@ -146,6 +149,7 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>) -> Router {
         post "/v1/task-lists/{list_id}/tasks" => super::v1::create_task,
         get "/v1/tasks/{id}" => super::v1::get_task,
         put "/v1/tasks/{id}" => super::v1::update_task,
+        patch "/v1/tasks/{id}" => super::v1::patch_task,
         delete "/v1/tasks/{id}" => super::v1::delete_task,
         // Notes
         get "/v1/notes" => super::v1::list_notes,

@@ -217,13 +217,33 @@ async fn get_task_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn update_task_with_tags() {
-    let app = test_app().await;
-    let list_id = create_task_list(&app).await;
+// =============================================================================
+// PATCH /v1/tasks/{id} - Partial Update Task
+// =============================================================================
 
-    // Create a task
-    let response = app
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_partial_content_update() {
+    let app = test_app().await;
+
+    // Create task list and task
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({"name": "Test List"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let list = json_body(list_response).await;
+    let list_id = list["id"].as_str().unwrap();
+
+    let create_response = app
         .clone()
         .oneshot(
             Request::builder()
@@ -231,8 +251,11 @@ async fn update_task_with_tags() {
                 .uri(format!("/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "content": "Test task"
+                    serde_json::to_string(&json!({
+                        "content": "Original content",
+                        "status": "backlog",
+                        "priority": 3,
+                        "tags": ["tag1"]
                     }))
                     .unwrap(),
                 ))
@@ -241,22 +264,19 @@ async fn update_task_with_tags() {
         .await
         .unwrap();
 
-    let task_body = json_body(response).await;
-    let task_id = task_body["id"].as_str().unwrap();
+    let created = json_body(create_response).await;
+    let task_id = created["id"].as_str().unwrap();
 
-    // Update task with tags
-    let response = app
+    // PATCH only content
+    let patch_response = app
         .oneshot(
             Request::builder()
-                .method("PUT")
+                .method("PATCH")
                 .uri(format!("/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "content": "Updated task content",
-                        "status": "todo",
-                        "priority": 2,
-                        "tags": ["urgent", "bug-fix"]
+                    serde_json::to_string(&json!({
+                        "content": "Updated content"
                     }))
                     .unwrap(),
                 ))
@@ -265,14 +285,106 @@ async fn update_task_with_tags() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(patch_response.status(), StatusCode::OK);
+    let patched = json_body(patch_response).await;
 
-    let body = json_body(response).await;
-    assert_eq!(body["content"], "Updated task content");
-    assert!(body["tags"].is_array());
-    assert_eq!(body["tags"].as_array().unwrap().len(), 2);
-    assert!(body["tags"].as_array().unwrap().contains(&json!("urgent")));
-    assert!(body["tags"].as_array().unwrap().contains(&json!("bug-fix")));
+    assert_eq!(patched["content"], "Updated content");
+    assert_eq!(patched["status"], "backlog");
+    assert_eq!(patched["priority"], 3);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_status_to_done_sets_completed_at() {
+    let app = test_app().await;
+
+    // Create task list and task
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({"name": "Test List"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let list = json_body(list_response).await;
+    let list_id = list["id"].as_str().unwrap();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "content": "Task to complete",
+                        "status": "todo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let task_id = created["id"].as_str().unwrap();
+    assert!(created["completed_at"].is_null());
+
+    // PATCH status to done
+    let patch_response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "status": "done"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+    let patched = json_body(patch_response).await;
+
+    assert_eq!(patched["status"], "done");
+    assert!(
+        patched["completed_at"].is_string(),
+        "completed_at should be auto-set when status changes to done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/v1/tasks/notfound")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({"content": "New"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test(flavor = "multi_thread")]

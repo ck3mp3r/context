@@ -86,6 +86,46 @@ pub struct UpdateTaskRequest {
     pub tags: Vec<String>,
 }
 
+/// Patch task request DTO (partial update)
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct PatchTaskRequest {
+    /// Task content/description
+    #[schema(example = "Updated content")]
+    pub content: Option<String>,
+    /// Task status (auto-manages started_at and completed_at timestamps)
+    #[schema(example = "done")]
+    pub status: Option<String>,
+    /// Priority level
+    pub priority: Option<i32>,
+    /// Parent task ID (for subtasks)
+    pub parent_id: Option<String>,
+    /// Tags for categorization
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    pub tags: Option<Vec<String>>,
+}
+
+impl PatchTaskRequest {
+    fn merge_into(self, target: &mut Task) {
+        if let Some(content) = self.content {
+            target.content = content;
+        }
+        if let Some(status_str) = self.status
+            && let Ok(status) = status_str.parse()
+        {
+            target.status = status;
+        }
+        if let Some(priority) = self.priority {
+            target.priority = Some(priority);
+        }
+        if let Some(parent_id) = self.parent_id {
+            target.parent_id = Some(parent_id);
+        }
+        if let Some(tags) = self.tags {
+            target.tags = tags;
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListTasksQuery {
     /// Filter by status (backlog, todo, in_progress, review, done, cancelled)
@@ -333,6 +373,70 @@ pub async fn update_task<D: Database>(
     })?;
 
     Ok(Json(TaskResponse::from(task)))
+}
+
+/// Partially update a task
+///
+/// Updates only the fields provided in the request (PATCH semantics).
+/// Auto-manages started_at and completed_at timestamps based on status transitions.
+#[utoipa::path(
+    patch,
+    path = "/v1/tasks/{id}",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    request_body = PatchTaskRequest,
+    responses(
+        (status = 200, description = "Task updated", body = TaskResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn patch_task<D: Database>(
+    State(state): State<AppState<D>>,
+    Path(id): Path<String>,
+    Json(req): Json<PatchTaskRequest>,
+) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Fetch existing task
+    let mut task = state.db().tasks().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Merge PATCH changes
+    req.merge_into(&mut task);
+
+    // Save (repository auto-manages started_at/completed_at based on status)
+    state.db().tasks().update(&task).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Re-fetch to get auto-set timestamps
+    let updated = state.db().tasks().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(TaskResponse::from(updated)))
 }
 
 #[utoipa::path(
