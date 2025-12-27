@@ -33,6 +33,12 @@ pub struct ListTasksParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetTaskParams {
+    #[schemars(description = "Task ID")]
+    pub task_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskParams {
     #[schemars(description = "TaskList ID this task belongs to")]
     pub list_id: String,
@@ -131,6 +137,23 @@ impl<D: Database + 'static> TaskTools<D> {
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Get a task by ID")]
+    pub async fn get_task(
+        &self,
+        params: Parameters<GetTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let task = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
+            McpError::resource_not_found(
+                "task_not_found",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&task).unwrap(),
         )]))
     }
 

@@ -213,6 +213,14 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_tools.list_tasks(params).await
     }
 
+    #[tool(description = "Get a task by ID")]
+    pub async fn get_task(
+        &self,
+        params: Parameters<GetTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.get_task(params).await
+    }
+
     #[tool(description = "Create a new task")]
     pub async fn create_task(
         &self,

@@ -5,8 +5,8 @@ use crate::db::{
     TaskRepository, TaskStatus,
 };
 use crate::mcp::tools::tasks::{
-    CompleteTaskParams, CreateTaskParams, DeleteTaskParams, ListTasksParams, TaskTools,
-    UpdateTaskParams,
+    CompleteTaskParams, CreateTaskParams, DeleteTaskParams, GetTaskParams, ListTasksParams,
+    TaskTools, UpdateTaskParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
@@ -147,6 +147,84 @@ async fn test_create_and_list_task() {
 
     assert_eq!(json["total"], 1);
     assert_eq!(json["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create task list and task
+    let default_project_id = get_default_project_id(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        name: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id: default_project_id,
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list = db.task_lists().create(&task_list).await.unwrap();
+
+    let task = Task {
+        id: String::new(),
+        list_id: created_list.id.clone(),
+        parent_id: None,
+        content: "Test task for get".to_string(),
+        status: TaskStatus::Todo,
+        priority: Some(2),
+        tags: vec!["test".to_string()],
+        created_at: String::new(),
+        started_at: None,
+        completed_at: None,
+    };
+    let created_task = db.tasks().create(&task).await.unwrap();
+
+    let tools = TaskTools::new(db.clone());
+
+    // Get the task
+    let params = GetTaskParams {
+        task_id: created_task.id.clone(),
+    };
+
+    let result = tools
+        .get_task(Parameters(params))
+        .await
+        .expect("get should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let retrieved: Task = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(retrieved.id, created_task.id);
+    assert_eq!(retrieved.content, "Test task for get");
+    assert_eq!(retrieved.status, TaskStatus::Todo);
+    assert_eq!(retrieved.priority, Some(2));
+    assert_eq!(retrieved.tags, vec!["test".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_not_found() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone());
+
+    let params = GetTaskParams {
+        task_id: "nonexist".to_string(),
+    };
+
+    let result = tools.get_task(Parameters(params)).await;
+    assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
