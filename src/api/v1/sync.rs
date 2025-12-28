@@ -43,7 +43,7 @@ pub struct SyncResponse {
 /// Initialize sync repository
 #[utoipa::path(
     post,
-    path = "/api/v1/sync/init",
+    path = "/v1/sync/init",
     tag = "sync",
     request_body = InitSyncRequest,
     responses(
@@ -81,7 +81,7 @@ pub async fn init_sync<D: Database, G: GitOps + Send + Sync>(
 /// Export database to sync
 #[utoipa::path(
     post,
-    path = "/api/v1/sync/export",
+    path = "/v1/sync/export",
     tag = "sync",
     request_body = ExportSyncRequest,
     responses(
@@ -125,7 +125,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
 /// Import sync data to database
 #[utoipa::path(
     post,
-    path = "/api/v1/sync/import",
+    path = "/v1/sync/import",
     tag = "sync",
     responses(
         (status = 200, description = "Import completed successfully", body = SyncResponse),
@@ -163,7 +163,7 @@ pub async fn import_sync<D: Database, G: GitOps + Send + Sync>(
 /// Get sync status
 #[utoipa::path(
     get,
-    path = "/api/v1/sync/status",
+    path = "/v1/sync/status",
     tag = "sync",
     responses(
         (status = 200, description = "Sync status retrieved", body = SyncResponse),

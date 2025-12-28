@@ -9,10 +9,11 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
-    CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest, PatchProjectRequest,
-    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, RepoResponse,
-    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateTaskListRequest, UpdateTaskRequest,
+    CreateTaskRequest, ErrorResponse, ExportSyncRequest, InitSyncRequest, NoteResponse,
+    PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
+    PatchTaskRequest, ProjectResponse, RepoResponse, SyncResponse, TaskListResponse, TaskResponse,
+    UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest, UpdateTaskListRequest,
+    UpdateTaskRequest,
 };
 use crate::db::Database;
 
@@ -74,6 +75,10 @@ macro_rules! routes {
         super::v1::update_note,
         super::v1::patch_note,
         super::v1::delete_note,
+        super::v1::init_sync,
+        super::v1::export_sync,
+        super::v1::import_sync,
+        super::v1::get_sync_status,
     ),
     components(
         schemas(
@@ -103,6 +108,9 @@ macro_rules! routes {
             UpdateNoteRequest,
             PatchNoteRequest,
             super::v1::PaginatedNotes,
+            super::v1::InitSyncRequest,
+            super::v1::ExportSyncRequest,
+            super::v1::SyncResponse,
             ErrorResponse,
         )
     ),
@@ -112,7 +120,8 @@ macro_rules! routes {
         (name = "repos", description = "Repository management endpoints"),
         (name = "task-lists", description = "Task list management endpoints"),
         (name = "tasks", description = "Task management endpoints"),
-        (name = "notes", description = "Note management endpoints with FTS search")
+        (name = "notes", description = "Note management endpoints with FTS search"),
+        (name = "sync", description = "Git-based sync operations")
     )
 )]
 pub struct ApiDoc;
