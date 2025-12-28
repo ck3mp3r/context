@@ -16,6 +16,10 @@ path = "src/bin/cli.rs"
 name = "c5t-api"
 path = "src/bin/api.rs"
 
+[[bin]]
+name = "c5t-frontend"
+path = "src/frontend/main.rs"
+
 [dependencies]
 axum = "0.8.8"
 chrono = "0.4"
@@ -30,12 +34,23 @@ tabled = { version = "0.20", features = ["derive"] }
 thiserror = "2.0"
 tokio = { version = "1.48.0", features = ["full"] }
 tokio-util = "0.7"
-tower-http = { version = "0.6.8", features = ["trace"] }
+tower-http = { version = "0.6.8", features = ["trace", "fs"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-scalar = { version = "0.3", features = ["axum"] }
+
+# Frontend dependencies (for WASM)
+leptos = { version = "0.7", features = ["csr"] }
+leptos_router = "0.7"
+leptos_meta = "0.7"
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+gloo-net = { version = "0.6", features = ["http", "json"] }
+gloo-storage = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement"] }
+pulldown-cmark = "0.12"
 
 [dev-dependencies]
 tempfile = "3.20"
