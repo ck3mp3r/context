@@ -16,8 +16,7 @@ use std::path::PathBuf;
 /// # Panics
 /// Panics if HOME environment variable is not set and no override provided.
 pub fn get_data_dir(home_override: Option<PathBuf>) -> PathBuf {
-    // TODO: Hardcoded to c5t-test during development, will be changed to "c5t" later
-    let base = "c5t-test";
+    let base = "c5t";
 
     let data_home = home_override.unwrap_or_else(|| {
         env::var("XDG_DATA_HOME")
@@ -56,21 +55,21 @@ mod tests {
 
     #[test]
     fn test_get_data_dir_contains_c5t_test() {
-        // Just verify it ends with c5t-test (env vars are unreliable in parallel tests)
+        // Just verify it ends with c5t (env vars are unreliable in parallel tests)
         let path = get_data_dir(None);
-        assert!(path.ends_with("c5t-test"));
+        assert!(path.ends_with("c5t"));
     }
 
     #[test]
     fn test_get_sync_dir_contains_sync() {
-        // Just verify it ends with c5t-test/sync
+        // Just verify it ends with c5t/sync
         let path = get_sync_dir();
-        assert!(path.ends_with("c5t-test/sync"));
+        assert!(path.ends_with("c5t/sync"));
     }
 
     #[test]
     fn test_get_db_path_ends_with_context_db() {
         let path = get_db_path(None);
-        assert!(path.ends_with("c5t-test/context.db"));
+        assert!(path.ends_with("c5t/context.db"));
     }
 }
