@@ -50,32 +50,37 @@ struct TaskListResponse {
     offset: usize,
 }
 
+/// Filter parameters for listing tasks
+pub struct ListTasksFilter<'a> {
+    pub status: Option<&'a str>,
+    pub parent_id: Option<&'a str>,
+    pub tags: Option<&'a str>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+}
+
 /// List tasks from a task list with optional filtering
 pub async fn list_tasks(
     api_client: &ApiClient,
     list_id: &str,
-    status: Option<&str>,
-    parent_id: Option<&str>,
-    tags: Option<&str>,
-    limit: Option<u32>,
-    offset: Option<u32>,
+    filter: ListTasksFilter<'_>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get(&format!("/v1/task-lists/{}/tasks", list_id));
 
-    if let Some(s) = status {
+    if let Some(s) = filter.status {
         request = request.query(&[("status", s)]);
     }
-    if let Some(p) = parent_id {
+    if let Some(p) = filter.parent_id {
         request = request.query(&[("parent_id", p)]);
     }
-    if let Some(t) = tags {
+    if let Some(t) = filter.tags {
         request = request.query(&[("tags", t)]);
     }
-    if let Some(l) = limit {
+    if let Some(l) = filter.limit {
         request = request.query(&[("limit", l.to_string())]);
     }
-    if let Some(o) = offset {
+    if let Some(o) = filter.offset {
         request = request.query(&[("offset", o.to_string())]);
     }
 

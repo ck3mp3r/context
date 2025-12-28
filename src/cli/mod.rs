@@ -226,14 +226,17 @@ pub async fn run() -> Result<()> {
     match cli.command {
         Some(Commands::Task { command }) => match command {
             TaskCommands::List { list_id, json } => {
+                let filter = commands::task::ListTasksFilter {
+                    status: None,
+                    parent_id: None,
+                    tags: None,
+                    limit: None,
+                    offset: None,
+                };
                 let output = commands::task::list_tasks(
                     &api_client,
                     &list_id,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
+                    filter,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -391,7 +394,7 @@ pub async fn run() -> Result<()> {
         },
         None => {
             // Show help when no command provided
-            let _ = Cli::parse_from(&["c5t", "--help"]);
+            let _ = Cli::parse_from(["c5t", "--help"]);
         }
     }
 

@@ -282,7 +282,7 @@ mod tests {
         };
 
         use crate::sync::jsonl::write_jsonl;
-        write_jsonl(&temp_dir.path().join("repos.jsonl"), &vec![repo_v2]).unwrap();
+        write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo_v2]).unwrap();
 
         // Create empty files for other entities
         std::fs::write(temp_dir.path().join("projects.jsonl"), "").unwrap();

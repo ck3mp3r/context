@@ -20,7 +20,6 @@ struct ExportSyncRequest {
 /// Response from sync operations
 #[derive(Debug, Deserialize)]
 struct SyncResponse {
-    status: String,
     message: String,
     data: Option<serde_json::Value>,
 }
@@ -107,63 +106,63 @@ pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResul
     let mut output = String::new();
     output.push_str(&format!("✓ {}\n\n", sync_response.message));
 
-    if let Some(data) = &sync_response.data {
-        if let Some(exported) = data.get("exported") {
-            let rows = vec![
-                SyncCountRow {
-                    item: "Repos".to_string(),
-                    count: exported
-                        .get("repos")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Projects".to_string(),
-                    count: exported
-                        .get("projects")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Task Lists".to_string(),
-                    count: exported
-                        .get("task_lists")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Tasks".to_string(),
-                    count: exported
-                        .get("tasks")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Notes".to_string(),
-                    count: exported
-                        .get("notes")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Total".to_string(),
-                    count: exported
-                        .get("total")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-            ];
+    if let Some(data) = &sync_response.data
+        && let Some(exported) = data.get("exported")
+    {
+        let rows = vec![
+            SyncCountRow {
+                item: "Repos".to_string(),
+                count: exported
+                    .get("repos")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Projects".to_string(),
+                count: exported
+                    .get("projects")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Task Lists".to_string(),
+                count: exported
+                    .get("task_lists")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Tasks".to_string(),
+                count: exported
+                    .get("tasks")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Notes".to_string(),
+                count: exported
+                    .get("notes")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Total".to_string(),
+                count: exported
+                    .get("total")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+        ];
 
-            let mut table = Table::new(rows);
-            table.with(Style::rounded());
-            output.push_str(&table.to_string());
-        }
+        let mut table = Table::new(rows);
+        table.with(Style::rounded());
+        output.push_str(&table.to_string());
     }
 
     Ok(output)
@@ -197,63 +196,63 @@ pub async fn import(api_client: &ApiClient) -> CliResult<String> {
     let mut output = String::new();
     output.push_str(&format!("✓ {}\n\n", sync_response.message));
 
-    if let Some(data) = &sync_response.data {
-        if let Some(imported) = data.get("imported") {
-            let rows = vec![
-                SyncCountRow {
-                    item: "Repos".to_string(),
-                    count: imported
-                        .get("repos")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Projects".to_string(),
-                    count: imported
-                        .get("projects")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Task Lists".to_string(),
-                    count: imported
-                        .get("task_lists")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Tasks".to_string(),
-                    count: imported
-                        .get("tasks")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Notes".to_string(),
-                    count: imported
-                        .get("notes")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-                SyncCountRow {
-                    item: "Total".to_string(),
-                    count: imported
-                        .get("total")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .unwrap_or("0".to_string()),
-                },
-            ];
+    if let Some(data) = &sync_response.data
+        && let Some(imported) = data.get("imported")
+    {
+        let rows = vec![
+            SyncCountRow {
+                item: "Repos".to_string(),
+                count: imported
+                    .get("repos")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Projects".to_string(),
+                count: imported
+                    .get("projects")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Task Lists".to_string(),
+                count: imported
+                    .get("task_lists")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Tasks".to_string(),
+                count: imported
+                    .get("tasks")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Notes".to_string(),
+                count: imported
+                    .get("notes")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Total".to_string(),
+                count: imported
+                    .get("total")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+        ];
 
-            let mut table = Table::new(rows);
-            table.with(Style::rounded());
-            output.push_str(&table.to_string());
-        }
+        let mut table = Table::new(rows);
+        table.with(Style::rounded());
+        output.push_str(&table.to_string());
     }
 
     Ok(output)
@@ -316,17 +315,17 @@ fn format_sync_status(response: &SyncResponse) -> String {
             output.push_str(&format!("Remote: {}\n", remote));
         }
 
-        if let Some(git) = data.get("git") {
-            if let Some(clean) = git.get("clean").and_then(|v| v.as_bool()) {
-                output.push_str(&format!(
-                    "Status: {}\n\n",
-                    if clean {
-                        "✓ Clean"
-                    } else {
-                        "✗ Uncommitted changes"
-                    }
-                ));
-            }
+        if let Some(git) = data.get("git")
+            && let Some(clean) = git.get("clean").and_then(|v| v.as_bool())
+        {
+            output.push_str(&format!(
+                "Status: {}\n\n",
+                if clean {
+                    "✓ Clean"
+                } else {
+                    "✗ Uncommitted changes"
+                }
+            ));
         }
 
         // Build table data

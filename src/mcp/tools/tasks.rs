@@ -134,7 +134,7 @@ impl<D: Database + 'static> TaskTools<D> {
             .tasks()
             .list(Some(&query))
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let response = json!({
             "items": result.items,
@@ -192,12 +192,7 @@ impl<D: Database + 'static> TaskTools<D> {
             completed_at: None,
         };
 
-        let created = self
-            .db
-            .tasks()
-            .create(&task)
-            .await
-            .map_err(|e| map_db_error(e))?;
+        let created = self.db.tasks().create(&task).await.map_err(map_db_error)?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
@@ -233,11 +228,7 @@ impl<D: Database + 'static> TaskTools<D> {
             task.tags = tags.clone();
         }
 
-        self.db
-            .tasks()
-            .update(&task)
-            .await
-            .map_err(|e| map_db_error(e))?;
+        self.db.tasks().update(&task).await.map_err(map_db_error)?;
 
         // Fetch updated task to get auto-set timestamps
         let updated = self
@@ -245,7 +236,7 @@ impl<D: Database + 'static> TaskTools<D> {
             .tasks()
             .get(&params.0.task_id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&updated).unwrap(),
@@ -270,11 +261,7 @@ impl<D: Database + 'static> TaskTools<D> {
         // Set status to done
         task.status = TaskStatus::Done;
 
-        self.db
-            .tasks()
-            .update(&task)
-            .await
-            .map_err(|e| map_db_error(e))?;
+        self.db.tasks().update(&task).await.map_err(map_db_error)?;
 
         // Fetch updated task to get auto-set completed_at
         let completed = self
@@ -282,7 +269,7 @@ impl<D: Database + 'static> TaskTools<D> {
             .tasks()
             .get(&params.0.task_id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&completed).unwrap(),

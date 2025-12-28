@@ -147,10 +147,10 @@ fn format_project_detail(project: &Project) -> String {
         builder.push_record(["Description", desc]);
     }
 
-    if let Some(tags) = &project.tags {
-        if !tags.is_empty() {
-            builder.push_record(["Tags", &tags.join(", ")]);
-        }
+    if let Some(tags) = &project.tags
+        && !tags.is_empty()
+    {
+        builder.push_record(["Tags", &tags.join(", ")]);
     }
 
     builder.push_record(["Created", &project.created_at]);
