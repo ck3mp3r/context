@@ -78,6 +78,12 @@ pub(crate) fn map_db_error(err: DbError) -> McpError {
                 "help": help
             })),
         ),
+        DbError::Validation { message } => McpError::invalid_params(
+            "validation_error",
+            Some(serde_json::json!({
+                "message": message
+            })),
+        ),
         DbError::Database { message } => {
             // Parse common SQLite errors for better messages
             if message.contains("FOREIGN KEY constraint failed") {

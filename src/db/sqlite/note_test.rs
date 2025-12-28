@@ -352,3 +352,177 @@ async fn note_get_loads_repo_and_project_relationships() {
     );
     assert!(retrieved.project_ids.contains(&"proj0001".to_string()));
 }
+
+// =============================================================================
+// Size Validation Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_create_with_warn_size_content_succeeds_with_warning() {
+    use crate::db::models::NOTE_WARN_SIZE;
+
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create note just over warning threshold
+    let large_content = "x".repeat(NOTE_WARN_SIZE + 100);
+    let note = Note {
+        id: "warn0001".to_string(),
+        title: "Large Note".to_string(),
+        content: large_content.clone(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    // Should succeed (warn size is advisory, not enforced)
+    let result = notes.create(&note).await;
+    assert!(
+        result.is_ok(),
+        "Note over WARN_SIZE should succeed (warning is advisory)"
+    );
+
+    let retrieved = notes.get("warn0001").await.expect("Should retrieve note");
+    assert_eq!(retrieved.content.len(), large_content.len());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_create_at_hard_max_succeeds() {
+    use crate::db::models::NOTE_HARD_MAX;
+
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create note exactly at hard maximum
+    let max_content = "x".repeat(NOTE_HARD_MAX);
+    let note = Note {
+        id: "max00001".to_string(),
+        title: "Maximum Size Note".to_string(),
+        content: max_content.clone(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    let result = notes.create(&note).await;
+    assert!(result.is_ok(), "Note exactly at HARD_MAX should succeed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_create_over_hard_max_fails() {
+    use crate::db::models::NOTE_HARD_MAX;
+
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create note over hard maximum
+    let oversized_content = "x".repeat(NOTE_HARD_MAX + 1);
+    let note = Note {
+        id: "over0001".to_string(),
+        title: "Oversized Note".to_string(),
+        content: oversized_content,
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    let result = notes.create(&note).await;
+    assert!(result.is_err(), "Note over HARD_MAX should fail");
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("exceeds maximum size") || err_msg.contains("too large"),
+        "Error message should mention size limit, got: {}",
+        err_msg
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_update_over_hard_max_fails() {
+    use crate::db::models::NOTE_HARD_MAX;
+
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create normal note
+    let note = make_note("upd00001", "Normal Note", "Initial content");
+    notes.create(&note).await.expect("Create should succeed");
+
+    // Try to update with oversized content
+    let oversized_content = "x".repeat(NOTE_HARD_MAX + 1);
+    let mut updated_note = note.clone();
+    updated_note.content = oversized_content;
+
+    let result = notes.update(&updated_note).await;
+    assert!(result.is_err(), "Update over HARD_MAX should fail");
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("exceeds maximum size") || err_msg.contains("too large"),
+        "Error message should mention size limit, got: {}",
+        err_msg
+    );
+}
+
+// =============================================================================
+// Metadata-Only Retrieval Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_get_with_content_excluded() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    let note = make_note(
+        "meta0001",
+        "Test Note",
+        "This is the content that should be excluded",
+    );
+    notes.create(&note).await.expect("Create should succeed");
+
+    // Get note without content
+    let retrieved = notes
+        .get_metadata_only("meta0001")
+        .await
+        .expect("Get should succeed");
+
+    assert_eq!(retrieved.id, "meta0001");
+    assert_eq!(retrieved.title, "Test Note");
+    assert_eq!(
+        retrieved.content, "",
+        "Content should be empty when excluded"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_with_content_excluded() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create multiple notes
+    let note1 = make_note("list0001", "Note 1", "Content 1 - should be excluded");
+    let note2 = make_note("list0002", "Note 2", "Content 2 - should be excluded");
+    notes.create(&note1).await.expect("Create should succeed");
+    notes.create(&note2).await.expect("Create should succeed");
+
+    // List notes without content
+    let result = notes
+        .list_metadata_only(None)
+        .await
+        .expect("List should succeed");
+
+    assert_eq!(result.items.len(), 2);
+    for item in &result.items {
+        assert_eq!(item.content, "", "Content should be empty for all items");
+        assert!(!item.title.is_empty(), "Title should still be present");
+    }
+}

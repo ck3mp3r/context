@@ -22,6 +22,10 @@ pub enum DbError {
     #[diagnostic(code(context::db::invalid_data))]
     InvalidData { message: String, help: String },
 
+    #[error("Validation error: {message}")]
+    #[diagnostic(code(context::db::validation_error))]
+    Validation { message: String },
+
     #[error("Database error: {message}")]
     #[diagnostic(code(context::db::database_error))]
     Database { message: String },

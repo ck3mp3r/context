@@ -21,27 +21,37 @@ use crate::mcp::tools::{apply_limit, map_db_error};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesParams {
-    #[schemars(description = "Filter by tags (comma-separated)")]
-    pub tags: Option<Vec<String>>,
     #[schemars(description = "Filter by note type (manual, archived_todo)")]
     pub note_type: Option<String>,
+    #[schemars(description = "Filter by tags (comma-separated)")]
+    pub tags: Option<Vec<String>>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
     pub offset: Option<usize>,
+    #[schemars(
+        description = "Include note content in response (default: false for lighter list responses). Set to true to retrieve full content."
+    )]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
+    #[schemars(
+        description = "Include note content in response (default: true). Set to false to retrieve only metadata."
+    )]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateNoteParams {
     #[schemars(description = "Note title")]
     pub title: String,
-    #[schemars(description = "Note content (Markdown supported)")]
+    #[schemars(
+        description = "Note content (Markdown supported). Size limits: warns at 10k chars (~2.5k tokens), soft max 50k chars (~12.5k tokens), hard max 100k chars (~25k tokens). Split large notes and link with tags."
+    )]
     pub content: String,
     #[schemars(description = "Tags for organization (optional)")]
     pub tags: Option<Vec<String>>,
@@ -59,7 +69,9 @@ pub struct UpdateNoteParams {
     pub note_id: String,
     #[schemars(description = "Note title (optional)")]
     pub title: Option<String>,
-    #[schemars(description = "Note content (optional)")]
+    #[schemars(
+        description = "Note content (optional). Size limits: warns at 10k chars (~2.5k tokens), soft max 50k chars (~12.5k tokens), hard max 100k chars (~25k tokens). Split large notes and link with tags."
+    )]
     pub content: Option<String>,
     #[schemars(description = "Tags for organization (optional)")]
     pub tags: Option<Vec<String>>,
@@ -113,11 +125,16 @@ impl<D: Database + 'static> NoteTools<D> {
         &self.tool_router
     }
 
-    #[tool(description = "List notes with optional filtering by tags and note type")]
+    #[tool(
+        description = "List notes with optional filtering by tags and note type (default: metadata only)"
+    )]
     pub async fn list_notes(
         &self,
         params: Parameters<ListNotesParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Default to include_content=false for lighter list responses
+        let include_content = params.0.include_content.unwrap_or(false);
+
         // Build query
         let query = NoteQuery {
             page: PageSort {
@@ -129,12 +146,12 @@ impl<D: Database + 'static> NoteTools<D> {
             tags: params.0.tags.clone(),
         };
 
-        let result = self
-            .db
-            .notes()
-            .list(Some(&query))
-            .await
-            .map_err(map_db_error)?;
+        let result = if include_content {
+            self.db.notes().list(Some(&query)).await
+        } else {
+            self.db.notes().list_metadata_only(Some(&query)).await
+        }
+        .map_err(map_db_error)?;
 
         // Filter by note_type if specified (note_type not in NoteQuery yet)
         let filtered_items: Vec<Note> = if let Some(note_type_str) = &params.0.note_type {
@@ -162,12 +179,20 @@ impl<D: Database + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(description = "Get a note by ID")]
+    #[tool(description = "Get a note by ID with optional content exclusion")]
     pub async fn get_note(
         &self,
         params: Parameters<GetNoteParams>,
     ) -> Result<CallToolResult, McpError> {
-        let note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+        // Default to include_content=true for backward compatibility
+        let include_content = params.0.include_content.unwrap_or(true);
+
+        let note = if include_content {
+            self.db.notes().get(&params.0.note_id).await
+        } else {
+            self.db.notes().get_metadata_only(&params.0.note_id).await
+        }
+        .map_err(|e| {
             McpError::resource_not_found(
                 "note_not_found",
                 Some(serde_json::json!({"error": e.to_string()})),
@@ -179,7 +204,9 @@ impl<D: Database + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(description = "Create a new note")]
+    #[tool(
+        description = "Create a new note. Size limits: warns at 10k chars, soft max 50k chars, hard max 100k chars. For large content, split into multiple notes and link using tags (e.g., 'parent:NOTE_ID', 'related:NOTE_ID'). See docs/mcp.md for tag conventions."
+    )]
     pub async fn create_note(
         &self,
         params: Parameters<CreateNoteParams>,
@@ -212,7 +239,9 @@ impl<D: Database + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(description = "Update an existing note")]
+    #[tool(
+        description = "Update an existing note. Size limits: warns at 10k chars, soft max 50k chars, hard max 100k chars. For large content, split into multiple notes and link using tags (e.g., 'parent:NOTE_ID', 'related:NOTE_ID'). See docs/mcp.md for tag conventions."
+    )]
     pub async fn update_note(
         &self,
         params: Parameters<UpdateNoteParams>,

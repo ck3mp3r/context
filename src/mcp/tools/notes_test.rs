@@ -21,6 +21,7 @@ async fn test_list_notes_empty() {
         note_type: None,
         limit: None,
         offset: None,
+        include_content: None,
     };
 
     let result = tools
@@ -81,6 +82,7 @@ async fn test_create_and_get_note() {
     // Get the note
     let get_params = GetNoteParams {
         note_id: created.id.clone(),
+        include_content: None, // Default to true
     };
 
     let result = tools
@@ -107,6 +109,7 @@ async fn test_get_note_not_found() {
 
     let params = GetNoteParams {
         note_id: "nonexist".to_string(),
+        include_content: None,
     };
 
     let result = tools.get_note(Parameters(params)).await;
@@ -153,6 +156,7 @@ async fn test_list_notes_with_tag_filter() {
         note_type: None,
         limit: None,
         offset: None,
+        include_content: None,
     };
 
     let result = tools

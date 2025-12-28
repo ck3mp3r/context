@@ -5,6 +5,7 @@ use std::str::FromStr;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
+use crate::db::models::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository, NoteType};
 
@@ -13,8 +14,49 @@ pub struct SqliteNoteRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+/// Validates note content size.
+///
+/// Returns Ok(warning_message) if note is large but acceptable (WARN_SIZE to HARD_MAX).
+/// Returns Ok(None) if note is within normal size.
+/// Returns Err if note exceeds HARD_MAX.
+fn validate_note_size(content: &str) -> DbResult<Option<String>> {
+    let size = content.len();
+
+    if size > NOTE_HARD_MAX {
+        return Err(DbError::Validation {
+            message: format!(
+                "Note content exceeds maximum size of {} characters (got {} characters). \
+                 Consider splitting into multiple notes using parent:NOTE_ID tags.",
+                NOTE_HARD_MAX, size
+            ),
+        });
+    }
+
+    if size > NOTE_WARN_SIZE {
+        let warning = if size > NOTE_SOFT_MAX {
+            format!(
+                "Note is very large ({} characters, soft max {}). \
+                 Consider splitting for better performance.",
+                size, NOTE_SOFT_MAX
+            )
+        } else {
+            format!(
+                "Note is large ({} characters, warning threshold {}). \
+                 Consider splitting into related notes using parent:NOTE_ID tags.",
+                size, NOTE_WARN_SIZE
+            )
+        };
+        Ok(Some(warning))
+    } else {
+        Ok(None)
+    }
+}
+
 impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn create(&self, note: &Note) -> DbResult<Note> {
+        // Validate content size
+        validate_note_size(&note.content)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if note.id.is_empty() {
             generate_entity_id()
@@ -150,6 +192,68 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         }
     }
 
+    async fn get_metadata_only(&self, id: &str) -> DbResult<Note> {
+        let row = sqlx::query(
+            "SELECT id, title, tags, note_type, created_at, updated_at FROM note WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        if let Some(row) = row {
+            let tags_json: String = row.get("tags");
+            let tags: Vec<String> =
+                serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
+                    message: format!("Failed to parse tags JSON: {}", e),
+                })?;
+
+            let note_type_str: String = row.get("note_type");
+            let note_type = NoteType::from_str(&note_type_str).map_err(|_| DbError::Database {
+                message: format!("Invalid note_type: {}", note_type_str),
+            })?;
+
+            // Get repo relationships
+            let repo_ids: Vec<String> =
+                sqlx::query_scalar("SELECT repo_id FROM note_repo WHERE note_id = ?")
+                    .bind(id)
+                    .fetch_all(self.pool)
+                    .await
+                    .map_err(|e| DbError::Database {
+                        message: e.to_string(),
+                    })?;
+
+            // Get project relationships
+            let project_ids: Vec<String> =
+                sqlx::query_scalar("SELECT project_id FROM project_note WHERE note_id = ?")
+                    .bind(id)
+                    .fetch_all(self.pool)
+                    .await
+                    .map_err(|e| DbError::Database {
+                        message: e.to_string(),
+                    })?;
+
+            Ok(Note {
+                id: row.get("id"),
+                title: row.get("title"),
+                content: String::new(), // Empty content for metadata-only
+                tags,
+                note_type,
+                repo_ids,
+                project_ids,
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            })
+        } else {
+            Err(DbError::NotFound {
+                entity_type: "Note".to_string(),
+                id: id.to_string(),
+            })
+        }
+    }
+
     async fn list(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
@@ -249,7 +353,109 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         })
     }
 
+    async fn list_metadata_only(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
+        let default_query = NoteQuery::default();
+        let query = query.unwrap_or(&default_query);
+        let allowed_fields = ["title", "created_at", "updated_at"];
+
+        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        let limit_clause = build_limit_offset_clause(&query.page);
+
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let mut bind_values: Vec<String> = Vec::new();
+
+        let (sql, count_sql) = if needs_json_each {
+            let tags = query.tags.as_ref().unwrap();
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            bind_values.extend(tags.clone());
+
+            (
+                format!(
+                    "SELECT DISTINCT n.id, n.title, n.tags, n.note_type, n.created_at, n.updated_at 
+                     FROM note n, json_each(n.tags)
+                     WHERE json_each.value IN ({}) {} {}",
+                    placeholders.join(", "),
+                    order_clause,
+                    limit_clause
+                ),
+                format!(
+                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE json_each.value IN ({})",
+                    placeholders.join(", ")
+                ),
+            )
+        } else {
+            (
+                format!(
+                    "SELECT id, title, tags, note_type, created_at, updated_at 
+                     FROM note {} {}",
+                    order_clause, limit_clause
+                ),
+                "SELECT COUNT(*) FROM note".to_string(),
+            )
+        };
+
+        // Get paginated results
+        let mut query_builder = sqlx::query(&sql);
+        for value in &bind_values {
+            query_builder = query_builder.bind(value);
+        }
+
+        let rows = query_builder
+            .fetch_all(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        let items: Vec<Note> = rows
+            .into_iter()
+            .map(|row| {
+                let tags_json: String = row.get("tags");
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+                let note_type_str: String = row.get("note_type");
+                let note_type = NoteType::from_str(&note_type_str).unwrap_or_default();
+
+                Note {
+                    id: row.get("id"),
+                    title: row.get("title"),
+                    content: String::new(), // Empty content for metadata-only
+                    tags,
+                    note_type,
+                    repo_ids: vec![], // Empty by default - relationships managed separately
+                    project_ids: vec![], // Empty by default - relationships managed separately
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                }
+            })
+            .collect();
+
+        // Get total count
+        let mut count_query = sqlx::query_scalar(&count_sql);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+
+        let total: i64 = count_query
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        Ok(ListResult {
+            items,
+            total: total as usize,
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
+        })
+    }
+
     async fn update(&self, note: &Note) -> DbResult<()> {
+        // Validate content size
+        validate_note_size(&note.content)?;
+
         let tags_json = serde_json::to_string(&note.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
