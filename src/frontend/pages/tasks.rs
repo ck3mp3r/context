@@ -61,9 +61,10 @@ pub fn Tasks() -> impl IntoView {
                 <h2 class="text-3xl font-bold text-ctp-text">"Tasks"</h2>
 
                 // Show Archived Toggle with Thaw Checkbox
-                <div class="flex items-center gap-2">
-                    <Checkbox checked=show_archived label="Show Archived"/>
-                </div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <Checkbox checked=show_archived/>
+                    <span class="text-sm text-ctp-subtext0">"Show Archived"</span>
+                </label>
             </div>
 
             // Task List Multi-Selector with Search
