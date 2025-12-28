@@ -316,6 +316,8 @@ fn SwimLane(
     task_list: TaskList,
     tasks_map: ReadSignal<HashMap<String, Result<Vec<Task>, ApiClientError>>>,
 ) -> impl IntoView {
+    let (is_expanded, set_is_expanded) = signal(true);
+
     let statuses = vec![
         ("backlog", "Backlog"),
         ("todo", "Todo"),
@@ -325,25 +327,99 @@ fn SwimLane(
         ("cancelled", "Cancelled"),
     ];
 
+    let list_id_for_counts = task_list.id.clone();
+    let list_id_for_columns = task_list.id.clone();
+    let statuses_for_counts = statuses.clone();
+    let statuses_for_columns = statuses.clone();
+
+    // Calculate task counts for summary
+    let task_counts = move || {
+        let list_id = list_id_for_counts.clone();
+        match tasks_map.get().get(&list_id) {
+            Some(Ok(tasks)) => {
+                let total = tasks.len();
+                let by_status: Vec<(String, usize)> = statuses_for_counts
+                    .iter()
+                    .map(|(status, _)| {
+                        let count = tasks.iter().filter(|t| t.status == *status).count();
+                        (status.to_string(), count)
+                    })
+                    .filter(|(_, count)| *count > 0)
+                    .collect();
+                (total, by_status)
+            }
+            _ => (0, vec![]),
+        }
+    };
+
     view! {
         <div class="border border-ctp-surface1 rounded-lg overflow-hidden">
-            // Swim Lane Header
-            <div class="bg-ctp-surface0 px-4 py-3 border-b border-ctp-surface1">
+            // Swim Lane Header (Clickable Accordion)
+            <button
+                on:click=move |_| set_is_expanded.update(|v| *v = !*v)
+                class="w-full bg-ctp-surface0 px-4 py-3 hover:bg-ctp-surface1 transition-colors"
+            >
                 <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="font-semibold text-ctp-text">{task_list.name.clone()}</h3>
-                        {task_list
-                            .description
-                            .as_ref()
-                            .map(|desc| {
-                                view! {
-                                    <p class="text-sm text-ctp-subtext0 mt-0.5">
-                                        {desc.chars().take(100).collect::<String>()}
-                                    </p>
-                                }
-                            })}
+                    <div class="flex items-center gap-3 flex-1 text-left">
+                        // Expand/Collapse Icon
+                        <span class="text-ctp-blue text-xl">
+                            {move || if is_expanded.get() { "▼" } else { "▶" }}
+                        </span>
 
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-ctp-text">{task_list.name.clone()}</h3>
+                            {task_list
+                                .description
+                                .as_ref()
+                                .map(|desc| {
+                                    view! {
+                                        <p class="text-sm text-ctp-subtext0 mt-0.5">
+                                            {desc.chars().take(100).collect::<String>()}
+                                        </p>
+                                    }
+                                })}
+
+                            // Task Summary (when collapsed)
+                            {move || {
+                                if !is_expanded.get() {
+                                    let (total, by_status) = task_counts();
+                                    Some(
+                                        view! {
+                                            <div class="flex gap-2 mt-2 text-xs">
+                                                <span class="text-ctp-subtext1">
+                                                    {total} " tasks"
+                                                </span>
+                                                {by_status
+                                                    .into_iter()
+                                                    .map(|(status, count)| {
+                                                        let color = match status.as_str() {
+                                                            "backlog" => "text-ctp-overlay0",
+                                                            "todo" => "text-ctp-blue",
+                                                            "in_progress" => "text-ctp-yellow",
+                                                            "review" => "text-ctp-mauve",
+                                                            "done" => "text-ctp-green",
+                                                            "cancelled" => "text-ctp-red",
+                                                            _ => "text-ctp-subtext0",
+                                                        };
+                                                        view! {
+                                                            <span class=color>
+                                                                {status.replace('_', " ")} ": " {count}
+                                                            </span>
+                                                        }
+                                                    })
+                                                    .collect::<Vec<_>>()}
+
+                                            </div>
+                                        },
+                                    )
+                                } else {
+                                    None
+                                }
+                            }}
+
+                        </div>
                     </div>
+
                     {(!task_list.tags.is_empty())
                         .then(|| {
                             view! {
@@ -364,11 +440,14 @@ fn SwimLane(
                         })}
 
                 </div>
-            </div>
+            </button>
 
-            // Status Columns
+            // Status Columns (Only when expanded)
             {move || {
-                let list_id = task_list.id.clone();
+                if !is_expanded.get() {
+                    return view! { <div></div> }.into_any();
+                }
+                let list_id = list_id_for_columns.clone();
                 match tasks_map.get().get(&list_id) {
                     None => {
                         view! {
@@ -378,26 +457,28 @@ fn SwimLane(
                     }
                     Some(Ok(tasks)) => {
                         view! {
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-                                {statuses
-                                    .clone()
-                                    .into_iter()
-                                    .map(|(status, label)| {
-                                        let column_tasks: Vec<Task> = tasks
-                                            .iter()
-                                            .filter(|t| t.status == status)
-                                            .cloned()
-                                            .collect();
-                                        view! { <KanbanColumn status=status label=label tasks=column_tasks/> }
-                                    })
-                                    .collect::<Vec<_>>()}
+                            <div class="border-t border-ctp-surface1">
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                                    {statuses_for_columns
+                                        .clone()
+                                        .into_iter()
+                                        .map(|(status, label)| {
+                                            let column_tasks: Vec<Task> = tasks
+                                                .iter()
+                                                .filter(|t| t.status == status)
+                                                .cloned()
+                                                .collect();
+                                            view! { <KanbanColumn status=status label=label tasks=column_tasks/> }
+                                        })
+                                        .collect::<Vec<_>>()}
+                                </div>
                             </div>
                         }
                             .into_any()
                     }
                     Some(Err(err)) => {
                         view! {
-                            <div class="p-4 bg-ctp-red/10">
+                            <div class="p-4 bg-ctp-red/10 border-t border-ctp-surface1">
                                 <p class="text-ctp-red text-sm">
                                     "Error loading tasks: " {err.to_string()}
                                 </p>
