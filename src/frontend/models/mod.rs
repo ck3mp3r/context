@@ -62,7 +62,7 @@ pub struct Task {
     pub priority: Option<i32>,
     pub tags: Vec<String>,
     pub created_at: String,
-    pub updated_at: String,
+    pub started_at: Option<String>,
     pub completed_at: Option<String>,
 }
 
