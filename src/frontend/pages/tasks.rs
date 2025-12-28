@@ -86,15 +86,18 @@ pub fn Tasks() -> impl IntoView {
                                     let all_lists_for_chips = all_lists.clone();
                                     let all_lists_for_search = all_lists.clone();
                                     view! {
-                                        <div class="relative w-full">
-                                            // Search Input with Thaw + Tailwind styling
-                                            <Input
-                                                value=search_query
+                                        <div class="relative">
+                                            // Custom search input (Thaw styling incompatible with our design)
+                                            <input
+                                                type="text"
                                                 placeholder="Search task lists to add swim lanes..."
-                                                on_focus=move |_| set_is_search_focused.set(true)
-                                                on_blur=move |_| set_is_search_focused.set(false)
-                                                attr:class="w-full"
-                                                input_style="width: 100%; padding: 0.5rem 1rem; background-color: var(--ctp-surface0); border: 1px solid var(--ctp-surface1) !important; border-radius: 0.5rem; color: var(--ctp-text);"
+                                                prop:value=move || search_query.get()
+                                                on:input=move |ev| {
+                                                    search_query.set(event_target_value(&ev));
+                                                }
+                                                on:focus=move |_| set_is_search_focused.set(true)
+                                                on:blur=move |_| set_is_search_focused.set(false)
+                                                class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
                                             />
 
                                             // Selected Lists Display (Chips)
