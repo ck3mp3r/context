@@ -41,23 +41,35 @@ pub struct Config {
     pub host: IpAddr,
     /// Port to listen on
     pub port: u16,
+    /// Logging verbosity (0=warn, 1=info, 2=debug, 3=trace)
+    pub verbosity: u8,
+    /// Enable OpenAPI documentation endpoint at /docs
+    pub enable_docs: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".parse().unwrap(),
-            port: 3000,
+            port: 3737,
+            verbosity: 0,
+            enable_docs: false,
         }
     }
 }
 
-/// Initialize tracing subscriber with env filter
-fn init_tracing() {
+/// Initialize tracing subscriber with verbosity level
+fn init_tracing(verbosity: u8) {
+    let level = match verbosity {
+        0 => "context=warn,tower_http=warn",
+        1 => "context=info,tower_http=info",
+        2 => "context=debug,tower_http=debug",
+        _ => "context=trace,tower_http=trace",
+    };
+
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "context=debug,tower_http=debug".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| level.into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -68,12 +80,12 @@ fn init_tracing() {
 /// The caller is responsible for creating and migrating the database.
 /// This keeps the API layer agnostic of the concrete database implementation.
 pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), ApiError> {
-    init_tracing();
+    init_tracing(config.verbosity);
 
     // Create application state
     let state = AppState::new(db);
 
-    let app = routes::create_router(state).layer(TraceLayer::new_for_http());
+    let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener =

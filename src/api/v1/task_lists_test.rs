@@ -30,7 +30,7 @@ async fn test_app() -> axum::Router {
         .expect("Create test project should succeed");
 
     let state = AppState::new(db);
-    routes::create_router(state)
+    routes::create_router(state, false)
 }
 
 async fn json_body(response: axum::response::Response) -> Value {
