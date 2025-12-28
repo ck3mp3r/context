@@ -54,6 +54,7 @@ async fn test_list_tasks_empty() {
         status: None,
         parent_id: None,
         tags: None,
+        limit: None,
     };
 
     let result = tools
@@ -132,6 +133,7 @@ async fn test_create_and_list_task() {
         status: None,
         parent_id: None,
         tags: None,
+        limit: None,
     };
 
     let result = tools
@@ -286,6 +288,7 @@ async fn test_list_tasks_filtered_by_status() {
         status: Some(vec!["done".to_string()]),
         parent_id: None,
         tags: None,
+        limit: None,
     };
 
     let result = tools
@@ -554,6 +557,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         status: None,
         parent_id: Some(created_parent.id.clone()),
         tags: None,
+        limit: None,
     };
 
     let result = tools

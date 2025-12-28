@@ -3,8 +3,8 @@
 //! Handles all MCP tools for project management operations.
 //! Follows Single Responsibility Principle (SRP).
 
-use crate::db::{Database, Project, ProjectRepository};
-use crate::mcp::tools::map_db_error;
+use crate::db::{Database, PageSort, Project, ProjectQuery, ProjectRepository};
+use crate::mcp::tools::{apply_limit, map_db_error};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -17,6 +17,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 // Parameter types for tools
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListProjectsParams {
+    #[schemars(
+        description = "Maximum number of projects to return (default: 10, max: 20). IMPORTANT: Keep this small to prevent context overflow."
+    )]
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetProjectParams {
     #[schemars(description = "Project ID (8-character hex)")]
@@ -79,13 +87,30 @@ impl<D: Database + 'static> ProjectTools<D> {
         &self.tool_router
     }
 
-    /// List all projects in the database
-    #[tool(description = "List all projects")]
-    pub async fn list_projects(&self) -> Result<CallToolResult, McpError> {
+    /// List projects with pagination (default: 10, max: 20)
+    #[tool(
+        description = "List projects with pagination to prevent context overflow (default: 10, max: 20)"
+    )]
+    pub async fn list_projects(
+        &self,
+        params: Parameters<ListProjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        let query = ProjectQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: None,
+                sort_by: None,
+                sort_order: None,
+            },
+            tags: None,
+        };
+
         let result = self
             .db
             .projects()
-            .list(None)
+            .list(Some(&query))
             .await
             .map_err(|e| map_db_error(e))?;
 

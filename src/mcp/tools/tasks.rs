@@ -13,7 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::db::{Database, PageSort, Task, TaskQuery, TaskRepository, TaskStatus};
-use crate::mcp::tools::map_db_error;
+use crate::mcp::tools::{apply_limit, map_db_error};
 
 // =============================================================================
 // Parameter Structs
@@ -31,6 +31,8 @@ pub struct ListTasksParams {
     pub parent_id: Option<String>,
     #[schemars(description = "Filter by tags - comma-separated")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Maximum number of tasks to return (default: 10, max: 20)")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -115,7 +117,12 @@ impl<D: Database + 'static> TaskTools<D> {
 
         // Build query
         let query = TaskQuery {
-            page: PageSort::default(),
+            page: PageSort {
+                limit: Some(apply_limit(params.0.limit)),
+                offset: None,
+                sort_by: None,
+                sort_order: None,
+            },
             list_id: Some(params.0.list_id.clone()),
             status: status_str,
             parent_id: params.0.parent_id.clone(),

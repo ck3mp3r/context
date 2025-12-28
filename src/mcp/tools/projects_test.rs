@@ -14,7 +14,11 @@ async fn test_list_projects_empty() {
 
     let tools = ProjectTools::new(db);
 
-    let result = tools.list_projects().await;
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams { limit: None }))
+        .await;
     assert!(result.is_ok());
 
     let call_result: CallToolResult = result.unwrap();
@@ -57,7 +61,11 @@ async fn test_list_projects_with_data() {
 
     let tools = ProjectTools::new(Arc::clone(&db));
 
-    let result = tools.list_projects().await;
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams { limit: None }))
+        .await;
     assert!(result.is_ok());
 
     let call_result: CallToolResult = result.unwrap();
@@ -261,4 +269,75 @@ async fn test_delete_project() {
     // Verify it's deleted
     let get_result = db.projects().get("12345678").await;
     assert!(get_result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_projects_respects_limit() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create 25 test projects (plus 1 Default from migration = 26 total)
+    for i in 0..25 {
+        let project = Project {
+            id: format!("proj{:04}", i),
+            title: format!("Project {}", i),
+            description: None,
+            tags: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: "2025-01-01 00:00:00".to_string(),
+        };
+        db.projects().create(&project).await.unwrap();
+    }
+
+    let tools = ProjectTools::new(Arc::clone(&db));
+
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
+    // Test 1: Without limit parameter, should return DEFAULT_LIMIT (10)
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams { limit: None }))
+        .await;
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(projects.len(), 10, "Should return DEFAULT_LIMIT (10) items");
+
+    // Test 2: With limit=5, should return 5
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams { limit: Some(5) }))
+        .await;
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(projects.len(), 5, "Should return requested 5 items");
+
+    // Test 3: With limit=50 (exceeds MAX_LIMIT), should cap at MAX_LIMIT (20)
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams { limit: Some(50) }))
+        .await;
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(
+        projects.len(),
+        20,
+        "Should cap at MAX_LIMIT (20) even though 50 requested"
+    );
 }

@@ -3,13 +3,41 @@
 //! This module contains tool handlers organized by entity type.
 //! Each module follows Single Responsibility Principle (SRP).
 
+// Pagination limits to prevent context overflow
+/// Default limit for list operations (when not specified by user)
+pub(crate) const DEFAULT_LIMIT: usize = 10;
+
+/// Maximum limit for list operations (hard cap to prevent context overflow)
+/// CRITICAL: Keep this small! Large responses break the agent's context window.
+pub(crate) const MAX_LIMIT: usize = 20;
+
+/// Apply limit with default and max cap
+///
+/// Returns the capped limit value, ensuring it's between DEFAULT_LIMIT and MAX_LIMIT.
+/// If user_limit is None, returns DEFAULT_LIMIT.
+/// If user_limit exceeds MAX_LIMIT, returns MAX_LIMIT.
+pub(crate) fn apply_limit(user_limit: Option<usize>) -> usize {
+    match user_limit {
+        Some(limit) => limit.min(MAX_LIMIT),
+        None => DEFAULT_LIMIT,
+    }
+}
+
 pub mod notes;
+#[cfg(test)]
+mod notes_test;
 pub mod projects;
+#[cfg(test)]
+mod projects_test;
 pub mod repos;
+#[cfg(test)]
+mod repos_test;
 pub mod sync;
 #[cfg(test)]
 mod sync_test;
 pub mod task_lists;
+#[cfg(test)]
+mod task_lists_test;
 pub mod tasks;
 #[cfg(test)]
 mod tasks_test;

@@ -80,9 +80,12 @@ impl<D: Database + 'static> McpServer<D> {
     // Project Tools
     // =========================================================================
 
-    #[tool(description = "List all projects")]
-    pub async fn list_projects(&self) -> Result<CallToolResult, McpError> {
-        self.project_tools.list_projects().await
+    #[tool(description = "List projects with pagination (default: 10, max: 20)")]
+    pub async fn list_projects(
+        &self,
+        params: Parameters<ListProjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.project_tools.list_projects(params).await
     }
 
     #[tool(description = "Get a project by ID")]
@@ -121,9 +124,12 @@ impl<D: Database + 'static> McpServer<D> {
     // Repository Tools
     // =========================================================================
 
-    #[tool(description = "List all repositories")]
-    pub async fn list_repos(&self) -> Result<CallToolResult, McpError> {
-        self.repo_tools.list_repos().await
+    #[tool(description = "List repositories with pagination (default: 10, max: 20)")]
+    pub async fn list_repos(
+        &self,
+        params: Parameters<ListReposParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.repo_tools.list_repos(params).await
     }
 
     #[tool(description = "Get a repository by ID")]
