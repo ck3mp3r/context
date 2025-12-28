@@ -13,7 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, PageSort};
-use crate::mcp::tools::map_db_error;
+use crate::mcp::tools::{apply_limit, map_db_error};
 
 // =============================================================================
 // Parameter Structs
@@ -25,7 +25,7 @@ pub struct ListNotesParams {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Filter by note type (manual, archived_todo)")]
     pub note_type: Option<String>,
-    #[schemars(description = "Maximum number of items to return")]
+    #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
     pub offset: Option<usize>,
@@ -83,7 +83,7 @@ pub struct SearchNotesParams {
     pub query: String,
     #[schemars(description = "Filter results by tags (optional)")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Maximum number of results to return (optional)")]
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of results to skip (optional)")]
     pub offset: Option<usize>,
@@ -282,7 +282,7 @@ impl<D: Database + 'static> NoteTools<D> {
         // Build query
         let query = NoteQuery {
             page: PageSort {
-                limit: params.0.limit,
+                limit: Some(apply_limit(params.0.limit)),
                 offset: params.0.offset,
                 sort_by: None,
                 sort_order: None,

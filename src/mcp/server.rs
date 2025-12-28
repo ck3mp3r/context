@@ -13,6 +13,7 @@ use rmcp::{
 };
 
 use crate::db::Database;
+use crate::sync::RealGit;
 
 use super::tools::{
     NoteTools, ProjectTools, RepoTools, SyncTools, TaskListTools, TaskTools, notes::*, projects::*,
@@ -46,7 +47,7 @@ pub struct McpServer<D: Database> {
     task_list_tools: TaskListTools<D>,
     task_tools: TaskTools<D>,
     note_tools: NoteTools<D>,
-    sync_tools: SyncTools<D>,
+    sync_tools: SyncTools<D, RealGit>,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
@@ -69,7 +70,7 @@ impl<D: Database + 'static> McpServer<D> {
             task_list_tools: TaskListTools::new(Arc::clone(&db)),
             task_tools: TaskTools::new(Arc::clone(&db)),
             note_tools: NoteTools::new(Arc::clone(&db)),
-            sync_tools: SyncTools::new(Arc::clone(&db)),
+            sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
             db,
             tool_router: Self::tool_router(),
         }
@@ -79,9 +80,12 @@ impl<D: Database + 'static> McpServer<D> {
     // Project Tools
     // =========================================================================
 
-    #[tool(description = "List all projects")]
-    pub async fn list_projects(&self) -> Result<CallToolResult, McpError> {
-        self.project_tools.list_projects().await
+    #[tool(description = "List projects with pagination (default: 10, max: 20)")]
+    pub async fn list_projects(
+        &self,
+        params: Parameters<ListProjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.project_tools.list_projects(params).await
     }
 
     #[tool(description = "Get a project by ID")]
@@ -120,9 +124,12 @@ impl<D: Database + 'static> McpServer<D> {
     // Repository Tools
     // =========================================================================
 
-    #[tool(description = "List all repositories")]
-    pub async fn list_repos(&self) -> Result<CallToolResult, McpError> {
-        self.repo_tools.list_repos().await
+    #[tool(description = "List repositories with pagination (default: 10, max: 20)")]
+    pub async fn list_repos(
+        &self,
+        params: Parameters<ListReposParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.repo_tools.list_repos(params).await
     }
 
     #[tool(description = "Get a repository by ID")]

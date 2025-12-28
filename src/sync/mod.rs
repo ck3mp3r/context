@@ -11,6 +11,8 @@ mod manager;
 mod paths;
 
 pub use export::{ExportError, ExportSummary, export_all};
+#[cfg(test)]
+pub use git::MockGitOps;
 pub use git::{GitError, GitOps, RealGit};
 pub use import::{ImportError, ImportSummary, import_all};
 pub use jsonl::{JsonlError, read_jsonl, write_jsonl};

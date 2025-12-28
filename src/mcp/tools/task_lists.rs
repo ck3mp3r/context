@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::db::{
     Database, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
-use crate::mcp::tools::map_db_error;
+use crate::mcp::tools::{apply_limit, map_db_error};
 
 // =============================================================================
 // Parameter Structs
@@ -27,7 +27,7 @@ pub struct ListTaskListsParams {
     pub tags: Option<String>,
     #[schemars(description = "Filter by status (active, archived)")]
     pub status: Option<String>,
-    #[schemars(description = "Maximum number of items to return")]
+    #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
     pub offset: Option<usize>,
@@ -129,7 +129,7 @@ impl<D: Database + 'static> TaskListTools<D> {
         // Build query
         let query = TaskListQuery {
             page: PageSort {
-                limit: params.0.limit,
+                limit: Some(apply_limit(params.0.limit)),
                 offset: params.0.offset,
                 sort_by: params.0.sort.clone(),
                 sort_order: match params.0.order.as_deref() {

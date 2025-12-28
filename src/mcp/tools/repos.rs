@@ -3,8 +3,8 @@
 //! Handles all MCP tools for repository management operations.
 //! Follows Single Responsibility Principle (SRP).
 
-use crate::db::{Database, Repo, RepoRepository};
-use crate::mcp::tools::map_db_error;
+use crate::db::{Database, PageSort, Repo, RepoQuery, RepoRepository};
+use crate::mcp::tools::{apply_limit, map_db_error};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -17,6 +17,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 // Parameter types for tools
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListReposParams {
+    #[schemars(
+        description = "Maximum number of repos to return (default: 10, max: 20). IMPORTANT: Keep small to prevent context overflow."
+    )]
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetRepoParams {
     #[schemars(description = "Repository ID (8-character hex)")]
@@ -79,13 +87,30 @@ impl<D: Database + 'static> RepoTools<D> {
         &self.tool_router
     }
 
-    /// List all repositories
-    #[tool(description = "List all repositories")]
-    pub async fn list_repos(&self) -> Result<CallToolResult, McpError> {
+    /// List repositories with pagination (default: 10, max: 20)
+    #[tool(
+        description = "List repositories with pagination to prevent context overflow (default: 10, max: 20)"
+    )]
+    pub async fn list_repos(
+        &self,
+        params: Parameters<ListReposParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        let query = RepoQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: None,
+                sort_by: None,
+                sort_order: None,
+            },
+            tags: None,
+        };
+
         let result = self
             .db
             .repos()
-            .list(None)
+            .list(Some(&query))
             .await
             .map_err(|e| map_db_error(e))?;
 
