@@ -28,6 +28,11 @@ enum Commands {
         #[command(subcommand)]
         command: NoteCommands,
     },
+    /// Project management commands
+    Project {
+        #[command(subcommand)]
+        command: ProjectCommands,
+    },
     /// Sync commands
     Sync {
         #[command(subcommand)]
@@ -92,6 +97,64 @@ enum SyncCommands {
     Status,
 }
 
+#[derive(Subcommand)]
+enum ProjectCommands {
+    /// List all projects
+    List {
+        /// Filter by tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Maximum number of projects to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Output format (table or json)
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Get a project by ID
+    Get {
+        /// Project ID
+        id: String,
+        /// Output format (table or json)
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Create a new project
+    Create {
+        /// Project title
+        #[arg(long)]
+        title: String,
+        /// Project description
+        #[arg(long)]
+        description: Option<String>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Update a project
+    Update {
+        /// Project ID
+        id: String,
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Delete a project
+    Delete {
+        /// Project ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
+}
+
 pub async fn run() {
     let cli = Cli::parse();
     let api_client = api_client::ApiClient::new(cli.api_url);
@@ -120,6 +183,68 @@ pub async fn run() {
             }
             NoteCommands::Search { query, format } => {
                 match commands::note::search_notes(&api_client, &query, &format).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+        },
+        Some(Commands::Project { command }) => match command {
+            ProjectCommands::List {
+                tags,
+                limit,
+                format,
+            } => {
+                match commands::project::list_projects(&api_client, tags.as_deref(), limit, &format)
+                    .await
+                {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            ProjectCommands::Get { id, format } => {
+                match commands::project::get_project(&api_client, &id, &format).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            ProjectCommands::Create {
+                title,
+                description,
+                tags,
+            } => {
+                match commands::project::create_project(
+                    &api_client,
+                    &title,
+                    description.as_deref(),
+                    tags.as_deref(),
+                )
+                .await
+                {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            ProjectCommands::Update {
+                id,
+                title,
+                description,
+                tags,
+            } => {
+                match commands::project::update_project(
+                    &api_client,
+                    &id,
+                    title.as_deref(),
+                    description.as_deref(),
+                    tags.as_deref(),
+                )
+                .await
+                {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            ProjectCommands::Delete { id, force } => {
+                match commands::project::delete_project(&api_client, &id, force).await {
                     Ok(output) => println!("{}", output),
                     Err(e) => eprintln!("Error: {}", e),
                 }
