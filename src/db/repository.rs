@@ -75,7 +75,12 @@ pub trait TaskRepository: Send + Sync {
 pub trait NoteRepository: Send + Sync {
     fn create(&self, note: &Note) -> impl Future<Output = DbResult<Note>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Note>> + Send;
+    fn get_metadata_only(&self, id: &str) -> impl Future<Output = DbResult<Note>> + Send;
     fn list(
+        &self,
+        query: Option<&NoteQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+    fn list_metadata_only(
         &self,
         query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;

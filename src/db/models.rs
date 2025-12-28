@@ -6,6 +6,22 @@
 use serde::{Deserialize, Serialize};
 
 // =============================================================================
+// Note Size Limits (to prevent context overflow)
+// =============================================================================
+
+/// Warning threshold for note content size (characters).
+/// Notes exceeding this size will receive a warning suggesting splitting.
+pub const NOTE_WARN_SIZE: usize = 10_000; // ~2,500 tokens
+
+/// Soft maximum for note content size (characters).
+/// Notes exceeding this size are allowed but should be split for optimal performance.
+pub const NOTE_SOFT_MAX: usize = 50_000; // ~12,500 tokens
+
+/// Hard maximum for note content size (characters).
+/// Notes exceeding this size will be rejected.
+pub const NOTE_HARD_MAX: usize = 100_000; // ~25,000 tokens
+
+// =============================================================================
 // Query Types for Pagination and Sorting
 // =============================================================================
 
