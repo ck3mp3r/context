@@ -29,24 +29,6 @@ fn NotesList() -> impl IntoView {
     let (page, set_page) = signal(0usize);
     let (search_query, set_search_query) = signal(String::new());
 
-    // Fetch notes with current page and search query
-    // Use a Memo to create a reactive value that triggers refetch
-    let fetch_key = Memo::new(move |_| (page.get(), search_query.get()));
-
-    let notes_resource = LocalResource::new(move || {
-        // Access the memo to establish dependency
-        let (current_page, current_query) = fetch_key.get();
-        async move {
-            let offset = current_page * PAGE_SIZE;
-            let query_opt = if current_query.trim().is_empty() {
-                None
-            } else {
-                Some(current_query)
-            };
-            notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await
-        }
-    });
-
     // Handle search input change
     let on_search = move |ev: web_sys::Event| {
         let value = event_target_value(&ev);
@@ -80,6 +62,23 @@ fn NotesList() -> impl IntoView {
                 view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }
             }>
                 {move || {
+                    // Reactively fetch based on page and search_query
+                    let current_page = page.get();
+                    let current_query = search_query.get();
+
+                    let notes_resource = LocalResource::new(move || {
+                        let query = current_query.clone();
+                        async move {
+                            let offset = current_page * PAGE_SIZE;
+                            let query_opt = if query.trim().is_empty() {
+                                None
+                            } else {
+                                Some(query)
+                            };
+                            notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await
+                        }
+                    });
+
                     notes_resource
                         .get()
                         .map(|result| match result.as_ref() {
