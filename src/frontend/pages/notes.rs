@@ -30,15 +30,21 @@ fn NotesList() -> impl IntoView {
     let (search_query, set_search_query) = signal(String::new());
 
     // Fetch notes with current page and search query
-    let notes_resource = LocalResource::new(move || async move {
-        let offset = page.get() * PAGE_SIZE;
-        let query = search_query.get();
-        let query_opt = if query.trim().is_empty() {
-            None
-        } else {
-            Some(query)
-        };
-        notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await
+    // Use a Memo to create a reactive value that triggers refetch
+    let fetch_key = Memo::new(move |_| (page.get(), search_query.get()));
+
+    let notes_resource = LocalResource::new(move || {
+        // Access the memo to establish dependency
+        let (current_page, current_query) = fetch_key.get();
+        async move {
+            let offset = current_page * PAGE_SIZE;
+            let query_opt = if current_query.trim().is_empty() {
+                None
+            } else {
+                Some(current_query)
+            };
+            notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await
+        }
     });
 
     // Handle search input change
