@@ -7,6 +7,10 @@ use clap::{Parser, Subcommand};
 #[command(name = "c5t")]
 #[command(author, version, about = "Context management CLI", long_about = None)]
 pub struct Cli {
+    /// Override the API URL (default: C5T_API_URL env or http://localhost:3737)
+    #[arg(long, global = true)]
+    pub api_url: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
