@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::collections::{HashMap, HashSet};
+use thaw::*;
 
 use crate::api::{ApiClientError, task_lists, tasks};
 use crate::models::{Paginated, Task, TaskList};
@@ -16,8 +17,8 @@ struct AccordionContext {
 pub fn Tasks() -> impl IntoView {
     // State
     let (selected_list_ids, set_selected_list_ids) = signal(HashSet::<String>::new());
-    let (show_archived, set_show_archived) = signal(false);
-    let (search_query, set_search_query) = signal(String::new());
+    let show_archived = RwSignal::new(false);
+    let search_query = RwSignal::new(String::new());
     let (is_search_focused, set_is_search_focused) = signal(false);
     let (expanded_swim_lane_id, set_expanded_swim_lane_id) = signal(None::<String>);
     let (task_lists_data, set_task_lists_data) =
@@ -59,19 +60,10 @@ pub fn Tasks() -> impl IntoView {
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-3xl font-bold text-ctp-text">"Tasks"</h2>
 
-                // Show Archived Toggle
-                <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                        type="checkbox"
-                        prop:checked=move || show_archived.get()
-                        on:change=move |_| {
-                            set_show_archived.update(|v| *v = !*v);
-                        }
-
-                        class="w-4 h-4 text-ctp-blue bg-ctp-surface0 border-ctp-surface1 rounded focus:ring-ctp-blue"
-                    />
-                    <span class="text-sm text-ctp-subtext0">"Show Archived"</span>
-                </label>
+                // Show Archived Toggle with Thaw Checkbox
+                <div class="flex items-center gap-2">
+                    <Checkbox checked=show_archived label="Show Archived"/>
+                </div>
             </div>
 
             // Task List Multi-Selector with Search
@@ -94,18 +86,12 @@ pub fn Tasks() -> impl IntoView {
                                     let all_lists_for_search = all_lists.clone();
                                     view! {
                                         <div class="relative">
-                                            // Search Input
-                                            <input
-                                                type="text"
+                                            // Search Input with Thaw
+                                            <Input
+                                                value=search_query
                                                 placeholder="Search task lists to add swim lanes..."
-                                                prop:value=move || search_query.get()
-                                                on:input=move |ev| {
-                                                    set_search_query.set(event_target_value(&ev));
-                                                }
-
-                                                on:focus=move |_| set_is_search_focused.set(true)
-                                                on:blur=move |_| set_is_search_focused.set(false)
-                                                class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                on_focus=move |_| set_is_search_focused.set(true)
+                                                on_blur=move |_| set_is_search_focused.set(false)
                                             />
 
                                             // Selected Lists Display (Chips)

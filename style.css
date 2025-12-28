@@ -1259,11 +1259,6 @@ body {
   outline-offset: 2px;
 }
 
-.focus\:ring-ctp-blue:focus {
-  --tw-ring-opacity: 1;
-  --tw-ring-color: rgb(137 180 250 / var(--tw-ring-opacity, 1));
-}
-
 .disabled\:cursor-not-allowed:disabled {
   cursor: not-allowed;
 }
