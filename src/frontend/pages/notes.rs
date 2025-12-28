@@ -37,6 +37,9 @@ fn NotesList() -> impl IntoView {
         let current_page = page.get();
         let current_query = search_query.get();
 
+        // Reset to loading state immediately
+        set_notes_data.set(None);
+
         spawn_local(async move {
             let offset = current_page * PAGE_SIZE;
             let query_opt = if current_query.trim().is_empty() {
