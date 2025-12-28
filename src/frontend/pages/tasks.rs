@@ -5,6 +5,13 @@ use std::collections::{HashMap, HashSet};
 use crate::api::{ApiClientError, task_lists, tasks};
 use crate::models::{Paginated, Task, TaskList};
 
+// Context for accordion state - shared across all swim lanes
+#[derive(Clone, Copy)]
+struct AccordionContext {
+    expanded_id: ReadSignal<Option<String>>,
+    set_expanded_id: WriteSignal<Option<String>>,
+}
+
 #[component]
 pub fn Tasks() -> impl IntoView {
     // State
@@ -12,10 +19,18 @@ pub fn Tasks() -> impl IntoView {
     let (show_archived, set_show_archived) = signal(false);
     let (search_query, set_search_query) = signal(String::new());
     let (is_search_focused, set_is_search_focused) = signal(false);
+    let (expanded_swim_lane_id, set_expanded_swim_lane_id) = signal(None::<String>);
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (swim_lane_tasks, set_swim_lane_tasks) =
         signal(HashMap::<String, Result<Vec<Task>, ApiClientError>>::new());
+
+    // Provide accordion context to all child swim lanes
+    let accordion_ctx = AccordionContext {
+        expanded_id: expanded_swim_lane_id,
+        set_expanded_id: set_expanded_swim_lane_id,
+    };
+    provide_context(accordion_ctx);
 
     // Fetch task lists on mount
     Effect::new(move || {
@@ -291,10 +306,7 @@ pub fn Tasks() -> impl IntoView {
                                     .into_iter()
                                     .map(|task_list| {
                                         view! {
-                                            <SwimLane
-                                                task_list=task_list
-                                                tasks_map=swim_lane_tasks
-                                            />
+                                            <SwimLane task_list=task_list tasks_map=swim_lane_tasks/>
                                         }
                                     })
                                     .collect::<Vec<_>>()}
@@ -323,7 +335,17 @@ fn SwimLane(
     task_list: TaskList,
     tasks_map: ReadSignal<HashMap<String, Result<Vec<Task>, ApiClientError>>>,
 ) -> impl IntoView {
-    let (is_expanded, set_is_expanded) = signal(true);
+    // Get accordion state from context
+    let AccordionContext {
+        expanded_id,
+        set_expanded_id,
+    } = expect_context();
+
+    let list_id = task_list.id.clone();
+    let list_id_for_click = list_id.clone();
+    let list_id_for_icon = list_id.clone();
+    let list_id_for_summary = list_id.clone();
+    let list_id_for_expand_check = list_id.clone();
 
     let statuses = vec![
         ("backlog", "Backlog"),
@@ -363,14 +385,26 @@ fn SwimLane(
         <div class="border border-ctp-surface1 rounded-lg overflow-hidden">
             // Swim Lane Header (Clickable Accordion)
             <button
-                on:click=move |_| set_is_expanded.update(|v| *v = !*v)
+                on:click=move |_| {
+                    let current_expanded = expanded_id.get();
+                    if current_expanded.as_ref() == Some(&list_id_for_click) {
+                        // If this lane is expanded, collapse it
+                        set_expanded_id.set(None);
+                    } else {
+                        // Otherwise, expand this lane (closing any other)
+                        set_expanded_id.set(Some(list_id_for_click.clone()));
+                    }
+                }
+
                 class="w-full bg-ctp-surface0 px-4 py-3 hover:bg-ctp-surface1 transition-colors"
             >
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3 flex-1 text-left">
                         // Expand/Collapse Icon
                         <span class="text-ctp-blue text-xl">
-                            {move || if is_expanded.get() { "▼" } else { "▶" }}
+                            {move || {
+                                if expanded_id.get().as_ref() == Some(&list_id_for_icon) { "▼" } else { "▶" }
+                            }}
                         </span>
 
                         <div class="flex-1">
@@ -388,7 +422,7 @@ fn SwimLane(
 
                             // Task Summary (when collapsed)
                             {move || {
-                                if !is_expanded.get() {
+                                if expanded_id.get().as_ref() != Some(&list_id_for_summary) {
                                     let (total, by_status) = task_counts();
                                     Some(
                                         view! {
@@ -451,7 +485,7 @@ fn SwimLane(
 
             // Status Columns (Only when expanded)
             {move || {
-                if !is_expanded.get() {
+                if expanded_id.get().as_ref() != Some(&list_id_for_expand_check) {
                     return view! { <div></div> }.into_any();
                 }
                 let list_id = list_id_for_columns.clone();
