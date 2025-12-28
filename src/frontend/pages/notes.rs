@@ -1,8 +1,10 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
+use crate::api::ApiClientError;
 use crate::api::notes;
-use crate::models::Note;
+use crate::models::{Note, Paginated};
 
 #[component]
 pub fn Notes() -> impl IntoView {
@@ -28,6 +30,24 @@ fn NotesList() -> impl IntoView {
     // State management
     let (page, set_page) = signal(0usize);
     let (search_query, set_search_query) = signal(String::new());
+    let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
+
+    // Use Effect to fetch when dependencies change
+    Effect::new(move || {
+        let current_page = page.get();
+        let current_query = search_query.get();
+
+        spawn_local(async move {
+            let offset = current_page * PAGE_SIZE;
+            let query_opt = if current_query.trim().is_empty() {
+                None
+            } else {
+                Some(current_query)
+            };
+            let result = notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await;
+            set_notes_data.set(Some(result));
+        });
+    });
 
     // Handle search input change
     let on_search = move |ev: web_sys::Event| {
@@ -58,30 +78,11 @@ fn NotesList() -> impl IntoView {
                 />
             </div>
 
-            <Suspense fallback=move || {
-                view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }
-            }>
-                {move || {
-                    // Reactively fetch based on page and search_query
-                    let current_page = page.get();
-                    let current_query = search_query.get();
-
-                    let notes_resource = LocalResource::new(move || {
-                        let query = current_query.clone();
-                        async move {
-                            let offset = current_page * PAGE_SIZE;
-                            let query_opt = if query.trim().is_empty() {
-                                None
-                            } else {
-                                Some(query)
-                            };
-                            notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await
-                        }
-                    });
-
-                    notes_resource
-                        .get()
-                        .map(|result| match result.as_ref() {
+            {move || {
+                match notes_data.get() {
+                    None => view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }.into_any(),
+                    Some(result) => {
+                        match result {
                             Ok(paginated) => {
                                 let total_pages = (paginated.total + PAGE_SIZE - 1) / PAGE_SIZE;
                                 let current_page = page.get();
@@ -177,10 +178,11 @@ fn NotesList() -> impl IntoView {
                                 }
                                     .into_any()
                             }
-                        })
-                }}
+                        }
+                    }
+                }
+            }}
 
-            </Suspense>
         </div>
     }
 }
