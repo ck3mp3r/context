@@ -30,6 +30,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/repos") view=Repos/>
                     <Route path=path!("/tasks") view=Tasks/>
                     <Route path=path!("/notes") view=Notes/>
+                    <Route path=path!("/notes/:id") view=Notes/>
                 </Routes>
             </main>
         </Router>
