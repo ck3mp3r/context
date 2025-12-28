@@ -91,8 +91,10 @@ pub async fn run() {
                 }
             }
             TaskCommands::Complete { id } => {
-                println!("Complete task: {}", id);
-                // TODO: Implement task complete command
+                match commands::task::complete_task(&api_client, &id).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
             }
         },
         Some(Commands::Note { command }) => match command {

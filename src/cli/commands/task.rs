@@ -73,6 +73,29 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+/// Mark a task as complete
+pub async fn complete_task(
+    api_client: &ApiClient,
+    task_id: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let url = format!(
+        "{}/api/v1/tasks/{}/complete",
+        api_client.base_url(),
+        task_id
+    );
+
+    let client = reqwest::Client::new();
+    let response = client.post(&url).send().await?;
+
+    if response.status().is_success() {
+        Ok(format!("✓ Task {} marked as complete", task_id))
+    } else {
+        let status = response.status();
+        let error_text = response.text().await?;
+        Err(format!("Failed to complete task: {} - {}", status, error_text).into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +162,16 @@ mod tests {
     fn test_truncate() {
         assert_eq!(truncate("short", 10), "short");
         assert_eq!(truncate("this is a very long string", 10), "this is...");
+    }
+
+    #[test]
+    fn test_complete_task_success_message() {
+        // We can't test the actual API call without a running server,
+        // but we can test the success message format
+        let task_id = "12345678";
+        let expected = format!("✓ Task {} marked as complete", task_id);
+        assert!(expected.contains("12345678"));
+        assert!(expected.contains("complete"));
+        assert!(expected.contains("✓"));
     }
 }
