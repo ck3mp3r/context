@@ -1,5 +1,6 @@
 //! TaskList management handlers.
 
+use crate::sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -188,8 +189,8 @@ pub struct PaginatedTaskLists {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_task_lists<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Query(query): Query<ListTaskListsQuery>,
 ) -> Result<Json<PaginatedTaskLists>, (StatusCode, Json<ErrorResponse>)> {
     // Build database query with tag filtering at DB level
@@ -255,8 +256,8 @@ pub async fn list_task_lists<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_task_list<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn get_task_list<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
     let list = state
@@ -293,8 +294,8 @@ pub async fn get_task_list<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_task_list<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Json(req): Json<CreateTaskListRequest>,
 ) -> Result<(StatusCode, Json<TaskListResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Create task list with placeholder values - repository will generate ID and timestamps
@@ -341,8 +342,8 @@ pub async fn create_task_list<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_task_list<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskListRequest>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -411,8 +412,8 @@ pub async fn update_task_list<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_task_list<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
     Json(req): Json<PatchTaskListRequest>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -475,8 +476,8 @@ pub async fn patch_task_list<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_task_list<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state

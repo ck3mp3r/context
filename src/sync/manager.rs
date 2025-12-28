@@ -7,6 +7,7 @@ use crate::db::{
 };
 use miette::Diagnostic;
 use std::path::PathBuf;
+use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
@@ -46,24 +47,42 @@ pub enum SyncError {
 }
 
 /// Sync manager handles all sync operations.
-#[derive(Clone)]
+///
+/// # Clone Implementation
+///
+/// SyncManager wraps GitOps in Arc to enable cloning without requiring G: Clone.
+/// This allows using non-Clone types like MockGitOps in tests.
+/// Clone is implemented manually (not derived) to avoid the G: Clone bound.
 pub struct SyncManager<G: GitOps> {
-    git: G,
+    git: std::sync::Arc<G>,
     sync_dir: PathBuf,
+}
+
+// Manual Clone implementation - Arc<G> is Clone even if G is not
+impl<G: GitOps> Clone for SyncManager<G> {
+    fn clone(&self) -> Self {
+        Self {
+            git: Arc::clone(&self.git),
+            sync_dir: self.sync_dir.clone(),
+        }
+    }
 }
 
 impl<G: GitOps> SyncManager<G> {
     /// Create a new sync manager with the given git operations handler.
     pub fn new(git: G) -> Self {
         Self {
-            git,
+            git: std::sync::Arc::new(git),
             sync_dir: get_sync_dir(),
         }
     }
 
     /// Create a sync manager with a custom sync directory (for testing).
     pub fn with_sync_dir(git: G, sync_dir: PathBuf) -> Self {
-        Self { git, sync_dir }
+        Self {
+            git: std::sync::Arc::new(git),
+            sync_dir,
+        }
     }
 
     /// Check if sync is initialized (git repository exists).

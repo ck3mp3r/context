@@ -1,5 +1,6 @@
 //! Project management handlers.
 
+use crate::sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -179,8 +180,8 @@ pub struct PaginatedProjects {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_projects<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Query(query): Query<ListProjectsQuery>,
 ) -> Result<Json<PaginatedProjects>, (StatusCode, Json<ErrorResponse>)> {
     // Parse tags from comma-separated string
@@ -249,8 +250,8 @@ pub async fn list_projects<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_project<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn get_project<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
     let project = state.db().projects().get(&id).await.map_err(|e| match e {
@@ -285,8 +286,8 @@ pub async fn get_project<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_project<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Json(req): Json<CreateProjectRequest>,
 ) -> Result<(StatusCode, Json<ProjectResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Create project with placeholder values - repository will generate ID and timestamps
@@ -335,8 +336,8 @@ pub async fn create_project<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_project<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateProjectRequest>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -401,8 +402,8 @@ pub async fn update_project<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_project<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn patch_project<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
     Json(req): Json<PatchProjectRequest>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -465,8 +466,8 @@ pub async fn patch_project<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_project<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn delete_project<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state

@@ -16,17 +16,17 @@ use super::v1::{
 };
 use crate::db::Database;
 
-/// Build routes with generic database type.
+/// Build routes with generic database and git types.
 ///
 /// This macro reduces boilerplate when registering handlers that are generic
-/// over the Database trait. It applies the turbofish operator automatically.
+/// over the Database and GitOps traits. It applies the turbofish operator automatically.
 macro_rules! routes {
-    ($D:ty => {
+    ($D:ty, $G:ty => {
         $($method:ident $path:literal => $($handler:ident)::+),* $(,)?
     }) => {{
         let router = Router::new();
         $(
-            let router = router.route($path, $method($($handler)::+::<$D>));
+            let router = router.route($path, $method($($handler)::+::<$D, $G>));
         )*
         router
     }};
@@ -118,7 +118,10 @@ macro_rules! routes {
 pub struct ApiDoc;
 
 /// Create the API router with OpenAPI documentation and MCP server
-pub fn create_router<D: Database + 'static>(state: AppState<D>, enable_docs: bool) -> Router {
+pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync + 'static>(
+    state: AppState<D, G>,
+    enable_docs: bool,
+) -> Router {
     // Create MCP service (Model Context Protocol server)
     // Uses the same database as the REST API for consistency
     let ct = tokio_util::sync::CancellationToken::new();
@@ -131,8 +134,8 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>, enable_docs: boo
         .route("/", get(handlers::root))
         .route("/health", get(handlers::health));
 
-    // V1 API routes (generic over Database)
-    let v1_routes = routes!(D => {
+    // V1 API routes (generic over Database and GitOps)
+    let v1_routes = routes!(D, G => {
         // Projects
         get "/v1/projects" => super::v1::list_projects,
         get "/v1/projects/{id}" => super::v1::get_project,
