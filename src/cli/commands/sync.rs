@@ -3,6 +3,7 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::{CliError, CliResult};
 use serde::{Deserialize, Serialize};
+use tabled::{Table, Tabled, settings::Style};
 
 /// Request to initialize sync
 #[derive(Debug, Serialize)]
@@ -68,6 +69,14 @@ pub async fn init(api_client: &ApiClient, remote_url: Option<String>) -> CliResu
     Ok(output)
 }
 
+#[derive(Tabled)]
+struct SyncCountRow {
+    #[tabled(rename = "Item")]
+    item: String,
+    #[tabled(rename = "Count")]
+    count: String,
+}
+
 /// Export database to sync
 pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResult<String> {
     let url = format!("{}/v1/sync/export", api_client.base_url());
@@ -102,37 +111,60 @@ pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResul
 
     if let Some(data) = &sync_response.data {
         if let Some(exported) = data.get("exported") {
-            output.push_str("Exported:\n");
-            output.push_str(&format!(
-                "  Repos:      {}\n",
-                exported.get("repos").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Projects:   {}\n",
-                exported
-                    .get("projects")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Task Lists: {}\n",
-                exported
-                    .get("task_lists")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Tasks:      {}\n",
-                exported.get("tasks").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Notes:      {}\n",
-                exported.get("notes").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Total:      {}\n",
-                exported.get("total").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
+            let rows = vec![
+                SyncCountRow {
+                    item: "Repos".to_string(),
+                    count: exported
+                        .get("repos")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Projects".to_string(),
+                    count: exported
+                        .get("projects")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Task Lists".to_string(),
+                    count: exported
+                        .get("task_lists")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Tasks".to_string(),
+                    count: exported
+                        .get("tasks")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Notes".to_string(),
+                    count: exported
+                        .get("notes")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Total".to_string(),
+                    count: exported
+                        .get("total")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+            ];
+
+            let mut table = Table::new(rows);
+            table.with(Style::rounded());
+            output.push_str(&table.to_string());
         }
     }
 
@@ -171,37 +203,60 @@ pub async fn import(api_client: &ApiClient) -> CliResult<String> {
 
     if let Some(data) = &sync_response.data {
         if let Some(imported) = data.get("imported") {
-            output.push_str("Imported:\n");
-            output.push_str(&format!(
-                "  Repos:      {}\n",
-                imported.get("repos").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Projects:   {}\n",
-                imported
-                    .get("projects")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Task Lists: {}\n",
-                imported
-                    .get("task_lists")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Tasks:      {}\n",
-                imported.get("tasks").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Notes:      {}\n",
-                imported.get("notes").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Total:      {}\n",
-                imported.get("total").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
+            let rows = vec![
+                SyncCountRow {
+                    item: "Repos".to_string(),
+                    count: imported
+                        .get("repos")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Projects".to_string(),
+                    count: imported
+                        .get("projects")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Task Lists".to_string(),
+                    count: imported
+                        .get("task_lists")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Tasks".to_string(),
+                    count: imported
+                        .get("tasks")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Notes".to_string(),
+                    count: imported
+                        .get("notes")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+                SyncCountRow {
+                    item: "Total".to_string(),
+                    count: imported
+                        .get("total")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or("0".to_string()),
+                },
+            ];
+
+            let mut table = Table::new(rows);
+            table.with(Style::rounded());
+            output.push_str(&table.to_string());
         }
     }
 
@@ -238,12 +293,18 @@ pub async fn status(api_client: &ApiClient) -> CliResult<String> {
     Ok(format_sync_status(&sync_response))
 }
 
+#[derive(Tabled)]
+struct SyncStatusRow {
+    #[tabled(rename = "Item")]
+    item: String,
+    #[tabled(rename = "Database")]
+    database: String,
+    #[tabled(rename = "Sync Files")]
+    sync_files: String,
+}
+
 fn format_sync_status(response: &SyncResponse) -> String {
     let mut output = String::new();
-
-    // Status message
-    output.push_str(&format!("Status: {}\n", response.status));
-    output.push_str(&format!("{}\n\n", response.message));
 
     // Parse the data field
     if let Some(data) = &response.data {
@@ -253,114 +314,115 @@ fn format_sync_status(response: &SyncResponse) -> String {
             .unwrap_or(false);
 
         if !initialized {
-            output.push_str("Sync not initialized. Run: c5t sync init\n");
-            return output;
+            return "Sync not initialized. Run: c5t sync init\n".to_string();
         }
 
-        // Remote URL
+        // Remote URL and Git Status
         if let Some(remote) = data.get("remote_url").and_then(|v| v.as_str()) {
             output.push_str(&format!("Remote: {}\n", remote));
-        } else {
-            output.push_str("Remote: (not configured)\n");
         }
 
-        // Git status
         if let Some(git) = data.get("git") {
             if let Some(clean) = git.get("clean").and_then(|v| v.as_bool()) {
                 output.push_str(&format!(
-                    "Git Status: {}\n",
+                    "Status: {}\n\n",
                     if clean {
-                        "Clean"
+                        "✓ Clean"
                     } else {
-                        "Uncommitted changes"
+                        "✗ Uncommitted changes"
                     }
                 ));
-                if !clean {
-                    if let Some(status) = git.get("status").and_then(|v| v.as_str()) {
-                        output.push_str(&format!("  {}\n", status.trim()));
-                    }
-                }
             }
         }
 
-        output.push('\n');
+        // Build table data
+        let db = data.get("database");
+        let sync = data.get("sync_files");
 
-        // Database counts
-        if let Some(db) = data.get("database") {
-            output.push_str("Database:\n");
-            output.push_str(&format!(
-                "  Repos:      {}\n",
-                db.get("repos").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Projects:   {}\n",
-                db.get("projects").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Task Lists: {}\n",
-                db.get("task_lists").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Tasks:      {}\n",
-                db.get("tasks").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Notes:      {}\n",
-                db.get("notes").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Total:      {}\n",
-                db.get("total").and_then(|v| v.as_u64()).unwrap_or(0)
-            ));
-            output.push('\n');
-        }
+        let rows = vec![
+            SyncStatusRow {
+                item: "Repos".to_string(),
+                database: db
+                    .and_then(|d| d.get("repos"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("repos"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Projects".to_string(),
+                database: db
+                    .and_then(|d| d.get("projects"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("projects"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Task Lists".to_string(),
+                database: db
+                    .and_then(|d| d.get("task_lists"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("task_lists"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Tasks".to_string(),
+                database: db
+                    .and_then(|d| d.get("tasks"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("tasks"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Notes".to_string(),
+                database: db
+                    .and_then(|d| d.get("notes"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("notes"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Total".to_string(),
+                database: db
+                    .and_then(|d| d.get("total"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("total"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+        ];
 
-        // Sync files counts
-        if let Some(sync_files) = data.get("sync_files") {
-            output.push_str("Sync Files:\n");
-            output.push_str(&format!(
-                "  Repos:      {}\n",
-                sync_files
-                    .get("repos")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Projects:   {}\n",
-                sync_files
-                    .get("projects")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Task Lists: {}\n",
-                sync_files
-                    .get("task_lists")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Tasks:      {}\n",
-                sync_files
-                    .get("tasks")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Notes:      {}\n",
-                sync_files
-                    .get("notes")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-            output.push_str(&format!(
-                "  Total:      {}\n",
-                sync_files
-                    .get("total")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-            ));
-        }
+        let mut table = Table::new(rows);
+        table.with(Style::rounded());
+        output.push_str(&table.to_string());
     }
 
     output
