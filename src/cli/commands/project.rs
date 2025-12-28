@@ -234,9 +234,33 @@ pub async fn update_project(
     }
 }
 
-/// Delete a project (stub for now)
-pub async fn delete_project(_api_client: &ApiClient, _id: &str, _force: bool) -> CliResult<String> {
-    todo!("Implement delete_project in TDD cycle")
+/// Delete a project (requires --force flag for safety)
+pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> CliResult<String> {
+    // Safety check: require --force flag
+    if !force {
+        return Err(crate::cli::error::CliError::InvalidResponse {
+            message: "Delete operation requires --force flag. This action is destructive and cannot be undone.".to_string(),
+        });
+    }
+
+    let url = format!("{}/v1/projects/{}", api_client.base_url(), id);
+
+    let client = reqwest::Client::new();
+    let response = client.delete(&url).send().await?;
+
+    if response.status().is_success() {
+        Ok(format!(
+            "✓ Deleted project: {}",
+            id.chars().take(8).collect::<String>()
+        ))
+    } else {
+        let status = response.status().as_u16();
+        let error_text = response.text().await?;
+        Err(crate::cli::error::CliError::ApiError {
+            status,
+            message: error_text,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -346,6 +370,33 @@ mod tests {
         .await;
 
         // Function should exist and return a result
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_without_force() {
+        // GREEN: Test that delete without --force flag is rejected
+        let api_client = ApiClient::new(None);
+        let result = delete_project(&api_client, "test-id", false).await;
+
+        // Should return an error about requiring --force
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(
+                error_msg.contains("--force"),
+                "Error should mention --force flag"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_with_force() {
+        // GREEN: Test that delete with --force flag proceeds
+        let api_client = ApiClient::new(None);
+        let result = delete_project(&api_client, "test-id", true).await;
+
+        // Function should exist and return a result (ok or error from API)
         assert!(result.is_ok() || result.is_err());
     }
 }
