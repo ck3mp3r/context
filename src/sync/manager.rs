@@ -139,8 +139,11 @@ impl<G: GitOps> SyncManager<G> {
         ];
         self.git.add_files(&self.sync_dir, &files)?;
 
-        // Commit
-        let commit_msg = message.unwrap_or_else(|| format!("Export {} entities", summary.total()));
+        // Commit with timestamp-based message if not provided
+        let commit_msg = message.unwrap_or_else(|| {
+            let now = chrono::Utc::now();
+            format!("sync: export at {}", now.format("%Y-%m-%d %H:%M:%S UTC"))
+        });
         self.git.commit(&self.sync_dir, &commit_msg)?;
 
         // Push if remote exists

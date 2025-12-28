@@ -18,6 +18,7 @@ path = "src/bin/api.rs"
 
 [dependencies]
 axum = "0.8.8"
+chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive"] }
 miette = { version = "7.5", features = ["fancy"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
