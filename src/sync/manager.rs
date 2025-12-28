@@ -144,11 +144,22 @@ impl<G: GitOps> SyncManager<G> {
             let now = chrono::Utc::now();
             format!("sync: export at {}", now.format("%Y-%m-%d %H:%M:%S UTC"))
         });
-        self.git.commit(&self.sync_dir, &commit_msg)?;
 
-        // Push if remote exists
-        if self.has_remote()? {
-            self.git.push(&self.sync_dir, "origin", "main")?;
+        // Try to commit - if nothing to commit, that's okay (not an error)
+        match self.git.commit(&self.sync_dir, &commit_msg) {
+            Ok(_) => {
+                // Push if remote exists
+                if self.has_remote()? {
+                    self.git.push(&self.sync_dir, "origin", "main")?;
+                }
+            }
+            Err(GitError::NonZeroExit { code: 1, stderr })
+                if stderr.contains("nothing to commit")
+                    || stderr.contains("nothing added to commit") =>
+            {
+                // Nothing to commit is not an error - data is already synced
+            }
+            Err(e) => return Err(e.into()),
         }
 
         Ok(summary)
@@ -397,6 +408,37 @@ mod tests {
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), SyncError::NotInitialized));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_export_nothing_to_commit() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+        let db = setup_test_db().await;
+
+        let mut mock_git = MockGitOps::new();
+        // No remote configured
+        mock_git
+            .expect_remote_get_url()
+            .returning(|_, _| Err(GitError::GitNotFound));
+        // Add files succeeds
+        mock_git
+            .expect_add_files()
+            .times(1)
+            .returning(|_, _| Ok(mock_output(0, "", "")));
+        // Commit fails with "nothing to commit"
+        mock_git.expect_commit().times(1).returning(|_, _| {
+            Err(GitError::NonZeroExit {
+                code: 1,
+                stderr: "nothing to commit, working tree clean\n".to_string(),
+            })
+        });
+
+        let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+        let result = manager.export(&db, None).await;
+
+        // Should succeed even though commit failed - nothing to commit is not an error
+        assert!(result.is_ok());
     }
 
     #[tokio::test(flavor = "multi_thread")]
