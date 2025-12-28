@@ -1,7 +1,8 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::CliResult;
+use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
-use tabled::{Table, Tabled, settings::Style};
+use tabled::{Table, Tabled};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ListReposResponse {
@@ -55,28 +56,14 @@ struct RepoDisplay {
 impl From<&Repo> for RepoDisplay {
     fn from(repo: &Repo) -> Self {
         Self {
-            id: repo.id.chars().take(8).collect(),
-            remote: if repo.remote.len() <= 50 {
-                repo.remote.clone()
-            } else {
-                format!("{}...", repo.remote.chars().take(47).collect::<String>())
-            },
+            id: repo.id.clone(),
+            remote: truncate_with_ellipsis(&repo.remote, 50),
             path: repo
                 .path
                 .as_ref()
-                .map(|p| {
-                    if p.len() <= 30 {
-                        p.clone()
-                    } else {
-                        format!("{}...", p.chars().take(27).collect::<String>())
-                    }
-                })
+                .map(|p| truncate_with_ellipsis(p, 30))
                 .unwrap_or_else(|| "-".to_string()),
-            tags: if repo.tags.is_empty() {
-                "-".to_string()
-            } else {
-                repo.tags.join(", ")
-            },
+            tags: format_tags(Some(&repo.tags)),
         }
     }
 }
@@ -116,7 +103,7 @@ fn format_table(repos: &[Repo]) -> String {
 
     let display_repos: Vec<RepoDisplay> = repos.iter().map(|r| r.into()).collect();
     let mut table = Table::new(display_repos);
-    table.with(Style::rounded());
+    apply_table_style(&mut table);
     table.to_string()
 }
 
@@ -158,7 +145,7 @@ fn format_repo_detail(repo: &Repo) -> String {
     builder.push_record(["Created", &repo.created_at]);
 
     let mut table = builder.build();
-    table.with(Style::rounded());
+    apply_table_style(&mut table);
     table.to_string()
 }
 
@@ -169,33 +156,19 @@ pub async fn create_repo(
     path: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    let tags_vec = tags
-        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
-
     let request = CreateRepoRequest {
         remote: remote.to_string(),
         path: path.map(String::from),
-        tags: tags_vec,
+        tags: parse_tags(tags).unwrap_or_default(),
     };
 
     let response = api_client.post("/v1/repos").json(&request).send().await?;
 
-    if response.status().is_success() {
-        let repo: Repo = response.json().await?;
-        Ok(format!(
-            "✓ Created repository: {} ({})",
-            repo.remote,
-            repo.id.chars().take(8).collect::<String>()
-        ))
-    } else {
-        let status = response.status().as_u16();
-        let error_text = response.text().await?;
-        Err(crate::cli::error::CliError::ApiError {
-            status,
-            message: error_text,
-        })
-    }
+    let repo: Repo = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Created repository: {} ({})",
+        repo.remote, repo.id
+    ))
 }
 
 /// Update an existing repo (PATCH semantics)
@@ -206,12 +179,10 @@ pub async fn update_repo(
     path: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
-
     let request = PatchRepoRequest {
         remote: remote.map(String::from),
         path: path.map(String::from),
-        tags: tags_vec,
+        tags: parse_tags(tags),
     };
 
     let response = api_client
@@ -220,21 +191,11 @@ pub async fn update_repo(
         .send()
         .await?;
 
-    if response.status().is_success() {
-        let repo: Repo = response.json().await?;
-        Ok(format!(
-            "✓ Updated repository: {} ({})",
-            repo.remote,
-            repo.id.chars().take(8).collect::<String>()
-        ))
-    } else {
-        let status = response.status().as_u16();
-        let error_text = response.text().await?;
-        Err(crate::cli::error::CliError::ApiError {
-            status,
-            message: error_text,
-        })
-    }
+    let repo: Repo = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Updated repository: {} ({})",
+        repo.remote, repo.id
+    ))
 }
 
 /// Delete a repo (requires --force flag for safety)
@@ -251,13 +212,13 @@ pub async fn delete_repo(api_client: &ApiClient, id: &str, force: bool) -> CliRe
         .await?;
 
     if response.status().is_success() {
-        Ok(format!(
-            "✓ Deleted repository: {}",
-            id.chars().take(8).collect::<String>()
-        ))
+        Ok(format!("✓ Deleted repository: {}", id))
     } else {
         let status = response.status().as_u16();
-        let error_text = response.text().await?;
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         Err(crate::cli::error::CliError::ApiError {
             status,
             message: error_text,

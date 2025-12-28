@@ -1,5 +1,8 @@
-use reqwest::Client;
+use reqwest::{Client, Response};
+use serde::de::DeserializeOwned;
 use std::env;
+
+use crate::cli::error::CliResult;
 
 /// API client for communicating with the c5t REST API
 pub struct ApiClient {
@@ -52,6 +55,31 @@ impl ApiClient {
     pub fn delete(&self, path: &str) -> reqwest::RequestBuilder {
         let url = format!("{}{}", self.base_url, path);
         self.client.delete(&url)
+    }
+
+    /// Handle API response with standardized error handling
+    ///
+    /// Returns the deserialized response body on success,
+    /// or a CliError::ApiError on non-success status codes.
+    pub async fn handle_response<T: DeserializeOwned>(response: Response) -> CliResult<T> {
+        if response.status().is_success() {
+            response
+                .json()
+                .await
+                .map_err(|e| crate::cli::error::CliError::InvalidResponse {
+                    message: e.to_string(),
+                })
+        } else {
+            let status = response.status().as_u16();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(crate::cli::error::CliError::ApiError {
+                status,
+                message: error_text,
+            })
+        }
     }
 }
 
@@ -122,4 +150,6 @@ mod tests {
         let client = ApiClient::new(None);
         let _builder = client.delete("/v1/test");
     }
+
+    // Note: handle_response is tested via integration tests with real API
 }

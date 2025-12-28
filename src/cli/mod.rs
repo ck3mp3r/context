@@ -1,6 +1,7 @@
 pub mod api_client;
 mod commands;
 pub mod error;
+pub mod utils;
 
 use clap::{Parser, Subcommand};
 use miette::Result;

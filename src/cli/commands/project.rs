@@ -1,7 +1,8 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::CliResult;
+use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
-use tabled::{Table, Tabled, settings::Style};
+use tabled::{Table, Tabled};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ListProjectsResponse {
@@ -55,28 +56,14 @@ struct ProjectDisplay {
 impl From<&Project> for ProjectDisplay {
     fn from(project: &Project) -> Self {
         Self {
-            id: project.id.chars().take(8).collect(),
-            title: if project.title.len() <= 40 {
-                project.title.clone()
-            } else {
-                format!("{}...", project.title.chars().take(37).collect::<String>())
-            },
+            id: project.id.clone(),
+            title: truncate_with_ellipsis(&project.title, 40),
             description: project
                 .description
                 .as_ref()
-                .map(|d| {
-                    if d.len() <= 50 {
-                        d.clone()
-                    } else {
-                        format!("{}...", d.chars().take(47).collect::<String>())
-                    }
-                })
+                .map(|d| truncate_with_ellipsis(d, 50))
                 .unwrap_or_else(|| "-".to_string()),
-            tags: project
-                .tags
-                .as_ref()
-                .map(|t| t.join(", "))
-                .unwrap_or_else(|| "-".to_string()),
+            tags: format_tags(project.tags.as_ref()),
         }
     }
 }
@@ -116,7 +103,7 @@ fn format_table(projects: &[Project]) -> String {
 
     let display_projects: Vec<ProjectDisplay> = projects.iter().map(|p| p.into()).collect();
     let mut table = Table::new(display_projects);
-    table.with(Style::rounded());
+    apply_table_style(&mut table);
     table.to_string()
 }
 
@@ -157,7 +144,7 @@ fn format_project_detail(project: &Project) -> String {
     builder.push_record(["Updated", &project.updated_at]);
 
     let mut table = builder.build();
-    table.with(Style::rounded());
+    apply_table_style(&mut table);
     table.to_string()
 }
 
@@ -168,13 +155,10 @@ pub async fn create_project(
     description: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    // Parse tags from comma-separated string
-    let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
-
     let request = CreateProjectRequest {
         title: title.to_string(),
         description: description.map(String::from),
-        tags: tags_vec,
+        tags: parse_tags(tags),
     };
 
     let response = api_client
@@ -183,21 +167,11 @@ pub async fn create_project(
         .send()
         .await?;
 
-    if response.status().is_success() {
-        let project: Project = response.json().await?;
-        Ok(format!(
-            "✓ Created project: {} ({})",
-            project.title,
-            project.id.chars().take(8).collect::<String>()
-        ))
-    } else {
-        let status = response.status().as_u16();
-        let error_text = response.text().await?;
-        Err(crate::cli::error::CliError::ApiError {
-            status,
-            message: error_text,
-        })
-    }
+    let project: Project = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Created project: {} ({})",
+        project.title, project.id
+    ))
 }
 
 /// Update an existing project (PATCH semantics - only updates provided fields)
@@ -208,13 +182,10 @@ pub async fn update_project(
     description: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    // Parse tags from comma-separated string if provided
-    let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
-
     let request = UpdateProjectRequest {
         title: title.map(String::from),
         description: description.map(String::from),
-        tags: tags_vec,
+        tags: parse_tags(tags),
     };
 
     let response = api_client
@@ -223,21 +194,11 @@ pub async fn update_project(
         .send()
         .await?;
 
-    if response.status().is_success() {
-        let project: Project = response.json().await?;
-        Ok(format!(
-            "✓ Updated project: {} ({})",
-            project.title,
-            project.id.chars().take(8).collect::<String>()
-        ))
-    } else {
-        let status = response.status().as_u16();
-        let error_text = response.text().await?;
-        Err(crate::cli::error::CliError::ApiError {
-            status,
-            message: error_text,
-        })
-    }
+    let project: Project = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Updated project: {} ({})",
+        project.title, project.id
+    ))
 }
 
 /// Delete a project (requires --force flag for safety)
@@ -254,14 +215,16 @@ pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> Cl
         .send()
         .await?;
 
+    // For delete, we expect no body on success, so we don't use handle_response
+    // Just check status
     if response.status().is_success() {
-        Ok(format!(
-            "✓ Deleted project: {}",
-            id.chars().take(8).collect::<String>()
-        ))
+        Ok(format!("✓ Deleted project: {}", id))
     } else {
         let status = response.status().as_u16();
-        let error_text = response.text().await?;
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         Err(crate::cli::error::CliError::ApiError {
             status,
             message: error_text,

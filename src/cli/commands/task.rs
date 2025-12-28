@@ -1,7 +1,8 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::{CliError, CliResult};
+use crate::cli::utils::{apply_table_style, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
-use tabled::{Table, Tabled, settings::Style};
+use tabled::{Table, Tabled};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Task {
@@ -27,12 +28,8 @@ struct TaskDisplay {
 impl From<&Task> for TaskDisplay {
     fn from(task: &Task) -> Self {
         Self {
-            id: task.id.chars().take(8).collect(),
-            content: if task.content.len() <= 50 {
-                task.content.clone()
-            } else {
-                format!("{}...", task.content.chars().take(47).collect::<String>())
-            },
+            id: task.id.clone(),
+            content: truncate_with_ellipsis(&task.content, 50),
             status: task.status.clone(),
             priority: task
                 .priority
@@ -99,7 +96,7 @@ fn format_table(tasks: &[Task]) -> String {
 
     let display_tasks: Vec<TaskDisplay> = tasks.iter().map(|t| t.into()).collect();
     let mut table = Table::new(display_tasks);
-    table.with(Style::rounded());
+    apply_table_style(&mut table);
     table.to_string()
 }
 
@@ -114,7 +111,10 @@ pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<S
         Ok(format!("✓ Task {} marked as complete", task_id))
     } else {
         let status = response.status().as_u16();
-        let error_text = response.text().await?;
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         Err(CliError::ApiError {
             status,
             message: error_text,
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn test_task_display_conversion() {
         let task = Task {
-            id: "12345678abcdef".to_string(),
+            id: "12345678".to_string(), // IDs are always 8 chars
             content: "short".to_string(),
             status: "todo".to_string(),
             priority: Some(5),
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(display.priority, "5");
 
         let task_none = Task {
-            id: "abc123".to_string(),
+            id: "abc12345".to_string(), // IDs are always 8 chars
             content: "x".repeat(60),
             status: "done".to_string(),
             priority: None,
@@ -211,7 +211,7 @@ mod tests {
         };
 
         let display_none: TaskDisplay = (&task_none).into();
-        assert_eq!(display_none.id, "abc123");
+        assert_eq!(display_none.id, "abc12345");
         assert!(display_none.content.ends_with("..."));
         assert_eq!(display_none.priority, "-");
     }
