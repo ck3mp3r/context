@@ -128,6 +128,48 @@ enum NoteCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Get a note by ID
+    Get {
+        /// Note ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new note
+    Create {
+        /// Note title
+        #[arg(long)]
+        title: String,
+        /// Note content (Markdown supported)
+        #[arg(long)]
+        content: String,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Update a note
+    Update {
+        /// Note ID
+        id: String,
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+        /// New content
+        #[arg(long)]
+        content: Option<String>,
+        /// New tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Delete a note
+    Delete {
+        /// Note ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
     /// Search notes using FTS5
     Search {
         /// Search query
@@ -598,6 +640,42 @@ pub async fn run() -> Result<()> {
                     if json { "json" } else { "table" },
                 )
                 .await?;
+                println!("{}", output);
+            }
+            NoteCommands::Get { id, json } => {
+                let output =
+                    commands::note::get_note(&api_client, &id, if json { "json" } else { "table" })
+                        .await?;
+                println!("{}", output);
+            }
+            NoteCommands::Create {
+                title,
+                content,
+                tags,
+            } => {
+                let output =
+                    commands::note::create_note(&api_client, &title, &content, tags.as_deref())
+                        .await?;
+                println!("{}", output);
+            }
+            NoteCommands::Update {
+                id,
+                title,
+                content,
+                tags,
+            } => {
+                let output = commands::note::update_note(
+                    &api_client,
+                    &id,
+                    title.as_deref(),
+                    content.as_deref(),
+                    tags.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            NoteCommands::Delete { id, force } => {
+                let output = commands::note::delete_note(&api_client, &id, force).await?;
                 println!("{}", output);
             }
             NoteCommands::Search { query, json } => {
