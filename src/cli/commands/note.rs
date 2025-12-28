@@ -14,6 +14,9 @@ pub struct Note {
 #[derive(Debug, Serialize, Deserialize)]
 struct NoteListResponse {
     items: Vec<Note>,
+    total: usize,
+    limit: usize,
+    offset: usize,
 }
 
 /// List notes with optional tag filtering

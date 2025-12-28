@@ -14,6 +14,9 @@ pub struct Task {
 #[derive(Debug, Serialize, Deserialize)]
 struct TaskListResponse {
     items: Vec<Task>,
+    total: usize,
+    limit: usize,
+    offset: usize,
 }
 
 /// List tasks from a task list
