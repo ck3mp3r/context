@@ -99,8 +99,10 @@ pub async fn run() {
         },
         Some(Commands::Note { command }) => match command {
             NoteCommands::List { tags, format } => {
-                println!("Note list (tags: {:?}, format: {})", tags, format);
-                // TODO: Implement note list command
+                match commands::note::list_notes(&api_client, tags.as_deref(), &format).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
             }
             NoteCommands::Search { query, format } => {
                 println!("Note search: {} (format: {})", query, format);
