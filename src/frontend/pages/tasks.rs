@@ -177,7 +177,10 @@ pub fn Tasks() -> impl IntoView {
                                                         .into_any()
                                                 } else {
                                                     view! {
-                                                        <div class="absolute z-10 w-full mt-1 bg-ctp-surface0 border border-ctp-surface1 rounded-lg shadow-lg max-h-[400px] overflow-y-auto">
+                                                        <div
+                                                            class="absolute z-10 w-full mt-1 bg-ctp-surface0 border border-ctp-surface1 rounded-lg shadow-lg max-h-[400px] overflow-y-auto"
+                                                            on:mousedown=move |ev| ev.prevent_default()
+                                                        >
                                                             {filtered
                                                                 .iter()
                                                                 .map(|list| {
