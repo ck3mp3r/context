@@ -153,9 +153,9 @@ impl<G: GitOps> SyncManager<G> {
                     self.git.push(&self.sync_dir, "origin", "main")?;
                 }
             }
-            Err(GitError::NonZeroExit { code: 1, stderr })
-                if stderr.contains("nothing to commit")
-                    || stderr.contains("nothing added to commit") =>
+            Err(GitError::NonZeroExit { code: 1, output })
+                if output.contains("nothing to commit")
+                    || output.contains("nothing added to commit") =>
             {
                 // Nothing to commit is not an error - data is already synced
             }
@@ -430,7 +430,7 @@ mod tests {
         mock_git.expect_commit().times(1).returning(|_, _| {
             Err(GitError::NonZeroExit {
                 code: 1,
-                stderr: "nothing to commit, working tree clean\n".to_string(),
+                output: "nothing to commit, working tree clean\n".to_string(),
             })
         });
 
