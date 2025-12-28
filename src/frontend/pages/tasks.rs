@@ -11,6 +11,7 @@ pub fn Tasks() -> impl IntoView {
     let (selected_list_ids, set_selected_list_ids) = signal(HashSet::<String>::new());
     let (show_archived, set_show_archived) = signal(false);
     let (search_query, set_search_query) = signal(String::new());
+    let (is_search_focused, set_is_search_focused) = signal(false);
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (swim_lane_tasks, set_swim_lane_tasks) =
@@ -87,6 +88,8 @@ pub fn Tasks() -> impl IntoView {
                                                     set_search_query.set(event_target_value(&ev));
                                                 }
 
+                                                on:focus=move |_| set_is_search_focused.set(true)
+                                                on:blur=move |_| set_is_search_focused.set(false)
                                                 class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
                                             />
 
@@ -148,7 +151,8 @@ pub fn Tasks() -> impl IntoView {
                                             {move || {
                                                 let query = search_query.get();
                                                 let show_archived_val = show_archived.get();
-                                                if query.is_empty() {
+                                                let focused = is_search_focused.get();
+                                                if query.is_empty() || !focused {
                                                     return view! { <div></div> }.into_any();
                                                 }
                                                 let filtered: Vec<TaskList> = all_lists_for_search
