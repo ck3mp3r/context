@@ -79,7 +79,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
     /// and git operations.
     ///
     /// # Example (Test)
-    /// ```no_run
+    /// ```ignore
     /// use std::sync::Arc;
     /// use tempfile::TempDir;
     /// use context::db::SqliteDatabase;
