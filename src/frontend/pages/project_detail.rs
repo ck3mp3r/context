@@ -1,9 +1,10 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
+use std::collections::HashMap;
 
-use crate::api::{ApiClientError, projects};
-use crate::models::Project;
+use crate::api::{ApiClientError, notes, projects, repos, task_lists};
+use crate::models::{Note, Paginated, Project, Repo, Task, TaskList};
 
 #[component]
 pub fn ProjectDetail() -> impl IntoView {
@@ -12,6 +13,12 @@ pub fn ProjectDetail() -> impl IntoView {
 
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
     let (active_tab, set_active_tab) = signal("task-lists");
+    let (task_lists_data, set_task_lists_data) =
+        signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
+    let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
+    let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
+    let (swim_lane_tasks, set_swim_lane_tasks) =
+        signal(HashMap::<String, Result<Vec<Task>, ApiClientError>>::new());
 
     // Fetch project details
     Effect::new(move || {
@@ -20,6 +27,43 @@ pub fn ProjectDetail() -> impl IntoView {
             spawn_local(async move {
                 let result = projects::get(&id).await;
                 set_project_data.set(Some(result));
+            });
+        }
+    });
+
+    // Fetch task lists for this project
+    Effect::new(move || {
+        let id = project_id();
+        if !id.is_empty() {
+            spawn_local(async move {
+                // TODO: Backend needs to support filtering by project_id
+                // For now, fetch all and filter client-side
+                let result = task_lists::list(Some(100), None).await;
+                set_task_lists_data.set(Some(result));
+            });
+        }
+    });
+
+    // Fetch notes for this project
+    Effect::new(move || {
+        let id = project_id();
+        if !id.is_empty() {
+            spawn_local(async move {
+                // TODO: Backend needs to support filtering by project_id
+                let result = notes::list(Some(50), None, None).await;
+                set_notes_data.set(Some(result));
+            });
+        }
+    });
+
+    // Fetch repos for this project
+    Effect::new(move || {
+        let id = project_id();
+        if !id.is_empty() {
+            spawn_local(async move {
+                // TODO: Backend needs to support filtering by project
+                let result = repos::list(Some(50), None).await;
+                set_repos_data.set(Some(result));
             });
         }
     });
@@ -125,34 +169,172 @@ pub fn ProjectDetail() -> impl IntoView {
 
                             // Tab Content
                             <div>
-                                {move || match active_tab.get().as_ref() {
-                                    "task-lists" => {
-                                        view! {
-                                            <div>
-                                                <p class="text-ctp-subtext0">
-                                                    "Task lists for this project will appear here"
-                                                </p>
-                                            </div>
+                                {move || {
+                                    let proj_id = project.id.clone();
+                                    match active_tab.get().as_ref() {
+                                        "task-lists" => {
+                                            view! {
+                                                <div>
+                                                    {move || match task_lists_data.get() {
+                                                        None => {
+                                                            view! { <p class="text-ctp-subtext0">"Loading task lists..."</p> }
+                                                                .into_any()
+                                                        }
+                                                        Some(Ok(paginated)) => {
+                                                            let filtered: Vec<TaskList> = paginated
+                                                                .items
+                                                                .iter()
+                                                                .filter(|list| list.project_id == proj_id)
+                                                                .cloned()
+                                                                .collect();
+                                                            if filtered.is_empty() {
+                                                                view! {
+                                                                    <p class="text-ctp-subtext0">
+                                                                        "No task lists for this project yet"
+                                                                    </p>
+                                                                }
+                                                                    .into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <div class="space-y-4">
+                                                                        {filtered
+                                                                            .iter()
+                                                                            .map(|list| {
+                                                                                view! {
+                                                                                    <div class="bg-ctp-surface0 rounded-lg p-4 border border-ctp-surface1">
+                                                                                        <h3 class="font-semibold text-ctp-text mb-2">
+                                                                                            {list.name.clone()}
+                                                                                        </h3>
+                                                                                        {list
+                                                                                            .description
+                                                                                            .as_ref()
+                                                                                            .map(|desc| {
+                                                                                                view! { <p class="text-sm text-ctp-subtext0">{desc.clone()}</p> }
+                                                                                            })}
+
+                                                                                    </div>
+                                                                                }
+                                                                            })
+                                                                            .collect::<Vec<_>>()}
+                                                                    </div>
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                        }
+                                                        Some(Err(err)) => {
+                                                            view! {
+                                                                <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                                    <p class="text-ctp-red">{err.to_string()}</p>
+                                                                </div>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                    }}
+
+                                                </div>
+                                            }
+                                                .into_any()
                                         }
-                                            .into_any()
-                                    }
-                                    "notes" => {
-                                        view! {
-                                            <div>
-                                                <p class="text-ctp-subtext0">"Notes for this project will appear here"</p>
-                                            </div>
+                                        "notes" => {
+                                            view! {
+                                                <div>
+                                                    {move || match notes_data.get() {
+                                                        None => {
+                                                            view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }.into_any()
+                                                        }
+                                                        Some(Ok(paginated)) => {
+                                                            let filtered: Vec<Note> = paginated
+                                                                .items
+                                                                .iter()
+                                                                .filter(|note| note.project_ids.contains(&proj_id))
+                                                                .cloned()
+                                                                .collect();
+                                                            if filtered.is_empty() {
+                                                                view! { <p class="text-ctp-subtext0">"No notes linked to this project"</p> }
+                                                                    .into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <div class="space-y-4">
+                                                                        {filtered
+                                                                            .iter()
+                                                                            .map(|note| {
+                                                                                view! {
+                                                                                    <div class="bg-ctp-surface0 rounded-lg p-4 border border-ctp-surface1">
+                                                                                        <h3 class="font-semibold text-ctp-text">{note.title.clone()}</h3>
+                                                                                    </div>
+                                                                                }
+                                                                            })
+                                                                            .collect::<Vec<_>>()}
+                                                                    </div>
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                        }
+                                                        Some(Err(err)) => {
+                                                            view! {
+                                                                <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                                    <p class="text-ctp-red">{err.to_string()}</p>
+                                                                </div>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                    }}
+
+                                                </div>
+                                            }
+                                                .into_any()
                                         }
-                                            .into_any()
-                                    }
-                                    "repos" => {
-                                        view! {
-                                            <div>
-                                                <p class="text-ctp-subtext0">"Repos for this project will appear here"</p>
-                                            </div>
+                                        "repos" => {
+                                            view! {
+                                                <div>
+                                                    {move || match repos_data.get() {
+                                                        None => {
+                                                            view! { <p class="text-ctp-subtext0">"Loading repos..."</p> }.into_any()
+                                                        }
+                                                        Some(Ok(paginated)) => {
+                                                            let filtered: Vec<Repo> = paginated
+                                                                .items
+                                                                .iter()
+                                                                .filter(|repo| repo.tags.iter().any(|tag| tag == &proj_id))
+                                                                .cloned()
+                                                                .collect();
+                                                            if filtered.is_empty() {
+                                                                view! { <p class="text-ctp-subtext0">"No repos linked to this project"</p> }
+                                                                    .into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <div class="space-y-4">
+                                                                        {filtered
+                                                                            .iter()
+                                                                            .map(|repo| {
+                                                                                view! {
+                                                                                    <div class="bg-ctp-surface0 rounded-lg p-4 border border-ctp-surface1">
+                                                                                        <h3 class="font-semibold text-ctp-text">{repo.remote.clone()}</h3>
+                                                                                    </div>
+                                                                                }
+                                                                            })
+                                                                            .collect::<Vec<_>>()}
+                                                                    </div>
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                        }
+                                                        Some(Err(err)) => {
+                                                            view! {
+                                                                <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                                    <p class="text-ctp-red">{err.to_string()}</p>
+                                                                </div>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                    }}
+
+                                                </div>
+                                            }
+                                                .into_any()
                                         }
-                                            .into_any()
+                                        _ => view! { <div></div> }.into_any(),
                                     }
-                                    _ => view! { <div></div> }.into_any(),
                                 }}
 
                             </div>
