@@ -4,7 +4,7 @@ use leptos_router::{
     path,
 };
 
-use crate::pages::{Home, Notes, Projects, Repos, Tasks};
+use crate::pages::{Home, Notes, ProjectDetail, Repos};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -16,21 +16,18 @@ pub fn App() -> impl IntoView {
                         <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
                         <div class="flex gap-4">
                             <a href="/" class="text-ctp-blue hover:text-ctp-lavender">"Home"</a>
-                            <a href="/projects" class="text-ctp-blue hover:text-ctp-lavender">"Projects"</a>
-                            <a href="/repos" class="text-ctp-blue hover:text-ctp-lavender">"Repos"</a>
-                            <a href="/tasks" class="text-ctp-blue hover:text-ctp-lavender">"Tasks"</a>
                             <a href="/notes" class="text-ctp-blue hover:text-ctp-lavender">"Notes"</a>
+                            <a href="/repos" class="text-ctp-blue hover:text-ctp-lavender">"Repos"</a>
                         </div>
                     </div>
                 </nav>
 
                 <Routes fallback=|| view! { <p>"Page not found"</p> }>
                     <Route path=path!("/") view=Home/>
-                    <Route path=path!("/projects") view=Projects/>
-                    <Route path=path!("/repos") view=Repos/>
-                    <Route path=path!("/tasks") view=Tasks/>
+                    <Route path=path!("/projects/:id") view=ProjectDetail/>
                     <Route path=path!("/notes") view=Notes/>
                     <Route path=path!("/notes/:id") view=Notes/>
+                    <Route path=path!("/repos") view=Repos/>
                 </Routes>
             </main>
         </Router>
