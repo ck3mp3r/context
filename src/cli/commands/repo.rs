@@ -16,12 +16,12 @@ struct CreateRepoRequest {
     remote: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct UpdateRepoRequest {
+struct PatchRepoRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     remote: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,9 +35,9 @@ pub struct Repo {
     pub id: String,
     pub remote: String,
     pub path: Option<String>,
-    pub tags: Option<Vec<String>>,
+    pub tags: Vec<String>,
+    pub project_ids: Vec<String>,
     pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Tabled)]
@@ -72,11 +72,11 @@ impl From<&Repo> for RepoDisplay {
                     }
                 })
                 .unwrap_or_else(|| "-".to_string()),
-            tags: repo
-                .tags
-                .as_ref()
-                .map(|t| t.join(", "))
-                .unwrap_or_else(|| "-".to_string()),
+            tags: if repo.tags.is_empty() {
+                "-".to_string()
+            } else {
+                repo.tags.join(", ")
+            },
         }
     }
 }
@@ -144,14 +144,15 @@ fn format_repo_detail(repo: &Repo) -> String {
         builder.push_record(["Path", path]);
     }
 
-    if let Some(tags) = &repo.tags {
-        if !tags.is_empty() {
-            builder.push_record(["Tags", &tags.join(", ")]);
-        }
+    if !repo.tags.is_empty() {
+        builder.push_record(["Tags", &repo.tags.join(", ")]);
+    }
+
+    if !repo.project_ids.is_empty() {
+        builder.push_record(["Projects", &repo.project_ids.join(", ")]);
     }
 
     builder.push_record(["Created", &repo.created_at]);
-    builder.push_record(["Updated", &repo.updated_at]);
 
     let mut table = builder.build();
     table.with(Style::rounded());
@@ -167,7 +168,9 @@ pub async fn create_repo(
 ) -> CliResult<String> {
     let url = format!("{}/v1/repos", api_client.base_url());
 
-    let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+    let tags_vec = tags
+        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
 
     let request = CreateRepoRequest {
         remote: remote.to_string(),
@@ -207,7 +210,7 @@ pub async fn update_repo(
 
     let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
-    let request = UpdateRepoRequest {
+    let request = PatchRepoRequest {
         remote: remote.map(String::from),
         path: path.map(String::from),
         tags: tags_vec,
