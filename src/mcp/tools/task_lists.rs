@@ -140,6 +140,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             },
             status: params.0.status.clone(),
             tags,
+            project_id: None, // MCP doesn't expose project_id filtering yet
         };
 
         let result = self

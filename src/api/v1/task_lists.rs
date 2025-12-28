@@ -152,6 +152,9 @@ pub struct ListTaskListsQuery {
     /// Filter by status (active, archived)
     #[param(example = "active")]
     pub status: Option<String>,
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -214,6 +217,7 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
         },
         status: query.status.clone(),
         tags,
+        project_id: query.project_id.clone(),
     };
 
     let result = state

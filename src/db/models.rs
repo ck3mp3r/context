@@ -66,7 +66,7 @@ pub struct RepoQuery {
     pub tags: Option<Vec<String>>,
 }
 
-/// Query for TaskLists - pagination + status/tags filters.
+/// Query for TaskLists - pagination + status/tags/project filters.
 #[derive(Debug, Clone, Default)]
 pub struct TaskListQuery {
     pub page: PageSort,
@@ -74,6 +74,8 @@ pub struct TaskListQuery {
     pub status: Option<String>,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by project ID.
+    pub project_id: Option<String>,
 }
 
 /// Query for Tasks - pagination + list/parent/status/tags filters.

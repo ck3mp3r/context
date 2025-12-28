@@ -870,6 +870,284 @@ async fn patch_task_list_not_found() {
 }
 
 // =============================================================================
+// GET /v1/task-lists?project_id=X - Filter by Project
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_task_lists_filtered_by_project_id() {
+    let app = test_app().await;
+
+    // Create two projects
+    let project_a_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A",
+                        "description": "First project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_a_body = json_body(project_a_response).await;
+    let project_a_id = project_a_body["id"].as_str().unwrap();
+
+    let project_b_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B",
+                        "description": "Second project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_b_body = json_body(project_b_response).await;
+    let project_b_id = project_b_body["id"].as_str().unwrap();
+
+    // Create task lists: 2 for project A, 1 for project B
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Project A - Sprint 1",
+                        "project_id": project_a_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Project A - Sprint 2",
+                        "project_id": project_a_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Project B - Sprint 1",
+                        "project_id": project_b_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id for Project A
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/task-lists?project_id={}", project_a_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned items belong to Project A
+    for item in body["items"].as_array().unwrap() {
+        assert_eq!(item["project_id"], project_a_id);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_task_lists_filtered_by_nonexistent_project() {
+    let app = test_app().await;
+
+    // Create a task list with the default project
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Some Task List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by a non-existent project_id
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/task-lists?project_id=nonexist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 0);
+    assert!(body["items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_task_lists_filtered_by_project_id_and_tags() {
+    let app = test_app().await;
+
+    // Create a project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap();
+
+    // Create task lists with various tag combinations
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Work List",
+                        "tags": ["work", "urgent"],
+                        "project_id": project_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Personal List",
+                        "tags": ["personal"],
+                        "project_id": project_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Different Project Work",
+                        "tags": ["work"],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id AND tags=work
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/task-lists?project_id={}&tags=work",
+                    project_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["name"], "Work List");
+    assert_eq!(body["items"][0]["project_id"], project_id);
+}
+
+// =============================================================================
 // PATCH /v1/task-lists/{id} - Relationship Relinking
 // =============================================================================
 

@@ -200,6 +200,11 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             bind_values.push(status.clone());
         }
 
+        if let Some(project_id) = &query.project_id {
+            conditions.push("tl.project_id = ?".to_string());
+            bind_values.push(project_id.clone());
+        }
+
         // Tag filtering requires json_each join
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
 
