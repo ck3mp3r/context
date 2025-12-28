@@ -82,10 +82,9 @@ fn NotesList() -> impl IntoView {
                 match notes_data.get() {
                     None => view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }.into_any(),
                     Some(result) => {
-                        match result {
+                                        match result {
                             Ok(paginated) => {
                                 let total_pages = (paginated.total + PAGE_SIZE - 1) / PAGE_SIZE;
-                                let current_page = page.get();
 
                                 if paginated.items.is_empty() {
                                     view! {
@@ -131,12 +130,13 @@ fn NotesList() -> impl IntoView {
                                                             // Previous button
                                                             <button
                                                                 on:click=move |_| {
-                                                                    if current_page > 0 {
-                                                                        go_to_page(current_page - 1)
+                                                                    let current = page.get();
+                                                                    if current > 0 {
+                                                                        go_to_page(current - 1)
                                                                     }
                                                                 }
 
-                                                                disabled=move || current_page == 0
+                                                                disabled=move || page.get() == 0
                                                                 class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
                                                             >
                                                                 "← Previous"
@@ -144,18 +144,19 @@ fn NotesList() -> impl IntoView {
 
                                                             // Page numbers
                                                             <span class="text-ctp-subtext0">
-                                                                "Page " {current_page + 1} " of " {total_pages}
+                                                                "Page " {move || page.get() + 1} " of " {total_pages}
                                                             </span>
 
                                                             // Next button
                                                             <button
                                                                 on:click=move |_| {
-                                                                    if current_page < total_pages - 1 {
-                                                                        go_to_page(current_page + 1)
+                                                                    let current = page.get();
+                                                                    if current < total_pages - 1 {
+                                                                        go_to_page(current + 1)
                                                                     }
                                                                 }
                                                                 disabled=move || {
-                                                                    current_page >= total_pages - 1
+                                                                    page.get() >= total_pages - 1
                                                                 }
                                                                 class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
                                                             >
