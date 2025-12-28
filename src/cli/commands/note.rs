@@ -25,7 +25,7 @@ pub async fn list_notes(
     tags: Option<&str>,
     format: &str,
 ) -> CliResult<String> {
-    let mut url = format!("{}/api/v1/notes", api_client.base_url());
+    let mut url = format!("{}/v1/notes", api_client.base_url());
 
     if let Some(tag_str) = tags {
         url.push_str(&format!("?tags={}", tag_str));
@@ -72,7 +72,7 @@ fn truncate(s: &str, max_len: usize) -> String {
 /// Search notes using FTS5 full-text search
 pub async fn search_notes(api_client: &ApiClient, query: &str, format: &str) -> CliResult<String> {
     // Use reqwest's built-in query parameter handling
-    let url = format!("{}/api/v1/notes/search", api_client.base_url());
+    let url = format!("{}/v1/notes/search", api_client.base_url());
 
     let response: NoteListResponse = reqwest::Client::new()
         .get(&url)

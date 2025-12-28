@@ -21,11 +21,7 @@ struct TaskListResponse {
 
 /// List tasks from a task list
 pub async fn list_tasks(api_client: &ApiClient, list_id: &str, format: &str) -> CliResult<String> {
-    let url = format!(
-        "{}/api/v1/task-lists/{}/tasks",
-        api_client.base_url(),
-        list_id
-    );
+    let url = format!("{}/v1/task-lists/{}/tasks", api_client.base_url(), list_id);
 
     let response: TaskListResponse = reqwest::get(&url).await?.json().await?;
 
@@ -75,11 +71,7 @@ fn truncate(s: &str, max_len: usize) -> String {
 
 /// Mark a task as complete
 pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<String> {
-    let url = format!(
-        "{}/api/v1/tasks/{}/complete",
-        api_client.base_url(),
-        task_id
-    );
+    let url = format!("{}/v1/tasks/{}/complete", api_client.base_url(), task_id);
 
     let client = reqwest::Client::new();
     let response = client.post(&url).send().await?;
