@@ -23,11 +23,52 @@ pub fn Notes() -> impl IntoView {
 
 #[component]
 fn NotesList() -> impl IntoView {
-    let notes_resource = LocalResource::new(|| async move { notes::list(Some(50), None).await });
+    const PAGE_SIZE: usize = 20;
+
+    // State management
+    let (page, set_page) = signal(0usize);
+    let (search_query, set_search_query) = signal(String::new());
+
+    // Fetch notes with current page and search query
+    let notes_resource = LocalResource::new(move || async move {
+        let offset = page.get() * PAGE_SIZE;
+        let query = search_query.get();
+        let query_opt = if query.trim().is_empty() {
+            None
+        } else {
+            Some(query)
+        };
+        notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await
+    });
+
+    // Handle search input change
+    let on_search = move |ev: web_sys::Event| {
+        let value = event_target_value(&ev);
+        set_search_query.set(value);
+        set_page.set(0); // Reset to first page on new search
+    };
+
+    // Pagination handlers
+    let go_to_page = move |new_page: usize| {
+        set_page.set(new_page);
+    };
 
     view! {
         <div class="container mx-auto p-6">
-            <h2 class="text-3xl font-bold text-ctp-text mb-6">"Notes"</h2>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-ctp-text">"Notes"</h2>
+            </div>
+
+            // Search bar
+            <div class="mb-6">
+                <input
+                    type="text"
+                    placeholder="Search notes (FTS5)..."
+                    value=move || search_query.get()
+                    on:input=on_search
+                    class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue"
+                />
+            </div>
 
             <Suspense fallback=move || {
                 view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }
@@ -37,23 +78,85 @@ fn NotesList() -> impl IntoView {
                         .get()
                         .map(|result| match result.as_ref() {
                             Ok(paginated) => {
+                                let total_pages = (paginated.total + PAGE_SIZE - 1) / PAGE_SIZE;
+                                let current_page = page.get();
+
                                 if paginated.items.is_empty() {
                                     view! {
                                         <p class="text-ctp-subtext0">
-                                            "No notes found. Create one to get started!"
+                                            {if search_query.get().trim().is_empty() {
+                                                "No notes found. Create one to get started!"
+                                            } else {
+                                                "No notes found matching your search."
+                                            }}
                                         </p>
                                     }
                                         .into_any()
                                 } else {
                                     view! {
-                                        <div class="grid gap-4">
-                                            {paginated
-                                                .items
-                                                .iter()
-                                                .map(|note| {
-                                                    view! { <NoteCard note=note.clone()/> }
-                                                })
-                                                .collect::<Vec<_>>()}
+                                        <div>
+                                            // Results summary
+                                            <div class="text-sm text-ctp-overlay0 mb-4">
+                                                "Showing "
+                                                {paginated.offset + 1}
+                                                " - "
+                                                {(paginated.offset + paginated.items.len()).min(paginated.total)}
+                                                " of "
+                                                {paginated.total}
+                                                " notes"
+                                            </div>
+
+                                            // Notes grid
+                                            <div class="grid gap-4 mb-6">
+                                                {paginated
+                                                    .items
+                                                    .iter()
+                                                    .map(|note| {
+                                                        view! { <NoteCard note=note.clone()/> }
+                                                    })
+                                                    .collect::<Vec<_>>()}
+                                            </div>
+
+                                            // Pagination controls
+                                            {(total_pages > 1)
+                                                .then(|| {
+                                                    view! {
+                                                        <div class="flex justify-center items-center gap-2">
+                                                            // Previous button
+                                                            <button
+                                                                on:click=move |_| {
+                                                                    if current_page > 0 {
+                                                                        go_to_page(current_page - 1)
+                                                                    }
+                                                                }
+
+                                                                disabled=move || current_page == 0
+                                                                class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
+                                                            >
+                                                                "← Previous"
+                                                            </button>
+
+                                                            // Page numbers
+                                                            <span class="text-ctp-subtext0">
+                                                                "Page " {current_page + 1} " of " {total_pages}
+                                                            </span>
+
+                                                            // Next button
+                                                            <button
+                                                                on:click=move |_| {
+                                                                    if current_page < total_pages - 1 {
+                                                                        go_to_page(current_page + 1)
+                                                                    }
+                                                                }
+
+                                                                disabled=move || current_page >= total_pages - 1
+                                                                class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
+                                                            >
+                                                                "Next →"
+                                                            </button>
+                                                        </div>
+                                                    }
+                                                })}
                                         </div>
                                     }
                                         .into_any()

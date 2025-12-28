@@ -207,10 +207,25 @@ pub mod tasks {
 pub mod notes {
     use super::*;
 
-    pub async fn list(limit: Option<usize>, offset: Option<usize>) -> Result<Paginated<Note>> {
+    pub async fn list(
+        limit: Option<usize>,
+        offset: Option<usize>,
+        search_query: Option<String>,
+    ) -> Result<Paginated<Note>> {
         let mut url = format!("{}/notes", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(q) = search_query {
+            if !q.trim().is_empty() {
+                // Simple URL encoding for search query
+                let encoded = q
+                    .replace(' ', "+")
+                    .replace('&', "%26")
+                    .replace('=', "%3D")
+                    .replace('#', "%23");
+                query_params.push(format!("q={}", encoded));
+            }
+        }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
         }
