@@ -1,6 +1,7 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::{CliError, CliResult};
 use serde::{Deserialize, Serialize};
+use tabled::{Table, Tabled, settings::Style};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Task {
@@ -9,6 +10,36 @@ pub struct Task {
     pub status: String,
     pub priority: Option<i32>,
     pub created_at: String,
+}
+
+#[derive(Tabled)]
+struct TaskDisplay {
+    #[tabled(rename = "ID")]
+    id: String,
+    #[tabled(rename = "Content")]
+    content: String,
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Priority")]
+    priority: String,
+}
+
+impl From<&Task> for TaskDisplay {
+    fn from(task: &Task) -> Self {
+        Self {
+            id: task.id.chars().take(8).collect(),
+            content: if task.content.len() <= 50 {
+                task.content.clone()
+            } else {
+                format!("{}...", task.content.chars().take(47).collect::<String>())
+            },
+            status: task.status.clone(),
+            priority: task
+                .priority
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,37 +67,10 @@ fn format_table(tasks: &[Task]) -> String {
         return "No tasks found.".to_string();
     }
 
-    let mut output = String::new();
-    output.push_str(&format!(
-        "{:<20} {:<50} {:<15} {:<10}\n",
-        "ID", "Content", "Status", "Priority"
-    ));
-    output.push_str(&"-".repeat(95));
-    output.push('\n');
-
-    for task in tasks {
-        let priority = task
-            .priority
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "-".to_string());
-        output.push_str(&format!(
-            "{:<20} {:<50} {:<15} {:<10}\n",
-            &task.id[..8.min(task.id.len())],
-            truncate(&task.content, 50),
-            &task.status,
-            priority
-        ));
-    }
-
-    output
-}
-
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
+    let display_tasks: Vec<TaskDisplay> = tasks.iter().map(|t| t.into()).collect();
+    let mut table = Table::new(display_tasks);
+    table.with(Style::rounded());
+    table.to_string()
 }
 
 /// Mark a task as complete
@@ -132,15 +136,18 @@ mod tests {
         let output = format_table(&tasks);
         println!("Output:\n{}", output);
 
+        // Test that table contains the data
         assert!(output.contains("12345678"));
         assert!(output.contains("Test task 1"));
         assert!(output.contains("todo"));
-        assert!(output.contains("1"));
+        assert!(output.contains(" 1 ")); // Priority with spaces
         assert!(output.contains("87654321"));
-        // The truncate function adds "..." so we need to match the actual truncated content
-        assert!(output.contains("..."));
+        assert!(output.contains("...")); // Truncation marker
         assert!(output.contains("done"));
-        assert!(output.contains("-")); // for None priority
+        assert!(output.contains(" - ")); // None priority rendered as dash
+
+        // Test that table has rounded style characters
+        assert!(output.contains("╭") || output.contains("─")); // Table borders
     }
 
     #[test]
@@ -151,9 +158,32 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("this is a very long string", 10), "this is...");
+    fn test_task_display_conversion() {
+        let task = Task {
+            id: "12345678abcdef".to_string(),
+            content: "short".to_string(),
+            status: "todo".to_string(),
+            priority: Some(5),
+            created_at: "2025-12-28T10:00:00Z".to_string(),
+        };
+
+        let display: TaskDisplay = (&task).into();
+        assert_eq!(display.id, "12345678");
+        assert_eq!(display.content, "short");
+        assert_eq!(display.priority, "5");
+
+        let task_none = Task {
+            id: "abc123".to_string(),
+            content: "x".repeat(60),
+            status: "done".to_string(),
+            priority: None,
+            created_at: "2025-12-28T10:00:00Z".to_string(),
+        };
+
+        let display_none: TaskDisplay = (&task_none).into();
+        assert_eq!(display_none.id, "abc123");
+        assert!(display_none.content.ends_with("..."));
+        assert_eq!(display_none.priority, "-");
     }
 
     #[test]

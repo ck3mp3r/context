@@ -1,6 +1,7 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::CliResult;
 use serde::{Deserialize, Serialize};
+use tabled::{Table, Tabled, settings::Style};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Note {
@@ -9,6 +10,30 @@ pub struct Note {
     pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Tabled)]
+struct NoteDisplay {
+    #[tabled(rename = "ID")]
+    id: String,
+    #[tabled(rename = "Title")]
+    title: String,
+    #[tabled(rename = "Tags")]
+    tags: String,
+}
+
+impl From<&Note> for NoteDisplay {
+    fn from(note: &Note) -> Self {
+        Self {
+            id: note.id.chars().take(8).collect(),
+            title: if note.title.len() <= 50 {
+                note.title.clone()
+            } else {
+                format!("{}...", note.title.chars().take(47).collect::<String>())
+            },
+            tags: note.tags.join(", "),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,29 +69,10 @@ fn format_table(notes: &[Note]) -> String {
         return "No notes found.".to_string();
     }
 
-    let mut output = String::new();
-    output.push_str(&format!("{:<20} {:<50} {:<30}\n", "ID", "Title", "Tags"));
-    output.push_str(&"-".repeat(100));
-    output.push('\n');
-
-    for note in notes {
-        output.push_str(&format!(
-            "{:<20} {:<50} {:<30}\n",
-            &note.id[..8.min(note.id.len())],
-            truncate(&note.title, 50),
-            note.tags.join(", ")
-        ));
-    }
-
-    output
-}
-
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
+    let display_notes: Vec<NoteDisplay> = notes.iter().map(|n| n.into()).collect();
+    let mut table = Table::new(display_notes);
+    table.with(Style::rounded());
+    table.to_string()
 }
 
 /// Search notes using FTS5 full-text search
@@ -112,12 +118,16 @@ mod tests {
         ];
 
         let output = format_table(&notes);
+        println!("Output:\n{}", output);
 
         assert!(output.contains("12345678"));
         assert!(output.contains("Test note 1"));
         assert!(output.contains("rust, tdd"));
         assert!(output.contains("87654321"));
         assert!(output.contains("..."));
+
+        // Test that table has rounded style characters
+        assert!(output.contains("╭") || output.contains("─"));
     }
 
     #[test]
@@ -128,9 +138,32 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("this is a very long string", 10), "this is...");
+    fn test_note_display_conversion() {
+        let note = Note {
+            id: "12345678abcdef".to_string(),
+            title: "short title".to_string(),
+            tags: vec!["rust".to_string(), "tdd".to_string()],
+            created_at: "2025-12-28T10:00:00Z".to_string(),
+            updated_at: "2025-12-28T10:00:00Z".to_string(),
+        };
+
+        let display: NoteDisplay = (&note).into();
+        assert_eq!(display.id, "12345678");
+        assert_eq!(display.title, "short title");
+        assert_eq!(display.tags, "rust, tdd");
+
+        let note_long = Note {
+            id: "abc123".to_string(),
+            title: "x".repeat(60),
+            tags: vec![],
+            created_at: "2025-12-28T10:00:00Z".to_string(),
+            updated_at: "2025-12-28T10:00:00Z".to_string(),
+        };
+
+        let display_long: NoteDisplay = (&note_long).into();
+        assert_eq!(display_long.id, "abc123");
+        assert!(display_long.title.ends_with("..."));
+        assert_eq!(display_long.tags, "");
     }
 
     #[tokio::test]
