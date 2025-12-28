@@ -20,6 +20,11 @@ pub fn ProjectDetail() -> impl IntoView {
     let (swim_lane_tasks, set_swim_lane_tasks) =
         signal(HashMap::<String, Result<Vec<Task>, ApiClientError>>::new());
 
+    // Search/filter state for each tab
+    let task_list_filter = RwSignal::new(String::new());
+    let note_filter = RwSignal::new(String::new());
+    let repo_filter = RwSignal::new(String::new());
+
     // Fetch project details
     Effect::new(move || {
         let id = project_id();
@@ -175,16 +180,40 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "task-lists" => {
                                             view! {
                                                 <div>
+                                                    // Filter input
+                                                    <div class="mb-4">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Filter task lists..."
+                                                            prop:value=move || task_list_filter.get()
+                                                            on:input=move |ev| {
+                                                                task_list_filter.set(event_target_value(&ev));
+                                                            }
+
+                                                            class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                        />
+                                                    </div>
+
                                                     {move || match task_lists_data.get() {
                                                         None => {
                                                             view! { <p class="text-ctp-subtext0">"Loading task lists..."</p> }
                                                                 .into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
+                                                            let search = task_list_filter.get().to_lowercase();
                                                             let filtered: Vec<TaskList> = paginated
                                                                 .items
                                                                 .iter()
-                                                                .filter(|list| list.project_id == proj_id)
+                                                                .filter(|list| {
+                                                                    list.project_id == proj_id
+                                                                        && (search.is_empty()
+                                                                            || list.name.to_lowercase().contains(&search)
+                                                                            || list
+                                                                                .description
+                                                                                .as_ref()
+                                                                                .map(|d| d.to_lowercase().contains(&search))
+                                                                                .unwrap_or(false))
+                                                                })
                                                                 .cloned()
                                                                 .collect();
                                                             if filtered.is_empty() {
@@ -238,15 +267,34 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "notes" => {
                                             view! {
                                                 <div>
+                                                    // Filter input
+                                                    <div class="mb-4">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Filter notes..."
+                                                            prop:value=move || note_filter.get()
+                                                            on:input=move |ev| {
+                                                                note_filter.set(event_target_value(&ev));
+                                                            }
+
+                                                            class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                        />
+                                                    </div>
+
                                                     {move || match notes_data.get() {
                                                         None => {
                                                             view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }.into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
+                                                            let search = note_filter.get().to_lowercase();
                                                             let filtered: Vec<Note> = paginated
                                                                 .items
                                                                 .iter()
-                                                                .filter(|note| note.project_ids.contains(&proj_id))
+                                                                .filter(|note| {
+                                                                    note.project_ids.contains(&proj_id)
+                                                                        && (search.is_empty()
+                                                                            || note.title.to_lowercase().contains(&search))
+                                                                })
                                                                 .cloned()
                                                                 .collect();
                                                             if filtered.is_empty() {
@@ -287,15 +335,34 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "repos" => {
                                             view! {
                                                 <div>
+                                                    // Filter input
+                                                    <div class="mb-4">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Filter repos..."
+                                                            prop:value=move || repo_filter.get()
+                                                            on:input=move |ev| {
+                                                                repo_filter.set(event_target_value(&ev));
+                                                            }
+
+                                                            class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                        />
+                                                    </div>
+
                                                     {move || match repos_data.get() {
                                                         None => {
                                                             view! { <p class="text-ctp-subtext0">"Loading repos..."</p> }.into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
+                                                            let search = repo_filter.get().to_lowercase();
                                                             let filtered: Vec<Repo> = paginated
                                                                 .items
                                                                 .iter()
-                                                                .filter(|repo| repo.tags.iter().any(|tag| tag == &proj_id))
+                                                                .filter(|repo| {
+                                                                    repo.tags.iter().any(|tag| tag == &proj_id)
+                                                                        && (search.is_empty()
+                                                                            || repo.remote.to_lowercase().contains(&search))
+                                                                })
                                                                 .cloned()
                                                                 .collect();
                                                             if filtered.is_empty() {
