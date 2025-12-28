@@ -232,6 +232,276 @@ async fn list_notes_search_no_match_returns_empty() {
 }
 
 // =============================================================================
+// GET /v1/notes?project_id=X - Filter by Project
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_filtered_by_project_id() {
+    let app = test_app().await;
+
+    // Create two projects
+    let project_a_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_a_body = json_body(project_a_response).await;
+    let project_a_id = project_a_body["id"].as_str().unwrap();
+
+    let project_b_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_b_body = json_body(project_b_response).await;
+    let project_b_id = project_b_body["id"].as_str().unwrap();
+
+    // Create notes: 2 for project A, 1 for project B, 1 for both
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A Note 1",
+                        "content": "Content for A",
+                        "project_ids": [project_a_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A Note 2",
+                        "content": "More content for A",
+                        "project_ids": [project_a_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B Note",
+                        "content": "Content for B",
+                        "project_ids": [project_b_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Shared Note",
+                        "content": "Content for both",
+                        "project_ids": [project_a_id, project_b_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id for Project A
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/notes?project_id={}", project_a_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return 3 notes: 2 exclusive to A + 1 shared
+    assert_eq!(body["total"], 3);
+    assert_eq!(body["items"].as_array().unwrap().len(), 3);
+
+    // Filter by project_id for Project B
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/notes?project_id={}", project_b_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return 2 notes: 1 exclusive to B + 1 shared
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_filtered_by_project_id_and_search() {
+    let app = test_app().await;
+
+    // Create a project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap();
+
+    // Create notes with different content
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Guide",
+                        "content": "Learning Rust programming",
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Guide",
+                        "content": "Learning Python programming",
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Create a note in a different (non-existent) project
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Mastery",
+                        "content": "Advanced Rust techniques",
+                        "project_ids": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id AND search for "Rust"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/notes?project_id={}&q=Rust", project_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return only 1 note: "Rust Guide" from the project
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Rust Guide");
+}
+
+// =============================================================================
 // POST /v1/notes - Create Note
 // =============================================================================
 

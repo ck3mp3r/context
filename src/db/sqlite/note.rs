@@ -259,41 +259,87 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["title", "created_at", "updated_at"];
 
-        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(&query.page);
-
-        // Tag filtering requires json_each join
+        // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
-        let mut bind_values: Vec<String> = Vec::new();
+        let needs_project_join = query.project_id.is_some();
 
-        let (sql, count_sql) = if needs_json_each {
-            let tags = query.tags.as_ref().unwrap();
-            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
-            bind_values.extend(tags.clone());
+        // Build query conditionally based on what filters are needed
+        let mut bind_values: Vec<String> = Vec::new();
+        let mut where_conditions: Vec<String> = Vec::new();
+
+        // Decide on table alias usage
+        let (select_cols, from_clause, order_field_prefix) = if needs_json_each
+            || needs_project_join
+        {
+            // Need aliases when doing JOINs
+            let mut from = "FROM note n".to_string();
+
+            if needs_project_join {
+                from.push_str("\nINNER JOIN project_note pn ON n.id = pn.note_id");
+                where_conditions.push("pn.project_id = ?".to_string());
+                bind_values.push(query.project_id.as_ref().unwrap().clone());
+            }
+
+            if needs_json_each {
+                from.push_str(", json_each(n.tags)");
+                let tags = query.tags.as_ref().unwrap();
+                let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+                where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+                bind_values.extend(tags.clone());
+            }
 
             (
-                format!(
-                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
-                     FROM note n, json_each(n.tags)
-                     WHERE json_each.value IN ({}) {} {}",
-                    placeholders.join(", "),
-                    order_clause,
-                    limit_clause
-                ),
-                format!(
-                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE json_each.value IN ({})",
-                    placeholders.join(", ")
-                ),
+                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at",
+                from,
+                "n.",
             )
         } else {
+            // No joins, simple query
             (
-                format!(
-                    "SELECT id, title, content, tags, note_type, created_at, updated_at 
-                     FROM note {} {}",
-                    order_clause, limit_clause
-                ),
-                "SELECT COUNT(*) FROM note".to_string(),
+                "id, title, content, tags, note_type, created_at, updated_at",
+                "FROM note".to_string(),
+                "",
             )
+        };
+
+        // Build WHERE clause
+        let where_clause = if !where_conditions.is_empty() {
+            format!("WHERE {}", where_conditions.join(" AND "))
+        } else {
+            String::new()
+        };
+
+        // Build ORDER BY with proper prefixes
+        let sort_field = query
+            .page
+            .sort_by
+            .as_deref()
+            .filter(|f| allowed_fields.contains(f))
+            .unwrap_or("created_at");
+        let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+            crate::db::SortOrder::Asc => "ASC",
+            crate::db::SortOrder::Desc => "DESC",
+        };
+        let order_clause = format!(
+            "ORDER BY {}{} {}",
+            order_field_prefix, sort_field, sort_order
+        );
+
+        let limit_clause = build_limit_offset_clause(&query.page);
+
+        // Build final SQL
+        let sql = format!(
+            "SELECT {} {} {} {} {}",
+            select_cols, from_clause, where_clause, order_clause, limit_clause
+        );
+
+        let count_sql = if needs_json_each || needs_project_join {
+            format!(
+                "SELECT COUNT(DISTINCT n.id) {} {}",
+                from_clause, where_clause
+            )
+        } else {
+            "SELECT COUNT(*) FROM note".to_string()
         };
 
         // Get paginated results
@@ -557,50 +603,88 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     ) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
+        let allowed_fields = ["title", "created_at", "updated_at"];
 
-        let order_clause = build_order_clause(
-            &query.page,
-            &["title", "created_at", "updated_at"],
-            "created_at",
-        );
-        let limit_clause = build_limit_offset_clause(&query.page);
-        let search_pattern = format!("%{}%", search_term);
-
-        // Tag filtering requires json_each join
+        // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
-        let mut bind_values: Vec<String> = vec![search_pattern.clone(), search_pattern.clone()];
+        let needs_project_join = query.project_id.is_some();
 
-        let (sql, count_sql) = if needs_json_each {
-            let tags = query.tags.as_ref().unwrap();
-            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
-            bind_values.extend(tags.clone());
+        let search_pattern = format!("%{}%", search_term);
+        let mut bind_values: Vec<String> = vec![search_pattern.clone(), search_pattern.clone()];
+        let mut where_conditions: Vec<String> = Vec::new();
+
+        // Decide on table alias usage
+        let (select_cols, from_clause, search_condition, order_field_prefix) = if needs_json_each
+            || needs_project_join
+        {
+            // Need aliases when doing JOINs
+            let mut from = "FROM note n".to_string();
+
+            if needs_project_join {
+                from.push_str("\nINNER JOIN project_note pn ON n.id = pn.note_id");
+                where_conditions.push("pn.project_id = ?".to_string());
+                bind_values.push(query.project_id.as_ref().unwrap().clone());
+            }
+
+            if needs_json_each {
+                from.push_str(", json_each(n.tags)");
+                let tags = query.tags.as_ref().unwrap();
+                let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+                where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+                bind_values.extend(tags.clone());
+            }
 
             (
-                format!(
-                    "SELECT DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at 
-                     FROM note n, json_each(n.tags)
-                     WHERE (n.title LIKE ? OR n.content LIKE ?) AND json_each.value IN ({})
-                     {} {}",
-                    placeholders.join(", "),
-                    order_clause,
-                    limit_clause
-                ),
-                format!(
-                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE (n.title LIKE ? OR n.content LIKE ?) AND json_each.value IN ({})",
-                    placeholders.join(", ")
-                ),
+                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at",
+                from,
+                "(n.title LIKE ? OR n.content LIKE ?)",
+                "n.",
             )
         } else {
+            // No joins, simple query
             (
-                format!(
-                    "SELECT id, title, content, tags, note_type, created_at, updated_at 
-                     FROM note 
-                     WHERE (title LIKE ? OR content LIKE ?)
-                     {} {}",
-                    order_clause, limit_clause
-                ),
-                "SELECT COUNT(*) FROM note WHERE (title LIKE ? OR content LIKE ?)".to_string(),
+                "id, title, content, tags, note_type, created_at, updated_at",
+                "FROM note".to_string(),
+                "(title LIKE ? OR content LIKE ?)",
+                "",
             )
+        };
+
+        // Build WHERE clause with search condition first
+        where_conditions.insert(0, search_condition.to_string());
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
+
+        // Build ORDER BY with proper prefixes
+        let sort_field = query
+            .page
+            .sort_by
+            .as_deref()
+            .filter(|f| allowed_fields.contains(f))
+            .unwrap_or("created_at");
+        let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+            crate::db::SortOrder::Asc => "ASC",
+            crate::db::SortOrder::Desc => "DESC",
+        };
+        let order_clause = format!(
+            "ORDER BY {}{} {}",
+            order_field_prefix, sort_field, sort_order
+        );
+
+        let limit_clause = build_limit_offset_clause(&query.page);
+
+        // Build final SQL
+        let sql = format!(
+            "SELECT {} {} {} {} {}",
+            select_cols, from_clause, where_clause, order_clause, limit_clause
+        );
+
+        let count_sql = if needs_json_each || needs_project_join {
+            format!(
+                "SELECT COUNT(DISTINCT n.id) {} {}",
+                from_clause, where_clause
+            )
+        } else {
+            format!("SELECT COUNT(*) FROM note {}", where_clause)
         };
 
         // Get paginated results

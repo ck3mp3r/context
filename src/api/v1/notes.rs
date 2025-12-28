@@ -73,6 +73,14 @@ pub struct CreateNoteRequest {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: Option<String>,
+    /// Linked repository IDs (M:N relationship via note_repo)
+    #[schema(example = json!(["repo123a", "repo456b"]))]
+    #[serde(default)]
+    pub repo_ids: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_note)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -145,6 +153,9 @@ pub struct ListNotesQuery {
     /// Filter by tags (comma-separated)
     #[param(example = "api,session")]
     pub tags: Option<String>,
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -215,6 +226,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
             },
         },
         tags,
+        project_id: query.project_id.clone(),
     };
 
     // Get notes - either search or list all (at database level)
@@ -316,8 +328,8 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         content: req.content,
         tags: req.tags,
         note_type,
-        repo_ids: vec![],    // Empty by default - relationships managed separately
-        project_ids: vec![], // Empty by default - relationships managed separately
+        repo_ids: req.repo_ids,
+        project_ids: req.project_ids,
         created_at: String::new(), // Repository will generate this
         updated_at: String::new(), // Repository will generate this
     };

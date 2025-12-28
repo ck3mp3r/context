@@ -27,6 +27,8 @@ pub struct ListTaskListsParams {
     pub tags: Option<String>,
     #[schemars(description = "Filter by status (active, archived)")]
     pub status: Option<String>,
+    #[schemars(description = "Filter by project ID")]
+    pub project_id: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -140,7 +142,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             },
             status: params.0.status.clone(),
             tags,
-            project_id: None, // MCP doesn't expose project_id filtering yet
+            project_id: params.0.project_id.clone(),
         };
 
         let result = self

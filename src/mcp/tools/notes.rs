@@ -25,6 +25,8 @@ pub struct ListNotesParams {
     pub note_type: Option<String>,
     #[schemars(description = "Filter by tags (comma-separated)")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Filter by project ID")]
+    pub project_id: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -95,6 +97,8 @@ pub struct SearchNotesParams {
     pub query: String,
     #[schemars(description = "Filter results by tags (optional)")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Filter by project ID (optional)")]
+    pub project_id: Option<String>,
     #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of results to skip (optional)")]
@@ -144,6 +148,7 @@ impl<D: Database + 'static> NoteTools<D> {
                 sort_order: None,
             },
             tags: params.0.tags.clone(),
+            project_id: params.0.project_id.clone(),
         };
 
         let result = if include_content {
@@ -317,6 +322,7 @@ impl<D: Database + 'static> NoteTools<D> {
                 sort_order: None,
             },
             tags: params.0.tags.clone(),
+            project_id: params.0.project_id.clone(),
         };
 
         let result = self

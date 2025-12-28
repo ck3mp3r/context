@@ -19,6 +19,7 @@ async fn test_list_notes_empty() {
     let params = ListNotesParams {
         tags: None,
         note_type: None,
+        project_id: None,
         limit: None,
         offset: None,
         include_content: None,
@@ -154,6 +155,7 @@ async fn test_list_notes_with_tag_filter() {
     let params = ListNotesParams {
         tags: Some(vec!["work".to_string()]),
         note_type: None,
+        project_id: None,
         limit: None,
         offset: None,
         include_content: None,
@@ -306,6 +308,7 @@ async fn test_search_notes() {
     let params = SearchNotesParams {
         query: "Rust".to_string(),
         tags: None,
+        project_id: None,
         limit: None,
         offset: None,
     };
@@ -364,6 +367,7 @@ async fn test_search_notes_with_tag_filter() {
     let params = SearchNotesParams {
         query: "Rust".to_string(),
         tags: Some(vec!["async".to_string()]),
+        project_id: None,
         limit: None,
         offset: None,
     };

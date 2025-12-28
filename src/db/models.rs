@@ -92,12 +92,14 @@ pub struct TaskQuery {
     pub tags: Option<Vec<String>>,
 }
 
-/// Query for Notes - pagination + tags filter.
+/// Query for Notes - pagination + tags/project filters.
 #[derive(Debug, Clone, Default)]
 pub struct NoteQuery {
     pub page: PageSort,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by project ID (notes with project_id in project_ids array).
+    pub project_id: Option<String>,
 }
 
 /// Result of a paginated list query.

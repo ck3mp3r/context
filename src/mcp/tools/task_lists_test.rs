@@ -22,6 +22,7 @@ async fn test_list_task_lists_empty() {
     let params = ListTaskListsParams {
         tags: None,
         status: None,
+        project_id: None,
         limit: None,
         offset: None,
         sort: None,
@@ -308,6 +309,7 @@ async fn test_list_task_lists_with_filters() {
     let params = ListTaskListsParams {
         tags: None,
         status: Some("active".to_string()),
+        project_id: None,
         limit: None,
         offset: None,
         sort: None,
@@ -332,6 +334,7 @@ async fn test_list_task_lists_with_filters() {
     let params = ListTaskListsParams {
         tags: Some("personal".to_string()),
         status: None,
+        project_id: None,
         limit: None,
         offset: None,
         sort: None,
