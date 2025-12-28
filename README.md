@@ -18,6 +18,7 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 - [API Reference](docs/api.md) - REST API endpoints
 - [MCP Tools](docs/mcp.md) - Model Context Protocol tools
 - [Database Schema](docs/schema.md) - SQLite schema and migrations
+- [Sync Guide](docs/sync.md) - Git-based cross-machine synchronization
 
 ## Architecture
 
