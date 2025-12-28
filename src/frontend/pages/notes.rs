@@ -215,9 +215,10 @@ fn NotesList() -> impl IntoView {
 
 #[component]
 fn NoteCard(note: Note) -> impl IntoView {
-    // Create a preview of the content (first 200 chars)
-    let preview = if note.content.len() > 200 {
-        format!("{}...", &note.content[..200])
+    // Create a preview of the content (first 200 chars, UTF-8 safe)
+    let preview = if note.content.chars().count() > 200 {
+        let truncated: String = note.content.chars().take(200).collect();
+        format!("{}...", truncated)
     } else {
         note.content.clone()
     };
