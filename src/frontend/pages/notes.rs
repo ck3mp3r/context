@@ -148,8 +148,9 @@ fn NotesList() -> impl IntoView {
                                                                         go_to_page(current_page + 1)
                                                                     }
                                                                 }
-
-                                                                disabled=move || current_page >= total_pages - 1
+                                                                disabled=move || {
+                                                                    current_page >= total_pages - 1
+                                                                }
                                                                 class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
                                                             >
                                                                 "Next →"
