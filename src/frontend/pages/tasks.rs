@@ -167,12 +167,12 @@ fn KanbanColumn(status: &'static str, label: &'static str, tasks: Vec<Task>) -> 
     };
 
     view! {
-        <div class=format!("{} rounded-lg p-4 min-h-[400px]", bg_color)>
+        <div class=format!("{} rounded-lg p-4 min-h-[400px] overflow-hidden", bg_color)>
             <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center">
                 <span>{label}</span>
                 <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">{tasks.len()}</span>
             </h3>
-            <div class="space-y-2">
+            <div class="space-y-2 overflow-y-auto">
                 {tasks
                     .into_iter()
                     .map(|task| view! { <TaskCard task=task/> })
@@ -198,7 +198,7 @@ fn TaskCard(task: Task) -> impl IntoView {
             "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer",
             priority_color,
         )>
-            <p class="text-sm text-ctp-text mb-2">{task.content.clone()}</p>
+            <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
 
             {(!task.tags.is_empty())
                 .then(|| {
