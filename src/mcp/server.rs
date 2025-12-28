@@ -13,6 +13,7 @@ use rmcp::{
 };
 
 use crate::db::Database;
+use crate::sync::RealGit;
 
 use super::tools::{
     NoteTools, ProjectTools, RepoTools, SyncTools, TaskListTools, TaskTools, notes::*, projects::*,
@@ -46,7 +47,7 @@ pub struct McpServer<D: Database> {
     task_list_tools: TaskListTools<D>,
     task_tools: TaskTools<D>,
     note_tools: NoteTools<D>,
-    sync_tools: SyncTools<D>,
+    sync_tools: SyncTools<D, RealGit>,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
@@ -69,7 +70,7 @@ impl<D: Database + 'static> McpServer<D> {
             task_list_tools: TaskListTools::new(Arc::clone(&db)),
             task_tools: TaskTools::new(Arc::clone(&db)),
             note_tools: NoteTools::new(Arc::clone(&db)),
-            sync_tools: SyncTools::new(Arc::clone(&db)),
+            sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
             db,
             tool_router: Self::tool_router(),
         }

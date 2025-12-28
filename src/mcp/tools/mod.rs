@@ -7,6 +7,8 @@ pub mod notes;
 pub mod projects;
 pub mod repos;
 pub mod sync;
+#[cfg(test)]
+mod sync_test;
 pub mod task_lists;
 pub mod tasks;
 #[cfg(test)]

@@ -1,8 +1,16 @@
 //! Sync tool - MCP interface for git-based synchronization.
+//!
+//! # SOLID Principles
+//!
+//! This module follows the Dependency Inversion Principle (DIP):
+//! - SyncTools is generic over `D: Database` and `G: GitOps`
+//! - Dependencies are INJECTED via constructor, not created internally
+//! - Tests can inject MockGitOps for isolated testing
+//! - Production code uses with_real_git() convenience constructor
 
 use crate::db::Database;
 use crate::mcp::tools::map_db_error;
-use crate::sync::{RealGit, SyncError, SyncManager};
+use crate::sync::{GitOps, RealGit, SyncError, SyncManager};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -45,18 +53,51 @@ pub struct SyncParams {
 }
 
 /// Sync tools for git-based synchronization.
+///
+/// # SOLID: Dependency Inversion Principle (DIP)
+///
+/// SyncTools is generic over both Database and GitOps:
+/// - `D: Database` - Database backend (e.g., SqliteDatabase, or mock in tests)
+/// - `G: GitOps` - Git operations (e.g., RealGit for production, MockGitOps for tests)
+///
+/// Dependencies are INJECTED via constructors:
+/// - `with_manager(db, manager)` - Full control (for tests)
+/// - `with_real_git(db)` - Convenience for production (uses RealGit + production paths)
+/// - `new(db)` - DEPRECATED: Kept for backward compatibility, use with_real_git() instead
 #[derive(Clone)]
-pub struct SyncTools<D: Database> {
+pub struct SyncTools<D: Database, G: GitOps + Send + Sync> {
     db: Arc<D>,
+    manager: SyncManager<G>,
     tool_router: ToolRouter<Self>,
 }
 
-#[tool_router]
-impl<D: Database + 'static> SyncTools<D> {
-    /// Create new SyncTools with database.
-    pub fn new(db: Arc<D>) -> Self {
+impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
+    /// Create new SyncTools with injected SyncManager (RECOMMENDED for tests).
+    ///
+    /// This constructor follows SOLID DIP by accepting the SyncManager
+    /// as an injected dependency, allowing full control over sync directory
+    /// and git operations.
+    ///
+    /// # Example (Test)
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use tempfile::TempDir;
+    /// use context::db::SqliteDatabase;
+    /// use context::sync::{MockGitOps, SyncManager};
+    /// use context::mcp::tools::SyncTools;
+    ///
+    /// # async fn example() {
+    /// let db = Arc::new(SqliteDatabase::in_memory().await.unwrap());
+    /// let temp_dir = TempDir::new().unwrap();
+    /// let mock_git = MockGitOps::new();
+    /// let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    /// let tools = SyncTools::with_manager(db, manager);
+    /// # }
+    /// ```
+    pub fn with_manager(db: Arc<D>, manager: SyncManager<G>) -> Self {
         Self {
             db,
+            manager,
             tool_router: Self::tool_router(),
         }
     }
@@ -65,12 +106,55 @@ impl<D: Database + 'static> SyncTools<D> {
     pub fn router(&self) -> &ToolRouter<Self> {
         &self.tool_router
     }
+}
 
+// Convenience constructor for production use with RealGit
+impl<D: Database + 'static> SyncTools<D, RealGit> {
+    /// Create new SyncTools with RealGit and production paths (RECOMMENDED for production).
+    ///
+    /// This is a convenience constructor that creates a SyncManager with:
+    /// - RealGit (actual git commands)
+    /// - Production sync directory (~/.local/share/c5t/sync/)
+    ///
+    /// For tests, use `with_manager()` with MockGitOps and TempDir instead.
+    ///
+    /// # Example (Production)
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use context::db::SqliteDatabase;
+    /// use context::mcp::tools::SyncTools;
+    ///
+    /// # async fn example() {
+    /// let db = Arc::new(SqliteDatabase::in_memory().await.unwrap());
+    /// let tools = SyncTools::with_real_git(db);
+    /// # }
+    /// ```
+    pub fn with_real_git(db: Arc<D>) -> Self {
+        let manager = SyncManager::new(RealGit::new());
+        Self::with_manager(db, manager)
+    }
+
+    /// Create new SyncTools with database (DEPRECATED).
+    ///
+    /// # Deprecation
+    /// This method is deprecated. Use `with_real_git()` for production
+    /// or `with_manager()` for tests.
+    ///
+    /// This constructor is kept for backward compatibility but will be
+    /// removed in a future version.
+    #[deprecated(since = "0.1.0", note = "Use `with_real_git()` instead")]
+    pub fn new(db: Arc<D>) -> Self {
+        Self::with_real_git(db)
+    }
+}
+
+#[tool_router]
+impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
     /// Sync tool - git-based synchronization.
     #[tool(description = "Git-based sync: init, export, import, or status")]
     pub async fn sync(&self, params: Parameters<SyncParams>) -> Result<CallToolResult, McpError> {
         let params = params.0;
-        let manager = SyncManager::new(RealGit::new());
+        let manager = &self.manager;
 
         let content = match params.operation {
             SyncOperation::Init => {
@@ -221,42 +305,5 @@ fn map_sync_error(err: SyncError) -> McpError {
                 "error": io_err.to_string(),
             })),
         ),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::SqliteDatabase;
-
-    async fn setup_test_db() -> SqliteDatabase {
-        let db = SqliteDatabase::in_memory().await.unwrap();
-        db.migrate().unwrap();
-        db
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_sync_status_not_initialized() {
-        let db = Arc::new(setup_test_db().await);
-        let tools = SyncTools::new(db);
-
-        let params = SyncParams {
-            operation: SyncOperation::Status,
-            remote_url: None,
-            message: None,
-        };
-
-        let result = tools.sync(Parameters(params)).await.unwrap();
-
-        // Extract text from content using correct accessor
-        let text = match &result.content[0].raw {
-            RawContent::Text(text_content) => text_content.text.as_str(),
-            _ => {
-                panic!("Expected text content in test");
-            }
-        };
-
-        let json: serde_json::Value = serde_json::from_str(text).unwrap();
-        assert_eq!(json["initialized"], false);
     }
 }

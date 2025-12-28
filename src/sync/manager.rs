@@ -46,6 +46,7 @@ pub enum SyncError {
 }
 
 /// Sync manager handles all sync operations.
+#[derive(Clone)]
 pub struct SyncManager<G: GitOps> {
     git: G,
     sync_dir: PathBuf,
