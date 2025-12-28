@@ -50,11 +50,36 @@ struct TaskListResponse {
     offset: usize,
 }
 
-/// List tasks from a task list
-pub async fn list_tasks(api_client: &ApiClient, list_id: &str, format: &str) -> CliResult<String> {
-    let url = format!("{}/v1/task-lists/{}/tasks", api_client.base_url(), list_id);
+/// List tasks from a task list with optional filtering
+pub async fn list_tasks(
+    api_client: &ApiClient,
+    list_id: &str,
+    status: Option<&str>,
+    parent_id: Option<&str>,
+    tags: Option<&str>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    format: &str,
+) -> CliResult<String> {
+    let mut request = api_client.get(&format!("/v1/task-lists/{}/tasks", list_id));
 
-    let response: TaskListResponse = reqwest::get(&url).await?.json().await?;
+    if let Some(s) = status {
+        request = request.query(&[("status", s)]);
+    }
+    if let Some(p) = parent_id {
+        request = request.query(&[("parent_id", p)]);
+    }
+    if let Some(t) = tags {
+        request = request.query(&[("tags", t)]);
+    }
+    if let Some(l) = limit {
+        request = request.query(&[("limit", l.to_string())]);
+    }
+    if let Some(o) = offset {
+        request = request.query(&[("offset", o.to_string())]);
+    }
+
+    let response: TaskListResponse = request.send().await?.json().await?;
 
     match format {
         "json" => Ok(serde_json::to_string_pretty(&response.items)?),
@@ -75,10 +100,10 @@ fn format_table(tasks: &[Task]) -> String {
 
 /// Mark a task as complete
 pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<String> {
-    let url = format!("{}/v1/tasks/{}/complete", api_client.base_url(), task_id);
-
-    let client = reqwest::Client::new();
-    let response = client.post(&url).send().await?;
+    let response = api_client
+        .post(&format!("/v1/tasks/{}/complete", task_id))
+        .send()
+        .await?;
 
     if response.status().is_success() {
         Ok(format!("✓ Task {} marked as complete", task_id))

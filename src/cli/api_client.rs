@@ -29,6 +29,30 @@ impl ApiClient {
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
+
+    /// Create a GET request builder
+    pub fn get(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.get(&url)
+    }
+
+    /// Create a POST request builder
+    pub fn post(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.post(&url)
+    }
+
+    /// Create a PATCH request builder
+    pub fn patch(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.patch(&url)
+    }
+
+    /// Create a DELETE request builder
+    pub fn delete(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.delete(&url)
+    }
 }
 
 #[cfg(test)]
@@ -72,5 +96,30 @@ mod tests {
         unsafe {
             env::remove_var("C5T_API_URL");
         }
+    }
+
+    #[tokio::test]
+    async fn test_get_method_exists() {
+        let client = ApiClient::new(None);
+        // Test that get() method exists and returns RequestBuilder
+        let _builder = client.get("/v1/test");
+    }
+
+    #[tokio::test]
+    async fn test_post_method_exists() {
+        let client = ApiClient::new(None);
+        let _builder = client.post("/v1/test");
+    }
+
+    #[tokio::test]
+    async fn test_patch_method_exists() {
+        let client = ApiClient::new(None);
+        let _builder = client.patch("/v1/test");
+    }
+
+    #[tokio::test]
+    async fn test_delete_method_exists() {
+        let client = ApiClient::new(None);
+        let _builder = client.delete("/v1/test");
     }
 }

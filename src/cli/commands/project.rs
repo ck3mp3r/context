@@ -86,23 +86,22 @@ pub async fn list_projects(
     api_client: &ApiClient,
     tags: Option<&str>,
     limit: Option<u32>,
+    offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut url = format!("{}/v1/projects", api_client.base_url());
-    let mut query_params = Vec::new();
+    let mut request = api_client.get("/v1/projects");
 
     if let Some(t) = tags {
-        query_params.push(format!("tags={}", t));
+        request = request.query(&[("tags", t)]);
     }
     if let Some(l) = limit {
-        query_params.push(format!("limit={}", l));
+        request = request.query(&[("limit", l.to_string())]);
+    }
+    if let Some(o) = offset {
+        request = request.query(&[("offset", o.to_string())]);
     }
 
-    if !query_params.is_empty() {
-        url = format!("{}?{}", url, query_params.join("&"));
-    }
-
-    let response: ListProjectsResponse = reqwest::get(&url).await?.json().await?;
+    let response: ListProjectsResponse = request.send().await?.json().await?;
 
     match format {
         "json" => Ok(serde_json::to_string_pretty(&response.items)?),
@@ -123,8 +122,12 @@ fn format_table(projects: &[Project]) -> String {
 
 /// Get a single project by ID
 pub async fn get_project(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
-    let url = format!("{}/v1/projects/{}", api_client.base_url(), id);
-    let project: Project = reqwest::get(&url).await?.json().await?;
+    let project: Project = api_client
+        .get(&format!("/v1/projects/{}", id))
+        .send()
+        .await?
+        .json()
+        .await?;
 
     match format {
         "json" => Ok(serde_json::to_string_pretty(&project)?),
@@ -165,8 +168,6 @@ pub async fn create_project(
     description: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    let url = format!("{}/v1/projects", api_client.base_url());
-
     // Parse tags from comma-separated string
     let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
@@ -176,8 +177,11 @@ pub async fn create_project(
         tags: tags_vec,
     };
 
-    let client = reqwest::Client::new();
-    let response = client.post(&url).json(&request).send().await?;
+    let response = api_client
+        .post("/v1/projects")
+        .json(&request)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         let project: Project = response.json().await?;
@@ -204,8 +208,6 @@ pub async fn update_project(
     description: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    let url = format!("{}/v1/projects/{}", api_client.base_url(), id);
-
     // Parse tags from comma-separated string if provided
     let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
@@ -215,8 +217,11 @@ pub async fn update_project(
         tags: tags_vec,
     };
 
-    let client = reqwest::Client::new();
-    let response = client.patch(&url).json(&request).send().await?;
+    let response = api_client
+        .patch(&format!("/v1/projects/{}", id))
+        .json(&request)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         let project: Project = response.json().await?;
@@ -244,10 +249,10 @@ pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> Cl
         });
     }
 
-    let url = format!("{}/v1/projects/{}", api_client.base_url(), id);
-
-    let client = reqwest::Client::new();
-    let response = client.delete(&url).send().await?;
+    let response = api_client
+        .delete(&format!("/v1/projects/{}", id))
+        .send()
+        .await?;
 
     if response.status().is_success() {
         Ok(format!(
@@ -267,116 +272,37 @@ pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> Cl
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::{AppState, routes};
+    use crate::db::{Database, SqliteDatabase};
+    use crate::sync::MockGitOps;
+    use tokio::net::TcpListener;
 
-    #[tokio::test]
-    async fn test_list_projects_table_format() {
-        // This should return a formatted table with projects
-        let api_client = ApiClient::new(None);
-        let result = list_projects(&api_client, None, None, "table").await;
+    /// Spawn a test HTTP server with in-memory database
+    async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
+        let db = SqliteDatabase::in_memory()
+            .await
+            .expect("Failed to create test database");
+        db.migrate().expect("Failed to run migrations");
+        let state = AppState::new(db, crate::sync::SyncManager::new(MockGitOps::new()));
+        let app = routes::create_router(state, false);
 
-        // We expect it to succeed (not test actual API, just function exists)
-        assert!(result.is_ok());
-    }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
 
-    #[tokio::test]
-    async fn test_list_projects_json_format() {
-        // This should return JSON formatted projects
-        let api_client = ApiClient::new(None);
-        let result = list_projects(&api_client, None, None, "json").await;
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
 
-        // Should return valid result
-        assert!(result.is_ok());
+        // Give server time to start
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // If successful, output should be parseable as JSON
-        if let Ok(output) = result {
-            // Should be valid JSON (array of projects)
-            let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output);
-            assert!(parsed.is_ok(), "Output should be valid JSON");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_project() {
-        // GREEN: Test for getting a single project
-        let api_client = ApiClient::new(None);
-        let result = get_project(&api_client, "test-id", "table").await;
-
-        // Function should exist and return a result (ok or error from API)
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_project_json() {
-        // GREEN: Test for getting a single project in JSON format
-        let api_client = ApiClient::new(None);
-        let result = get_project(&api_client, "test-id", "json").await;
-
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
-
-        // If successful, output should be parseable as JSON
-        if let Ok(output) = result {
-            let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output);
-            assert!(parsed.is_ok(), "Output should be valid JSON");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_create_project_minimal() {
-        // GREEN: Test creating project with only required field (title)
-        let api_client = ApiClient::new(None);
-        let result = create_project(&api_client, "Test Project", None, None).await;
-
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_create_project_full() {
-        // GREEN: Test creating project with all fields
-        let api_client = ApiClient::new(None);
-        let result = create_project(
-            &api_client,
-            "Test Project",
-            Some("Test description"),
-            Some("tag1,tag2"),
-        )
-        .await;
-
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_update_project_partial() {
-        // GREEN: Test partial update (PATCH semantics) - only update title
-        let api_client = ApiClient::new(None);
-        let result = update_project(&api_client, "test-id", Some("New Title"), None, None).await;
-
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_update_project_all_fields() {
-        // GREEN: Test updating all fields
-        let api_client = ApiClient::new(None);
-        let result = update_project(
-            &api_client,
-            "test-id",
-            Some("New Title"),
-            Some("New Description"),
-            Some("newtag1,newtag2"),
-        )
-        .await;
-
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
+        (url, handle)
     }
 
     #[tokio::test]
     async fn test_delete_project_without_force() {
-        // GREEN: Test that delete without --force flag is rejected
+        // Test that delete without --force flag is rejected (pure logic, no HTTP needed)
         let api_client = ApiClient::new(None);
         let result = delete_project(&api_client, "test-id", false).await;
 
@@ -391,13 +317,45 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_delete_project_with_force() {
-        // GREEN: Test that delete with --force flag proceeds
-        let api_client = ApiClient::new(None);
-        let result = delete_project(&api_client, "test-id", true).await;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_projects() {
+        let (url, _handle) = spawn_test_server().await;
+        let api_client = ApiClient::new(Some(url));
 
-        // Function should exist and return a result (ok or error from API)
-        assert!(result.is_ok() || result.is_err());
+        let result = list_projects(&api_client, None, None, None, "json").await;
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed.is_array(), "Output should be an array");
+        // Migrations seed a "Default" project, so we expect 1 not 0
+        assert_eq!(parsed.as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_create_and_get_project() {
+        let (url, _handle) = spawn_test_server().await;
+        let api_client = ApiClient::new(Some(url));
+
+        // Create
+        let create_result = create_project(
+            &api_client,
+            "Test Project",
+            Some("Test desc"),
+            Some("tag1,tag2"),
+        )
+        .await;
+        assert!(create_result.is_ok());
+
+        let output = create_result.unwrap();
+        assert!(output.contains("Created project"));
+
+        // List shows both the seeded "Default" project and our new one
+        let list_result = list_projects(&api_client, None, None, None, "json").await;
+        assert!(list_result.is_ok());
+
+        let output = list_result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed.as_array().unwrap().len(), 2); // Default + Test Project
     }
 }

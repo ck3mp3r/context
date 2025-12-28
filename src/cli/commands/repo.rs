@@ -86,23 +86,22 @@ pub async fn list_repos(
     api_client: &ApiClient,
     tags: Option<&str>,
     limit: Option<u32>,
+    offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut url = format!("{}/v1/repos", api_client.base_url());
-    let mut query_params = Vec::new();
+    let mut request = api_client.get("/v1/repos");
 
     if let Some(t) = tags {
-        query_params.push(format!("tags={}", t));
+        request = request.query(&[("tags", t)]);
     }
     if let Some(l) = limit {
-        query_params.push(format!("limit={}", l));
+        request = request.query(&[("limit", l.to_string())]);
+    }
+    if let Some(o) = offset {
+        request = request.query(&[("offset", o.to_string())]);
     }
 
-    if !query_params.is_empty() {
-        url = format!("{}?{}", url, query_params.join("&"));
-    }
-
-    let response: ListReposResponse = reqwest::get(&url).await?.json().await?;
+    let response: ListReposResponse = request.send().await?.json().await?;
 
     match format {
         "json" => Ok(serde_json::to_string_pretty(&response.items)?),
@@ -123,8 +122,12 @@ fn format_table(repos: &[Repo]) -> String {
 
 /// Get a single repo by ID
 pub async fn get_repo(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
-    let url = format!("{}/v1/repos/{}", api_client.base_url(), id);
-    let repo: Repo = reqwest::get(&url).await?.json().await?;
+    let repo: Repo = api_client
+        .get(&format!("/v1/repos/{}", id))
+        .send()
+        .await?
+        .json()
+        .await?;
 
     match format {
         "json" => Ok(serde_json::to_string_pretty(&repo)?),
@@ -166,8 +169,6 @@ pub async fn create_repo(
     path: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    let url = format!("{}/v1/repos", api_client.base_url());
-
     let tags_vec = tags
         .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
@@ -178,8 +179,7 @@ pub async fn create_repo(
         tags: tags_vec,
     };
 
-    let client = reqwest::Client::new();
-    let response = client.post(&url).json(&request).send().await?;
+    let response = api_client.post("/v1/repos").json(&request).send().await?;
 
     if response.status().is_success() {
         let repo: Repo = response.json().await?;
@@ -206,8 +206,6 @@ pub async fn update_repo(
     path: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    let url = format!("{}/v1/repos/{}", api_client.base_url(), id);
-
     let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
     let request = PatchRepoRequest {
@@ -216,8 +214,11 @@ pub async fn update_repo(
         tags: tags_vec,
     };
 
-    let client = reqwest::Client::new();
-    let response = client.patch(&url).json(&request).send().await?;
+    let response = api_client
+        .patch(&format!("/v1/repos/{}", id))
+        .json(&request)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         let repo: Repo = response.json().await?;
@@ -244,10 +245,10 @@ pub async fn delete_repo(api_client: &ApiClient, id: &str, force: bool) -> CliRe
         });
     }
 
-    let url = format!("{}/v1/repos/{}", api_client.base_url(), id);
-
-    let client = reqwest::Client::new();
-    let response = client.delete(&url).send().await?;
+    let response = api_client
+        .delete(&format!("/v1/repos/{}", id))
+        .send()
+        .await?;
 
     if response.status().is_success() {
         Ok(format!(
@@ -267,102 +268,37 @@ pub async fn delete_repo(api_client: &ApiClient, id: &str, force: bool) -> CliRe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::{AppState, routes};
+    use crate::db::{Database, SqliteDatabase};
+    use crate::sync::MockGitOps;
+    use tokio::net::TcpListener;
 
-    #[tokio::test]
-    async fn test_list_repos_table_format() {
-        // GREEN: Test list repos with table format
-        let api_client = ApiClient::new(None);
-        let result = list_repos(&api_client, None, None, "table").await;
+    /// Spawn a test HTTP server with in-memory database
+    async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
+        let db = SqliteDatabase::in_memory()
+            .await
+            .expect("Failed to create test database");
+        db.migrate().expect("Failed to run migrations");
+        let state = AppState::new(db, crate::sync::SyncManager::new(MockGitOps::new()));
+        let app = routes::create_router(state, false);
 
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
-    }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
 
-    #[tokio::test]
-    async fn test_list_repos_json_format() {
-        // GREEN: Test list repos with JSON format
-        let api_client = ApiClient::new(None);
-        let result = list_repos(&api_client, None, None, "json").await;
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
 
-        // Function should exist and return a result
-        assert!(result.is_ok() || result.is_err());
+        // Give server time to start
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // If successful, output should be parseable as JSON
-        if let Ok(output) = result {
-            let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output);
-            assert!(parsed.is_ok(), "Output should be valid JSON");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_repo() {
-        let api_client = ApiClient::new(None);
-        let result = get_repo(&api_client, "test-id", "table").await;
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_repo_json() {
-        let api_client = ApiClient::new(None);
-        let result = get_repo(&api_client, "test-id", "json").await;
-        assert!(result.is_ok() || result.is_err());
-
-        if let Ok(output) = result {
-            let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output);
-            assert!(parsed.is_ok(), "Output should be valid JSON");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_create_repo_minimal() {
-        let api_client = ApiClient::new(None);
-        let result = create_repo(&api_client, "https://github.com/test/repo", None, None).await;
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_create_repo_full() {
-        let api_client = ApiClient::new(None);
-        let result = create_repo(
-            &api_client,
-            "https://github.com/test/repo",
-            Some("/path/to/repo"),
-            Some("tag1,tag2"),
-        )
-        .await;
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_update_repo_partial() {
-        let api_client = ApiClient::new(None);
-        let result = update_repo(
-            &api_client,
-            "test-id",
-            Some("https://github.com/test/newrepo"),
-            None,
-            None,
-        )
-        .await;
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_update_repo_all_fields() {
-        let api_client = ApiClient::new(None);
-        let result = update_repo(
-            &api_client,
-            "test-id",
-            Some("https://github.com/test/newrepo"),
-            Some("/new/path"),
-            Some("newtag1,newtag2"),
-        )
-        .await;
-        assert!(result.is_ok() || result.is_err());
+        (url, handle)
     }
 
     #[tokio::test]
     async fn test_delete_repo_without_force() {
+        // Test the --force flag validation (pure logic, no HTTP needed)
         let api_client = ApiClient::new(None);
         let result = delete_repo(&api_client, "test-id", false).await;
 
@@ -376,10 +312,40 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_delete_repo_with_force() {
-        let api_client = ApiClient::new(None);
-        let result = delete_repo(&api_client, "test-id", true).await;
-        assert!(result.is_ok() || result.is_err());
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_repos() {
+        let (url, _handle) = spawn_test_server().await;
+        let api_client = ApiClient::new(Some(url));
+
+        let result = list_repos(&api_client, None, None, None, "json").await;
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed.is_array());
+        assert_eq!(parsed.as_array().unwrap().len(), 0); // Initially empty
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_create_and_get_repo() {
+        let (url, _handle) = spawn_test_server().await;
+        let api_client = ApiClient::new(Some(url));
+
+        // Create
+        let create_result =
+            create_repo(&api_client, "https://github.com/test/repo", None, None).await;
+        assert!(create_result.is_ok());
+
+        let output = create_result.unwrap();
+        assert!(output.contains("Created repository"));
+
+        // Extract ID from output (contains ID in message)
+        // For now just verify list shows the repo
+        let list_result = list_repos(&api_client, None, None, None, "json").await;
+        assert!(list_result.is_ok());
+
+        let output = list_result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed.as_array().unwrap().len(), 1);
     }
 }

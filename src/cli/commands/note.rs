@@ -44,19 +44,27 @@ struct NoteListResponse {
     offset: usize,
 }
 
-/// List notes with optional tag filtering
+/// List notes with optional filtering
 pub async fn list_notes(
     api_client: &ApiClient,
     tags: Option<&str>,
+    limit: Option<u32>,
+    offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut url = format!("{}/v1/notes", api_client.base_url());
+    let mut request = api_client.get("/v1/notes");
 
     if let Some(tag_str) = tags {
-        url.push_str(&format!("?tags={}", tag_str));
+        request = request.query(&[("tags", tag_str)]);
+    }
+    if let Some(l) = limit {
+        request = request.query(&[("limit", l.to_string())]);
+    }
+    if let Some(o) = offset {
+        request = request.query(&[("offset", o.to_string())]);
     }
 
-    let response: NoteListResponse = reqwest::get(&url).await?.json().await?;
+    let response: NoteListResponse = request.send().await?.json().await?;
 
     match format {
         "json" => Ok(serde_json::to_string_pretty(&response.items)?),
@@ -77,11 +85,8 @@ fn format_table(notes: &[Note]) -> String {
 
 /// Search notes using FTS5 full-text search
 pub async fn search_notes(api_client: &ApiClient, query: &str, format: &str) -> CliResult<String> {
-    // Use reqwest's built-in query parameter handling
-    let url = format!("{}/v1/notes/search", api_client.base_url());
-
-    let response: NoteListResponse = reqwest::Client::new()
-        .get(&url)
+    let response: NoteListResponse = api_client
+        .get("/v1/notes/search")
         .query(&[("query", query)])
         .send()
         .await?

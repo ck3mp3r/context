@@ -27,11 +27,10 @@ struct SyncResponse {
 
 /// Initialize sync repository
 pub async fn init(api_client: &ApiClient, remote_url: Option<String>) -> CliResult<String> {
-    let url = format!("{}/v1/sync/init", api_client.base_url());
     let req = InitSyncRequest { remote_url };
 
-    let response = reqwest::Client::new()
-        .post(&url)
+    let response = api_client
+        .post("/v1/sync/init")
         .json(&req)
         .send()
         .await
@@ -79,11 +78,10 @@ struct SyncCountRow {
 
 /// Export database to sync
 pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResult<String> {
-    let url = format!("{}/v1/sync/export", api_client.base_url());
     let req = ExportSyncRequest { message };
 
-    let response = reqwest::Client::new()
-        .post(&url)
+    let response = api_client
+        .post("/v1/sync/export")
         .json(&req)
         .send()
         .await
@@ -173,10 +171,8 @@ pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResul
 
 /// Import from sync to database
 pub async fn import(api_client: &ApiClient) -> CliResult<String> {
-    let url = format!("{}/v1/sync/import", api_client.base_url());
-
-    let response = reqwest::Client::new()
-        .post(&url)
+    let response = api_client
+        .post("/v1/sync/import")
         .send()
         .await
         .map_err(|e| CliError::ConnectionFailed { source: e })?;
@@ -265,10 +261,8 @@ pub async fn import(api_client: &ApiClient) -> CliResult<String> {
 
 /// Get sync status
 pub async fn status(api_client: &ApiClient) -> CliResult<String> {
-    let url = format!("{}/v1/sync/status", api_client.base_url());
-
-    let response = reqwest::Client::new()
-        .get(&url)
+    let response = api_client
+        .get("/v1/sync/status")
         .send()
         .await
         .map_err(|e| CliError::ConnectionFailed { source: e })?;

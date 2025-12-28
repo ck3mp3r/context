@@ -3,6 +3,7 @@ mod commands;
 pub mod error;
 
 use clap::{Parser, Subcommand};
+use miette::Result;
 
 #[derive(Parser)]
 #[command(name = "c5t")]
@@ -51,9 +52,9 @@ enum TaskCommands {
     List {
         /// Task list ID
         list_id: String,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Mark a task as complete
     Complete {
@@ -69,17 +70,17 @@ enum NoteCommands {
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Search notes using FTS5
     Search {
         /// Search query
         query: String,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -112,17 +113,17 @@ enum ProjectCommands {
         /// Maximum number of projects to return
         #[arg(long)]
         limit: Option<u32>,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Get a project by ID
     Get {
         /// Project ID
         id: String,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Create a new project
     Create {
@@ -170,17 +171,17 @@ enum RepoCommands {
         /// Maximum number of repositories to return
         #[arg(long)]
         limit: Option<u32>,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Get a repository by ID
     Get {
         /// Repository ID
         id: String,
-        /// Output format (table or json)
-        #[arg(long, default_value = "table")]
-        format: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Create a new repository
     Create {
@@ -218,74 +219,87 @@ enum RepoCommands {
     },
 }
 
-pub async fn run() {
+pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     let api_client = api_client::ApiClient::new(cli.api_url);
 
     match cli.command {
         Some(Commands::Task { command }) => match command {
-            TaskCommands::List { list_id, format } => {
-                match commands::task::list_tasks(&api_client, &list_id, &format).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            TaskCommands::List { list_id, json } => {
+                let output = commands::task::list_tasks(
+                    &api_client,
+                    &list_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
             }
             TaskCommands::Complete { id } => {
-                match commands::task::complete_task(&api_client, &id).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                let output = commands::task::complete_task(&api_client, &id).await?;
+                println!("{}", output);
             }
         },
         Some(Commands::Note { command }) => match command {
-            NoteCommands::List { tags, format } => {
-                match commands::note::list_notes(&api_client, tags.as_deref(), &format).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            NoteCommands::List { tags, json } => {
+                let output = commands::note::list_notes(
+                    &api_client,
+                    tags.as_deref(),
+                    None,
+                    None,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
             }
-            NoteCommands::Search { query, format } => {
-                match commands::note::search_notes(&api_client, &query, &format).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            NoteCommands::Search { query, json } => {
+                let output = commands::note::search_notes(
+                    &api_client,
+                    &query,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
             }
         },
         Some(Commands::Project { command }) => match command {
-            ProjectCommands::List {
-                tags,
-                limit,
-                format,
-            } => {
-                match commands::project::list_projects(&api_client, tags.as_deref(), limit, &format)
-                    .await
-                {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            ProjectCommands::List { tags, limit, json } => {
+                let output = commands::project::list_projects(
+                    &api_client,
+                    tags.as_deref(),
+                    limit,
+                    None,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
             }
-            ProjectCommands::Get { id, format } => {
-                match commands::project::get_project(&api_client, &id, &format).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            ProjectCommands::Get { id, json } => {
+                let output = commands::project::get_project(
+                    &api_client,
+                    &id,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
             }
             ProjectCommands::Create {
                 title,
                 description,
                 tags,
             } => {
-                match commands::project::create_project(
+                let output = commands::project::create_project(
                     &api_client,
                     &title,
                     description.as_deref(),
                     tags.as_deref(),
                 )
-                .await
-                {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                .await?;
+                println!("{}", output);
             }
             ProjectCommands::Update {
                 id,
@@ -293,56 +307,48 @@ pub async fn run() {
                 description,
                 tags,
             } => {
-                match commands::project::update_project(
+                let output = commands::project::update_project(
                     &api_client,
                     &id,
                     title.as_deref(),
                     description.as_deref(),
                     tags.as_deref(),
                 )
-                .await
-                {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                .await?;
+                println!("{}", output);
             }
             ProjectCommands::Delete { id, force } => {
-                match commands::project::delete_project(&api_client, &id, force).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                let output = commands::project::delete_project(&api_client, &id, force).await?;
+                println!("{}", output);
             }
         },
         Some(Commands::Repo { command }) => match command {
-            RepoCommands::List {
-                tags,
-                limit,
-                format,
-            } => {
-                match commands::repo::list_repos(&api_client, tags.as_deref(), limit, &format).await
-                {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            RepoCommands::List { tags, limit, json } => {
+                let output = commands::repo::list_repos(
+                    &api_client,
+                    tags.as_deref(),
+                    limit,
+                    None,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
             }
-            RepoCommands::Get { id, format } => {
-                match commands::repo::get_repo(&api_client, &id, &format).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+            RepoCommands::Get { id, json } => {
+                let output =
+                    commands::repo::get_repo(&api_client, &id, if json { "json" } else { "table" })
+                        .await?;
+                println!("{}", output);
             }
             RepoCommands::Create { remote, path, tags } => {
-                match commands::repo::create_repo(
+                let output = commands::repo::create_repo(
                     &api_client,
                     &remote,
                     path.as_deref(),
                     tags.as_deref(),
                 )
-                .await
-                {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                .await?;
+                println!("{}", output);
             }
             RepoCommands::Update {
                 id,
@@ -350,51 +356,44 @@ pub async fn run() {
                 path,
                 tags,
             } => {
-                match commands::repo::update_repo(
+                let output = commands::repo::update_repo(
                     &api_client,
                     &id,
                     remote.as_deref(),
                     path.as_deref(),
                     tags.as_deref(),
                 )
-                .await
-                {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                .await?;
+                println!("{}", output);
             }
             RepoCommands::Delete { id, force } => {
-                match commands::repo::delete_repo(&api_client, &id, force).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                let output = commands::repo::delete_repo(&api_client, &id, force).await?;
+                println!("{}", output);
             }
         },
         Some(Commands::Sync { command }) => match command {
             SyncCommands::Init { remote_url } => {
-                match commands::sync::init(&api_client, remote_url).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                let output = commands::sync::init(&api_client, remote_url).await?;
+                println!("{}", output);
             }
             SyncCommands::Export { message } => {
-                match commands::sync::export(&api_client, message).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => eprintln!("Error: {}", e),
-                }
+                let output = commands::sync::export(&api_client, message).await?;
+                println!("{}", output);
             }
-            SyncCommands::Import => match commands::sync::import(&api_client).await {
-                Ok(output) => println!("{}", output),
-                Err(e) => eprintln!("Error: {}", e),
-            },
-            SyncCommands::Status => match commands::sync::status(&api_client).await {
-                Ok(output) => println!("{}", output),
-                Err(e) => eprintln!("Error: {}", e),
-            },
+            SyncCommands::Import => {
+                let output = commands::sync::import(&api_client).await?;
+                println!("{}", output);
+            }
+            SyncCommands::Status => {
+                let output = commands::sync::status(&api_client).await?;
+                println!("{}", output);
+            }
         },
         None => {
             // Show help when no command provided
             let _ = Cli::parse_from(&["c5t", "--help"]);
         }
     }
+
+    Ok(())
 }
