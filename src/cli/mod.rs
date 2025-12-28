@@ -78,14 +78,17 @@ enum SyncCommands {
     Status,
 }
 
-pub fn run() {
+pub async fn run() {
     let cli = Cli::parse();
+    let api_client = api_client::ApiClient::new(cli.api_url);
 
     match cli.command {
         Some(Commands::Task { command }) => match command {
             TaskCommands::List { list_id, format } => {
-                println!("Task list: {} (format: {})", list_id, format);
-                // TODO: Implement task list command
+                match commands::task::list_tasks(&api_client, &list_id, &format).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
             }
             TaskCommands::Complete { id } => {
                 println!("Complete task: {}", id);
