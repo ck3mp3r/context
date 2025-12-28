@@ -40,6 +40,11 @@ enum Commands {
         #[command(subcommand)]
         command: RepoCommands,
     },
+    /// Task list management commands
+    TaskList {
+        #[command(subcommand)]
+        command: TaskListCommands,
+    },
     /// Sync commands
     Sync {
         #[command(subcommand)]
@@ -220,6 +225,76 @@ enum RepoCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum TaskListCommands {
+    /// List all task lists
+    List {
+        /// Filter by status (active, archived)
+        #[arg(long)]
+        status: Option<String>,
+        /// Filter by tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Maximum number of task lists to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Get a task list by ID
+    Get {
+        /// Task list ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new task list
+    Create {
+        /// Task list name
+        #[arg(long)]
+        name: String,
+        /// Project ID this task list belongs to (REQUIRED)
+        #[arg(long)]
+        project_id: String,
+        /// Task list description
+        #[arg(long)]
+        description: Option<String>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Repository IDs to link (comma-separated)
+        #[arg(long)]
+        repo_ids: Option<String>,
+    },
+    /// Update a task list
+    Update {
+        /// Task list ID
+        id: String,
+        /// New name
+        #[arg(long)]
+        name: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New status (active, archived)
+        #[arg(long)]
+        status: Option<String>,
+        /// New tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Delete a task list
+    Delete {
+        /// Task list ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
+}
+
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     let api_client = api_client::ApiClient::new(cli.api_url);
@@ -372,6 +447,74 @@ pub async fn run() -> Result<()> {
             }
             RepoCommands::Delete { id, force } => {
                 let output = commands::repo::delete_repo(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+        },
+        Some(Commands::TaskList { command }) => match command {
+            TaskListCommands::List {
+                status,
+                tags,
+                limit,
+                json,
+            } => {
+                let output = commands::task_list::list_task_lists(
+                    &api_client,
+                    status.as_deref(),
+                    tags.as_deref(),
+                    limit,
+                    None,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskListCommands::Get { id, json } => {
+                let output = commands::task_list::get_task_list(
+                    &api_client,
+                    &id,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskListCommands::Create {
+                name,
+                project_id,
+                description,
+                tags,
+                repo_ids,
+            } => {
+                let output = commands::task_list::create_task_list(
+                    &api_client,
+                    &name,
+                    &project_id,
+                    description.as_deref(),
+                    tags.as_deref(),
+                    repo_ids.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskListCommands::Update {
+                id,
+                name,
+                description,
+                status,
+                tags,
+            } => {
+                let output = commands::task_list::update_task_list(
+                    &api_client,
+                    &id,
+                    name.as_deref(),
+                    description.as_deref(),
+                    status.as_deref(),
+                    tags.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskListCommands::Delete { id, force } => {
+                let output = commands::task_list::delete_task_list(&api_client, &id, force).await?;
                 println!("{}", output);
             }
         },
