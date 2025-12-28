@@ -1,4 +1,5 @@
-use leptos::prelude::*;
+#![no_main]
+
 use wasm_bindgen::prelude::*;
 
 mod api;
@@ -8,7 +9,7 @@ mod models;
 mod pages;
 
 #[wasm_bindgen(start)]
-pub fn main() {
+pub fn start() {
     console_error_panic_hook::set_once();
     leptos::mount::mount_to_body(app::App);
 }
