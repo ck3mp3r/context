@@ -19,6 +19,8 @@ use std::sync::Arc;
 // Parameter types for tools
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListReposParams {
+    #[schemars(description = "Filter by project ID")]
+    pub project_id: Option<String>,
     #[schemars(
         description = "Maximum number of repos to return (default: 10, max: 20). IMPORTANT: Keep small to prevent context overflow."
     )]
@@ -105,6 +107,7 @@ impl<D: Database + 'static> RepoTools<D> {
                 sort_order: None,
             },
             tags: None,
+            project_id: params.0.project_id,
         };
 
         let result = self

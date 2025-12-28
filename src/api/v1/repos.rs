@@ -68,6 +68,10 @@ pub struct CreateRepoRequest {
     #[schema(example = json!(["work", "active"]))]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_repo)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 /// Update repo request DTO
@@ -125,6 +129,9 @@ impl PatchRepoRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReposQuery {
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -191,6 +198,7 @@ pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
             },
         },
         tags,
+        project_id: query.project_id.clone(),
     };
 
     let result = state
@@ -280,7 +288,7 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         remote: req.remote,
         path: req.path,
         tags: req.tags,
-        project_ids: vec![], // Empty by default - relationships managed separately
+        project_ids: req.project_ids,
         created_at: String::new(), // Repository will generate this
     };
 

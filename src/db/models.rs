@@ -58,12 +58,14 @@ pub struct ProjectQuery {
     pub tags: Option<Vec<String>>,
 }
 
-/// Query for Repos - pagination + tags filter.
+/// Query for Repos - pagination + tags/project filters.
 #[derive(Debug, Clone, Default)]
 pub struct RepoQuery {
     pub page: PageSort,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by project ID (repos with project_id in project_ids array).
+    pub project_id: Option<String>,
 }
 
 /// Query for TaskLists - pagination + status/tags/project filters.

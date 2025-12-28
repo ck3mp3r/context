@@ -120,6 +120,208 @@ async fn create_repo_without_path() {
 }
 
 // =============================================================================
+// GET /v1/repos?project_id=X - Filter by Project
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_repos_filtered_by_project_id() {
+    let app = test_app().await;
+
+    // Create two projects
+    let project_a_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_a_body = json_body(project_a_response).await;
+    let project_a_id = project_a_body["id"].as_str().unwrap();
+
+    let project_b_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_b_body = json_body(project_b_response).await;
+    let project_b_id = project_b_body["id"].as_str().unwrap();
+
+    // Create repos: 2 for project A, 1 for project B, 1 for both
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:org/repo-a1",
+                        "project_ids": [project_a_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:org/repo-a2",
+                        "project_ids": [project_a_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:org/repo-b1",
+                        "project_ids": [project_b_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:org/repo-shared",
+                        "project_ids": [project_a_id, project_b_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id for Project A
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/repos?project_id={}", project_a_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return 3 repos: 2 exclusive to A + 1 shared
+    assert_eq!(body["total"], 3);
+    assert_eq!(body["items"].as_array().unwrap().len(), 3);
+
+    // Filter by project_id for Project B
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/repos?project_id={}", project_b_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return 2 repos: 1 exclusive to B + 1 shared
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_repos_filtered_by_nonexistent_project() {
+    let app = test_app().await;
+
+    // Create a repo without projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "remote": "github:org/some-repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by a non-existent project_id
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/repos?project_id=nonexist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 0);
+    assert!(body["items"].as_array().unwrap().is_empty());
+}
+
+// =============================================================================
 // GET /v1/repos/{id} - Get Repo
 // =============================================================================
 

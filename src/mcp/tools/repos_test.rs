@@ -16,7 +16,10 @@ async fn test_list_repos_empty() {
 
     let tools = RepoTools::new(db);
     let result = tools
-        .list_repos(Parameters(ListReposParams { limit: None }))
+        .list_repos(Parameters(ListReposParams {
+            project_id: None,
+            limit: None,
+        }))
         .await;
     assert!(result.is_ok());
 
@@ -196,7 +199,10 @@ async fn test_list_repos_respects_limit() {
 
     // Test 1: Without limit parameter, should return DEFAULT_LIMIT (10)
     let result = tools
-        .list_repos(Parameters(ListReposParams { limit: None }))
+        .list_repos(Parameters(ListReposParams {
+            project_id: None,
+            limit: None,
+        }))
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
@@ -209,7 +215,10 @@ async fn test_list_repos_respects_limit() {
 
     // Test 2: With limit=5, should return 5
     let result = tools
-        .list_repos(Parameters(ListReposParams { limit: Some(5) }))
+        .list_repos(Parameters(ListReposParams {
+            project_id: None,
+            limit: Some(5),
+        }))
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
@@ -222,7 +231,10 @@ async fn test_list_repos_respects_limit() {
 
     // Test 3: With limit=50 (exceeds MAX_LIMIT), should cap at MAX_LIMIT (20)
     let result = tools
-        .list_repos(Parameters(ListReposParams { limit: Some(50) }))
+        .list_repos(Parameters(ListReposParams {
+            project_id: None,
+            limit: Some(50),
+        }))
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
