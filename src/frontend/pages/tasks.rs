@@ -94,7 +94,7 @@ pub fn Tasks() -> impl IntoView {
                                                 on_focus=move |_| set_is_search_focused.set(true)
                                                 on_blur=move |_| set_is_search_focused.set(false)
                                                 attr:class="w-full"
-                                                input_style="width: 100%; padding: 0.5rem 1rem; background-color: var(--ctp-surface0); border: 1px solid var(--ctp-surface1); border-radius: 0.5rem; color: var(--ctp-text);"
+                                                input_style="width: 100%; padding: 0.5rem 1rem; background-color: var(--ctp-surface0); border: 1px solid var(--ctp-surface1) !important; border-radius: 0.5rem; color: var(--ctp-text);"
                                             />
 
                                             // Selected Lists Display (Chips)
