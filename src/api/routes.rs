@@ -16,17 +16,17 @@ use super::v1::{
 };
 use crate::db::Database;
 
-/// Build routes with generic database type.
+/// Build routes with generic database and git types.
 ///
 /// This macro reduces boilerplate when registering handlers that are generic
-/// over the Database trait. It applies the turbofish operator automatically.
+/// over the Database and GitOps traits. It applies the turbofish operator automatically.
 macro_rules! routes {
-    ($D:ty => {
+    ($D:ty, $G:ty => {
         $($method:ident $path:literal => $($handler:ident)::+),* $(,)?
     }) => {{
         let router = Router::new();
         $(
-            let router = router.route($path, $method($($handler)::+::<$D>));
+            let router = router.route($path, $method($($handler)::+::<$D, $G>));
         )*
         router
     }};
@@ -74,6 +74,10 @@ macro_rules! routes {
         super::v1::update_note,
         super::v1::patch_note,
         super::v1::delete_note,
+        super::v1::init_sync,
+        super::v1::export_sync,
+        super::v1::import_sync,
+        super::v1::get_sync_status,
     ),
     components(
         schemas(
@@ -103,6 +107,9 @@ macro_rules! routes {
             UpdateNoteRequest,
             PatchNoteRequest,
             super::v1::PaginatedNotes,
+            super::v1::InitSyncRequest,
+            super::v1::ExportSyncRequest,
+            super::v1::SyncResponse,
             ErrorResponse,
         )
     ),
@@ -112,13 +119,17 @@ macro_rules! routes {
         (name = "repos", description = "Repository management endpoints"),
         (name = "task-lists", description = "Task list management endpoints"),
         (name = "tasks", description = "Task management endpoints"),
-        (name = "notes", description = "Note management endpoints with FTS search")
+        (name = "notes", description = "Note management endpoints with FTS search"),
+        (name = "sync", description = "Git-based sync operations")
     )
 )]
 pub struct ApiDoc;
 
 /// Create the API router with OpenAPI documentation and MCP server
-pub fn create_router<D: Database + 'static>(state: AppState<D>, enable_docs: bool) -> Router {
+pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync + 'static>(
+    state: AppState<D, G>,
+    enable_docs: bool,
+) -> Router {
     // Create MCP service (Model Context Protocol server)
     // Uses the same database as the REST API for consistency
     let ct = tokio_util::sync::CancellationToken::new();
@@ -131,8 +142,8 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>, enable_docs: boo
         .route("/", get(handlers::root))
         .route("/health", get(handlers::health));
 
-    // V1 API routes (generic over Database)
-    let v1_routes = routes!(D => {
+    // V1 API routes (generic over Database and GitOps)
+    let v1_routes = routes!(D, G => {
         // Projects
         get "/v1/projects" => super::v1::list_projects,
         get "/v1/projects/{id}" => super::v1::get_project,
@@ -168,6 +179,11 @@ pub fn create_router<D: Database + 'static>(state: AppState<D>, enable_docs: boo
         put "/v1/notes/{id}" => super::v1::update_note,
         patch "/v1/notes/{id}" => super::v1::patch_note,
         delete "/v1/notes/{id}" => super::v1::delete_note,
+        // Sync
+        post "/v1/sync/init" => super::v1::init_sync,
+        post "/v1/sync/export" => super::v1::export_sync,
+        post "/v1/sync/import" => super::v1::import_sync,
+        get "/v1/sync/status" => super::v1::get_sync_status,
     });
 
     let mut router = system_routes

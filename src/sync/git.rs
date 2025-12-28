@@ -18,9 +18,9 @@ pub enum GitError {
     #[diagnostic(code(c5t::sync::git::command_failed))]
     CommandFailed(String),
 
-    #[error("Git command returned non-zero exit code {code}: {stderr}")]
+    #[error("Git command returned non-zero exit code {code}: {output}")]
     #[diagnostic(code(c5t::sync::git::non_zero_exit))]
-    NonZeroExit { code: i32, stderr: String },
+    NonZeroExit { code: i32, output: String },
 
     #[error("Git not installed or not in PATH")]
     #[diagnostic(code(c5t::sync::git::not_found))]
@@ -85,8 +85,20 @@ impl RealGit {
             Ok(output)
         } else {
             let code = output.status.code().unwrap_or(-1);
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            Err(GitError::NonZeroExit { code, stderr })
+            // Combine stdout and stderr for error message
+            let combined = if !stdout.is_empty() && !stderr.is_empty() {
+                format!("{}\n{}", stdout, stderr)
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                stderr
+            };
+            Err(GitError::NonZeroExit {
+                code,
+                output: combined,
+            })
         }
     }
 }
@@ -294,7 +306,7 @@ mod tests {
             .returning(|_, _, _| {
                 Err(GitError::NonZeroExit {
                     code: 128,
-                    stderr: "fatal: unable to access 'https://...': Could not resolve host\n"
+                    output: "fatal: unable to access 'https://...': Could not resolve host\n"
                         .to_string(),
                 })
             });
@@ -302,9 +314,9 @@ mod tests {
         let result = mock.pull(Path::new("/tmp/test"), "origin", "main");
         assert!(result.is_err());
 
-        if let Err(GitError::NonZeroExit { code, stderr }) = result {
+        if let Err(GitError::NonZeroExit { code, output }) = result {
             assert_eq!(code, 128);
-            assert!(stderr.contains("Could not resolve host"));
+            assert!(output.contains("Could not resolve host"));
         } else {
             panic!("Expected NonZeroExit error");
         }

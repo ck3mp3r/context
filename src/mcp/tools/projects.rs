@@ -112,7 +112,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .list(Some(&query))
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&result.items).map_err(|e| {
             McpError::internal_error(
@@ -135,7 +135,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&project).map_err(|e| {
             McpError::internal_error(
@@ -170,7 +170,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .create(&project)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
@@ -194,7 +194,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         // Update fields if provided
         if let Some(t) = params.0.title {
@@ -211,7 +211,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .update(&project)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         // Get the updated project to return it
         let updated = self
@@ -219,7 +219,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(
@@ -241,7 +241,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             .projects()
             .delete(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::json!({
             "success": true,

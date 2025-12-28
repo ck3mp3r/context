@@ -82,8 +82,11 @@ fn init_tracing(verbosity: u8) {
 pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), ApiError> {
     init_tracing(config.verbosity);
 
+    // Create sync manager (uses RealGit for production)
+    let sync_manager = crate::sync::SyncManager::new(crate::sync::RealGit::new());
+
     // Create application state
-    let state = AppState::new(db);
+    let state = AppState::new(db, sync_manager);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

@@ -147,7 +147,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             .task_lists()
             .list(Some(&query))
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let response = json!({
             "items": result.items,
@@ -175,7 +175,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             .task_lists()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
         let content = serde_json::to_string_pretty(&list).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -210,7 +210,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             .task_lists()
             .create(&list)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -231,7 +231,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             .task_lists()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         // Update fields - only update if provided to preserve existing values
         list.name = params.0.name;
@@ -272,13 +272,13 @@ impl<D: Database + 'static> TaskListTools<D> {
             .task_lists()
             .update(&list)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
         let updated = self
             .db
             .task_lists()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(

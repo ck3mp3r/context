@@ -29,7 +29,10 @@ async fn test_app() -> axum::Router {
         .await
         .expect("Create test project should succeed");
 
-    let state = AppState::new(db);
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+    );
     routes::create_router(state, false)
 }
 

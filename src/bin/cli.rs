@@ -1,3 +1,6 @@
-fn main() {
-    context::cli::run();
+use miette::Result;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    context::cli::run().await
 }

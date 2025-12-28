@@ -17,7 +17,10 @@ async fn test_app() -> axum::Router {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
-    let state = AppState::new(db);
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+    );
     routes::create_router(state, false)
 }
 

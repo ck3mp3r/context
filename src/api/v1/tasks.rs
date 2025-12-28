@@ -1,5 +1,6 @@
 //! Task management handlers.
 
+use crate::sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -174,8 +175,8 @@ pub struct PaginatedTasks {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_tasks<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(list_id): Path<String>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<PaginatedTasks>, (StatusCode, Json<ErrorResponse>)> {
@@ -233,8 +234,8 @@ pub async fn list_tasks<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_task<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn get_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
     let task = state.db().tasks().get(&id).await.map_err(|e| match e {
@@ -267,8 +268,8 @@ pub async fn get_task<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_task<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(list_id): Path<String>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -323,8 +324,8 @@ pub async fn create_task<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_task<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -392,8 +393,8 @@ pub async fn update_task<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_task<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
     Json(req): Json<PatchTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -451,8 +452,8 @@ pub async fn patch_task<D: Database>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_task<D: Database>(
-    State(state): State<AppState<D>>,
+pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state.db().tasks().delete(&id).await.map_err(|e| match e {

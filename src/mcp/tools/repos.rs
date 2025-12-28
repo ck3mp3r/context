@@ -112,7 +112,7 @@ impl<D: Database + 'static> RepoTools<D> {
             .repos()
             .list(Some(&query))
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&result.items).map_err(|e| {
             McpError::internal_error(
@@ -135,7 +135,7 @@ impl<D: Database + 'static> RepoTools<D> {
             .repos()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&repo).map_err(|e| {
             McpError::internal_error(
@@ -162,12 +162,7 @@ impl<D: Database + 'static> RepoTools<D> {
             created_at: String::new(), // Repository generates this
         };
 
-        let created = self
-            .db
-            .repos()
-            .create(&repo)
-            .await
-            .map_err(|e| map_db_error(e))?;
+        let created = self.db.repos().create(&repo).await.map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
@@ -191,7 +186,7 @@ impl<D: Database + 'static> RepoTools<D> {
             .repos()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         // Update fields if provided
         if let Some(r) = params.0.remote {
@@ -204,11 +199,7 @@ impl<D: Database + 'static> RepoTools<D> {
             repo.tags = tags;
         }
 
-        self.db
-            .repos()
-            .update(&repo)
-            .await
-            .map_err(|e| map_db_error(e))?;
+        self.db.repos().update(&repo).await.map_err(map_db_error)?;
 
         // Get the updated repo to return it
         let updated = self
@@ -216,7 +207,7 @@ impl<D: Database + 'static> RepoTools<D> {
             .repos()
             .get(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(
@@ -238,7 +229,7 @@ impl<D: Database + 'static> RepoTools<D> {
             .repos()
             .delete(&params.0.id)
             .await
-            .map_err(|e| map_db_error(e))?;
+            .map_err(map_db_error)?;
 
         let content = serde_json::json!({
             "success": true,

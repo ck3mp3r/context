@@ -7,6 +7,7 @@ use crate::db::{
 };
 use miette::Diagnostic;
 use std::path::PathBuf;
+use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
@@ -46,24 +47,42 @@ pub enum SyncError {
 }
 
 /// Sync manager handles all sync operations.
-#[derive(Clone)]
+///
+/// # Clone Implementation
+///
+/// SyncManager wraps GitOps in Arc to enable cloning without requiring G: Clone.
+/// This allows using non-Clone types like MockGitOps in tests.
+/// Clone is implemented manually (not derived) to avoid the G: Clone bound.
 pub struct SyncManager<G: GitOps> {
-    git: G,
+    git: std::sync::Arc<G>,
     sync_dir: PathBuf,
+}
+
+// Manual Clone implementation - Arc<G> is Clone even if G is not
+impl<G: GitOps> Clone for SyncManager<G> {
+    fn clone(&self) -> Self {
+        Self {
+            git: Arc::clone(&self.git),
+            sync_dir: self.sync_dir.clone(),
+        }
+    }
 }
 
 impl<G: GitOps> SyncManager<G> {
     /// Create a new sync manager with the given git operations handler.
     pub fn new(git: G) -> Self {
         Self {
-            git,
+            git: std::sync::Arc::new(git),
             sync_dir: get_sync_dir(),
         }
     }
 
     /// Create a sync manager with a custom sync directory (for testing).
     pub fn with_sync_dir(git: G, sync_dir: PathBuf) -> Self {
-        Self { git, sync_dir }
+        Self {
+            git: std::sync::Arc::new(git),
+            sync_dir,
+        }
     }
 
     /// Check if sync is initialized (git repository exists).
@@ -120,13 +139,27 @@ impl<G: GitOps> SyncManager<G> {
         ];
         self.git.add_files(&self.sync_dir, &files)?;
 
-        // Commit
-        let commit_msg = message.unwrap_or_else(|| format!("Export {} entities", summary.total()));
-        self.git.commit(&self.sync_dir, &commit_msg)?;
+        // Commit with timestamp-based message if not provided
+        let commit_msg = message.unwrap_or_else(|| {
+            let now = chrono::Utc::now();
+            format!("sync: export at {}", now.format("%Y-%m-%d %H:%M:%S UTC"))
+        });
 
-        // Push if remote exists
-        if self.has_remote()? {
-            self.git.push(&self.sync_dir, "origin", "main")?;
+        // Try to commit - if nothing to commit, that's okay (not an error)
+        match self.git.commit(&self.sync_dir, &commit_msg) {
+            Ok(_) => {
+                // Push if remote exists
+                if self.has_remote()? {
+                    self.git.push(&self.sync_dir, "origin", "main")?;
+                }
+            }
+            Err(GitError::NonZeroExit { code: 1, output })
+                if output.contains("nothing to commit")
+                    || output.contains("nothing added to commit") =>
+            {
+                // Nothing to commit is not an error - data is already synced
+            }
+            Err(e) => return Err(e.into()),
         }
 
         Ok(summary)
@@ -375,6 +408,37 @@ mod tests {
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), SyncError::NotInitialized));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_export_nothing_to_commit() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+        let db = setup_test_db().await;
+
+        let mut mock_git = MockGitOps::new();
+        // No remote configured
+        mock_git
+            .expect_remote_get_url()
+            .returning(|_, _| Err(GitError::GitNotFound));
+        // Add files succeeds
+        mock_git
+            .expect_add_files()
+            .times(1)
+            .returning(|_, _| Ok(mock_output(0, "", "")));
+        // Commit fails with "nothing to commit"
+        mock_git.expect_commit().times(1).returning(|_, _| {
+            Err(GitError::NonZeroExit {
+                code: 1,
+                output: "nothing to commit, working tree clean\n".to_string(),
+            })
+        });
+
+        let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+        let result = manager.export(&db, None).await;
+
+        // Should succeed even though commit failed - nothing to commit is not an error
+        assert!(result.is_ok());
     }
 
     #[tokio::test(flavor = "multi_thread")]
