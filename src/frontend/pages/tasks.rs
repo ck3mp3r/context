@@ -8,6 +8,8 @@ use crate::models::{Paginated, Task, TaskList};
 pub fn Tasks() -> impl IntoView {
     // State
     let (selected_list_id, set_selected_list_id) = signal(None::<String>);
+    let (selected_list_name, set_selected_list_name) = signal(None::<String>);
+    let (search_query, set_search_query) = signal(String::new());
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (tasks_data, set_tasks_data) = signal(None::<Result<Paginated<Task>, ApiClientError>>);
@@ -35,7 +37,7 @@ pub fn Tasks() -> impl IntoView {
         <div class="container mx-auto p-6">
             <h2 class="text-3xl font-bold text-ctp-text mb-6">"Tasks"</h2>
 
-            // Task List Selector
+            // Task List Selector with Search
             <div class="mb-6">
                 {move || match task_lists_data.get() {
                     None => {
@@ -50,28 +52,108 @@ pub fn Tasks() -> impl IntoView {
                                     }
                                         .into_any()
                                 } else {
+                                    let all_lists = paginated.items.clone();
                                     view! {
-                                        <select
-                                            on:change=move |ev| {
-                                                let value = event_target_value(&ev);
-                                                if !value.is_empty() {
-                                                    set_selected_list_id.set(Some(value));
+                                        <div class="relative">
+                                            // Search Input
+                                            <input
+                                                type="text"
+                                                placeholder="Search task lists..."
+                                                prop:value=move || search_query.get()
+                                                on:input=move |ev| {
+                                                    set_search_query.set(event_target_value(&ev));
                                                 }
-                                            }
 
-                                            class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
-                                        >
-                                            <option value="">"Select a task list..."</option>
-                                            {paginated
-                                                .items
-                                                .iter()
-                                                .map(|list| {
+                                                class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                            />
+
+                                            // Selected List Display
+                                            {move || {
+                                                selected_list_name
+                                                    .get()
+                                                    .map(|name| {
+                                                        view! {
+                                                            <div class="mt-2 flex items-center gap-2">
+                                                                <span class="text-ctp-subtext0 text-sm">"Selected:"</span>
+                                                                <span class="px-3 py-1 bg-ctp-blue/20 text-ctp-blue rounded-full text-sm font-medium">
+                                                                    {name}
+                                                                </span>
+                                                                <button
+                                                                    on:click=move |_| {
+                                                                        set_selected_list_id.set(None);
+                                                                        set_selected_list_name.set(None);
+                                                                        set_search_query.set(String::new());
+                                                                    }
+
+                                                                    class="text-ctp-red hover:text-ctp-maroon text-sm"
+                                                                >
+                                                                    "Clear"
+                                                                </button>
+                                                            </div>
+                                                        }
+                                                    })
+                                            }}
+
+                                            // Filtered Results Dropdown
+                                            {move || {
+                                                let query = search_query.get();
+                                                if query.is_empty() || selected_list_id.get().is_some() {
+                                                    return view! { <div></div> }.into_any();
+                                                }
+                                                let filtered: Vec<TaskList> = all_lists
+                                                    .iter()
+                                                    .filter(|list| {
+                                                        list.name.to_lowercase().contains(&query.to_lowercase())
+                                                    })
+                                                    .cloned()
+                                                    .collect();
+                                                if filtered.is_empty() {
                                                     view! {
-                                                        <option value=list.id.clone()>{list.name.clone()}</option>
+                                                        <div class="absolute z-10 w-full mt-1 bg-ctp-surface0 border border-ctp-surface1 rounded-lg shadow-lg p-4">
+                                                            <p class="text-ctp-subtext0 text-sm">"No matching task lists"</p>
+                                                        </div>
                                                     }
-                                                })
-                                                .collect::<Vec<_>>()}
-                                        </select>
+                                                        .into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="absolute z-10 w-full mt-1 bg-ctp-surface0 border border-ctp-surface1 rounded-lg shadow-lg max-h-[400px] overflow-y-auto">
+                                                            {filtered
+                                                                .iter()
+                                                                .map(|list| {
+                                                                    let list_id = list.id.clone();
+                                                                    let list_name = list.name.clone();
+                                                                    view! {
+                                                                        <button
+                                                                            on:click=move |_| {
+                                                                                set_selected_list_id.set(Some(list_id.clone()));
+                                                                                set_selected_list_name.set(Some(list_name.clone()));
+                                                                                set_search_query.set(String::new());
+                                                                            }
+
+                                                                            class="w-full text-left px-4 py-2 hover:bg-ctp-surface1 text-ctp-text transition-colors"
+                                                                        >
+                                                                            <div class="font-medium">{list.name.clone()}</div>
+                                                                            {list
+                                                                                .description
+                                                                                .as_ref()
+                                                                                .map(|desc| {
+                                                                                    view! {
+                                                                                        <div class="text-sm text-ctp-subtext0 truncate">
+                                                                                            {desc.clone()}
+                                                                                        </div>
+                                                                                    }
+                                                                                })}
+                                                                        </button>
+                                                                    }
+                                                                })
+                                                                .collect::<Vec<_>>()}
+                                                        </div>
+                                                    }
+                                                        .into_any()
+                                                }
+                                            }}
+
+                                        </div>
                                     }
                                         .into_any()
                                 }
