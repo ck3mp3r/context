@@ -22,5 +22,5 @@ command = "tailwindcss"
 command_arguments = ["-c", "./tailwind.config.js", "-i", "./input.css", "-o", "./style.css"]
 
 [[proxy]]
-backend = "http://localhost:3737/api"
+backend = "http://localhost:3737"
 rewrite = "/api"
