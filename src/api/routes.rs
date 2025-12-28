@@ -171,6 +171,11 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         put "/v1/notes/{id}" => super::v1::update_note,
         patch "/v1/notes/{id}" => super::v1::patch_note,
         delete "/v1/notes/{id}" => super::v1::delete_note,
+        // Sync
+        post "/v1/sync/init" => super::v1::init_sync,
+        post "/v1/sync/export" => super::v1::export_sync,
+        post "/v1/sync/import" => super::v1::import_sync,
+        get "/v1/sync/status" => super::v1::get_sync_status,
     });
 
     let mut router = system_routes

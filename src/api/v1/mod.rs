@@ -3,6 +3,7 @@
 mod notes;
 mod projects;
 mod repos;
+mod sync;
 mod task_lists;
 mod tasks;
 
@@ -20,5 +21,6 @@ mod tasks_test;
 pub use notes::*;
 pub use projects::*;
 pub use repos::*;
+pub use sync::*;
 pub use task_lists::*;
 pub use tasks::*;
