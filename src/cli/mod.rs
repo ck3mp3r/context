@@ -33,6 +33,11 @@ enum Commands {
         #[command(subcommand)]
         command: ProjectCommands,
     },
+    /// Repository management commands
+    Repo {
+        #[command(subcommand)]
+        command: RepoCommands,
+    },
     /// Sync commands
     Sync {
         #[command(subcommand)]
@@ -155,6 +160,64 @@ enum ProjectCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum RepoCommands {
+    /// List all repositories
+    List {
+        /// Filter by tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Maximum number of repositories to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Output format (table or json)
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Get a repository by ID
+    Get {
+        /// Repository ID
+        id: String,
+        /// Output format (table or json)
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Create a new repository
+    Create {
+        /// Git remote URL
+        #[arg(long)]
+        remote: String,
+        /// Local file system path
+        #[arg(long)]
+        path: Option<String>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Update a repository
+    Update {
+        /// Repository ID
+        id: String,
+        /// New remote URL
+        #[arg(long)]
+        remote: Option<String>,
+        /// New path
+        #[arg(long)]
+        path: Option<String>,
+        /// New tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Delete a repository
+    Delete {
+        /// Repository ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
+}
+
 pub async fn run() {
     let cli = Cli::parse();
     let api_client = api_client::ApiClient::new(cli.api_url);
@@ -245,6 +308,63 @@ pub async fn run() {
             }
             ProjectCommands::Delete { id, force } => {
                 match commands::project::delete_project(&api_client, &id, force).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+        },
+        Some(Commands::Repo { command }) => match command {
+            RepoCommands::List {
+                tags,
+                limit,
+                format,
+            } => {
+                match commands::repo::list_repos(&api_client, tags.as_deref(), limit, &format).await
+                {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            RepoCommands::Get { id, format } => {
+                match commands::repo::get_repo(&api_client, &id, &format).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            RepoCommands::Create { remote, path, tags } => {
+                match commands::repo::create_repo(
+                    &api_client,
+                    &remote,
+                    path.as_deref(),
+                    tags.as_deref(),
+                )
+                .await
+                {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            RepoCommands::Update {
+                id,
+                remote,
+                path,
+                tags,
+            } => {
+                match commands::repo::update_repo(
+                    &api_client,
+                    &id,
+                    remote.as_deref(),
+                    path.as_deref(),
+                    tags.as_deref(),
+                )
+                .await
+                {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            RepoCommands::Delete { id, force } => {
+                match commands::repo::delete_repo(&api_client, &id, force).await {
                     Ok(output) => println!("{}", output),
                     Err(e) => eprintln!("Error: {}", e),
                 }
