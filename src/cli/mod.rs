@@ -1,5 +1,6 @@
 pub mod api_client;
 mod commands;
+pub mod error;
 
 use clap::{Parser, Subcommand};
 
@@ -105,8 +106,10 @@ pub async fn run() {
                 }
             }
             NoteCommands::Search { query, format } => {
-                println!("Note search: {} (format: {})", query, format);
-                // TODO: Implement note search command
+                match commands::note::search_notes(&api_client, &query, &format).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
             }
         },
         Some(Commands::Sync { command }) => match command {

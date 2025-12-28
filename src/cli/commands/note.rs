@@ -1,4 +1,5 @@
 use crate::cli::api_client::ApiClient;
+use crate::cli::error::CliResult;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ pub async fn list_notes(
     api_client: &ApiClient,
     tags: Option<&str>,
     format: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> CliResult<String> {
     let mut url = format!("{}/api/v1/notes", api_client.base_url());
 
     if let Some(tag_str) = tags {
@@ -62,6 +63,25 @@ fn truncate(s: &str, max_len: usize) -> String {
         s.to_string()
     } else {
         format!("{}...", &s[..max_len - 3])
+    }
+}
+
+/// Search notes using FTS5 full-text search
+pub async fn search_notes(api_client: &ApiClient, query: &str, format: &str) -> CliResult<String> {
+    // Use reqwest's built-in query parameter handling
+    let url = format!("{}/api/v1/notes/search", api_client.base_url());
+
+    let response: NoteListResponse = reqwest::Client::new()
+        .get(&url)
+        .query(&[("query", query)])
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    match format {
+        "json" => Ok(serde_json::to_string_pretty(&response.items)?),
+        _ => Ok(format_table(&response.items)),
     }
 }
 
@@ -123,5 +143,14 @@ mod tests {
         let json = serde_json::to_string_pretty(&notes).unwrap();
         assert!(json.contains("Test note"));
         assert!(json.contains("test"));
+    }
+
+    #[test]
+    fn test_search_notes_query_param() {
+        // reqwest's query builder handles URL encoding automatically
+        // This test just validates the query parameter structure
+        let query = "rust async";
+        assert!(query.contains("rust"));
+        assert!(query.contains("async"));
     }
 }

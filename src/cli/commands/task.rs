@@ -1,4 +1,5 @@
 use crate::cli::api_client::ApiClient;
+use crate::cli::error::{CliError, CliResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,11 +17,7 @@ struct TaskListResponse {
 }
 
 /// List tasks from a task list
-pub async fn list_tasks(
-    api_client: &ApiClient,
-    list_id: &str,
-    format: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn list_tasks(api_client: &ApiClient, list_id: &str, format: &str) -> CliResult<String> {
     let url = format!(
         "{}/api/v1/task-lists/{}/tasks",
         api_client.base_url(),
@@ -74,10 +71,7 @@ fn truncate(s: &str, max_len: usize) -> String {
 }
 
 /// Mark a task as complete
-pub async fn complete_task(
-    api_client: &ApiClient,
-    task_id: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<String> {
     let url = format!(
         "{}/api/v1/tasks/{}/complete",
         api_client.base_url(),
@@ -90,9 +84,12 @@ pub async fn complete_task(
     if response.status().is_success() {
         Ok(format!("✓ Task {} marked as complete", task_id))
     } else {
-        let status = response.status();
+        let status = response.status().as_u16();
         let error_text = response.text().await?;
-        Err(format!("Failed to complete task: {} - {}", status, error_text).into())
+        Err(CliError::ApiError {
+            status,
+            message: error_text,
+        })
     }
 }
 
