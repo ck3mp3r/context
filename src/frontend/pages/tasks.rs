@@ -86,12 +86,13 @@ pub fn Tasks() -> impl IntoView {
                                     let all_lists_for_search = all_lists.clone();
                                     view! {
                                         <div class="relative">
-                                            // Search Input with Thaw
+                                            // Search Input with Thaw + Tailwind styling
                                             <Input
                                                 value=search_query
                                                 placeholder="Search task lists to add swim lanes..."
                                                 on_focus=move |_| set_is_search_focused.set(true)
                                                 on_blur=move |_| set_is_search_focused.set(false)
+                                                attr:class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
                                             />
 
                                             // Selected Lists Display (Chips)

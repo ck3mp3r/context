@@ -1,8 +1,8 @@
-# Thaw UI Integration
+# Thaw UI Integration (In Progress)
 
 ## Overview
 
-Thaw UI (v0.4) has been integrated into the frontend using a **hybrid approach**:
+Thaw UI (v0.4) is being progressively integrated into the frontend using a **hybrid approach**:
 - **Thaw** for interactive components (forms, modals, complex UI)
 - **Tailwind CSS** for layout, spacing, and custom components
 - **Custom components** where they already work well (like swim lanes)
