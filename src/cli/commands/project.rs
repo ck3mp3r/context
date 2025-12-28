@@ -133,28 +133,29 @@ pub async fn get_project(api_client: &ApiClient, id: &str, format: &str) -> CliR
 }
 
 fn format_project_detail(project: &Project) -> String {
-    let mut output = String::new();
-    output.push_str(&format!(
-        "╭─ Project: {} ─╮\n",
-        project.id.chars().take(8).collect::<String>()
-    ));
-    output.push_str(&format!("│ Title:       {}\n", project.title));
+    use tabled::builder::Builder;
+
+    let mut builder = Builder::default();
+
+    builder.push_record(["Project ID", &project.id]);
+    builder.push_record(["Title", &project.title]);
 
     if let Some(desc) = &project.description {
-        output.push_str(&format!("│ Description: {}\n", desc));
+        builder.push_record(["Description", desc]);
     }
 
     if let Some(tags) = &project.tags {
         if !tags.is_empty() {
-            output.push_str(&format!("│ Tags:        {}\n", tags.join(", ")));
+            builder.push_record(["Tags", &tags.join(", ")]);
         }
     }
 
-    output.push_str(&format!("│ Created:     {}\n", project.created_at));
-    output.push_str(&format!("│ Updated:     {}\n", project.updated_at));
-    output.push_str("╰────────────────────────╯");
+    builder.push_record(["Created", &project.created_at]);
+    builder.push_record(["Updated", &project.updated_at]);
 
-    output
+    let mut table = builder.build();
+    table.with(Style::rounded());
+    table.to_string()
 }
 
 /// Create a new project
