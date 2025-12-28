@@ -1,56 +1,64 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use std::collections::{HashMap, HashSet};
 
-use crate::api::{ApiClientError, projects, task_lists, tasks};
-use crate::models::{Paginated, Project, Task, TaskList};
+use crate::api::{ApiClientError, task_lists, tasks};
+use crate::models::{Paginated, Task, TaskList};
 
 #[component]
 pub fn Tasks() -> impl IntoView {
     // State
-    let (selected_list_id, set_selected_list_id) = signal(None::<String>);
-    let (selected_list_name, set_selected_list_name) = signal(None::<String>);
-    let (selected_list_project_id, set_selected_list_project_id) = signal(None::<String>);
+    let (selected_list_ids, set_selected_list_ids) = signal(HashSet::<String>::new());
+    let (show_archived, set_show_archived) = signal(false);
     let (search_query, set_search_query) = signal(String::new());
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
-    let (tasks_data, set_tasks_data) = signal(None::<Result<Paginated<Task>, ApiClientError>>);
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
+    let (swim_lane_tasks, set_swim_lane_tasks) =
+        signal(HashMap::<String, Result<Vec<Task>, ApiClientError>>::new());
 
     // Fetch task lists on mount
     Effect::new(move || {
         spawn_local(async move {
-            let result = task_lists::list(Some(100), None).await;
+            let result = task_lists::list(Some(200), None).await;
             set_task_lists_data.set(Some(result));
         });
     });
 
-    // Fetch tasks when selected list changes
+    // Fetch tasks for all selected lists
     Effect::new(move || {
-        if let Some(list_id) = selected_list_id.get() {
-            set_tasks_data.set(None); // Loading
+        let list_ids = selected_list_ids.get();
+        for list_id in list_ids.iter() {
+            let list_id = list_id.clone();
             spawn_local(async move {
                 let result = tasks::list_for_task_list(&list_id, Some(200), None).await;
-                set_tasks_data.set(Some(result));
-            });
-        }
-    });
-
-    // Fetch project when selected list changes
-    Effect::new(move || {
-        if let Some(project_id) = selected_list_project_id.get() {
-            set_project_data.set(None); // Loading
-            spawn_local(async move {
-                let result = projects::get(&project_id).await;
-                set_project_data.set(Some(result));
+                set_swim_lane_tasks.update(|map| {
+                    map.insert(list_id.clone(), result.map(|paginated| paginated.items));
+                });
             });
         }
     });
 
     view! {
         <div class="container mx-auto p-6">
-            <h2 class="text-3xl font-bold text-ctp-text mb-6">"Tasks"</h2>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-ctp-text">"Tasks"</h2>
 
-            // Task List Selector with Search
+                // Show Archived Toggle
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || show_archived.get()
+                        on:change=move |_| {
+                            set_show_archived.update(|v| *v = !*v);
+                        }
+
+                        class="w-4 h-4 text-ctp-blue bg-ctp-surface0 border-ctp-surface1 rounded focus:ring-ctp-blue"
+                    />
+                    <span class="text-sm text-ctp-subtext0">"Show Archived"</span>
+                </label>
+            </div>
+
+            // Task List Multi-Selector with Search
             <div class="mb-6">
                 {move || match task_lists_data.get() {
                     None => {
@@ -66,12 +74,14 @@ pub fn Tasks() -> impl IntoView {
                                         .into_any()
                                 } else {
                                     let all_lists = paginated.items.clone();
+                                    let all_lists_for_chips = all_lists.clone();
+                                    let all_lists_for_search = all_lists.clone();
                                     view! {
                                         <div class="relative">
                                             // Search Input
                                             <input
                                                 type="text"
-                                                placeholder="Search task lists..."
+                                                placeholder="Search task lists to add swim lanes..."
                                                 prop:value=move || search_query.get()
                                                 on:input=move |ev| {
                                                     set_search_query.set(event_target_value(&ev));
@@ -80,44 +90,77 @@ pub fn Tasks() -> impl IntoView {
                                                 class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
                                             />
 
-                                            // Selected List Display
+                                            // Selected Lists Display (Chips)
                                             {move || {
-                                                selected_list_name
-                                                    .get()
-                                                    .map(|name| {
+                                                let selected = selected_list_ids.get();
+                                                if !selected.is_empty() {
+                                                    let selected_lists: Vec<TaskList> = all_lists_for_chips
+                                                        .iter()
+                                                        .filter(|list| selected.contains(&list.id))
+                                                        .cloned()
+                                                        .collect();
+                                                    Some(
                                                         view! {
-                                                            <div class="mt-2 flex items-center gap-2">
-                                                                <span class="text-ctp-subtext0 text-sm">"Selected:"</span>
-                                                                <span class="px-3 py-1 bg-ctp-blue/20 text-ctp-blue rounded-full text-sm font-medium">
-                                                                    {name}
-                                                                </span>
+                                                            <div class="mt-2 flex flex-wrap gap-2">
+                                                                {selected_lists
+                                                                    .iter()
+                                                                    .map(|list| {
+                                                                        let list_id = list.id.clone();
+                                                                        let list_name = list.name.clone();
+                                                                        view! {
+                                                                            <div class="flex items-center gap-2 px-3 py-1 bg-ctp-blue/20 text-ctp-blue rounded-full text-sm font-medium">
+                                                                                <span>{list_name.clone()}</span>
+                                                                                <button
+                                                                                    on:click=move |_| {
+                                                                                        set_selected_list_ids
+                                                                                            .update(|ids| {
+                                                                                                ids.remove(&list_id);
+                                                                                            });
+                                                                                    }
+
+                                                                                    class="hover:text-ctp-red"
+                                                                                >
+                                                                                    "×"
+                                                                                </button>
+                                                                            </div>
+                                                                        }
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+
                                                                 <button
                                                                     on:click=move |_| {
-                                                                        set_selected_list_id.set(None);
-                                                                        set_selected_list_name.set(None);
-                                                                        set_selected_list_project_id.set(None);
-                                                                        set_search_query.set(String::new());
+                                                                        set_selected_list_ids.set(HashSet::new());
                                                                     }
 
-                                                                    class="text-ctp-red hover:text-ctp-maroon text-sm"
+                                                                    class="text-ctp-red hover:text-ctp-maroon text-sm px-2"
                                                                 >
-                                                                    "Clear"
+                                                                    "Clear All"
                                                                 </button>
                                                             </div>
                                                         }
-                                                    })
+                                                    )
+                                                } else {
+                                                    None
+                                                }
                                             }}
 
-                                            // Filtered Results Dropdown
+                                            // Filtered Results Dropdown with Checkboxes
                                             {move || {
                                                 let query = search_query.get();
+                                                let show_archived_val = show_archived.get();
                                                 if query.is_empty() {
                                                     return view! { <div></div> }.into_any();
                                                 }
-                                                let filtered: Vec<TaskList> = all_lists
+                                                let filtered: Vec<TaskList> = all_lists_for_search
                                                     .iter()
                                                     .filter(|list| {
-                                                        list.name.to_lowercase().contains(&query.to_lowercase())
+                                                        let matches_query = list
+                                                            .name
+                                                            .to_lowercase()
+                                                            .contains(&query.to_lowercase());
+                                                        let matches_status = show_archived_val
+                                                            || list.status != "archived";
+                                                        matches_query && matches_status
                                                     })
                                                     .cloned()
                                                     .collect();
@@ -135,31 +178,57 @@ pub fn Tasks() -> impl IntoView {
                                                                 .iter()
                                                                 .map(|list| {
                                                                     let list_id = list.id.clone();
-                                                                    let list_name = list.name.clone();
-                                                                    let project_id = list.project_id.clone();
+                                                                    let list_id_for_checked = list_id.clone();
+                                                                    let list_id_for_change = list_id.clone();
+                                                                    let _list_name = list.name.clone();
+                                                                    let is_archived = list.status == "archived";
                                                                     view! {
-                                                                        <button
-                                                                            on:click=move |_| {
-                                                                                set_selected_list_id.set(Some(list_id.clone()));
-                                                                                set_selected_list_name.set(Some(list_name.clone()));
-                                                                                set_selected_list_project_id.set(Some(project_id.clone()));
-                                                                                set_search_query.set(String::new());
-                                                                            }
+                                                                        <label class="flex items-center gap-3 px-4 py-2 hover:bg-ctp-surface1 cursor-pointer transition-colors">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                prop:checked=move || {
+                                                                                    selected_list_ids.get().contains(&list_id_for_checked)
+                                                                                }
 
-                                                                            class="w-full text-left px-4 py-2 hover:bg-ctp-surface1 text-ctp-text transition-colors"
-                                                                        >
-                                                                            <div class="font-medium">{list.name.clone()}</div>
-                                                                            {list
-                                                                                .description
-                                                                                .as_ref()
-                                                                                .map(|desc| {
-                                                                                    view! {
-                                                                                        <div class="text-sm text-ctp-subtext0 truncate">
-                                                                                            {desc.clone()}
-                                                                                        </div>
-                                                                                    }
-                                                                                })}
-                                                                        </button>
+                                                                                on:change=move |_| {
+                                                                                    set_selected_list_ids
+                                                                                        .update(|ids| {
+                                                                                            if ids.contains(&list_id_for_change) {
+                                                                                                ids.remove(&list_id_for_change);
+                                                                                            } else {
+                                                                                                ids.insert(list_id_for_change.clone());
+                                                                                            }
+                                                                                        });
+                                                                                }
+
+                                                                                class="w-4 h-4 text-ctp-blue bg-ctp-base border-ctp-surface1 rounded"
+                                                                            />
+                                                                            <div class="flex-1">
+                                                                                <div class="font-medium text-ctp-text flex items-center gap-2">
+                                                                                    <span>{list.name.clone()}</span>
+                                                                                    {is_archived
+                                                                                        .then(|| {
+                                                                                            view! {
+                                                                                                <span class="text-xs px-2 py-0.5 bg-ctp-overlay0/20 text-ctp-overlay0 rounded">
+                                                                                                    "Archived"
+                                                                                                </span>
+                                                                                            }
+                                                                                        })}
+
+                                                                                </div>
+                                                                                {list
+                                                                                    .description
+                                                                                    .as_ref()
+                                                                                    .map(|desc| {
+                                                                                        view! {
+                                                                                            <div class="text-sm text-ctp-subtext0 truncate">
+                                                                                                {desc.clone()}
+                                                                                            </div>
+                                                                                        }
+                                                                                    })}
+
+                                                                            </div>
+                                                                        </label>
                                                                     }
                                                                 })
                                                                 .collect::<Vec<_>>()}
@@ -189,79 +258,51 @@ pub fn Tasks() -> impl IntoView {
 
             </div>
 
-            // Project Header
+            // Swim Lanes (Each selected task list becomes a row)
             {move || {
-                project_data
-                    .get()
-                    .and_then(|result| result.ok())
-                    .map(|project| {
-                        view! {
-                            <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg border border-ctp-surface1">
-                                <div class="flex items-center justify-between">
-                                    <div>
-                                        <h3 class="text-lg font-semibold text-ctp-text">
-                                            {project.title.clone()}
-                                        </h3>
-                                        {project
-                                            .description
-                                            .as_ref()
-                                            .map(|desc| {
-                                                view! {
-                                                    <p class="text-sm text-ctp-subtext0 mt-1">{desc.clone()}</p>
-                                                }
-                                            })}
-                                    </div>
-                                    {(!project.tags.is_empty())
-                                        .then(|| {
-                                            view! {
-                                                <div class="flex flex-wrap gap-1">
-                                                    {project
-                                                        .tags
-                                                        .iter()
-                                                        .map(|tag| {
-                                                            view! {
-                                                                <span class="text-xs bg-ctp-blue/20 text-ctp-blue px-2 py-1 rounded">
-                                                                    {tag.clone()}
-                                                                </span>
-                                                            }
-                                                        })
-                                                        .collect::<Vec<_>>()}
-                                                </div>
-                                            }
-                                        })}
-                                </div>
-                            </div>
-                        }
-                    })
-            }}
-
-            // Kanban Board
-            {move || {
-                if selected_list_id.get().is_none() {
+                let selected = selected_list_ids.get();
+                if selected.is_empty() {
                     return view! {
                         <p class="text-ctp-subtext0 text-center py-12">
-                            "Select a task list to view the kanban board"
+                            "Search and select task lists above to add swim lanes"
                         </p>
                     }
                         .into_any();
                 }
-                match tasks_data.get() {
-                    None => view! { <p class="text-ctp-subtext0">"Loading tasks..."</p> }.into_any(),
-                    Some(result) => {
-                        match result {
-                            Ok(paginated) => {
-                                view! { <KanbanBoard tasks=paginated.items/> }.into_any()
-                            }
-                            Err(err) => {
-                                view! {
-                                    <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                        <p class="text-ctp-red font-semibold">"Error loading tasks"</p>
-                                        <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
+                match task_lists_data.get() {
+                    None => view! { <p class="text-ctp-subtext0">"Loading..."</p> }.into_any(),
+                    Some(Ok(paginated)) => {
+                        let selected_lists: Vec<TaskList> = paginated
+                            .items
+                            .iter()
+                            .filter(|list| selected.contains(&list.id))
+                            .cloned()
+                            .collect();
+                        view! {
+                            <div class="space-y-6">
+                                {selected_lists
+                                    .into_iter()
+                                    .map(|task_list| {
+                                        view! {
+                                            <SwimLane
+                                                task_list=task_list
+                                                tasks_map=swim_lane_tasks
+                                            />
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()}
+                            </div>
                         }
+                            .into_any()
+                    }
+                    Some(Err(err)) => {
+                        view! {
+                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                <p class="text-ctp-red font-semibold">"Error loading task lists"</p>
+                                <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
+                            </div>
+                        }
+                            .into_any()
                     }
                 }
             }}
@@ -271,7 +312,10 @@ pub fn Tasks() -> impl IntoView {
 }
 
 #[component]
-fn KanbanBoard(tasks: Vec<Task>) -> impl IntoView {
+fn SwimLane(
+    task_list: TaskList,
+    tasks_map: ReadSignal<HashMap<String, Result<Vec<Task>, ApiClientError>>>,
+) -> impl IntoView {
     let statuses = vec![
         ("backlog", "Backlog"),
         ("todo", "Todo"),
@@ -282,18 +326,88 @@ fn KanbanBoard(tasks: Vec<Task>) -> impl IntoView {
     ];
 
     view! {
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            {statuses
-                .into_iter()
-                .map(|(status, label)| {
-                    let column_tasks: Vec<Task> = tasks
-                        .iter()
-                        .filter(|t| t.status == status)
-                        .cloned()
-                        .collect();
-                    view! { <KanbanColumn status=status label=label tasks=column_tasks/> }
-                })
-                .collect::<Vec<_>>()}
+        <div class="border border-ctp-surface1 rounded-lg overflow-hidden">
+            // Swim Lane Header
+            <div class="bg-ctp-surface0 px-4 py-3 border-b border-ctp-surface1">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-semibold text-ctp-text">{task_list.name.clone()}</h3>
+                        {task_list
+                            .description
+                            .as_ref()
+                            .map(|desc| {
+                                view! {
+                                    <p class="text-sm text-ctp-subtext0 mt-0.5">
+                                        {desc.chars().take(100).collect::<String>()}
+                                    </p>
+                                }
+                            })}
+
+                    </div>
+                    {(!task_list.tags.is_empty())
+                        .then(|| {
+                            view! {
+                                <div class="flex flex-wrap gap-1">
+                                    {task_list
+                                        .tags
+                                        .iter()
+                                        .map(|tag| {
+                                            view! {
+                                                <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                                    {tag.clone()}
+                                                </span>
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()}
+                                </div>
+                            }
+                        })}
+
+                </div>
+            </div>
+
+            // Status Columns
+            {move || {
+                let list_id = task_list.id.clone();
+                match tasks_map.get().get(&list_id) {
+                    None => {
+                        view! {
+                            <div class="p-8 text-center text-ctp-subtext0">"Loading tasks..."</div>
+                        }
+                            .into_any()
+                    }
+                    Some(Ok(tasks)) => {
+                        view! {
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                                {statuses
+                                    .clone()
+                                    .into_iter()
+                                    .map(|(status, label)| {
+                                        let column_tasks: Vec<Task> = tasks
+                                            .iter()
+                                            .filter(|t| t.status == status)
+                                            .cloned()
+                                            .collect();
+                                        view! { <KanbanColumn status=status label=label tasks=column_tasks/> }
+                                    })
+                                    .collect::<Vec<_>>()}
+                            </div>
+                        }
+                            .into_any()
+                    }
+                    Some(Err(err)) => {
+                        view! {
+                            <div class="p-4 bg-ctp-red/10">
+                                <p class="text-ctp-red text-sm">
+                                    "Error loading tasks: " {err.to_string()}
+                                </p>
+                            </div>
+                        }
+                            .into_any()
+                    }
+                }
+            }}
+
         </div>
     }
 }
