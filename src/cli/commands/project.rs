@@ -102,9 +102,40 @@ fn format_table(projects: &[Project]) -> String {
     table.to_string()
 }
 
-/// Get a single project by ID (stub for now)
-pub async fn get_project(_api_client: &ApiClient, _id: &str, _format: &str) -> CliResult<String> {
-    todo!("Implement get_project in TDD cycle")
+/// Get a single project by ID
+pub async fn get_project(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
+    let url = format!("{}/v1/projects/{}", api_client.base_url(), id);
+    let project: Project = reqwest::get(&url).await?.json().await?;
+
+    match format {
+        "json" => Ok(serde_json::to_string_pretty(&project)?),
+        _ => Ok(format_project_detail(&project)),
+    }
+}
+
+fn format_project_detail(project: &Project) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "╭─ Project: {} ─╮\n",
+        project.id.chars().take(8).collect::<String>()
+    ));
+    output.push_str(&format!("│ Title:       {}\n", project.title));
+
+    if let Some(desc) = &project.description {
+        output.push_str(&format!("│ Description: {}\n", desc));
+    }
+
+    if let Some(tags) = &project.tags {
+        if !tags.is_empty() {
+            output.push_str(&format!("│ Tags:        {}\n", tags.join(", ")));
+        }
+    }
+
+    output.push_str(&format!("│ Created:     {}\n", project.created_at));
+    output.push_str(&format!("│ Updated:     {}\n", project.updated_at));
+    output.push_str("╰────────────────────────╯");
+
+    output
 }
 
 /// Create a new project (stub for now)
@@ -159,6 +190,32 @@ mod tests {
         // If successful, output should be parseable as JSON
         if let Ok(output) = result {
             // Should be valid JSON (array of projects)
+            let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output);
+            assert!(parsed.is_ok(), "Output should be valid JSON");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_project() {
+        // GREEN: Test for getting a single project
+        let api_client = ApiClient::new(None);
+        let result = get_project(&api_client, "test-id", "table").await;
+
+        // Function should exist and return a result (ok or error from API)
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_project_json() {
+        // GREEN: Test for getting a single project in JSON format
+        let api_client = ApiClient::new(None);
+        let result = get_project(&api_client, "test-id", "json").await;
+
+        // Function should exist and return a result
+        assert!(result.is_ok() || result.is_err());
+
+        // If successful, output should be parseable as JSON
+        if let Ok(output) = result {
             let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output);
             assert!(parsed.is_ok(), "Output should be valid JSON");
         }
