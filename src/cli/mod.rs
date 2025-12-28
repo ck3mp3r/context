@@ -20,32 +20,32 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Task management commands
-    Task {
-        #[command(subcommand)]
-        command: TaskCommands,
-    },
-    /// Note management commands
-    Note {
-        #[command(subcommand)]
-        command: NoteCommands,
-    },
-    /// Project management commands
+    /// Project management
     Project {
         #[command(subcommand)]
         command: ProjectCommands,
     },
-    /// Repository management commands
-    Repo {
-        #[command(subcommand)]
-        command: RepoCommands,
-    },
-    /// Task list management commands
+    /// Task list management
     TaskList {
         #[command(subcommand)]
         command: TaskListCommands,
     },
-    /// Sync commands
+    /// Task management
+    Task {
+        #[command(subcommand)]
+        command: TaskCommands,
+    },
+    /// Note management
+    Note {
+        #[command(subcommand)]
+        command: NoteCommands,
+    },
+    /// Repository management
+    Repo {
+        #[command(subcommand)]
+        command: RepoCommands,
+    },
+    /// Sync operations
     Sync {
         #[command(subcommand)]
         command: SyncCommands,
@@ -300,51 +300,6 @@ pub async fn run() -> Result<()> {
     let api_client = api_client::ApiClient::new(cli.api_url);
 
     match cli.command {
-        Some(Commands::Task { command }) => match command {
-            TaskCommands::List { list_id, json } => {
-                let filter = commands::task::ListTasksFilter {
-                    status: None,
-                    parent_id: None,
-                    tags: None,
-                    limit: None,
-                    offset: None,
-                };
-                let output = commands::task::list_tasks(
-                    &api_client,
-                    &list_id,
-                    filter,
-                    if json { "json" } else { "table" },
-                )
-                .await?;
-                println!("{}", output);
-            }
-            TaskCommands::Complete { id } => {
-                let output = commands::task::complete_task(&api_client, &id).await?;
-                println!("{}", output);
-            }
-        },
-        Some(Commands::Note { command }) => match command {
-            NoteCommands::List { tags, json } => {
-                let output = commands::note::list_notes(
-                    &api_client,
-                    tags.as_deref(),
-                    None,
-                    None,
-                    if json { "json" } else { "table" },
-                )
-                .await?;
-                println!("{}", output);
-            }
-            NoteCommands::Search { query, json } => {
-                let output = commands::note::search_notes(
-                    &api_client,
-                    &query,
-                    if json { "json" } else { "table" },
-                )
-                .await?;
-                println!("{}", output);
-            }
-        },
         Some(Commands::Project { command }) => match command {
             ProjectCommands::List { tags, limit, json } => {
                 let output = commands::project::list_projects(
@@ -515,6 +470,51 @@ pub async fn run() -> Result<()> {
             }
             TaskListCommands::Delete { id, force } => {
                 let output = commands::task_list::delete_task_list(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+        },
+        Some(Commands::Task { command }) => match command {
+            TaskCommands::List { list_id, json } => {
+                let filter = commands::task::ListTasksFilter {
+                    status: None,
+                    parent_id: None,
+                    tags: None,
+                    limit: None,
+                    offset: None,
+                };
+                let output = commands::task::list_tasks(
+                    &api_client,
+                    &list_id,
+                    filter,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskCommands::Complete { id } => {
+                let output = commands::task::complete_task(&api_client, &id).await?;
+                println!("{}", output);
+            }
+        },
+        Some(Commands::Note { command }) => match command {
+            NoteCommands::List { tags, json } => {
+                let output = commands::note::list_notes(
+                    &api_client,
+                    tags.as_deref(),
+                    None,
+                    None,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            NoteCommands::Search { query, json } => {
+                let output = commands::note::search_notes(
+                    &api_client,
+                    &query,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
                 println!("{}", output);
             }
         },
