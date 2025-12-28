@@ -37,6 +37,15 @@ fn NotesList() -> impl IntoView {
         let current_page = page.get();
         let current_query = search_query.get();
 
+        // Log for debugging
+        web_sys::console::log_1(
+            &format!(
+                "Fetching page {} with query '{}'",
+                current_page, current_query
+            )
+            .into(),
+        );
+
         // Reset to loading state immediately
         set_notes_data.set(None);
 
@@ -47,7 +56,20 @@ fn NotesList() -> impl IntoView {
             } else {
                 Some(current_query)
             };
+
+            web_sys::console::log_1(
+                &format!("API call: offset={}, limit={}", offset, PAGE_SIZE).into(),
+            );
+
             let result = notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await;
+
+            match &result {
+                Ok(data) => web_sys::console::log_1(
+                    &format!("Got {} notes, total {}", data.items.len(), data.total).into(),
+                ),
+                Err(e) => web_sys::console::log_1(&format!("Error: {}", e).into()),
+            }
+
             set_notes_data.set(Some(result));
         });
     });
