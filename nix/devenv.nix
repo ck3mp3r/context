@@ -7,18 +7,13 @@
 }: {
   packages = [
     inputs.fenix.packages.${pkgs.system}.stable.toolchain
+    (inputs.fenix.packages.${pkgs.system}.targets.wasm32-unknown-unknown.stable.rust-std)
     pkgs.cargo-tarpaulin
     pkgs.trunk
     pkgs.wasm-bindgen-cli
     pkgs.nodejs
     pkgs.nodePackages.tailwindcss
   ];
-
-  # Install wasm32 target for WASM compilation
-  languages.rust = {
-    enable = true;
-    targets = ["wasm32-unknown-unknown"];
-  };
 
   scripts = {
     check = {
