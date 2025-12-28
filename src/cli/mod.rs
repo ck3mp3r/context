@@ -75,6 +75,19 @@ enum NoteCommands {
 
 #[derive(Subcommand)]
 enum SyncCommands {
+    /// Initialize sync repository
+    Init {
+        /// Git remote URL (e.g., git@github.com:user/c5t-sync.git)
+        remote_url: Option<String>,
+    },
+    /// Export database to sync
+    Export {
+        /// Commit message
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+    /// Import from sync to database
+    Import,
     /// Show sync status
     Status,
 }
@@ -113,10 +126,26 @@ pub async fn run() {
             }
         },
         Some(Commands::Sync { command }) => match command {
-            SyncCommands::Status => {
-                println!("Sync status");
-                // TODO: Implement sync status command
+            SyncCommands::Init { remote_url } => {
+                match commands::sync::init(&api_client, remote_url).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
             }
+            SyncCommands::Export { message } => {
+                match commands::sync::export(&api_client, message).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                }
+            }
+            SyncCommands::Import => match commands::sync::import(&api_client).await {
+                Ok(output) => println!("{}", output),
+                Err(e) => eprintln!("Error: {}", e),
+            },
+            SyncCommands::Status => match commands::sync::status(&api_client).await {
+                Ok(output) => println!("{}", output),
+                Err(e) => eprintln!("Error: {}", e),
+            },
         },
         None => {
             // Show help when no command provided
