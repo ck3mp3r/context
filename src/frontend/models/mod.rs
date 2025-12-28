@@ -31,8 +31,8 @@ pub struct Repo {
     pub remote: String,
     pub path: Option<String>,
     pub tags: Vec<String>,
+    pub project_ids: Vec<String>,
     pub created_at: String,
-    pub updated_at: String,
 }
 
 /// Task list response from API
