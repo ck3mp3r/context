@@ -1,18 +1,20 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::{ApiClientError, task_lists, tasks};
-use crate::models::{Paginated, Task, TaskList};
+use crate::api::{ApiClientError, projects, task_lists, tasks};
+use crate::models::{Paginated, Project, Task, TaskList};
 
 #[component]
 pub fn Tasks() -> impl IntoView {
     // State
     let (selected_list_id, set_selected_list_id) = signal(None::<String>);
     let (selected_list_name, set_selected_list_name) = signal(None::<String>);
+    let (selected_list_project_id, set_selected_list_project_id) = signal(None::<String>);
     let (search_query, set_search_query) = signal(String::new());
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (tasks_data, set_tasks_data) = signal(None::<Result<Paginated<Task>, ApiClientError>>);
+    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
 
     // Fetch task lists on mount
     Effect::new(move || {
@@ -29,6 +31,17 @@ pub fn Tasks() -> impl IntoView {
             spawn_local(async move {
                 let result = tasks::list_for_task_list(&list_id, Some(200), None).await;
                 set_tasks_data.set(Some(result));
+            });
+        }
+    });
+
+    // Fetch project when selected list changes
+    Effect::new(move || {
+        if let Some(project_id) = selected_list_project_id.get() {
+            set_project_data.set(None); // Loading
+            spawn_local(async move {
+                let result = projects::get(&project_id).await;
+                set_project_data.set(Some(result));
             });
         }
     });
@@ -82,6 +95,7 @@ pub fn Tasks() -> impl IntoView {
                                                                     on:click=move |_| {
                                                                         set_selected_list_id.set(None);
                                                                         set_selected_list_name.set(None);
+                                                                        set_selected_list_project_id.set(None);
                                                                         set_search_query.set(String::new());
                                                                     }
 
@@ -97,7 +111,7 @@ pub fn Tasks() -> impl IntoView {
                                             // Filtered Results Dropdown
                                             {move || {
                                                 let query = search_query.get();
-                                                if query.is_empty() || selected_list_id.get().is_some() {
+                                                if query.is_empty() {
                                                     return view! { <div></div> }.into_any();
                                                 }
                                                 let filtered: Vec<TaskList> = all_lists
@@ -122,11 +136,13 @@ pub fn Tasks() -> impl IntoView {
                                                                 .map(|list| {
                                                                     let list_id = list.id.clone();
                                                                     let list_name = list.name.clone();
+                                                                    let project_id = list.project_id.clone();
                                                                     view! {
                                                                         <button
                                                                             on:click=move |_| {
                                                                                 set_selected_list_id.set(Some(list_id.clone()));
                                                                                 set_selected_list_name.set(Some(list_name.clone()));
+                                                                                set_selected_list_project_id.set(Some(project_id.clone()));
                                                                                 set_search_query.set(String::new());
                                                                             }
 
@@ -172,6 +188,52 @@ pub fn Tasks() -> impl IntoView {
                 }}
 
             </div>
+
+            // Project Header
+            {move || {
+                project_data
+                    .get()
+                    .and_then(|result| result.ok())
+                    .map(|project| {
+                        view! {
+                            <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg border border-ctp-surface1">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-ctp-text">
+                                            {project.title.clone()}
+                                        </h3>
+                                        {project
+                                            .description
+                                            .as_ref()
+                                            .map(|desc| {
+                                                view! {
+                                                    <p class="text-sm text-ctp-subtext0 mt-1">{desc.clone()}</p>
+                                                }
+                                            })}
+                                    </div>
+                                    {(!project.tags.is_empty())
+                                        .then(|| {
+                                            view! {
+                                                <div class="flex flex-wrap gap-1">
+                                                    {project
+                                                        .tags
+                                                        .iter()
+                                                        .map(|tag| {
+                                                            view! {
+                                                                <span class="text-xs bg-ctp-blue/20 text-ctp-blue px-2 py-1 rounded">
+                                                                    {tag.clone()}
+                                                                </span>
+                                                            }
+                                                        })
+                                                        .collect::<Vec<_>>()}
+                                                </div>
+                                            }
+                                        })}
+                                </div>
+                            </div>
+                        }
+                    })
+            }}
 
             // Kanban Board
             {move || {
