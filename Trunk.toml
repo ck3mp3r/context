@@ -19,7 +19,7 @@ no_autoreload = false
 [[hooks]]
 stage = "pre_build"
 command = "tailwindcss"
-command_arguments = ["-i", "./style.css", "-o", "./dist/style.css"]
+command_arguments = ["-c", "./tailwind.config.js", "-i", "./input.css", "-o", "./style.css"]
 
 [[proxy]]
 backend = "http://localhost:3737/api"

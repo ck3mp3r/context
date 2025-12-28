@@ -60,3 +60,9 @@ tarpaulin-report.*
 
 # Database files
 data/db/
+
+# WASM build output
+dist/
+
+# Test files
+test-output.css

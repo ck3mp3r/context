@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root[data-theme="mocha"] {
+  --ctp-base: #1e1e2e;
+  --ctp-text: #cdd6f4;
+}
+
+body {
+  background-color: var(--ctp-base);
+  color: var(--ctp-text);
+  font-family: system-ui, -apple-system, sans-serif;
+}
