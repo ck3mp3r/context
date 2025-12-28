@@ -62,6 +62,54 @@ enum TaskCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Get a task by ID
+    Get {
+        /// Task ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new task
+    Create {
+        /// Task list ID
+        #[arg(long)]
+        list_id: String,
+        /// Task content/description
+        #[arg(long)]
+        content: String,
+        /// Priority (1-5, where 1 is highest)
+        #[arg(long)]
+        priority: Option<i32>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Update a task
+    Update {
+        /// Task ID
+        id: String,
+        /// New content/description
+        #[arg(long)]
+        content: Option<String>,
+        /// New status (backlog, todo, in_progress, review, done, cancelled)
+        #[arg(long)]
+        status: Option<String>,
+        /// New priority (1-5)
+        #[arg(long)]
+        priority: Option<i32>,
+        /// New tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Delete a task
+    Delete {
+        /// Task ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
     /// Mark a task as complete
     Complete {
         /// Task ID to complete
@@ -489,6 +537,50 @@ pub async fn run() -> Result<()> {
                     if json { "json" } else { "table" },
                 )
                 .await?;
+                println!("{}", output);
+            }
+            TaskCommands::Get { id, json } => {
+                let output =
+                    commands::task::get_task(&api_client, &id, if json { "json" } else { "table" })
+                        .await?;
+                println!("{}", output);
+            }
+            TaskCommands::Create {
+                list_id,
+                content,
+                priority,
+                tags,
+            } => {
+                let output = commands::task::create_task(
+                    &api_client,
+                    &list_id,
+                    &content,
+                    priority,
+                    tags.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskCommands::Update {
+                id,
+                content,
+                status,
+                priority,
+                tags,
+            } => {
+                let output = commands::task::update_task(
+                    &api_client,
+                    &id,
+                    content.as_deref(),
+                    status.as_deref(),
+                    priority,
+                    tags.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            TaskCommands::Delete { id, force } => {
+                let output = commands::task::delete_task(&api_client, &id, force).await?;
                 println!("{}", output);
             }
             TaskCommands::Complete { id } => {
