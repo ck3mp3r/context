@@ -287,7 +287,7 @@ pub fn Tasks() -> impl IntoView {
                             .cloned()
                             .collect();
                         view! {
-                            <div class="space-y-6">
+                            <Accordion>
                                 {selected_lists
                                     .into_iter()
                                     .map(|task_list| {
@@ -296,7 +296,7 @@ pub fn Tasks() -> impl IntoView {
                                         }
                                     })
                                     .collect::<Vec<_>>()}
-                            </div>
+                            </Accordion>
                         }
                             .into_any()
                     }
