@@ -410,7 +410,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .items
                                                                 .iter()
                                                                 .filter(|repo| {
-                                                                    repo.tags.iter().any(|tag| tag == &proj_id)
+                                                                    repo.project_ids.contains(&proj_id)
                                                                         && (search.is_empty()
                                                                             || repo.remote.to_lowercase().contains(&search))
                                                                 })
