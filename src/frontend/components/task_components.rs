@@ -654,15 +654,12 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
         <OverlayDrawer open position=DrawerPosition::Right class="w-[50vw]">
             <DrawerHeader>
                 <div class="flex items-center justify-between w-full">
-                    <div class="flex items-center gap-2">
-                        <h2 class="text-lg font-semibold text-ctp-text">"Task Details"</h2>
-                        <span
-                            class="text-xs text-ctp-overlay0 font-mono bg-ctp-surface0 px-2 py-1 rounded select-all cursor-pointer hover:bg-ctp-surface1"
-                            title="Click to select, then copy"
-                        >
-                            {task_id.clone()}
-                        </span>
-                    </div>
+                    <span
+                        class="text-xs text-ctp-overlay0 font-mono bg-ctp-surface0 px-2 py-1 rounded select-all cursor-pointer hover:bg-ctp-surface1"
+                        title="Click to select, then copy"
+                    >
+                        {task_id.clone()}
+                    </span>
                     <button
                         on:click=move |_| open.set(false)
                         class="text-ctp-overlay0 hover:text-ctp-text transition-colors text-xl"
