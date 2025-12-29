@@ -674,9 +674,7 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
             <DrawerBody>
                 // Main task detail card
                 <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg">
-                    <h3 class="text-lg font-semibold text-ctp-text mb-3">{task.content.clone()}</h3>
-
-                    <div class="space-y-2 text-sm">
+                    <div class="space-y-2 text-sm mb-4">
                         <div>
                             <span class="text-ctp-subtext0">"Status: "</span>
                             <span class="text-ctp-text font-medium">{format!("{:?}", task.status)}</span>
@@ -730,6 +728,14 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
                                 </div>
                             }
                         })}
+                    </div>
+
+                    // Content/Description section
+                    <div class="border-t border-ctp-surface1 pt-4">
+                        <h4 class="text-sm text-ctp-subtext0 mb-2">"Description"</h4>
+                        <div class="text-sm text-ctp-text whitespace-pre-wrap break-words">
+                            {task.content.clone()}
+                        </div>
                     </div>
                 </div>
 
