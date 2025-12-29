@@ -981,34 +981,46 @@ pub fn TaskListCard(
                             Some(view! {
                                 <div class="flex gap-1.5 flex-wrap text-xs">
                                     // Backlog
-                                    <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded" title="Backlog">
-                                        {s.backlog}
-                                    </span>
+                                    <Tooltip content="Backlog">
+                                        <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded">
+                                            {s.backlog}
+                                        </span>
+                                    </Tooltip>
 
                                     // Todo
-                                    <span class="bg-ctp-blue/20 text-ctp-blue px-2 py-0.5 rounded" title="Todo">
-                                        "📋 " {s.todo}
-                                    </span>
+                                    <Tooltip content="Todo">
+                                        <span class="bg-ctp-blue/20 text-ctp-blue px-2 py-0.5 rounded">
+                                            "📋 " {s.todo}
+                                        </span>
+                                    </Tooltip>
 
                                     // In Progress
-                                    <span class="bg-ctp-yellow/20 text-ctp-yellow px-2 py-0.5 rounded" title="In Progress">
-                                        "⚡ " {s.in_progress}
-                                    </span>
+                                    <Tooltip content="In Progress">
+                                        <span class="bg-ctp-yellow/20 text-ctp-yellow px-2 py-0.5 rounded">
+                                            "⚡ " {s.in_progress}
+                                        </span>
+                                    </Tooltip>
 
                                     // Review
-                                    <span class="bg-ctp-mauve/20 text-ctp-mauve px-2 py-0.5 rounded" title="Review">
-                                        "👁 " {s.review}
-                                    </span>
+                                    <Tooltip content="Review">
+                                        <span class="bg-ctp-mauve/20 text-ctp-mauve px-2 py-0.5 rounded">
+                                            "👁 " {s.review}
+                                        </span>
+                                    </Tooltip>
 
                                     // Done
-                                    <span class="bg-ctp-green/20 text-ctp-green px-2 py-0.5 rounded" title="Done">
-                                        "✓ " {s.done}
-                                    </span>
+                                    <Tooltip content="Done">
+                                        <span class="bg-ctp-green/20 text-ctp-green px-2 py-0.5 rounded">
+                                            "✓ " {s.done}
+                                        </span>
+                                    </Tooltip>
 
                                     // Cancelled
-                                    <span class="bg-ctp-red/20 text-ctp-red px-2 py-0.5 rounded" title="Cancelled">
-                                        "✗ " {s.cancelled}
-                                    </span>
+                                    <Tooltip content="Cancelled">
+                                        <span class="bg-ctp-red/20 text-ctp-red px-2 py-0.5 rounded">
+                                            "✗ " {s.cancelled}
+                                        </span>
+                                    </Tooltip>
                                 </div>
                             })
                         },
