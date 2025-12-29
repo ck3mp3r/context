@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, projects};
+use crate::components::CopyableId;
 use crate::models::{Paginated, Project};
 
 #[component]
@@ -53,13 +54,17 @@ pub fn Projects() -> impl IntoView {
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         view! {
-                                            <a
-                                                href=format!("/projects/{}", project_id)
-                                                class="block bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors"
-                                            >
-                                                <h3 class="text-xl font-semibold text-ctp-text mb-2">
-                                                    {project_title}
-                                                </h3>
+                                            <div class="relative bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors">
+                                                <div class="absolute top-2 right-2">
+                                                    <CopyableId id=project_id.clone()/>
+                                                </div>
+                                                <a
+                                                    href=format!("/projects/{}", project_id)
+                                                    class="block"
+                                                >
+                                                    <h3 class="text-xl font-semibold text-ctp-text mb-2">
+                                                        {project_title}
+                                                    </h3>
                                                 {project_description
                                                     .as_ref()
                                                     .map(|desc| {
@@ -87,8 +92,8 @@ pub fn Projects() -> impl IntoView {
                                                             </div>
                                                         }
                                                     })}
-
-                                            </a>
+                                                </a>
+                                            </div>
                                         }
                                     })
                                     .collect::<Vec<_>>()}

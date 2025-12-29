@@ -3,6 +3,7 @@ use pulldown_cmark::{Options, Parser, html};
 use thaw::*;
 
 use crate::api::notes;
+use crate::components::CopyableId;
 use crate::models::Note;
 
 #[component]
@@ -23,21 +24,22 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     };
 
     view! {
-        <a
-            href=href
-            on:click=move |ev| {
-                if let Some(callback) = on_click {
-                    ev.prevent_default();
-                    callback.run(note_id.clone());
-                }
-            }
-
-            class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors"
-        >
-            <div class="flex justify-between items-start mb-2">
-                <h3 class="text-xl font-semibold text-ctp-text">{note.title.clone()}</h3>
-                <span class="text-xs text-ctp-overlay0 ml-2 flex-shrink-0">{note.id.clone()}</span>
+        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
+            <div class="absolute top-2 right-2">
+                <CopyableId id=note.id.clone()/>
             </div>
+            <a
+                href=href
+                on:click=move |ev| {
+                    if let Some(callback) = on_click {
+                        ev.prevent_default();
+                        callback.run(note_id.clone());
+                    }
+                }
+
+                class="block"
+            >
+                <h3 class="text-xl font-semibold text-ctp-text mb-2">{note.title.clone()}</h3>
 
             <p class="text-ctp-subtext0 text-sm mb-3 line-clamp-3">{preview}</p>
 
@@ -64,7 +66,8 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
                 <span>"Created: " {note.created_at}</span>
                 <span>"Updated: " {note.updated_at}</span>
             </div>
-        </a>
+            </a>
+        </div>
     }
 }
 

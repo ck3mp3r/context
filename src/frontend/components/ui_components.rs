@@ -1,4 +1,53 @@
 use leptos::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(
+    inline_js = "export function copy_to_clipboard(text) { navigator.clipboard.writeText(text); }"
+)]
+extern "C" {
+    fn copy_to_clipboard(text: &str);
+}
+
+/// Copyable ID component - displays an ID in a monospace block with click-to-copy functionality
+#[component]
+pub fn CopyableId(id: String) -> impl IntoView {
+    let (copied, set_copied) = signal(false);
+    let id_clone = id.clone();
+
+    let do_copy = move |ev: leptos::ev::MouseEvent| {
+        ev.prevent_default();
+        ev.stop_propagation();
+        copy_to_clipboard(&id_clone);
+        set_copied.set(true);
+
+        // Reset after 2 seconds
+        set_timeout(
+            move || {
+                set_copied.set(false);
+            },
+            std::time::Duration::from_secs(2),
+        );
+    };
+
+    view! {
+        <button
+            on:click=do_copy
+            class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-ctp-surface0/50 border border-ctp-surface1/50 rounded text-[10px] hover:border-ctp-blue hover:bg-ctp-surface0 transition-colors cursor-pointer"
+            title="Copy ID to clipboard"
+        >
+            <code class="font-mono text-ctp-overlay0">{id}</code>
+            <span class="text-[8px] text-ctp-overlay0">
+                {move || {
+                    if copied.get() {
+                        "✓"
+                    } else {
+                        "📋"
+                    }
+                }}
+            </span>
+        </button>
+    }
+}
 
 #[component]
 pub fn Pagination(

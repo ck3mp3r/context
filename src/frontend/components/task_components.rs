@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use thaw::*;
 
 use crate::api::{ApiClientError, task_lists, tasks};
+use crate::components::CopyableId;
 use crate::models::{Task, TaskList, TaskStats};
 
 // Context for accordion state - shared across all swim lanes (DEPRECATED - keeping for compatibility)
@@ -734,9 +735,13 @@ pub fn TaskDetailContent(
     view! {
         <div>
             // Main task - description first, metadata secondary
-            <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", status_color)>
+            <div class=format!("relative mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", status_color)>
+                // Task ID in top-right corner
+                <div class="absolute top-2 right-2">
+                    <CopyableId id=task.id.clone()/>
+                </div>
                 // Task description - prominent
-                <div class="text-base text-ctp-text whitespace-pre-wrap break-words mb-4">
+                <div class="text-base text-ctp-text whitespace-pre-wrap break-words mb-4 pr-20">
                     {task.content.clone()}
                 </div>
 
@@ -820,9 +825,12 @@ pub fn TaskDetailContent(
                                     {tasks_list.into_iter().map(|subtask| {
                                         let subtask_id = subtask.id.clone();
                                         view! {
-                                            <AccordionItem value=subtask_id>
+                                            <AccordionItem value=subtask_id.clone()>
                                                 <AccordionHeader slot>{subtask.content.clone()}</AccordionHeader>
-                                                <div class="space-y-2 text-sm">
+                                                <div class="relative space-y-2 text-sm">
+                                                    <div class="absolute top-0 right-0">
+                                                        <CopyableId id=subtask_id.clone()/>
+                                                    </div>
                                                     <div>
                                                         <span class="text-ctp-subtext0">"Status: "</span>
                                                         <span class="text-ctp-text">{format!("{:?}", subtask.status)}</span>
@@ -931,21 +939,22 @@ pub fn TaskListCard(
     });
 
     view! {
-        <a
-            href=href
-            on:click=move |ev| {
-                if let Some(callback) = on_click {
-                    ev.prevent_default();
-                    callback.run(list_id.clone());
-                }
-            }
-
-            class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors"
-        >
-            <div class="flex justify-between items-start mb-2">
-                <h3 class="text-xl font-semibold text-ctp-text">{task_list.name.clone()}</h3>
-                <span class="text-xs text-ctp-overlay0 ml-2 flex-shrink-0">{task_list.id.clone()}</span>
+        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
+            <div class="absolute top-2 right-2">
+                <CopyableId id=task_list.id.clone()/>
             </div>
+            <a
+                href=href
+                on:click=move |ev| {
+                    if let Some(callback) = on_click {
+                        ev.prevent_default();
+                        callback.run(list_id.clone());
+                    }
+                }
+
+                class="block"
+            >
+                <h3 class="text-xl font-semibold text-ctp-text mb-2">{task_list.name.clone()}</h3>
 
             {task_list
                 .description
@@ -1033,7 +1042,8 @@ pub fn TaskListCard(
                 <span>"Created: " {task_list.created_at}</span>
                 <span>"Updated: " {task_list.updated_at}</span>
             </div>
-        </a>
+            </a>
+        </div>
     }
 }
 

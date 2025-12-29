@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::api::repos;
+use crate::components::CopyableId;
 use crate::models::Repo;
 
 #[component]
@@ -63,11 +64,11 @@ pub fn Repos() -> impl IntoView {
 #[component]
 fn RepoCard(repo: Repo) -> impl IntoView {
     view! {
-        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
-            <div class="flex justify-between items-start mb-2">
-                <h3 class="text-xl font-semibold text-ctp-text break-all">{repo.remote.clone()}</h3>
-                <span class="text-xs text-ctp-overlay0 ml-2 flex-shrink-0">{repo.id}</span>
+        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
+            <div class="absolute top-2 right-2">
+                <CopyableId id=repo.id.clone()/>
             </div>
+            <h3 class="text-xl font-semibold text-ctp-text break-all mb-2">{repo.remote.clone()}</h3>
 
             {repo
                 .path
