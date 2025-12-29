@@ -8,13 +8,17 @@ use crate::api::{ApiClientError, task_lists, tasks};
 use crate::components::CopyableId;
 use crate::models::{Task, TaskList, TaskStats};
 
-// Context for accordion state - shared across all swim lanes (DEPRECATED - keeping for compatibility)
+// Context for accordion state - shared across all swim lanes
+// Note: Constructed in pages/tasks.rs, not in this file
 #[derive(Clone, Copy)]
 pub struct AccordionContext {
     pub expanded_id: ReadSignal<Option<String>>,
     pub set_expanded_id: WriteSignal<Option<String>>,
 }
 
+// NOTE: The #[component] macro generates a wrapper struct with fields that the Rust
+// analyzer sees as unused (false positive). These fields ARE used in the component body.
+// The warning cannot currently be suppressed (Leptos issue).
 #[component]
 pub fn SwimLane(
     task_list: TaskList,

@@ -130,8 +130,7 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                         note_resource
                             .get()
                             .map(|result| {
-                                let result_clone = (*result).clone();
-                                match result_clone {
+                                match result {
                                     Ok(note) => {
                                         view! {
                                             <div class="space-y-4">
@@ -158,7 +157,7 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                                                                         {note
                                                                             .tags
                                                                             .iter()
-                                                                            .map(|tag| {
+                                                                            .map(|tag: &String| {
                                                                                 view! {
                                                                                     <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
                                                                                         {tag.clone()}
@@ -178,10 +177,11 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                                             .into_any()
                                         }
                                         Err(err) => {
+                                            let err_msg = err.to_string();
                                             view! {
                                                 <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
                                                     <p class="text-ctp-red font-semibold">"Error loading note"</p>
-                                                    <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
+                                                    <p class="text-ctp-subtext0 text-sm mt-2">{err_msg}</p>
                                                 </div>
                                             }
                                                 .into_any()
