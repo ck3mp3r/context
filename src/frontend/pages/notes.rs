@@ -3,7 +3,7 @@ use leptos::task::spawn_local;
 
 use crate::api::ApiClientError;
 use crate::api::notes;
-use crate::components::{NoteCard, NoteDetailModal};
+use crate::components::{NoteCard, NoteDetailModal, Pagination};
 use crate::models::{Note, Paginated};
 
 #[component]
@@ -15,7 +15,7 @@ pub fn Notes() -> impl IntoView {
 
 #[component]
 fn NotesList() -> impl IntoView {
-    const PAGE_SIZE: usize = 21;
+    const PAGE_SIZE: usize = 12;
 
     // State management
     let (page, set_page) = signal(0usize);
@@ -119,17 +119,6 @@ fn NotesList() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div>
-                                            // Results summary
-                                            <div class="text-sm text-ctp-overlay0 mb-4">
-                                                "Showing "
-                                                {paginated.offset + 1}
-                                                " - "
-                                                {(paginated.offset + paginated.items.len()).min(paginated.total)}
-                                                " of "
-                                                {paginated.total}
-                                                " notes"
-                                            </div>
-
                                             // Notes grid
                                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                                                 {paginated
@@ -149,49 +138,27 @@ fn NotesList() -> impl IntoView {
                                                     .collect::<Vec<_>>()}
                                             </div>
 
-                                            // Pagination controls
-                                            {(total_pages > 1)
-                                                .then(|| {
-                                                    view! {
-                                                        <div class="flex justify-center items-center gap-2">
-                                                            // Previous button
-                                                            <button
-                                                                on:click=move |_| {
-                                                                    let current = page.get();
-                                                                    if current > 0 {
-                                                                        go_to_page(current - 1)
-                                                                    }
-                                                                }
-
-                                                                disabled=move || page.get() == 0
-                                                                class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
-                                                            >
-                                                                "← Previous"
-                                                            </button>
-
-                                                            // Page numbers
-                                                            <span class="text-ctp-subtext0">
-                                                                "Page " {move || page.get() + 1} " of " {total_pages}
-                                                            </span>
-
-                                                            // Next button
-                                                            <button
-                                                                on:click=move |_| {
-                                                                    let current = page.get();
-                                                                    if current < total_pages - 1 {
-                                                                        go_to_page(current + 1)
-                                                                    }
-                                                                }
-                                                                disabled=move || {
-                                                                    page.get() >= total_pages - 1
-                                                                }
-                                                                class="px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed hover:border-ctp-blue"
-                                                            >
-                                                                "Next →"
-                                                            </button>
-                                                        </div>
+                                            // Pagination
+                                            <Pagination
+                                                current_page=page
+                                                total_pages=total_pages
+                                                on_prev=Callback::new(move |_| {
+                                                    let current = page.get();
+                                                    if current > 0 {
+                                                        go_to_page(current - 1);
                                                     }
-                                                })}
+                                                })
+                                                on_next=Callback::new(move |_| {
+                                                    let current = page.get();
+                                                    if current < total_pages - 1 {
+                                                        go_to_page(current + 1);
+                                                    }
+                                                })
+                                                show_summary=true
+                                                total_items=paginated.total
+                                                page_size=PAGE_SIZE
+                                                item_name="notes".to_string()
+                                            />
                                         </div>
                                     }
                                         .into_any()

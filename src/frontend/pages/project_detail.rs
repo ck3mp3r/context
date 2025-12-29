@@ -3,7 +3,7 @@ use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
-use crate::components::{NoteCard, NoteDetailModal, TaskListCard, TaskListDetailModal};
+use crate::components::{NoteCard, NoteDetailModal, Pagination, TaskListCard, TaskListDetailModal};
 use crate::models::{Note, Paginated, Project, Repo, TaskList};
 
 #[component]
@@ -22,6 +22,10 @@ pub fn ProjectDetail() -> impl IntoView {
     let task_list_filter = RwSignal::new(String::new());
     let note_filter = RwSignal::new(String::new());
     let repo_filter = RwSignal::new(String::new());
+
+    // Pagination state for task lists
+    let (task_list_page, set_task_list_page) = signal(0usize);
+    const TASK_LIST_PAGE_SIZE: usize = 12;
 
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
@@ -45,14 +49,24 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Fetch task lists for this project (with archived toggle)
+    // Reset pagination when archived toggle changes
+    Effect::new(move || {
+        show_archived_task_lists.get();
+        set_task_list_page.set(0);
+    });
+
+    // Fetch task lists for this project (with archived toggle and pagination)
     Effect::new(move || {
         let id = project_id();
         let show_archived = show_archived_task_lists.get();
+        let current_page = task_list_page.get();
         if !id.is_empty() {
             spawn_local(async move {
                 let status = if show_archived { None } else { Some("active") };
-                let result = task_lists::list(Some(100), None, Some(id), status).await;
+                let offset = current_page * TASK_LIST_PAGE_SIZE;
+                let result =
+                    task_lists::list(Some(TASK_LIST_PAGE_SIZE), Some(offset), Some(id), status)
+                        .await;
                 set_task_lists_data.set(Some(result));
             });
         }
@@ -63,7 +77,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         if !id.is_empty() {
             spawn_local(async move {
-                let result = notes::list(Some(21), None, None, Some(id)).await;
+                let result = notes::list(Some(12), None, None, Some(id)).await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -254,6 +268,9 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 })
                                                                 .cloned()
                                                                 .collect();
+
+                                                            let total_pages = paginated.total.div_ceil(TASK_LIST_PAGE_SIZE);
+
                                                             if filtered.is_empty() {
                                                                 view! {
                                                                 <p class="text-ctp-subtext0">
@@ -263,22 +280,46 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .into_any()
                                                             } else {
                                                                 view! {
-                                                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                                         {filtered
-                                                                            .into_iter()
-                                                                            .map(|task_list| {
-                                                                                let tl_clone = task_list.clone();
-                                                                                view! {
-                                                                                    <TaskListCard
-                                                                                        task_list=task_list
-                                                                                        on_click=Callback::new(move |_list_id: String| {
-                                                                                            selected_task_list.set(Some(tl_clone.clone()));
-                                                                                            task_list_modal_open.set(true);
-                                                                                        })
-                                                                                    />
+                                                                    <div>
+                                                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                                                                             {filtered
+                                                                                .into_iter()
+                                                                                .map(|task_list| {
+                                                                                    let tl_clone = task_list.clone();
+                                                                                    view! {
+                                                                                        <TaskListCard
+                                                                                            task_list=task_list
+                                                                                            on_click=Callback::new(move |_list_id: String| {
+                                                                                                selected_task_list.set(Some(tl_clone.clone()));
+                                                                                                task_list_modal_open.set(true);
+                                                                                            })
+                                                                                        />
+                                                                                    }
+                                                                                })
+                                                                                .collect::<Vec<_>>()}
+                                                                        </div>
+
+                                                                        // Pagination
+                                                                        <Pagination
+                                                                            current_page=task_list_page
+                                                                            total_pages=total_pages
+                                                                            on_prev=Callback::new(move |_| {
+                                                                                let current = task_list_page.get();
+                                                                                if current > 0 {
+                                                                                    set_task_list_page.set(current - 1);
                                                                                 }
                                                                             })
-                                                                            .collect::<Vec<_>>()}
+                                                                            on_next=Callback::new(move |_| {
+                                                                                let current = task_list_page.get();
+                                                                                if current < total_pages - 1 {
+                                                                                    set_task_list_page.set(current + 1);
+                                                                                }
+                                                                            })
+                                                                            show_summary=true
+                                                                            total_items=paginated.total
+                                                                            page_size=TASK_LIST_PAGE_SIZE
+                                                                            item_name="task lists".to_string()
+                                                                        />
                                                                     </div>
                                                                 }
                                                                     .into_any()
