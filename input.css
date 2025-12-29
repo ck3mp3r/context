@@ -173,3 +173,79 @@ body {
   z-index: -2;
   opacity: 0.25;
 }
+
+/* Note Preview - Compact markdown styling for note cards */
+.note-preview {
+  max-width: none;
+}
+
+.note-preview h1,
+.note-preview h2,
+.note-preview h3,
+.note-preview h4,
+.note-preview h5,
+.note-preview h6 {
+  font-size: 0.875rem; /* Same as parent text-sm */
+  font-weight: 600;
+  margin: 0.25em 0;
+  color: #bac2de; /* Slightly brighter than subtext0 */
+}
+
+.note-preview p {
+  margin: 0.25em 0;
+  font-size: 0.875rem;
+}
+
+.note-preview ul,
+.note-preview ol {
+  margin: 0.25em 0;
+  padding-left: 1.25em;
+  font-size: 0.875rem;
+}
+
+.note-preview li {
+  margin: 0.125em 0;
+}
+
+.note-preview code {
+  background-color: #313244;
+  padding: 0.125em 0.25em;
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-family: 'Courier New', monospace;
+}
+
+.note-preview pre {
+  display: none; /* Hide code blocks in preview */
+}
+
+.note-preview blockquote {
+  border-left: 2px solid #89b4fa;
+  padding-left: 0.5em;
+  margin: 0.25em 0;
+  font-style: italic;
+}
+
+.note-preview a {
+  color: #89b4fa;
+  text-decoration: none;
+}
+
+.note-preview strong,
+.note-preview b {
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.note-preview em,
+.note-preview i {
+  font-style: italic;
+}
+
+.note-preview table {
+  display: none; /* Hide tables in preview */
+}
+
+.note-preview hr {
+  display: none; /* Hide horizontal rules in preview */
+}

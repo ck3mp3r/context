@@ -8,13 +8,22 @@ use crate::models::Note;
 
 #[component]
 pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>) -> impl IntoView {
-    // Create a preview of the content (first 200 chars, UTF-8 safe)
-    let preview = if note.content.chars().count() > 200 {
-        let truncated: String = note.content.chars().take(200).collect();
+    // Create a preview of the content (first 300 chars for markdown, UTF-8 safe)
+    let preview_content = if note.content.chars().count() > 300 {
+        let truncated: String = note.content.chars().take(300).collect();
         format!("{}...", truncated)
     } else {
         note.content.clone()
     };
+
+    // Parse markdown to HTML for preview
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TABLES);
+
+    let parser = Parser::new_ext(&preview_content, options);
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
 
     let note_id = note.id.clone();
     let href = if on_click.is_some() {
@@ -41,7 +50,7 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
             >
                 <h3 class="text-xl font-semibold text-ctp-text mb-2">{note.title.clone()}</h3>
 
-            <p class="text-ctp-subtext0 text-sm mb-3 line-clamp-3">{preview}</p>
+            <div class="text-ctp-subtext0 text-sm mb-3 line-clamp-3 note-preview" inner_html=html_output></div>
 
             {(!note.tags.is_empty())
                 .then(|| {
