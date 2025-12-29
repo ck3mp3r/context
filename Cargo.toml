@@ -24,7 +24,7 @@ miette = { version = "7.5", features = ["fancy"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rmcp = { version = "0.12", features = ["server", "transport-streamable-http-server"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.147"
+serde_json = "1.0.148"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"] }
 tabled = { version = "0.20", features = ["derive"] }
 thiserror = "2.0"
