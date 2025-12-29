@@ -365,7 +365,6 @@ pub fn KanbanColumn(
                 {move || tasks.get()
                     .into_iter()
                     .map(|task| {
-                        let task_clone = task.clone();
                         view! {
                             <TaskCard
                                 task=task
