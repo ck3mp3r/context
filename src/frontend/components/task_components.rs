@@ -314,7 +314,7 @@ pub fn KanbanColumn(
     };
 
     view! {
-        <div class=format!("{} rounded-lg p-4 flex flex-col h-full", bg_color)>
+        <div class=format!("{} rounded-lg p-4 flex flex-col h-full overflow-hidden", bg_color)>
             <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center flex-shrink-0">
                 <span>{label}</span>
                 <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
@@ -331,7 +331,7 @@ pub fn KanbanColumn(
             <div
                 node_ref=scroll_ref
                 on:scroll=on_scroll
-                class="space-y-2 overflow-y-auto flex-1"
+                class="space-y-2 overflow-y-auto flex-1 min-h-0"
             >
                 {move || tasks.get()
                     .into_iter()
