@@ -354,6 +354,7 @@ async fn test_update_task() {
         status: Some("in_progress".to_string()),
         priority: Some(1),
         tags: Some(vec!["urgent".to_string()]),
+        list_id: None,
     };
 
     let result = tools
@@ -575,4 +576,89 @@ async fn test_list_tasks_with_parent_id_filter() {
     let items = json["items"].as_array().unwrap();
     assert_eq!(items[0]["content"], "Subtask 1");
     assert_eq!(items[0]["parent_id"], created_parent.id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_move_to_different_list() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let default_project_id = get_default_project_id(&db).await;
+
+    // Create two task lists
+    let list1 = TaskList {
+        id: String::new(),
+        name: "List 1".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id: default_project_id.clone(),
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list1 = db.task_lists().create(&list1).await.unwrap();
+
+    let list2 = TaskList {
+        id: String::new(),
+        name: "List 2".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id: default_project_id,
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list2 = db.task_lists().create(&list2).await.unwrap();
+
+    // Create task in list1
+    let task = Task {
+        id: String::new(),
+        list_id: created_list1.id.clone(),
+        parent_id: None,
+        content: "Task to move".to_string(),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec!["move-test".to_string()],
+        created_at: String::new(),
+        started_at: None,
+        completed_at: None,
+    };
+    let created_task = db.tasks().create(&task).await.unwrap();
+
+    let tools = TaskTools::new(db.clone());
+
+    // Move task to list2
+    let params = UpdateTaskParams {
+        task_id: created_task.id.clone(),
+        content: None,
+        status: None,
+        priority: None,
+        tags: None,
+        list_id: Some(created_list2.id.clone()),
+    };
+
+    let result = tools
+        .update_task(Parameters(params))
+        .await
+        .expect("update should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let updated_task: Task = serde_json::from_str(content_text).unwrap();
+
+    // Verify task moved to list2
+    assert_eq!(updated_task.list_id, created_list2.id);
+    assert_eq!(updated_task.content, "Task to move"); // Content unchanged
+    assert_eq!(updated_task.priority, Some(3)); // Priority unchanged
 }

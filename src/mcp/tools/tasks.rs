@@ -69,6 +69,8 @@ pub struct UpdateTaskParams {
     pub priority: Option<i32>,
     #[schemars(description = "Tags for organization (optional)")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Move task to a different list (optional)")]
+    pub list_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -226,6 +228,9 @@ impl<D: Database + 'static> TaskTools<D> {
         }
         if let Some(tags) = &params.0.tags {
             task.tags = tags.clone();
+        }
+        if let Some(list_id) = &params.0.list_id {
+            task.list_id = list_id.clone();
         }
 
         self.db.tasks().update(&task).await.map_err(map_db_error)?;
