@@ -385,10 +385,15 @@ pub fn TaskCard(task: Task) -> impl IntoView {
         _ => "border-l-ctp-surface1",
     };
 
+    // For now, show stacked effect for all tasks with parent_id
+    // Later we'll check for actual subtasks via API
+    let has_parent = task.parent_id.is_some();
+
     view! {
         <div class=format!(
-            "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer",
+            "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
             priority_color,
+            if has_parent { "task-card-parent" } else { "" },
         )>
             <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
 

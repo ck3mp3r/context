@@ -1365,6 +1365,38 @@ body {
   /* ctp-text */
 }
 
+/* Task Card Stacked Effect - indicates parent task with subtasks */
+
+.task-card-parent {
+  position: relative;
+}
+
+.task-card-parent::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 3px;
+  right: -3px;
+  height: 100%;
+  background: var(--ctp-surface0);
+  border-radius: 0.5rem;
+  z-index: -1;
+  opacity: 0.5;
+}
+
+.task-card-parent::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 6px;
+  right: -6px;
+  height: 100%;
+  background: var(--ctp-surface0);
+  border-radius: 0.5rem;
+  z-index: -2;
+  opacity: 0.25;
+}
+
 .hover\:border-ctp-blue:hover {
   --tw-border-opacity: 1;
   border-color: rgb(137 180 250 / var(--tw-border-opacity, 1));
