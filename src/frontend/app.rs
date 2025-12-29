@@ -5,7 +5,7 @@ use leptos_router::{
 };
 use thaw::*;
 
-use crate::pages::{Home, Notes, ProjectDetail, Repos};
+use crate::pages::{Notes, ProjectDetail, Projects, Repos};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -20,7 +20,7 @@ pub fn App() -> impl IntoView {
                     <div class="container mx-auto flex justify-between items-center">
                         <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
                         <div class="flex gap-4">
-                            <a href="/" class="text-ctp-blue hover:text-ctp-lavender">"Home"</a>
+                            <a href="/" class="text-ctp-blue hover:text-ctp-lavender">"Projects"</a>
                             <a href="/notes" class="text-ctp-blue hover:text-ctp-lavender">"Notes"</a>
                             <a href="/repos" class="text-ctp-blue hover:text-ctp-lavender">"Repos"</a>
                         </div>
@@ -28,7 +28,7 @@ pub fn App() -> impl IntoView {
                 </nav>
 
                 <Routes fallback=|| view! { <p>"Page not found"</p> }>
-                    <Route path=path!("/") view=Home/>
+                    <Route path=path!("/") view=Projects/>
                     <Route path=path!("/projects/:id") view=ProjectDetail/>
                     <Route path=path!("/notes") view=Notes/>
                     <Route path=path!("/notes/:id") view=Notes/>
