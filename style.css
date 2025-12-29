@@ -670,10 +670,6 @@ video {
   margin-left: 0.75rem;
 }
 
-.ml-auto {
-  margin-left: auto;
-}
-
 .mt-0\.5 {
   margin-top: 0.125rem;
 }
@@ -792,12 +788,6 @@ video {
 
 .cursor-pointer {
   cursor: pointer;
-}
-
-.select-all {
-  -webkit-user-select: all;
-     -moz-user-select: all;
-          user-select: all;
 }
 
 .grid-cols-1 {
