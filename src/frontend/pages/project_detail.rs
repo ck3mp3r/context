@@ -41,9 +41,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         if !id.is_empty() {
             spawn_local(async move {
-                // TODO: Backend needs to support filtering by project_id
-                // For now, fetch all and filter client-side
-                let result = task_lists::list(Some(100), None).await;
+                let result = task_lists::list(Some(100), None, Some(id)).await;
                 set_task_lists_data.set(Some(result));
             });
         }
@@ -54,8 +52,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         if !id.is_empty() {
             spawn_local(async move {
-                // TODO: Backend needs to support filtering by project_id
-                let result = notes::list(Some(50), None, None).await;
+                let result = notes::list(Some(50), None, None, Some(id)).await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -66,8 +63,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         if !id.is_empty() {
             spawn_local(async move {
-                // TODO: Backend needs to support filtering by project
-                let result = repos::list(Some(50), None).await;
+                let result = repos::list(Some(50), None, Some(id)).await;
                 set_repos_data.set(Some(result));
             });
         }
@@ -222,14 +218,13 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .items
                                                                 .iter()
                                                                 .filter(|list| {
-                                                                    list.project_id == proj_id
-                                                                        && (search.is_empty()
-                                                                            || list.name.to_lowercase().contains(&search)
-                                                                            || list
-                                                                                .description
-                                                                                .as_ref()
-                                                                                .map(|d| d.to_lowercase().contains(&search))
-                                                                                .unwrap_or(false))
+                                                                    search.is_empty()
+                                                                        || list.name.to_lowercase().contains(&search)
+                                                                        || list
+                                                                            .description
+                                                                            .as_ref()
+                                                                            .map(|d| d.to_lowercase().contains(&search))
+                                                                            .unwrap_or(false)
                                                                 })
                                                                 .cloned()
                                                                 .collect();
@@ -325,9 +320,8 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .items
                                                                 .iter()
                                                                 .filter(|note| {
-                                                                    note.project_ids.contains(&proj_id)
-                                                                        && (search.is_empty()
-                                                                            || note.title.to_lowercase().contains(&search))
+                                                                    search.is_empty()
+                                                                        || note.title.to_lowercase().contains(&search)
                                                                 })
                                                                 .cloned()
                                                                 .collect();
@@ -410,9 +404,8 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .items
                                                                 .iter()
                                                                 .filter(|repo| {
-                                                                    repo.project_ids.contains(&proj_id)
-                                                                        && (search.is_empty()
-                                                                            || repo.remote.to_lowercase().contains(&search))
+                                                                    search.is_empty()
+                                                                        || repo.remote.to_lowercase().contains(&search)
                                                                 })
                                                                 .cloned()
                                                                 .collect();

@@ -61,7 +61,7 @@ fn NotesList() -> impl IntoView {
                 &format!("API call: offset={}, limit={}", offset, PAGE_SIZE).into(),
             );
 
-            let result = notes::list(Some(PAGE_SIZE), Some(offset), query_opt).await;
+            let result = notes::list(Some(PAGE_SIZE), Some(offset), query_opt, None).await;
 
             match &result {
                 Ok(data) => web_sys::console::log_1(

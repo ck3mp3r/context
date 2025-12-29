@@ -6,7 +6,8 @@ use crate::models::Repo;
 #[component]
 pub fn Repos() -> impl IntoView {
     // Create a local resource that fetches repos (no Send requirement for WASM)
-    let repos_resource = LocalResource::new(|| async move { repos::list(Some(20), None).await });
+    let repos_resource =
+        LocalResource::new(|| async move { repos::list(Some(20), None, None).await });
 
     view! {
         <div class="container mx-auto p-6">

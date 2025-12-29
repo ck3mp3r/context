@@ -36,7 +36,7 @@ pub fn Tasks() -> impl IntoView {
     // Fetch task lists on mount
     Effect::new(move || {
         spawn_local(async move {
-            let result = task_lists::list(Some(200), None).await;
+            let result = task_lists::list(Some(200), None, None).await;
             set_task_lists_data.set(Some(result));
         });
     });

@@ -101,10 +101,17 @@ pub mod projects {
 pub mod repos {
     use super::*;
 
-    pub async fn list(limit: Option<usize>, offset: Option<usize>) -> Result<Paginated<Repo>> {
+    pub async fn list(
+        limit: Option<usize>,
+        offset: Option<usize>,
+        project_id: Option<String>,
+    ) -> Result<Paginated<Repo>> {
         let mut url = format!("{}/repos", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(proj_id) = project_id {
+            query_params.push(format!("project_id={}", proj_id));
+        }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
         }
@@ -147,10 +154,17 @@ pub mod repos {
 pub mod task_lists {
     use super::*;
 
-    pub async fn list(limit: Option<usize>, offset: Option<usize>) -> Result<Paginated<TaskList>> {
+    pub async fn list(
+        limit: Option<usize>,
+        offset: Option<usize>,
+        project_id: Option<String>,
+    ) -> Result<Paginated<TaskList>> {
         let mut url = format!("{}/task-lists", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(proj_id) = project_id {
+            query_params.push(format!("project_id={}", proj_id));
+        }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
         }
@@ -211,10 +225,14 @@ pub mod notes {
         limit: Option<usize>,
         offset: Option<usize>,
         search_query: Option<String>,
+        project_id: Option<String>,
     ) -> Result<Paginated<Note>> {
         let mut url = format!("{}/notes", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(proj_id) = project_id {
+            query_params.push(format!("project_id={}", proj_id));
+        }
         if let Some(q) = search_query {
             if !q.trim().is_empty() {
                 // Simple URL encoding for search query
