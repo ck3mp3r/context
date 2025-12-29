@@ -255,6 +255,14 @@ pub fn KanbanColumn(
     // Task detail drawer state
     let (selected_task, set_selected_task) = signal(None::<Task>);
     let drawer_open = RwSignal::new(false);
+    let (initial_open_subtask, set_initial_open_subtask) = signal(None::<String>);
+
+    // Reset initial_open_subtask when drawer closes
+    Effect::new(move || {
+        if !drawer_open.get() {
+            set_initial_open_subtask.set(None);
+        }
+    });
 
     // Store list_id in a signal so it can be shared across closures
     let list_id_signal = StoredValue::new(list_id.clone());
@@ -371,7 +379,28 @@ pub fn KanbanColumn(
                                 show_subtasks_inline=true
                                 on_click=Callback::new(move |t: Task| {
                                     set_selected_task.set(Some(t.clone()));
+                                    set_initial_open_subtask.set(None);
                                     drawer_open.set(true);
+                                })
+                                on_subtask_click=Callback::new(move |clicked_subtask: Task| {
+                                    if let Some(parent_id) = clicked_subtask.parent_id.clone() {
+                                        let clicked_id = clicked_subtask.id.clone();
+                                        spawn_local(async move {
+                                            match tasks::get(&parent_id).await {
+                                                Ok(parent_task) => {
+                                                    set_selected_task.set(Some(parent_task));
+                                                    set_initial_open_subtask.set(Some(clicked_id));
+                                                    drawer_open.set(true);
+                                                }
+                                                Err(_) => {
+                                                    // Fallback: show subtask directly
+                                                    set_selected_task.set(Some(clicked_subtask));
+                                                    set_initial_open_subtask.set(None);
+                                                    drawer_open.set(true);
+                                                }
+                                            }
+                                        });
+                                    }
                                 })
                             />
                         }
@@ -392,8 +421,20 @@ pub fn KanbanColumn(
             // Task detail drawer
             {move || {
                 selected_task.get().map(|task| {
-                    view! {
-                        <TaskDetailDrawer task=task open=drawer_open />
+                    match initial_open_subtask.get() {
+                        Some(subtask_id) => view! {
+                            <TaskDetailDrawer
+                                task=task
+                                open=drawer_open
+                                initial_open_subtask_id=subtask_id
+                            />
+                        }.into_any(),
+                        None => view! {
+                            <TaskDetailDrawer
+                                task=task
+                                open=drawer_open
+                            />
+                        }.into_any(),
                     }
                 })
             }}
@@ -406,6 +447,7 @@ pub fn TaskCard(
     task: Task,
     #[prop(optional, default = false)] show_subtasks_inline: bool,
     #[prop(optional)] on_click: Option<Callback<Task>>,
+    #[prop(optional)] on_subtask_click: Option<Callback<Task>>,
 ) -> impl IntoView {
     let priority_color = match task.priority {
         Some(1) => "border-l-ctp-red",
@@ -538,8 +580,20 @@ pub fn TaskCard(
 
             {move || {
                 (show_subtasks_inline && subtasks_expanded.get() && subtask_count.get() > 0).then(|| {
-                    view! {
-                        <SubtaskList task_id=task_id_for_list.clone() list_id=list_id_for_list.clone() />
+                    match on_subtask_click {
+                        Some(callback) => view! {
+                            <SubtaskList
+                                task_id=task_id_for_list.clone()
+                                list_id=list_id_for_list.clone()
+                                on_subtask_click=callback
+                            />
+                        }.into_any(),
+                        None => view! {
+                            <SubtaskList
+                                task_id=task_id_for_list.clone()
+                                list_id=list_id_for_list.clone()
+                            />
+                        }.into_any(),
                     }
                 })
             }}
@@ -550,7 +604,11 @@ pub fn TaskCard(
 /// SubtaskList component - displays subtasks for a parent task
 /// Constraint: 1 level deep only (does not recursively show sub-subtasks)
 #[component]
-pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String) -> impl IntoView {
+pub fn SubtaskList(
+    #[prop(into)] task_id: String,
+    #[prop(into)] list_id: String,
+    #[prop(optional)] on_subtask_click: Option<Callback<Task>>,
+) -> impl IntoView {
     let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(None::<String>);
@@ -596,18 +654,30 @@ pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String)
                 } else if subtasks.get().is_empty() {
                     view! { <p class="text-xs text-ctp-overlay0">"No subtasks"</p> }.into_any()
                 } else {
-                    view! {
-                        <For
-                            each=move || subtasks.get()
-                            key=|task| task.id.clone()
-                            let:subtask
-                        >
-                            <div class="my-2">
-                                <TaskCard task=subtask.clone() />
-                            </div>
-                        </For>
+                    match on_subtask_click {
+                        Some(callback) => view! {
+                            <For
+                                each=move || subtasks.get()
+                                key=|task| task.id.clone()
+                                let:subtask
+                            >
+                                <div class="my-2">
+                                    <TaskCard task=subtask.clone() on_click=callback />
+                                </div>
+                            </For>
+                        }.into_any(),
+                        None => view! {
+                            <For
+                                each=move || subtasks.get()
+                                key=|task| task.id.clone()
+                                let:subtask
+                            >
+                                <div class="my-2">
+                                    <TaskCard task=subtask.clone() />
+                                </div>
+                            </For>
+                        }.into_any(),
                     }
-                    .into_any()
                 }
             }}
         </div>
@@ -616,7 +686,11 @@ pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String)
 
 /// TaskDetailDrawer component - shows full task details with Accordion sections
 #[component]
-pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
+pub fn TaskDetailDrawer(
+    task: Task,
+    open: RwSignal<bool>,
+    #[prop(optional, default = None)] initial_open_subtask_id: Option<String>,
+) -> impl IntoView {
     let task_id = task.id.clone();
 
     // Fetch subtasks
@@ -740,12 +814,21 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
                 {move || {
                     let tasks_list = subtasks.get();
                     if !tasks_list.is_empty() {
+                        // Pre-populate accordion with initial open item if provided
+                        let open_items = RwSignal::new({
+                            let mut set = std::collections::HashSet::new();
+                            if let Some(id) = initial_open_subtask_id.clone() {
+                                set.insert(id);
+                            }
+                            set
+                        });
+
                         Some(view! {
                             <div class="mb-4">
                                 <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
                                     {format!("Subtasks ({})", tasks_list.len())}
                                 </h3>
-                                <Accordion collapsible=true>
+                                <Accordion open_items=open_items collapsible=true>
                                     {tasks_list.into_iter().map(|subtask| {
                                         let subtask_id = subtask.id.clone();
                                         view! {
