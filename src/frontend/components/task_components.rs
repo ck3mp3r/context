@@ -252,6 +252,10 @@ pub fn KanbanColumn(
     let (offset, set_offset) = signal(0);
     let (loading, set_loading) = signal(false);
 
+    // Task detail drawer state
+    let (selected_task, set_selected_task) = signal(None::<Task>);
+    let drawer_open = RwSignal::new(false);
+
     // Store list_id in a signal so it can be shared across closures
     let list_id_signal = StoredValue::new(list_id.clone());
 
@@ -360,7 +364,19 @@ pub fn KanbanColumn(
             >
                 {move || tasks.get()
                     .into_iter()
-                    .map(|task| view! { <TaskCard task=task show_subtasks_inline=true /> })
+                    .map(|task| {
+                        let task_clone = task.clone();
+                        view! {
+                            <TaskCard
+                                task=task
+                                show_subtasks_inline=true
+                                on_click=Callback::new(move |t: Task| {
+                                    set_selected_task.set(Some(t.clone()));
+                                    drawer_open.set(true);
+                                })
+                            />
+                        }
+                    })
                     .collect::<Vec<_>>()}
 
                 {move || {
@@ -373,6 +389,15 @@ pub fn KanbanColumn(
                     })
                 }}
             </div>
+
+            // Task detail drawer
+            {move || {
+                selected_task.get().map(|task| {
+                    view! {
+                        <TaskDetailDrawer task=task open=drawer_open />
+                    }
+                })
+            }}
         </div>
     }
 }
@@ -381,6 +406,7 @@ pub fn KanbanColumn(
 pub fn TaskCard(
     task: Task,
     #[prop(optional, default = false)] show_subtasks_inline: bool,
+    #[prop(optional)] on_click: Option<Callback<Task>>,
 ) -> impl IntoView {
     let priority_color = match task.priority {
         Some(1) => "border-l-ctp-red",
@@ -432,15 +458,25 @@ pub fn TaskCard(
     let task_id_for_list = task.id.clone();
     let list_id_for_list = task.list_id.clone();
 
+    let task_for_click = task.clone();
+    let handle_card_click = move |_| {
+        if let Some(callback) = on_click {
+            callback.run(task_for_click.clone());
+        }
+    };
+
     view! {
         <div>
-            <div class=move || {
-                format!(
-                    "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
-                    priority_color,
-                    if subtask_count.get() > 0 { "task-card-parent" } else { "" },
-                )
-            }>
+            <div
+                class=move || {
+                    format!(
+                        "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
+                        priority_color,
+                        if subtask_count.get() > 0 { "task-card-parent" } else { "" },
+                    )
+                }
+                on:click=handle_card_click
+            >
                 <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
 
                 {(!task.tags.is_empty())
