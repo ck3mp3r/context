@@ -1004,7 +1004,7 @@ pub fn TaskListCard(
                                     // Review
                                     <Tooltip content="Review">
                                         <span class="bg-ctp-mauve/20 text-ctp-mauve px-2 py-0.5 rounded">
-                                            "👁 " {s.review}
+                                            "👀 " {s.review}
                                         </span>
                                     </Tooltip>
 
