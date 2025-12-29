@@ -619,12 +619,10 @@ pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String)
 #[component]
 pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
     let task_id = task.id.clone();
-    let task_id_for_copy = task.id.clone();
-    let task_id_for_subtasks = task.id.clone();
-    let list_id_for_subtasks = task.list_id.clone();
+    let parent_id = task.parent_id.clone();
 
-    // Fetch subtask count to determine if we show Subtasks section
-    let (subtask_count, set_subtask_count) = signal(0usize);
+    // Fetch subtasks
+    let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
     let task_id_for_fetch = task.id.clone();
     let list_id_for_fetch = task.list_id.clone();
 
@@ -634,27 +632,45 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
         spawn_local(async move {
             match tasks::list_for_task_list(
                 &list_id,
-                Some(1),
                 None,
                 None,
                 None,
-                None,
+                Some("priority"),
+                Some("asc"),
                 Some(&task_id),
             )
             .await
             {
                 Ok(paginated) => {
-                    set_subtask_count.set(paginated.total);
+                    set_subtasks.set(paginated.items);
                 }
                 Err(_) => {
-                    set_subtask_count.set(0);
+                    set_subtasks.set(Vec::new());
                 }
             }
         });
     });
 
+    // Fetch parent task if this is a subtask
+    let (parent_task, set_parent_task) = signal(None::<Task>);
+    if let Some(pid) = parent_id.clone() {
+        Effect::new(move || {
+            let parent_id = pid.clone();
+            spawn_local(async move {
+                match tasks::get(&parent_id).await {
+                    Ok(parent) => {
+                        set_parent_task.set(Some(parent));
+                    }
+                    Err(_) => {
+                        set_parent_task.set(None);
+                    }
+                }
+            });
+        });
+    }
+
     view! {
-        <OverlayDrawer open position=DrawerPosition::Right>
+        <OverlayDrawer open position=DrawerPosition::Right class="w-[50vw]">
             <DrawerHeader>
                 <div class="flex items-center justify-between w-full">
                     <div class="flex items-center gap-2">
@@ -675,6 +691,18 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
                 </div>
             </DrawerHeader>
             <DrawerBody>
+                // Parent task display (if this is a subtask)
+                {move || {
+                    parent_task.get().map(|parent| {
+                        view! {
+                            <div class="mb-4">
+                                <h3 class="text-sm text-ctp-subtext0 mb-2">"Parent Task"</h3>
+                                <TaskCard task=parent show_subtasks_inline=false />
+                            </div>
+                        }
+                    })
+                }}
+
                 <Accordion multiple=true>
                     <AccordionItem value="metadata">
                         <AccordionHeader slot>"Metadata"</AccordionHeader>
@@ -748,33 +776,22 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
                     </AccordionItem>
 
                     <AccordionItem value="subtasks">
-                        <AccordionHeader slot>{move || format!("Subtasks ({})", subtask_count.get())}</AccordionHeader>
+                        <AccordionHeader slot>{move || format!("Subtasks ({})", subtasks.get().len())}</AccordionHeader>
                         {move || {
-                            if subtask_count.get() > 0 {
-                                view! {
-                                    <SubtaskList task_id=task_id_for_subtasks.clone() list_id=list_id_for_subtasks.clone() />
-                                }.into_any()
-                            } else {
+                            let tasks_list = subtasks.get();
+                            if tasks_list.is_empty() {
                                 view! {
                                     <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
                                 }.into_any()
-                            }
-                        }}
-                    </AccordionItem>
-
-                    <AccordionItem value="parent">
-                        <AccordionHeader slot>"Parent Task"</AccordionHeader>
-                        {move || {
-                            if let Some(parent_id) = task.parent_id.clone() {
-                                view! {
-                                    <div class="text-sm text-ctp-text">
-                                        <span class="text-ctp-subtext0">"Parent Task ID: "</span>
-                                        <span class="font-mono text-xs select-all cursor-pointer hover:bg-ctp-surface0 px-1 rounded">{parent_id}</span>
-                                    </div>
-                                }.into_any()
                             } else {
                                 view! {
-                                    <p class="text-xs text-ctp-overlay0">"This is a top-level task"</p>
+                                    <div class="space-y-2">
+                                        {tasks_list.into_iter().map(|subtask| {
+                                            view! {
+                                                <TaskCard task=subtask show_subtasks_inline=false />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </div>
                                 }.into_any()
                             }
                         }}

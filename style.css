@@ -745,6 +745,10 @@ video {
   width: 1.25rem;
 }
 
+.w-\[50vw\] {
+  width: 50vw;
+}
+
 .w-full {
   width: 100%;
 }
@@ -1031,11 +1035,6 @@ video {
 
 .p-8 {
   padding: 2rem;
-}
-
-.px-1 {
-  padding-left: 0.25rem;
-  padding-right: 0.25rem;
 }
 
 .px-2 {
@@ -1442,11 +1441,6 @@ body {
 .hover\:bg-ctp-overlay1:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(127 132 156 / var(--tw-bg-opacity, 1));
-}
-
-.hover\:bg-ctp-surface0:hover {
-  --tw-bg-opacity: 1;
-  background-color: rgb(49 50 68 / var(--tw-bg-opacity, 1));
 }
 
 .hover\:bg-ctp-surface1:hover {
