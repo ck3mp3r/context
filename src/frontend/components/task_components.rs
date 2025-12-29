@@ -957,7 +957,7 @@ pub fn TaskListCard(
             {(!task_list.tags.is_empty())
                 .then(|| {
                     view! {
-                        <div class="flex flex-wrap gap-2 mb-2">
+                        <div class="flex flex-wrap gap-2 mb-3">
                             {task_list
                                 .tags
                                 .iter()
@@ -973,42 +973,49 @@ pub fn TaskListCard(
                     }
                 })}
 
-            // Task stats badges - show all statuses (same order as kanban board)
+            // Task stats badges - compact with abbreviations to prevent overflow
             {move || {
                 stats.get().and_then(|result| {
                     match result {
                         Ok(s) => {
                             Some(view! {
-                                <div class="flex gap-2 flex-wrap mb-2">
-                                    // Backlog
-                                    <span class="bg-ctp-overlay0/20 text-ctp-overlay0 text-xs px-2 py-1 rounded">
-                                        {s.backlog} " backlog"
-                                    </span>
+                                <div class="flex gap-1.5 flex-wrap text-xs">
+                                    // Only show statuses with counts > 0 to save space
+                                    {(s.backlog > 0).then(|| view! {
+                                        <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded" title="Backlog">
+                                            {s.backlog}
+                                        </span>
+                                    })}
 
-                                    // Todo
-                                    <span class="bg-ctp-blue/20 text-ctp-blue text-xs px-2 py-1 rounded">
-                                        {s.todo} " todo"
-                                    </span>
+                                    {(s.todo > 0).then(|| view! {
+                                        <span class="bg-ctp-blue/20 text-ctp-blue px-2 py-0.5 rounded" title="Todo">
+                                            "📋 " {s.todo}
+                                        </span>
+                                    })}
 
-                                    // In Progress
-                                    <span class="bg-ctp-yellow/20 text-ctp-yellow text-xs px-2 py-1 rounded">
-                                        {s.in_progress} " in progress"
-                                    </span>
+                                    {(s.in_progress > 0).then(|| view! {
+                                        <span class="bg-ctp-yellow/20 text-ctp-yellow px-2 py-0.5 rounded" title="In Progress">
+                                            "⚡ " {s.in_progress}
+                                        </span>
+                                    })}
 
-                                    // Review
-                                    <span class="bg-ctp-mauve/20 text-ctp-mauve text-xs px-2 py-1 rounded">
-                                        {s.review} " review"
-                                    </span>
+                                    {(s.review > 0).then(|| view! {
+                                        <span class="bg-ctp-mauve/20 text-ctp-mauve px-2 py-0.5 rounded" title="Review">
+                                            "👁 " {s.review}
+                                        </span>
+                                    })}
 
-                                    // Done
-                                    <span class="bg-ctp-green/20 text-ctp-green text-xs px-2 py-1 rounded">
-                                        {s.done} " done"
-                                    </span>
+                                    {(s.done > 0).then(|| view! {
+                                        <span class="bg-ctp-green/20 text-ctp-green px-2 py-0.5 rounded" title="Done">
+                                            "✓ " {s.done}
+                                        </span>
+                                    })}
 
-                                    // Cancelled
-                                    <span class="bg-ctp-red/20 text-ctp-red text-xs px-2 py-1 rounded">
-                                        {s.cancelled} " cancelled"
-                                    </span>
+                                    {(s.cancelled > 0).then(|| view! {
+                                        <span class="bg-ctp-red/20 text-ctp-red px-2 py-0.5 rounded" title="Cancelled">
+                                            "✗ " {s.cancelled}
+                                        </span>
+                                    })}
                                 </div>
                             })
                         },
