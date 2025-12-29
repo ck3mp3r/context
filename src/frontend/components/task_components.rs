@@ -292,9 +292,30 @@ pub fn KanbanColumn(
         _ => "bg-ctp-surface0",
     };
 
+    let scroll_ref = NodeRef::<leptos::html::Div>::new();
+
+    // Infinite scroll: load more when scrolling near bottom
+    let on_scroll = move |_| {
+        if loading.get() {
+            return;
+        }
+
+        if let Some(el) = scroll_ref.get() {
+            let scroll_height = el.scroll_height() as f64;
+            let scroll_top = el.scroll_top() as f64;
+            let client_height = el.client_height() as f64;
+
+            // Load more when within 200px of bottom
+            let displayed = tasks.get().len();
+            if scroll_top + client_height >= scroll_height - 200.0 && displayed < total_count {
+                load_more(());
+            }
+        }
+    };
+
     view! {
-        <div class=format!("{} rounded-lg p-4 min-h-[400px] flex flex-col", bg_color)>
-            <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center">
+        <div class=format!("{} rounded-lg p-4 flex flex-col h-full", bg_color)>
+            <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center flex-shrink-0">
                 <span>{label}</span>
                 <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
                     {move || {
@@ -307,32 +328,26 @@ pub fn KanbanColumn(
                     }}
                 </span>
             </h3>
-            <div class="space-y-2 overflow-y-auto max-h-[500px] flex-1">
+            <div
+                node_ref=scroll_ref
+                on:scroll=on_scroll
+                class="space-y-2 overflow-y-auto flex-1"
+            >
                 {move || tasks.get()
                     .into_iter()
                     .map(|task| view! { <TaskCard task=task/> })
                     .collect::<Vec<_>>()}
+
+                {move || {
+                    loading.get().then(|| {
+                        view! {
+                            <div class="py-4 text-center">
+                                <span class="text-ctp-subtext0 text-sm">"Loading more..."</span>
+                            </div>
+                        }
+                    })
+                }}
             </div>
-            {move || {
-                let displayed = tasks.get().len();
-                (displayed < total_count).then(|| {
-                    view! {
-                        <div class="mt-4 pt-4 border-t border-ctp-surface1">
-                            <button
-                                on:click=load_more
-                                disabled=move || loading.get()
-                                class="w-full py-2 px-4 bg-ctp-blue text-ctp-base rounded hover:bg-ctp-blue/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {move || if loading.get() {
-                                    "Loading..."
-                                } else {
-                                    "Load More"
-                                }}
-                            </button>
-                        </div>
-                    }
-                })
-            }}
         </div>
     }
 }
@@ -587,7 +602,7 @@ pub fn TaskListDetailModal(
                                             </button>
                                         </div>
 
-                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 h-[calc(100vh-16rem)]">
                                             {statuses
                                                 .clone()
                                                 .into_iter()
