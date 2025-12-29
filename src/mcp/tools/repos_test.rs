@@ -85,6 +85,7 @@ async fn test_create_repo() {
             remote: "git@github.com:user/new.git".to_string(),
             path: Some("/path/to/new".to_string()),
             tags: None,
+            project_ids: None,
         }))
         .await;
     assert!(result.is_ok());
@@ -100,6 +101,54 @@ async fn test_create_repo() {
     let repo_json: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(repo_json["remote"], "git@github.com:user/new.git");
     assert!(repo_json["id"].as_str().unwrap().len() == 8);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_repo_with_project_ids() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create a project first
+    use crate::db::{Project, ProjectRepository};
+    let project = Project {
+        id: "proj9999".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+
+    let tools = RepoTools::new(Arc::clone(&db));
+    let result = tools
+        .create_repo(Parameters(CreateRepoParams {
+            remote: "git@github.com:user/linked.git".to_string(),
+            path: Some("/path/to/linked".to_string()),
+            tags: None,
+            project_ids: Some(vec!["proj9999".to_string()]),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result: CallToolResult = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let repo_json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(repo_json["remote"], "git@github.com:user/linked.git");
+    assert_eq!(
+        repo_json["project_ids"].as_array().unwrap(),
+        &vec![serde_json::json!("proj9999")]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

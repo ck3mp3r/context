@@ -41,6 +41,8 @@ pub struct CreateRepoParams {
     pub path: Option<String>,
     #[schemars(description = "Tags for categorization")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Project IDs to link (optional)")]
+    pub project_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -163,7 +165,7 @@ impl<D: Database + 'static> RepoTools<D> {
             remote: params.0.remote,
             path: params.0.path,
             tags: params.0.tags.unwrap_or_default(),
-            project_ids: vec![],
+            project_ids: params.0.project_ids.unwrap_or_default(),
             created_at: String::new(), // Repository generates this
         };
 
