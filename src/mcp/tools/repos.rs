@@ -53,6 +53,8 @@ pub struct UpdateRepoParams {
     pub path: Option<String>,
     #[schemars(description = "New tags")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Project IDs to link (optional)")]
+    pub project_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -200,6 +202,9 @@ impl<D: Database + 'static> RepoTools<D> {
         }
         if let Some(tags) = params.0.tags {
             repo.tags = tags;
+        }
+        if let Some(project_ids) = params.0.project_ids {
+            repo.project_ids = project_ids;
         }
 
         self.db.repos().update(&repo).await.map_err(map_db_error)?;

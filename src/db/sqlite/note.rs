@@ -502,6 +502,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Validate content size
         validate_note_size(&note.content)?;
 
+        // Use transaction for atomicity
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
         let tags_json = serde_json::to_string(&note.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
@@ -521,7 +526,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(note_type_str)
         .bind(&note.updated_at)
         .bind(&note.id)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -537,7 +542,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Sync repo relationships (delete old, insert new)
         sqlx::query("DELETE FROM note_repo WHERE note_id = ?")
             .bind(&note.id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
@@ -547,7 +552,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             sqlx::query("INSERT INTO note_repo (note_id, repo_id) VALUES (?, ?)")
                 .bind(&note.id)
                 .bind(repo_id)
-                .execute(self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
@@ -557,7 +562,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Sync project relationships (delete old, insert new)
         sqlx::query("DELETE FROM project_note WHERE note_id = ?")
             .bind(&note.id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
@@ -567,12 +572,16 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
                 .bind(project_id)
                 .bind(&note.id)
-                .execute(self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
                 })?;
         }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }

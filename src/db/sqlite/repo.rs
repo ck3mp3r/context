@@ -234,6 +234,11 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn update(&self, repo: &Repo) -> DbResult<()> {
+        // Use transaction for atomicity
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
         let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
 
         let result = sqlx::query("UPDATE repo SET remote = ?, path = ?, tags = ? WHERE id = ?")
@@ -241,7 +246,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             .bind(&repo.path)
             .bind(&tags_json)
             .bind(&repo.id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
@@ -253,6 +258,32 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 id: repo.id.clone(),
             });
         }
+
+        // Update project relationships (replace all)
+        // Delete existing relationships
+        sqlx::query("DELETE FROM project_repo WHERE repo_id = ?")
+            .bind(&repo.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Insert new relationships
+        for project_id in &repo.project_ids {
+            sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
+                .bind(project_id)
+                .bind(&repo.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
