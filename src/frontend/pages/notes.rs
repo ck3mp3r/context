@@ -4,6 +4,7 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::ApiClientError;
 use crate::api::notes;
+use crate::components::{MarkdownContent, NoteCard};
 use crate::models::{Note, Paginated};
 
 #[component]
@@ -214,55 +215,6 @@ fn NotesList() -> impl IntoView {
 }
 
 #[component]
-fn NoteCard(note: Note) -> impl IntoView {
-    // Create a preview of the content (first 200 chars, UTF-8 safe)
-    let preview = if note.content.chars().count() > 200 {
-        let truncated: String = note.content.chars().take(200).collect();
-        format!("{}...", truncated)
-    } else {
-        note.content.clone()
-    };
-
-    view! {
-        <a
-            href=format!("/notes/{}", note.id)
-            class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors"
-        >
-            <div class="flex justify-between items-start mb-2">
-                <h3 class="text-xl font-semibold text-ctp-text">{note.title.clone()}</h3>
-                <span class="text-xs text-ctp-overlay0 ml-2 flex-shrink-0">{note.id.clone()}</span>
-            </div>
-
-            <p class="text-ctp-subtext0 text-sm mb-3 line-clamp-3">{preview}</p>
-
-            {(!note.tags.is_empty())
-                .then(|| {
-                    view! {
-                        <div class="flex flex-wrap gap-2 mb-2">
-                            {note
-                                .tags
-                                .iter()
-                                .map(|tag| {
-                                    view! {
-                                        <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                            {tag.clone()}
-                                        </span>
-                                    }
-                                })
-                                .collect::<Vec<_>>()}
-                        </div>
-                    }
-                })}
-
-            <div class="flex justify-between text-xs text-ctp-overlay0 mt-3">
-                <span>"Created: " {note.created_at}</span>
-                <span>"Updated: " {note.updated_at}</span>
-            </div>
-        </a>
-    }
-}
-
-#[component]
 fn NoteDetail(id: String) -> impl IntoView {
     let note_resource = LocalResource::new(move || {
         let note_id = id.clone();
@@ -339,22 +291,4 @@ fn NoteDetail(id: String) -> impl IntoView {
             </Suspense>
         </div>
     }
-}
-
-#[component]
-fn MarkdownContent(content: String) -> impl IntoView {
-    use pulldown_cmark::{Options, Parser, html};
-
-    // Parse markdown to HTML
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_FOOTNOTES);
-    options.insert(Options::ENABLE_TASKLISTS);
-
-    let parser = Parser::new_ext(&content, options);
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
-
-    view! { <div inner_html=html_output></div> }
 }

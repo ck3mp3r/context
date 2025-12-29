@@ -1253,3 +1253,96 @@ async fn patch_task_list_link_to_project_and_repo() {
     assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["repo_ids"][0], repo_id);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_task_list_stats_returns_counts_by_status() {
+    let app = test_app().await;
+
+    // Create task list
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "Stats Test List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let list_body = json_body(create_response).await;
+    let list_id = list_body["id"].as_str().unwrap();
+
+    // Create tasks with different statuses
+    for (i, status) in [
+        "backlog",
+        "todo",
+        "todo",
+        "in_progress",
+        "done",
+        "done",
+        "done",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let create_task_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "content": format!("Task {}", i),
+                            "status": status
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            create_task_response.status(),
+            StatusCode::CREATED,
+            "Failed to create task {}",
+            i
+        );
+    }
+
+    // Get stats
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/task-lists/{}/stats", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    assert_eq!(body["list_id"], list_id);
+    assert_eq!(body["total"], 7);
+    assert_eq!(body["backlog"], 1);
+    assert_eq!(body["todo"], 2);
+    assert_eq!(body["in_progress"], 1);
+    assert_eq!(body["review"], 0);
+    assert_eq!(body["done"], 3);
+    assert_eq!(body["cancelled"], 0);
+}

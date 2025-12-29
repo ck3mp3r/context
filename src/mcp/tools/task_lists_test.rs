@@ -1,12 +1,12 @@
 //! Tests for TaskList MCP tools
 
 use crate::db::{
-    Database, Project, ProjectRepository, SqliteDatabase, TaskList, TaskListRepository,
-    TaskListStatus,
+    Database, Project, ProjectRepository, SqliteDatabase, Task, TaskList, TaskListRepository,
+    TaskListStatus, TaskRepository, TaskStatus,
 };
 use crate::mcp::tools::task_lists::{
-    CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, ListTaskListsParams,
-    TaskListTools, UpdateTaskListParams,
+    CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,
+    ListTaskListsParams, TaskListTools, UpdateTaskListParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
@@ -369,4 +369,93 @@ async fn test_get_nonexistent_task_list() {
 
     let result = tools.get_task_list(Parameters(params)).await;
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_list_stats() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone());
+
+    // Create project
+    let project = Project {
+        id: String::new(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let created_project = db.projects().create(&project).await.unwrap();
+
+    // Create task list
+    let list = TaskList {
+        id: String::new(),
+        name: "Stats Test".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: created_project.id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list = db.task_lists().create(&list).await.unwrap();
+
+    // Create tasks with different statuses
+    for status in [
+        TaskStatus::Backlog,
+        TaskStatus::Todo,
+        TaskStatus::Todo,
+        TaskStatus::InProgress,
+        TaskStatus::Done,
+        TaskStatus::Done,
+        TaskStatus::Done,
+    ] {
+        let task = Task {
+            id: String::new(),
+            list_id: created_list.id.clone(),
+            parent_id: None,
+            content: format!("Task with status {:?}", status),
+            status,
+            priority: None,
+            tags: vec![],
+            created_at: String::new(),
+            started_at: None,
+            completed_at: None,
+        };
+        db.tasks().create(&task).await.unwrap();
+    }
+
+    // Get stats
+    let params = GetTaskListStatsParams {
+        id: created_list.id.clone(),
+    };
+
+    let result = tools
+        .get_task_list_stats(Parameters(params))
+        .await
+        .expect("get_task_list_stats should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(json["list_id"], created_list.id);
+    assert_eq!(json["total"], 7);
+    assert_eq!(json["backlog"], 1);
+    assert_eq!(json["todo"], 2);
+    assert_eq!(json["in_progress"], 1);
+    assert_eq!(json["review"], 0);
+    assert_eq!(json["done"], 3);
+    assert_eq!(json["cancelled"], 0);
 }

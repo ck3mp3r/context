@@ -1,10 +1,13 @@
+use leptos::ev::Event;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 use std::collections::HashMap;
+use thaw::*;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
-use crate::models::{Note, Paginated, Project, Repo, Task, TaskList};
+use crate::components::{NoteCard, NoteDetailModal, TaskListCard, TaskListDetailModal};
+use crate::models::{Note, Paginated, Project, Repo, TaskList};
 
 #[component]
 pub fn ProjectDetail() -> impl IntoView {
@@ -17,13 +20,22 @@ pub fn ProjectDetail() -> impl IntoView {
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
-    let (swim_lane_tasks, set_swim_lane_tasks) =
-        signal(HashMap::<String, Result<Vec<Task>, ApiClientError>>::new());
 
     // Search/filter state for each tab
     let task_list_filter = RwSignal::new(String::new());
     let note_filter = RwSignal::new(String::new());
     let repo_filter = RwSignal::new(String::new());
+
+    // Show archived toggle
+    let show_archived_task_lists = RwSignal::new(false);
+
+    // Note detail modal state
+    let note_modal_open = RwSignal::new(false);
+    let selected_note_id = RwSignal::new(String::new());
+
+    // Task list detail modal state
+    let task_list_modal_open = RwSignal::new(false);
+    let selected_task_list = RwSignal::new(None::<TaskList>);
 
     // Fetch project details
     Effect::new(move || {
@@ -36,12 +48,14 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Fetch task lists for this project
+    // Fetch task lists for this project (with archived toggle)
     Effect::new(move || {
         let id = project_id();
+        let show_archived = show_archived_task_lists.get();
         if !id.is_empty() {
             spawn_local(async move {
-                let result = task_lists::list(Some(100), None, Some(id)).await;
+                let status = if show_archived { None } else { Some("active") };
+                let result = task_lists::list(Some(100), None, Some(id), status).await;
                 set_task_lists_data.set(Some(result));
             });
         }
@@ -207,6 +221,21 @@ pub fn ProjectDetail() -> impl IntoView {
 
                                                     </div>
 
+                                                    // Show archived toggle
+                                                    <div class="mb-4">
+                                                        <label class="flex items-center gap-2 text-ctp-text cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || show_archived_task_lists.get()
+                                                                on:change=move |ev| {
+                                                                    show_archived_task_lists.set(event_target_checked(&ev));
+                                                                }
+                                                                class="w-4 h-4 rounded bg-ctp-surface0 border-ctp-surface1 text-ctp-blue focus:ring-ctp-blue"
+                                                            />
+                                                            <span class="text-sm">"Show archived task lists"</span>
+                                                        </label>
+                                                    </div>
+
                                                     {move || match task_lists_data.get() {
                                                         None => {
                                                             view! { <p class="text-ctp-subtext0">"Loading task lists..."</p> }
@@ -237,23 +266,19 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                     .into_any()
                                                             } else {
                                                                 view! {
-                                                                    <div class="space-y-4">
-                                                                        {filtered
-                                                                            .iter()
-                                                                            .map(|list| {
+                                                                    <div class="grid gap-4">
+                                                                         {filtered
+                                                                            .into_iter()
+                                                                            .map(|task_list| {
+                                                                                let tl_clone = task_list.clone();
                                                                                 view! {
-                                                                                    <div class="bg-ctp-surface0 rounded-lg p-4 border border-ctp-surface1">
-                                                                                        <h3 class="font-semibold text-ctp-text mb-2">
-                                                                                            {list.name.clone()}
-                                                                                        </h3>
-                                                                                        {list
-                                                                                            .description
-                                                                                            .as_ref()
-                                                                                            .map(|desc| {
-                                                                                                view! { <p class="text-sm text-ctp-subtext0">{desc.clone()}</p> }
-                                                                                            })}
-
-                                                                                    </div>
+                                                                                    <TaskListCard
+                                                                                        task_list=task_list
+                                                                                        on_click=Callback::new(move |_list_id: String| {
+                                                                                            selected_task_list.set(Some(tl_clone.clone()));
+                                                                                            task_list_modal_open.set(true);
+                                                                                        })
+                                                                                    />
                                                                                 }
                                                                             })
                                                                             .collect::<Vec<_>>()}
@@ -330,14 +355,18 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                     .into_any()
                                                             } else {
                                                                 view! {
-                                                                    <div class="space-y-4">
+                                                                    <div class="grid gap-4">
                                                                         {filtered
-                                                                            .iter()
+                                                                            .into_iter()
                                                                             .map(|note| {
                                                                                 view! {
-                                                                                    <div class="bg-ctp-surface0 rounded-lg p-4 border border-ctp-surface1">
-                                                                                        <h3 class="font-semibold text-ctp-text">{note.title.clone()}</h3>
-                                                                                    </div>
+                                                                                     <NoteCard
+                                                                                        note=note
+                                                                                        on_click=Callback::new(move |note_id: String| {
+                                                                                            selected_note_id.set(note_id);
+                                                                                            note_modal_open.set(true);
+                                                                                        })
+                                                                                    />
                                                                                 }
                                                                             })
                                                                             .collect::<Vec<_>>()}
@@ -461,6 +490,34 @@ pub fn ProjectDetail() -> impl IntoView {
                         </div>
                     }
                         .into_any()
+                }
+            }}
+
+            // Note detail modal - only render when open
+            {move || {
+                if note_modal_open.get() {
+                    Some(view! {
+                        <NoteDetailModal
+                            note_id=selected_note_id.read_only()
+                            open=note_modal_open
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
+
+            // Task list detail modal - only render when open
+            {move || {
+                if task_list_modal_open.get() {
+                    Some(view! {
+                        <TaskListDetailModal
+                            task_list=selected_task_list.read_only()
+                            open=task_list_modal_open
+                        />
+                    })
+                } else {
+                    None
                 }
             }}
 

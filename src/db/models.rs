@@ -260,6 +260,19 @@ impl std::str::FromStr for TaskStatus {
     }
 }
 
+/// Statistics for tasks in a task list, grouped by status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskStats {
+    pub list_id: Id,
+    pub total: usize,
+    pub backlog: usize,
+    pub todo: usize,
+    pub in_progress: usize,
+    pub review: usize,
+    pub done: usize,
+    pub cancelled: usize,
+}
+
 /// A persistent markdown note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {

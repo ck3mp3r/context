@@ -6,7 +6,9 @@ use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStatus};
+use crate::db::{
+    DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
+};
 
 /// SQLx-backed task repository.
 pub struct SqliteTaskRepository<'a> {
@@ -50,18 +52,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             message: e.to_string(),
         })?;
 
-        Ok(Task {
-            id,
-            list_id: task.list_id.clone(),
-            parent_id: task.parent_id.clone(),
-            content: task.content.clone(),
-            status: task.status.clone(),
-            priority: task.priority,
-            tags: task.tags.clone(),
-            created_at,
-            started_at: task.started_at.clone(),
-            completed_at: task.completed_at.clone(),
-        })
+        self.get(&id).await
     }
 
     async fn get(&self, id: &str) -> DbResult<Task> {
@@ -289,6 +280,62 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         Ok(())
+    }
+
+    async fn get_stats_for_list(&self, list_id: &str) -> DbResult<TaskStats> {
+        let rows = sqlx::query(
+            r#"
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM task
+            WHERE list_id = ?
+            GROUP BY status
+            "#,
+        )
+        .bind(list_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let mut backlog = 0;
+        let mut todo = 0;
+        let mut in_progress = 0;
+        let mut review = 0;
+        let mut done = 0;
+        let mut cancelled = 0;
+        let mut total = 0;
+
+        for row in rows {
+            let status: String = row.get("status");
+            let count: i64 = row.get("count");
+            let count = count as usize;
+
+            total += count;
+
+            match status.as_str() {
+                "backlog" => backlog = count,
+                "todo" => todo = count,
+                "in_progress" => in_progress = count,
+                "review" => review = count,
+                "done" => done = count,
+                "cancelled" => cancelled = count,
+                _ => {}
+            }
+        }
+
+        Ok(TaskStats {
+            list_id: list_id.to_string(),
+            total,
+            backlog,
+            todo,
+            in_progress,
+            review,
+            done,
+            cancelled,
+        })
     }
 }
 

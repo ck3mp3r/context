@@ -116,3 +116,29 @@ body {
   margin-top: 2em;
   margin-bottom: 2em;
 }
+
+/* Thaw UI OverlayDrawer custom styling */
+.note-detail-drawer {
+  width: 85vw !important;
+  max-width: 85vw !important;
+}
+
+.task-list-detail-drawer {
+  width: 95vw !important;
+  max-width: 95vw !important;
+}
+
+/* Dark theme for drawer - Catppuccin Mocha colors */
+.thaw-overlay-drawer {
+  background-color: #1e1e2e !important; /* ctp-base */
+}
+
+.thaw-drawer-header {
+  background-color: #181825 !important; /* ctp-mantle */
+  border-bottom: 1px solid #313244 !important; /* ctp-surface0 */
+}
+
+.thaw-drawer-body {
+  background-color: #1e1e2e !important; /* ctp-base */
+  color: #cdd6f4 !important; /* ctp-text */
+}

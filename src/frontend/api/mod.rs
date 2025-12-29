@@ -2,7 +2,7 @@ use gloo_net::http::Request;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::models::{ApiError, Note, Paginated, Project, Repo, Task, TaskList};
+use crate::models::{ApiError, Note, Paginated, Project, Repo, Task, TaskList, TaskStats};
 
 const API_BASE: &str = "/api/v1";
 
@@ -158,12 +158,16 @@ pub mod task_lists {
         limit: Option<usize>,
         offset: Option<usize>,
         project_id: Option<String>,
+        status: Option<&str>,
     ) -> Result<Paginated<TaskList>> {
         let mut url = format!("{}/task-lists", API_BASE);
         let mut query_params = vec![];
 
         if let Some(proj_id) = project_id {
             query_params.push(format!("project_id={}", proj_id));
+        }
+        if let Some(stat) = status {
+            query_params.push(format!("status={}", stat));
         }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
@@ -181,6 +185,11 @@ pub mod task_lists {
 
     pub async fn get(id: &str) -> Result<TaskList> {
         let url = format!("{}/task-lists/{}", API_BASE, id);
+        handle_response(Request::get(&url)).await
+    }
+
+    pub async fn get_stats(id: &str) -> Result<TaskStats> {
+        let url = format!("{}/task-lists/{}/stats", API_BASE, id);
         handle_response(Request::get(&url)).await
     }
 }

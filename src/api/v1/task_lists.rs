@@ -14,7 +14,7 @@ use crate::api::AppState;
 use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
-    TaskListStatus,
+    TaskListStatus, TaskRepository, TaskStats,
 };
 
 use super::ErrorResponse;
@@ -167,6 +167,41 @@ pub struct ListTaskListsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TaskStatsResponse {
+    #[schema(example = "a1b2c3d4")]
+    pub list_id: String,
+    #[schema(example = 15)]
+    pub total: usize,
+    #[schema(example = 3)]
+    pub backlog: usize,
+    #[schema(example = 5)]
+    pub todo: usize,
+    #[schema(example = 4)]
+    pub in_progress: usize,
+    #[schema(example = 1)]
+    pub review: usize,
+    #[schema(example = 2)]
+    pub done: usize,
+    #[schema(example = 0)]
+    pub cancelled: usize,
+}
+
+impl From<TaskStats> for TaskStatsResponse {
+    fn from(stats: TaskStats) -> Self {
+        Self {
+            list_id: stats.list_id,
+            total: stats.total,
+            backlog: stats.backlog,
+            todo: stats.todo,
+            in_progress: stats.in_progress,
+            review: stats.review,
+            done: stats.done,
+            cancelled: stats.cancelled,
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -505,6 +540,44 @@ pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
         })?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Get task statistics for a task list
+#[utoipa::path(
+    get,
+    path = "/v1/task-lists/{id}/stats",
+    tag = "task-lists",
+    params(("id" = String, Path, description = "TaskList ID")),
+    responses(
+        (status = 200, description = "Task statistics retrieved", body = TaskStatsResponse),
+        (status = 404, description = "TaskList not found", body = ErrorResponse),
+        (status = 500, description = "Server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn get_task_list_stats<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskStatsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+    let tasks = db.tasks();
+
+    let stats: TaskStats = tasks.get_stats_for_list(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("TaskList '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    Ok(Json(stats.into()))
 }
 
 // =============================================================================

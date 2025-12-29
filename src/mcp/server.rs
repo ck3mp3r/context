@@ -208,6 +208,14 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_list_tools.delete_task_list(params).await
     }
 
+    #[tool(description = "Get task statistics for a task list")]
+    pub async fn get_task_list_stats(
+        &self,
+        params: Parameters<GetTaskListStatsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_list_tools.get_task_list_stats(params).await
+    }
+
     // =========================================================================
     // Task Tools
     // =========================================================================

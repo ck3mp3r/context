@@ -66,6 +66,19 @@ pub struct Task {
     pub completed_at: Option<String>,
 }
 
+/// Task statistics for a task list
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskStats {
+    pub list_id: String,
+    pub total: usize,
+    pub backlog: usize,
+    pub todo: usize,
+    pub in_progress: usize,
+    pub review: usize,
+    pub done: usize,
+    pub cancelled: usize,
+}
+
 /// Note response from API
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Note {

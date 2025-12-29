@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use crate::db::{
     Database, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
+    TaskRepository,
 };
 use crate::mcp::tools::{apply_limit, map_db_error};
 
@@ -87,6 +88,12 @@ pub struct UpdateTaskListParams {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteTaskListParams {
+    #[schemars(description = "TaskList ID")]
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetTaskListStatsParams {
     #[schemars(description = "TaskList ID")]
     pub id: String,
 }
@@ -314,6 +321,26 @@ impl<D: Database + 'static> TaskListTools<D> {
         });
 
         let content = serde_json::to_string_pretty(&response).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+        Ok(CallToolResult::success(vec![Content::text(content)]))
+    }
+
+    #[tool(description = "Get task statistics for a task list")]
+    pub async fn get_task_list_stats(
+        &self,
+        params: Parameters<GetTaskListStatsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let stats = self
+            .db
+            .tasks()
+            .get_stats_for_list(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+        let content = serde_json::to_string_pretty(&stats).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
                 Some(serde_json::json!({"error": e.to_string()})),

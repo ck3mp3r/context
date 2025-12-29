@@ -673,3 +673,60 @@ async fn task_update_other_fields_preserves_timestamps() {
         "started_at should be preserved when status doesn't change"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_stats_for_list_returns_counts_by_status() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Create task list
+    task_lists
+        .create(&make_task_list("statlist", "Stats Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create tasks with different statuses
+    let mut task1 = make_task("stat0001", "statlist", "Backlog task");
+    task1.status = TaskStatus::Backlog;
+    tasks.create(&task1).await.unwrap();
+
+    let mut task2 = make_task("stat0002", "statlist", "Todo task");
+    task2.status = TaskStatus::Todo;
+    tasks.create(&task2).await.unwrap();
+
+    let mut task3 = make_task("stat0003", "statlist", "Another todo");
+    task3.status = TaskStatus::Todo;
+    tasks.create(&task3).await.unwrap();
+
+    let mut task4 = make_task("stat0004", "statlist", "In progress");
+    task4.status = TaskStatus::InProgress;
+    tasks.create(&task4).await.unwrap();
+
+    let mut task5 = make_task("stat0005", "statlist", "Done task");
+    task5.status = TaskStatus::Done;
+    tasks.create(&task5).await.unwrap();
+
+    let mut task6 = make_task("stat0006", "statlist", "Another done");
+    task6.status = TaskStatus::Done;
+    tasks.create(&task6).await.unwrap();
+
+    let mut task7 = make_task("stat0007", "statlist", "Another done 2");
+    task7.status = TaskStatus::Done;
+    tasks.create(&task7).await.unwrap();
+
+    // Get stats
+    let stats = tasks
+        .get_stats_for_list("statlist")
+        .await
+        .expect("Get stats should succeed");
+
+    assert_eq!(stats.list_id, "statlist");
+    assert_eq!(stats.total, 7);
+    assert_eq!(stats.backlog, 1);
+    assert_eq!(stats.todo, 2);
+    assert_eq!(stats.in_progress, 1);
+    assert_eq!(stats.review, 0);
+    assert_eq!(stats.done, 3);
+    assert_eq!(stats.cancelled, 0);
+}

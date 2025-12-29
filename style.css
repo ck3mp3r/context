@@ -948,6 +948,10 @@ video {
   background-color: rgb(249 226 175 / 0.1);
 }
 
+.bg-ctp-yellow\/20 {
+  background-color: rgb(249 226 175 / 0.2);
+}
+
 .p-3 {
   padding: 0.75rem;
 }
@@ -1069,6 +1073,10 @@ video {
 
 .font-semibold {
   font-weight: 600;
+}
+
+.leading-none {
+  line-height: 1;
 }
 
 .text-ctp-base {
@@ -1282,6 +1290,39 @@ body {
   margin-bottom: 2em;
 }
 
+/* Thaw UI OverlayDrawer custom styling */
+
+.note-detail-drawer {
+  width: 85vw !important;
+  max-width: 85vw !important;
+}
+
+.task-list-detail-drawer {
+  width: 95vw !important;
+  max-width: 95vw !important;
+}
+
+/* Dark theme for drawer - Catppuccin Mocha colors */
+
+.thaw-overlay-drawer {
+  background-color: #1e1e2e !important;
+  /* ctp-base */
+}
+
+.thaw-drawer-header {
+  background-color: #181825 !important;
+  /* ctp-mantle */
+  border-bottom: 1px solid #313244 !important;
+  /* ctp-surface0 */
+}
+
+.thaw-drawer-body {
+  background-color: #1e1e2e !important;
+  /* ctp-base */
+  color: #cdd6f4 !important;
+  /* ctp-text */
+}
+
 .hover\:border-ctp-blue:hover {
   --tw-border-opacity: 1;
   border-color: rgb(137 180 250 / var(--tw-border-opacity, 1));
@@ -1331,6 +1372,11 @@ body {
 .focus\:outline-none:focus {
   outline: 2px solid transparent;
   outline-offset: 2px;
+}
+
+.focus\:ring-ctp-blue:focus {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(137 180 250 / var(--tw-ring-opacity, 1));
 }
 
 .disabled\:cursor-not-allowed:disabled {

@@ -3,14 +3,19 @@ use leptos_router::{
     components::{Route, Router, Routes},
     path,
 };
+use thaw::*;
 
 use crate::pages::{Home, Notes, ProjectDetail, Repos};
 
 #[component]
 pub fn App() -> impl IntoView {
+    // Set dark theme for Thaw UI components
+    let theme = RwSignal::new(Theme::dark());
+
     view! {
-        <Router>
-            <main class="min-h-screen bg-ctp-base">
+        <ConfigProvider theme>
+            <Router>
+                <main class="min-h-screen bg-ctp-base">
                 <nav class="bg-ctp-surface0 border-b border-ctp-surface1 px-6 py-4">
                     <div class="container mx-auto flex justify-between items-center">
                         <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
@@ -31,5 +36,6 @@ pub fn App() -> impl IntoView {
                 </Routes>
             </main>
         </Router>
+        </ConfigProvider>
     }
 }

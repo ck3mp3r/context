@@ -62,6 +62,7 @@ macro_rules! routes {
         super::v1::update_task_list,
         super::v1::patch_task_list,
         super::v1::delete_task_list,
+        super::v1::get_task_list_stats,
         super::v1::list_tasks,
         super::v1::get_task,
         super::v1::create_task,
@@ -97,6 +98,7 @@ macro_rules! routes {
             UpdateTaskListRequest,
             PatchTaskListRequest,
             super::v1::PaginatedTaskLists,
+            super::v1::TaskStatsResponse,
             TaskResponse,
             CreateTaskRequest,
             UpdateTaskRequest,
@@ -184,6 +186,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         post "/v1/sync/export" => super::v1::export_sync,
         post "/v1/sync/import" => super::v1::import_sync,
         get "/v1/sync/status" => super::v1::get_sync_status,
+        get "/v1/task-lists/{id}/stats" => super::v1::get_task_list_stats,
     });
 
     let mut router = system_routes

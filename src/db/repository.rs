@@ -10,7 +10,7 @@ use std::future::Future;
 
 use crate::db::{
     DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
-    models::{Note, Project, Repo, Task, TaskList},
+    models::{Note, Project, Repo, Task, TaskList, TaskStats},
 };
 
 /// Repository for Project operations.
@@ -69,6 +69,8 @@ pub trait TaskRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn get_stats_for_list(&self, list_id: &str)
+    -> impl Future<Output = DbResult<TaskStats>> + Send;
 }
 
 /// Repository for Note operations.
