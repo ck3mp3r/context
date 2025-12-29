@@ -619,7 +619,6 @@ pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String)
 #[component]
 pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
     let task_id = task.id.clone();
-    let parent_id = task.parent_id.clone();
 
     // Fetch subtasks
     let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
@@ -651,24 +650,6 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
         });
     });
 
-    // Fetch parent task if this is a subtask
-    let (parent_task, set_parent_task) = signal(None::<Task>);
-    if let Some(pid) = parent_id.clone() {
-        Effect::new(move || {
-            let parent_id = pid.clone();
-            spawn_local(async move {
-                match tasks::get(&parent_id).await {
-                    Ok(parent) => {
-                        set_parent_task.set(Some(parent));
-                    }
-                    Err(_) => {
-                        set_parent_task.set(None);
-                    }
-                }
-            });
-        });
-    }
-
     view! {
         <OverlayDrawer open position=DrawerPosition::Right class="w-[50vw]">
             <DrawerHeader>
@@ -691,18 +672,6 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
                 </div>
             </DrawerHeader>
             <DrawerBody>
-                // Parent task display (if this is a subtask)
-                {move || {
-                    parent_task.get().map(|parent| {
-                        view! {
-                            <div class="mb-4">
-                                <h3 class="text-sm text-ctp-subtext0 mb-2">"Parent Task"</h3>
-                                <TaskCard task=parent show_subtasks_inline=false />
-                            </div>
-                        }
-                    })
-                }}
-
                 // Main task detail card
                 <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg">
                     <h3 class="text-lg font-semibold text-ctp-text mb-3">{task.content.clone()}</h3>
