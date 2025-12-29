@@ -592,8 +592,8 @@ pub fn TaskListDetailModal(
                         match (list, stats_result) {
                             (Some(tl), Some(Ok(stats))) => {
                                 view! {
-                                    <div class="space-y-4">
-                                        <div class="flex justify-between items-start mb-4">
+                                    <div class="flex flex-col h-screen">
+                                        <div class="flex justify-between items-start mb-4 flex-shrink-0">
                                             <div class="flex-1">
                                                 <h2 class="text-2xl font-bold text-ctp-text">
                                                     {tl.name.clone()}
@@ -624,7 +624,7 @@ pub fn TaskListDetailModal(
                                             </button>
                                         </div>
 
-                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 h-[calc(100vh-16rem)]">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0">
                                             {statuses
                                                 .clone()
                                                 .into_iter()

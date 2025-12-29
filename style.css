@@ -700,12 +700,12 @@ video {
   height: 1.25rem;
 }
 
-.h-\[calc\(100vh-16rem\)\] {
-  height: calc(100vh - 16rem);
-}
-
 .h-full {
   height: 100%;
+}
+
+.h-screen {
+  height: 100vh;
 }
 
 .max-h-\[300px\] {
