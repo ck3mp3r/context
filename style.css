@@ -1332,14 +1332,6 @@ body {
 .task-list-detail-drawer {
   width: 95vw !important;
   max-width: 95vw !important;
-  height: 100vh !important;
-  max-height: 100vh !important;
-}
-
-/* Ensure DrawerBody fills the drawer height properly */
-.task-list-detail-drawer .thaw-drawer-body {
-  height: 100%;
-  overflow: hidden;
 }
 
 /* Dark theme for drawer - Catppuccin Mocha colors */

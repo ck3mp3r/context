@@ -592,7 +592,7 @@ pub fn TaskListDetailModal(
                         match (list, stats_result) {
                             (Some(tl), Some(Ok(stats))) => {
                                 view! {
-                                    <div class="flex flex-col h-full">
+                                    <div class="flex flex-col" style="height: calc(100vh - 2rem)">
                                         <div class="flex justify-between items-start mb-4 flex-shrink-0">
                                             <div class="flex-1">
                                                 <h2 class="text-2xl font-bold text-ctp-text">
