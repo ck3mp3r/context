@@ -2,4 +2,6 @@ pub mod note_components;
 pub mod task_components;
 
 pub use note_components::{MarkdownContent, NoteCard, NoteDetailModal};
-pub use task_components::{AccordionContext, SwimLane, TaskListCard, TaskListDetailModal};
+pub use task_components::{
+    AccordionContext, SwimLane, TaskDetailDrawer, TaskListCard, TaskListDetailModal,
+};

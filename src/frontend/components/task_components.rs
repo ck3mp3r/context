@@ -579,6 +579,176 @@ pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String)
     }
 }
 
+/// TaskDetailDrawer component - shows full task details with Accordion sections
+#[component]
+pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
+    let task_id = task.id.clone();
+    let task_id_for_copy = task.id.clone();
+    let task_id_for_subtasks = task.id.clone();
+    let list_id_for_subtasks = task.list_id.clone();
+
+    // Fetch subtask count to determine if we show Subtasks section
+    let (subtask_count, set_subtask_count) = signal(0usize);
+    let task_id_for_fetch = task.id.clone();
+    let list_id_for_fetch = task.list_id.clone();
+
+    Effect::new(move || {
+        let task_id = task_id_for_fetch.clone();
+        let list_id = list_id_for_fetch.clone();
+        spawn_local(async move {
+            match tasks::list_for_task_list(
+                &list_id,
+                Some(1),
+                None,
+                None,
+                None,
+                None,
+                Some(&task_id),
+            )
+            .await
+            {
+                Ok(paginated) => {
+                    set_subtask_count.set(paginated.total);
+                }
+                Err(_) => {
+                    set_subtask_count.set(0);
+                }
+            }
+        });
+    });
+
+    view! {
+        <OverlayDrawer open position=DrawerPosition::Right>
+            <DrawerHeader>
+                <div class="flex items-center justify-between w-full">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-lg font-semibold text-ctp-text">"Task Details"</h2>
+                        <span
+                            class="text-xs text-ctp-overlay0 font-mono bg-ctp-surface0 px-2 py-1 rounded select-all cursor-pointer hover:bg-ctp-surface1"
+                            title="Click to select, then copy"
+                        >
+                            {task_id.clone()}
+                        </span>
+                    </div>
+                    <button
+                        on:click=move |_| open.set(false)
+                        class="text-ctp-overlay0 hover:text-ctp-text transition-colors text-xl"
+                    >
+                        "✕"
+                    </button>
+                </div>
+            </DrawerHeader>
+            <DrawerBody>
+                <Accordion multiple=true>
+                    <AccordionItem value="metadata">
+                        <AccordionHeader slot>"Metadata"</AccordionHeader>
+                        <div class="space-y-3 text-sm">
+                            <div>
+                                <span class="text-ctp-subtext0">"Status: "</span>
+                                <span class="text-ctp-text font-medium">{format!("{:?}", task.status)}</span>
+                            </div>
+
+                            {task.priority.map(|p| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-subtext0">"Priority: "</span>
+                                        <span class="text-ctp-text font-medium">"P"{p}</span>
+                                    </div>
+                                }
+                            })}
+
+                            <div>
+                                <span class="text-ctp-subtext0">"Created: "</span>
+                                <span class="text-ctp-text">{task.created_at.clone()}</span>
+                            </div>
+
+                            {task.started_at.clone().map(|started| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-subtext0">"Started: "</span>
+                                        <span class="text-ctp-text">{started}</span>
+                                    </div>
+                                }
+                            })}
+
+                            {task.completed_at.clone().map(|completed| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-subtext0">"Completed: "</span>
+                                        <span class="text-ctp-text">{completed}</span>
+                                    </div>
+                                }
+                            })}
+
+                            {(!task.tags.is_empty()).then(|| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-subtext0">"Tags: "</span>
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            {task.tags.iter().map(|tag| {
+                                                view! {
+                                                    <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                                        {tag.clone()}
+                                                    </span>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    </div>
+                                }
+                            })}
+
+                            <div>
+                                <span class="text-ctp-subtext0">"List ID: "</span>
+                                <span class="text-ctp-text font-mono text-xs">{task.list_id.clone()}</span>
+                            </div>
+                        </div>
+                    </AccordionItem>
+
+                    <AccordionItem value="description">
+                        <AccordionHeader slot>"Description"</AccordionHeader>
+                        <div class="text-sm text-ctp-text whitespace-pre-wrap break-words">
+                            {task.content.clone()}
+                        </div>
+                    </AccordionItem>
+
+                    <AccordionItem value="subtasks">
+                        <AccordionHeader slot>{move || format!("Subtasks ({})", subtask_count.get())}</AccordionHeader>
+                        {move || {
+                            if subtask_count.get() > 0 {
+                                view! {
+                                    <SubtaskList task_id=task_id_for_subtasks.clone() list_id=list_id_for_subtasks.clone() />
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
+                                }.into_any()
+                            }
+                        }}
+                    </AccordionItem>
+
+                    <AccordionItem value="parent">
+                        <AccordionHeader slot>"Parent Task"</AccordionHeader>
+                        {move || {
+                            if let Some(parent_id) = task.parent_id.clone() {
+                                view! {
+                                    <div class="text-sm text-ctp-text">
+                                        <span class="text-ctp-subtext0">"Parent Task ID: "</span>
+                                        <span class="font-mono text-xs select-all cursor-pointer hover:bg-ctp-surface0 px-1 rounded">{parent_id}</span>
+                                    </div>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <p class="text-xs text-ctp-overlay0">"This is a top-level task"</p>
+                                }.into_any()
+                            }
+                        }}
+                    </AccordionItem>
+                </Accordion>
+            </DrawerBody>
+        </OverlayDrawer>
+    }
+}
+
 #[component]
 pub fn TaskListCard(
     task_list: TaskList,
