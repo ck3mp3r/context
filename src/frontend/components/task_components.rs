@@ -1105,12 +1105,7 @@ pub fn TaskListDetailModal(
                                                     <h2 class="text-2xl font-bold text-ctp-text">
                                                         {tl.name.clone()}
                                                     </h2>
-                                                    <span
-                                                        class="text-ctp-overlay0 text-xs font-mono bg-ctp-surface0 px-2 py-1 rounded cursor-pointer hover:bg-ctp-surface1 select-all"
-                                                        title="Click to select, then copy"
-                                                    >
-                                                        {tl.id.clone()}
-                                                    </span>
+                                                    <CopyableId id=tl.id.clone()/>
                                                 </div>
                                                 {tl.description.as_ref().map(|desc| {
                                                     view! { <p class="text-ctp-subtext0 text-sm mt-1">{desc.clone()}</p> }
