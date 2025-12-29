@@ -1,26 +1,15 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 
 use crate::api::ApiClientError;
 use crate::api::notes;
-use crate::components::{MarkdownContent, NoteCard};
+use crate::components::{NoteCard, NoteDetailModal};
 use crate::models::{Note, Paginated};
 
 #[component]
 pub fn Notes() -> impl IntoView {
-    // Check if we have a note ID in the URL params
-    let params = use_params_map();
-    let note_id = move || params.read().get("id").unwrap_or_default();
-
     view! {
-        {move || {
-            if note_id().is_empty() {
-                view! { <NotesList/> }.into_any()
-            } else {
-                view! { <NoteDetail id=note_id()/> }.into_any()
-            }
-        }}
+        <NotesList/>
     }
 }
 
@@ -32,6 +21,10 @@ fn NotesList() -> impl IntoView {
     let (page, set_page) = signal(0usize);
     let (search_query, set_search_query) = signal(String::new());
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
+
+    // Note detail modal state
+    let note_modal_open = RwSignal::new(false);
+    let selected_note_id = RwSignal::new(String::new());
 
     // Use Effect to fetch when dependencies change
     Effect::new(move || {
@@ -143,7 +136,15 @@ fn NotesList() -> impl IntoView {
                                                     .items
                                                     .iter()
                                                     .map(|note| {
-                                                        view! { <NoteCard note=note.clone()/> }
+                                                        view! {
+                                                            <NoteCard
+                                                                note=note.clone()
+                                                                on_click=Callback::new(move |note_id: String| {
+                                                                    selected_note_id.set(note_id);
+                                                                    note_modal_open.set(true);
+                                                                })
+                                                            />
+                                                        }
                                                     })
                                                     .collect::<Vec<_>>()}
                                             </div>
@@ -210,85 +211,20 @@ fn NotesList() -> impl IntoView {
                 }
             }}
 
-        </div>
-    }
-}
+            // Note detail modal - only render when open
+            {move || {
+                if note_modal_open.get() {
+                    Some(view! {
+                        <NoteDetailModal
+                            note_id=selected_note_id.read_only()
+                            open=note_modal_open
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
 
-#[component]
-fn NoteDetail(id: String) -> impl IntoView {
-    let note_resource = LocalResource::new(move || {
-        let note_id = id.clone();
-        async move { notes::get(&note_id).await }
-    });
-
-    view! {
-        <div class="container mx-auto p-6">
-            <a
-                href="/notes"
-                class="inline-flex items-center text-ctp-blue hover:text-ctp-lavender mb-6"
-            >
-                "← Back to Notes"
-            </a>
-
-            <Suspense fallback=move || {
-                view! { <p class="text-ctp-subtext0">"Loading note..."</p> }
-            }>
-                {move || {
-                    note_resource
-                        .get()
-                        .map(|result| match result.as_ref() {
-                            Ok(note) => {
-                                view! {
-                                    <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6">
-                                        <div class="mb-6">
-                                            <h2 class="text-3xl font-bold text-ctp-text mb-2">
-                                                {note.title.clone()}
-                                            </h2>
-                                            <div class="flex justify-between text-sm text-ctp-overlay0">
-                                                <span>"ID: " {note.id.clone()}</span>
-                                                <span>"Updated: " {note.updated_at.clone()}</span>
-                                            </div>
-                                        </div>
-
-                                        {(!note.tags.is_empty())
-                                            .then(|| {
-                                                view! {
-                                                    <div class="flex flex-wrap gap-2 mb-6">
-                                                        {note
-                                                            .tags
-                                                            .iter()
-                                                            .map(|tag| {
-                                                                view! {
-                                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                                        {tag.clone()}
-                                                                    </span>
-                                                                }
-                                                            })
-                                                            .collect::<Vec<_>>()}
-                                                    </div>
-                                                }
-                                            })}
-
-                                        <div class="prose prose-invert max-w-none">
-                                            <MarkdownContent content=note.content.clone()/>
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                            Err(err) => {
-                                view! {
-                                    <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                        <p class="text-ctp-red font-semibold">"Error loading note"</p>
-                                        <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                        })
-                }}
-
-            </Suspense>
         </div>
     }
 }
