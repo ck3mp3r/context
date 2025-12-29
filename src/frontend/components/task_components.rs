@@ -252,14 +252,14 @@ pub fn KanbanColumn(
     let (offset, set_offset) = signal(0);
     let (loading, set_loading) = signal(false);
 
-    // Task detail drawer state
+    // Task detail dialog state
     let (selected_task, set_selected_task) = signal(None::<Task>);
-    let drawer_open = RwSignal::new(false);
+    let dialog_open = RwSignal::new(false);
     let (initial_open_subtask, set_initial_open_subtask) = signal(None::<String>);
 
-    // Reset initial_open_subtask when drawer closes
+    // Reset initial_open_subtask when dialog closes
     Effect::new(move || {
-        if !drawer_open.get() {
+        if !dialog_open.get() {
             set_initial_open_subtask.set(None);
         }
     });
@@ -380,7 +380,7 @@ pub fn KanbanColumn(
                                 on_click=Callback::new(move |t: Task| {
                                     set_selected_task.set(Some(t.clone()));
                                     set_initial_open_subtask.set(None);
-                                    drawer_open.set(true);
+                                    dialog_open.set(true);
                                 })
                                 on_subtask_click=Callback::new(move |clicked_subtask: Task| {
                                     if let Some(parent_id) = clicked_subtask.parent_id.clone() {
@@ -390,13 +390,13 @@ pub fn KanbanColumn(
                                                 Ok(parent_task) => {
                                                     set_selected_task.set(Some(parent_task));
                                                     set_initial_open_subtask.set(Some(clicked_id));
-                                                    drawer_open.set(true);
+                                                    dialog_open.set(true);
                                                 }
                                                 Err(_) => {
                                                     // Fallback: show subtask directly
                                                     set_selected_task.set(Some(clicked_subtask));
                                                     set_initial_open_subtask.set(None);
-                                                    drawer_open.set(true);
+                                                    dialog_open.set(true);
                                                 }
                                             }
                                         });
@@ -418,21 +418,21 @@ pub fn KanbanColumn(
                 }}
             </div>
 
-            // Task detail drawer
+            // Task detail dialog
             {move || {
                 selected_task.get().map(|task| {
                     match initial_open_subtask.get() {
                         Some(subtask_id) => view! {
-                            <TaskDetailDrawer
+                            <TaskDetailDialog
                                 task=task
-                                open=drawer_open
+                                open=dialog_open
                                 initial_open_subtask_id=subtask_id
                             />
                         }.into_any(),
                         None => view! {
-                            <TaskDetailDrawer
+                            <TaskDetailDialog
                                 task=task
-                                open=drawer_open
+                                open=dialog_open
                             />
                         }.into_any(),
                     }
@@ -684,15 +684,12 @@ pub fn SubtaskList(
     }
 }
 
-/// TaskDetailDrawer component - shows full task details with Accordion sections
+/// TaskDetailContent component - reusable task detail content (used in both drawer and split view)
 #[component]
-pub fn TaskDetailDrawer(
+pub fn TaskDetailContent(
     task: Task,
-    open: RwSignal<bool>,
-    #[prop(optional, default = None)] initial_open_subtask_id: Option<String>,
+    #[prop(optional)] initial_open_subtask_id: Option<String>,
 ) -> impl IntoView {
-    let task_id = task.id.clone();
-
     // Fetch subtasks
     let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
     let task_id_for_fetch = task.id.clone();
@@ -724,25 +721,8 @@ pub fn TaskDetailDrawer(
     });
 
     view! {
-        <OverlayDrawer open position=DrawerPosition::Right class="w-[50vw]">
-            <DrawerHeader>
-                <div class="flex items-center justify-between w-full">
-                    <span
-                        class="text-xs text-ctp-overlay0 font-mono bg-ctp-surface0 px-2 py-1 rounded select-all cursor-pointer hover:bg-ctp-surface1"
-                        title="Click to select, then copy"
-                    >
-                        {task_id.clone()}
-                    </span>
-                    <button
-                        on:click=move |_| open.set(false)
-                        class="text-ctp-overlay0 hover:text-ctp-text transition-colors text-xl"
-                    >
-                        "✕"
-                    </button>
-                </div>
-            </DrawerHeader>
-            <DrawerBody>
-                // Main task detail card
+        <div>
+            // Main task detail card
                 <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg">
                     <div class="space-y-2 text-sm mb-4">
                         <div>
@@ -871,8 +851,50 @@ pub fn TaskDetailDrawer(
                         None
                     }
                 }}
-            </DrawerBody>
-        </OverlayDrawer>
+        </div>
+    }
+}
+
+/// TaskDetailDialog component - shows full task details in a centered modal dialog
+#[component]
+pub fn TaskDetailDialog(
+    task: Task,
+    open: RwSignal<bool>,
+    #[prop(optional, default = None)] initial_open_subtask_id: Option<String>,
+) -> impl IntoView {
+    let task_id = task.id.clone();
+
+    view! {
+        <Dialog open>
+            <DialogSurface class="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+                <DialogBody class="flex flex-col overflow-hidden">
+                    <DialogTitle class="flex items-center justify-between">
+                        <span
+                            class="text-xs text-ctp-overlay0 font-mono bg-ctp-surface0 px-2 py-1 rounded select-all cursor-pointer hover:bg-ctp-surface1"
+                            title="Click to select, then copy"
+                        >
+                            {task_id}
+                        </span>
+                        <button
+                            on:click=move |_| open.set(false)
+                            class="text-ctp-overlay0 hover:text-ctp-text transition-colors text-xl ml-auto"
+                        >
+                            "✕"
+                        </button>
+                    </DialogTitle>
+                    <DialogContent class="flex-1 overflow-y-auto">
+                        {match initial_open_subtask_id {
+                            Some(id) => view! {
+                                <TaskDetailContent task=task initial_open_subtask_id=id />
+                            }.into_any(),
+                            None => view! {
+                                <TaskDetailContent task=task />
+                            }.into_any(),
+                        }}
+                    </DialogContent>
+                </DialogBody>
+            </DialogSurface>
+        </Dialog>
     }
 }
 
