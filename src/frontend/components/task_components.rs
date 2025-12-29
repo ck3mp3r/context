@@ -192,7 +192,30 @@ pub fn SwimLane(
                                                 .filter(|t| t.status == status)
                                                 .cloned()
                                                 .collect();
-                                            view! { <KanbanColumn status=status label=label tasks=column_tasks/> }
+                                            // Simple inline column for deprecated SwimLane component
+                                            let bg_color = match status {
+                                                "backlog" => "bg-ctp-surface0",
+                                                "todo" => "bg-ctp-blue/10",
+                                                "in_progress" => "bg-ctp-yellow/10",
+                                                "review" => "bg-ctp-mauve/10",
+                                                "done" => "bg-ctp-green/10",
+                                                "cancelled" => "bg-ctp-red/10",
+                                                _ => "bg-ctp-surface0",
+                                            };
+                                            view! {
+                                                <div class=format!("{} rounded-lg p-4 min-h-[200px]", bg_color)>
+                                                    <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center">
+                                                        <span>{label}</span>
+                                                        <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">{column_tasks.len()}</span>
+                                                    </h3>
+                                                    <div class="space-y-2 overflow-y-auto max-h-[300px]">
+                                                        {column_tasks
+                                                            .into_iter()
+                                                            .map(|task| view! { <TaskCard task=task/> })
+                                                            .collect::<Vec<_>>()}
+                                                    </div>
+                                                </div>
+                                            }
                                         })
                                         .collect::<Vec<_>>()}
                                 </div>
@@ -221,9 +244,44 @@ pub fn SwimLane(
 pub fn KanbanColumn(
     status: &'static str,
     label: &'static str,
-    tasks: Vec<Task>,
-    #[prop(optional)] total_count: Option<usize>,
+    list_id: String,
+    total_count: usize,
 ) -> impl IntoView {
+    let (tasks, set_tasks) = signal(Vec::<Task>::new());
+    let (offset, set_offset) = signal(0);
+    let (loading, set_loading) = signal(false);
+
+    // Store list_id in a signal so it can be shared across closures
+    let list_id_signal = StoredValue::new(list_id.clone());
+
+    // Initial fetch
+    Effect::new(move |_| {
+        let list_id = list_id_signal.get_value();
+        spawn_local(async move {
+            let result = tasks::list_for_task_list(&list_id, Some(25), Some(0), Some(status)).await;
+            if let Ok(paginated) = result {
+                set_tasks.set(paginated.items);
+            }
+        });
+    });
+
+    let load_more = move |_| {
+        set_loading.set(true);
+        let list_id = list_id_signal.get_value();
+        let current_offset = offset.get();
+        let new_offset = current_offset + 25;
+
+        spawn_local(async move {
+            let result =
+                tasks::list_for_task_list(&list_id, Some(25), Some(new_offset), Some(status)).await;
+            if let Ok(paginated) = result {
+                set_tasks.update(|t| t.extend(paginated.items));
+                set_offset.set(new_offset);
+            }
+            set_loading.set(false);
+        });
+    };
+
     let bg_color = match status {
         "backlog" => "bg-ctp-surface0",
         "todo" => "bg-ctp-blue/10",
@@ -234,28 +292,47 @@ pub fn KanbanColumn(
         _ => "bg-ctp-surface0",
     };
 
-    let displayed = tasks.len();
-    let total = total_count.unwrap_or(displayed);
-    let has_more = displayed < total;
-
     view! {
-        <div class=format!("{} rounded-lg p-4 min-h-[400px] overflow-hidden", bg_color)>
+        <div class=format!("{} rounded-lg p-4 min-h-[400px] flex flex-col", bg_color)>
             <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center">
                 <span>{label}</span>
                 <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
-                    {if has_more {
-                        format!("{} of {}", displayed, total)
-                    } else {
-                        format!("{}", total)
+                    {move || {
+                        let displayed = tasks.get().len();
+                        if displayed < total_count {
+                            format!("{} of {}", displayed, total_count)
+                        } else {
+                            format!("{}", total_count)
+                        }
                     }}
                 </span>
             </h3>
-            <div class="space-y-2 overflow-y-auto max-h-[500px]">
-                {tasks
+            <div class="space-y-2 overflow-y-auto max-h-[500px] flex-1">
+                {move || tasks.get()
                     .into_iter()
                     .map(|task| view! { <TaskCard task=task/> })
                     .collect::<Vec<_>>()}
             </div>
+            {move || {
+                let displayed = tasks.get().len();
+                (displayed < total_count).then(|| {
+                    view! {
+                        <div class="mt-4 pt-4 border-t border-ctp-surface1">
+                            <button
+                                on:click=load_more
+                                disabled=move || loading.get()
+                                class="w-full py-2 px-4 bg-ctp-blue text-ctp-base rounded hover:bg-ctp-blue/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {move || if loading.get() {
+                                    "Loading..."
+                                } else {
+                                    "Load More"
+                                }}
+                            </button>
+                        </div>
+                    }
+                })
+            }}
         </div>
     }
 }
@@ -432,10 +509,9 @@ pub fn TaskListDetailModal(
     task_list: ReadSignal<Option<TaskList>>,
     open: RwSignal<bool>,
 ) -> impl IntoView {
-    let (tasks_data, set_tasks_data) = signal(None::<Result<Vec<Task>, ApiClientError>>);
     let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
-    // Fetch tasks AND stats when modal opens or task list changes
+    // Fetch stats when modal opens or task list changes
     Effect::new(move || {
         let list = task_list.get();
         let is_open = open.get();
@@ -445,14 +521,7 @@ pub fn TaskListDetailModal(
         {
             let id = tl.id.clone();
 
-            // Fetch tasks (initial batch of 25 per status will be handled by pagination)
-            let tasks_id = id.clone();
-            spawn_local(async move {
-                let result = tasks::list_for_task_list(&tasks_id, Some(200), None).await;
-                set_tasks_data.set(Some(result.map(|paginated| paginated.items)));
-            });
-
-            // Fetch stats
+            // Fetch stats only - columns will fetch their own tasks
             spawn_local(async move {
                 let result = task_lists::get_stats(&id).await;
                 set_stats_data.set(Some(result));
@@ -481,11 +550,10 @@ pub fn TaskListDetailModal(
                 }>
                     {move || {
                         let list = task_list.get();
-                        let tasks_result = tasks_data.get();
                         let stats_result = stats_data.get();
 
-                        match (list, tasks_result, stats_result) {
-                            (Some(tl), Some(Ok(tasks)), Some(Ok(stats))) => {
+                        match (list, stats_result) {
+                            (Some(tl), Some(Ok(stats))) => {
                                 view! {
                                     <div class="space-y-4">
                                         <div class="flex justify-between items-start mb-4">
@@ -524,12 +592,6 @@ pub fn TaskListDetailModal(
                                                 .clone()
                                                 .into_iter()
                                                 .map(|(status, label)| {
-                                                    let column_tasks: Vec<Task> = tasks
-                                                        .iter()
-                                                        .filter(|t| t.status == status)
-                                                        .cloned()
-                                                        .collect();
-
                                                     // Get total count for this status from stats
                                                     let total = match status {
                                                         "backlog" => stats.backlog,
@@ -545,7 +607,7 @@ pub fn TaskListDetailModal(
                                                         <KanbanColumn
                                                             status=status
                                                             label=label
-                                                            tasks=column_tasks
+                                                            list_id=tl.id.clone()
                                                             total_count=total
                                                         />
                                                     }
@@ -553,13 +615,13 @@ pub fn TaskListDetailModal(
                                                 .collect::<Vec<_>>()}
                                         </div>
                                     </div>
-                                }
-                                    .into_any()
                             }
-                            (_, Some(Err(err)), _) | (_, _, Some(Err(err))) => {
+                                .into_any()
+                            }
+                            (_, Some(Err(err))) => {
                                 view! {
                                     <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                        <p class="text-ctp-red font-semibold">"Error loading data"</p>
+                                        <p class="text-ctp-red font-semibold">"Error loading stats"</p>
                                         <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
                                     </div>
                                 }

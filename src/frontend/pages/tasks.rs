@@ -41,7 +41,7 @@ pub fn Tasks() -> impl IntoView {
         for list_id in list_ids.iter() {
             let list_id = list_id.clone();
             spawn_local(async move {
-                let result = tasks::list_for_task_list(&list_id, Some(200), None).await;
+                let result = tasks::list_for_task_list(&list_id, Some(200), None, None).await;
                 set_swim_lane_tasks.update(|map| {
                     map.insert(list_id.clone(), result.map(|paginated| paginated.items));
                 });

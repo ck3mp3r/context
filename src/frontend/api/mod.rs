@@ -205,6 +205,7 @@ pub mod tasks {
         list_id: &str,
         limit: Option<usize>,
         offset: Option<usize>,
+        status: Option<&str>,
     ) -> Result<Paginated<Task>> {
         let mut url = format!("{}/task-lists/{}/tasks", API_BASE, list_id);
         let mut query_params = vec![];
@@ -214,6 +215,9 @@ pub mod tasks {
         }
         if let Some(off) = offset {
             query_params.push(format!("offset={}", off));
+        }
+        if let Some(s) = status {
+            query_params.push(format!("status={}", s));
         }
 
         if !query_params.is_empty() {
