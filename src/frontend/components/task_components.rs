@@ -218,7 +218,12 @@ pub fn SwimLane(
 }
 
 #[component]
-pub fn KanbanColumn(status: &'static str, label: &'static str, tasks: Vec<Task>) -> impl IntoView {
+pub fn KanbanColumn(
+    status: &'static str,
+    label: &'static str,
+    tasks: Vec<Task>,
+    #[prop(optional)] total_count: Option<usize>,
+) -> impl IntoView {
     let bg_color = match status {
         "backlog" => "bg-ctp-surface0",
         "todo" => "bg-ctp-blue/10",
@@ -229,13 +234,23 @@ pub fn KanbanColumn(status: &'static str, label: &'static str, tasks: Vec<Task>)
         _ => "bg-ctp-surface0",
     };
 
+    let displayed = tasks.len();
+    let total = total_count.unwrap_or(displayed);
+    let has_more = displayed < total;
+
     view! {
         <div class=format!("{} rounded-lg p-4 min-h-[400px] overflow-hidden", bg_color)>
             <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center">
                 <span>{label}</span>
-                <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">{tasks.len()}</span>
+                <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
+                    {if has_more {
+                        format!("{} of {}", displayed, total)
+                    } else {
+                        format!("{}", total)
+                    }}
+                </span>
             </h3>
-            <div class="space-y-2 overflow-y-auto">
+            <div class="space-y-2 overflow-y-auto max-h-[500px]">
                 {tasks
                     .into_iter()
                     .map(|task| view! { <TaskCard task=task/> })
@@ -418,8 +433,9 @@ pub fn TaskListDetailModal(
     open: RwSignal<bool>,
 ) -> impl IntoView {
     let (tasks_data, set_tasks_data) = signal(None::<Result<Vec<Task>, ApiClientError>>);
+    let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
-    // Fetch tasks when modal opens or task list changes
+    // Fetch tasks AND stats when modal opens or task list changes
     Effect::new(move || {
         let list = task_list.get();
         let is_open = open.get();
@@ -428,9 +444,18 @@ pub fn TaskListDetailModal(
             && is_open
         {
             let id = tl.id.clone();
+
+            // Fetch tasks (initial batch of 25 per status will be handled by pagination)
+            let tasks_id = id.clone();
             spawn_local(async move {
-                let result = tasks::list_for_task_list(&id, Some(200), None).await;
+                let result = tasks::list_for_task_list(&tasks_id, Some(200), None).await;
                 set_tasks_data.set(Some(result.map(|paginated| paginated.items)));
+            });
+
+            // Fetch stats
+            spawn_local(async move {
+                let result = task_lists::get_stats(&id).await;
+                set_stats_data.set(Some(result));
             });
         }
     });
@@ -457,9 +482,10 @@ pub fn TaskListDetailModal(
                     {move || {
                         let list = task_list.get();
                         let tasks_result = tasks_data.get();
+                        let stats_result = stats_data.get();
 
-                        match (list, tasks_result) {
-                            (Some(tl), Some(Ok(tasks))) => {
+                        match (list, tasks_result, stats_result) {
+                            (Some(tl), Some(Ok(tasks)), Some(Ok(stats))) => {
                                 view! {
                                     <div class="space-y-4">
                                         <div class="flex justify-between items-start mb-4">
@@ -503,7 +529,26 @@ pub fn TaskListDetailModal(
                                                         .filter(|t| t.status == status)
                                                         .cloned()
                                                         .collect();
-                                                    view! { <KanbanColumn status=status label=label tasks=column_tasks/> }
+
+                                                    // Get total count for this status from stats
+                                                    let total = match status {
+                                                        "backlog" => stats.backlog,
+                                                        "todo" => stats.todo,
+                                                        "in_progress" => stats.in_progress,
+                                                        "review" => stats.review,
+                                                        "done" => stats.done,
+                                                        "cancelled" => stats.cancelled,
+                                                        _ => 0,
+                                                    };
+
+                                                    view! {
+                                                        <KanbanColumn
+                                                            status=status
+                                                            label=label
+                                                            tasks=column_tasks
+                                                            total_count=total
+                                                        />
+                                                    }
                                                 })
                                                 .collect::<Vec<_>>()}
                                         </div>
@@ -511,17 +556,17 @@ pub fn TaskListDetailModal(
                                 }
                                     .into_any()
                             }
-                            (_, Some(Err(err))) => {
+                            (_, Some(Err(err)), _) | (_, _, Some(Err(err))) => {
                                 view! {
                                     <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                        <p class="text-ctp-red font-semibold">"Error loading tasks"</p>
+                                        <p class="text-ctp-red font-semibold">"Error loading data"</p>
                                         <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
                                     </div>
                                 }
                                     .into_any()
                             }
                             _ => {
-                                view! { <p class="text-ctp-subtext0">"Loading tasks..."</p> }
+                                view! { <p class="text-ctp-subtext0">"Loading..."</p> }
                                     .into_any()
                             }
                         }
