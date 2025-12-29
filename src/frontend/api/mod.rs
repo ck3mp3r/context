@@ -279,6 +279,10 @@ pub mod notes {
             query_params.push(format!("offset={}", off));
         }
 
+        // Default to updated_at DESC (latest first)
+        query_params.push("sort=updated_at".to_string());
+        query_params.push("order=desc".to_string());
+
         if !query_params.is_empty() {
             url = format!("{}?{}", url, query_params.join("&"));
         }
