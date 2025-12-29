@@ -234,69 +234,52 @@ async fn get_task_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-// =============================================================================
-// PATCH /v1/tasks/{id} - Partial Update Task
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn patch_task_partial_content_update() {
+async fn patch_task_move_to_different_list() {
     let app = test_app().await;
 
-    // Create task list and task
-    let list_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
-                        .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let list = json_body(list_response).await;
-    let list_id = list["id"].as_str().unwrap();
+    // Create two task lists
+    let list1_id = create_task_list(&app).await;
+    let list2_id = create_task_list(&app).await;
 
-    let create_response = app
+    // Create task in list1
+    let task_response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/v1/task-lists/{}/tasks", list1_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "content": "Original content",
-                        "status": "backlog",
-                        "priority": 3,
-                        "tags": ["tag1"]
-                    }))
-                    .unwrap(),
+                    json!({
+                        "content": "Task to move",
+                        "status": "todo"
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    let created = json_body(create_response).await;
-    let task_id = created["id"].as_str().unwrap();
+    assert_eq!(task_response.status(), StatusCode::CREATED);
+    let task_body = json_body(task_response).await;
+    let task_id = task_body["id"].as_str().unwrap();
+    assert_eq!(task_body["list_id"], list1_id);
 
-    // PATCH only content
+    // Move task to list2 using PATCH
     let patch_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "content": "Updated content"
-                    }))
-                    .unwrap(),
+                    json!({
+                        "list_id": list2_id
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
@@ -304,11 +287,12 @@ async fn patch_task_partial_content_update() {
         .unwrap();
 
     assert_eq!(patch_response.status(), StatusCode::OK);
-    let patched = json_body(patch_response).await;
+    let patched_body = json_body(patch_response).await;
 
-    assert_eq!(patched["content"], "Updated content");
-    assert_eq!(patched["status"], "backlog");
-    assert_eq!(patched["priority"], 3);
+    // Verify task moved to list2
+    assert_eq!(patched_body["list_id"], list2_id);
+    assert_eq!(patched_body["content"], "Task to move"); // Content unchanged
+    assert_eq!(patched_body["status"], "todo"); // Status unchanged
 }
 
 #[tokio::test(flavor = "multi_thread")]

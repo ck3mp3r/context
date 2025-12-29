@@ -103,6 +103,9 @@ pub struct PatchTaskRequest {
     /// Tags for categorization
     #[schema(example = json!(["urgent", "bug-fix"]))]
     pub tags: Option<Vec<String>>,
+    /// Move task to different list
+    #[schema(example = "abc123de")]
+    pub list_id: Option<String>,
 }
 
 impl PatchTaskRequest {
@@ -123,6 +126,9 @@ impl PatchTaskRequest {
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
+        }
+        if let Some(list_id) = self.list_id {
+            target.list_id = list_id;
         }
     }
 }
