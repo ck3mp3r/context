@@ -983,7 +983,7 @@ pub fn TaskListCard(
                                     // Backlog
                                     <Tooltip content="Backlog">
                                         <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded">
-                                            {s.backlog}
+                                            "📦 " {s.backlog}
                                         </span>
                                     </Tooltip>
 
@@ -997,7 +997,7 @@ pub fn TaskListCard(
                                     // In Progress
                                     <Tooltip content="In Progress">
                                         <span class="bg-ctp-yellow/20 text-ctp-yellow px-2 py-0.5 rounded">
-                                            "⚡ " {s.in_progress}
+                                            "⚙️ " {s.in_progress}
                                         </span>
                                     </Tooltip>
 
