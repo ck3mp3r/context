@@ -621,6 +621,11 @@ video {
   margin-right: auto;
 }
 
+.my-2 {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .mb-1 {
   margin-bottom: 0.25rem;
 }
@@ -647,6 +652,10 @@ video {
 
 .ml-2 {
   margin-left: 0.5rem;
+}
+
+.ml-6 {
+  margin-left: 1.5rem;
 }
 
 .mt-0\.5 {
@@ -873,6 +882,10 @@ video {
   border-bottom-width: 2px;
 }
 
+.border-l-2 {
+  border-left-width: 2px;
+}
+
 .border-l-4 {
   border-left-width: 4px;
 }
@@ -1062,6 +1075,10 @@ video {
 
 .pb-3 {
   padding-bottom: 0.75rem;
+}
+
+.pl-4 {
+  padding-left: 1rem;
 }
 
 .pr-10 {
@@ -1410,6 +1427,11 @@ body {
 .hover\:bg-ctp-surface1:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(69 71 90 / var(--tw-bg-opacity, 1));
+}
+
+.hover\:text-ctp-blue:hover {
+  --tw-text-opacity: 1;
+  color: rgb(137 180 250 / var(--tw-text-opacity, 1));
 }
 
 .hover\:text-ctp-lavender:hover {

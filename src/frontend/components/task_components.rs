@@ -1,3 +1,4 @@
+use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::collections::HashMap;
@@ -359,7 +360,7 @@ pub fn KanbanColumn(
             >
                 {move || tasks.get()
                     .into_iter()
-                    .map(|task| view! { <TaskCard task=task/> })
+                    .map(|task| view! { <TaskCard task=task show_subtasks_inline=true /> })
                     .collect::<Vec<_>>()}
 
                 {move || {
@@ -377,7 +378,10 @@ pub fn KanbanColumn(
 }
 
 #[component]
-pub fn TaskCard(task: Task) -> impl IntoView {
+pub fn TaskCard(
+    task: Task,
+    #[prop(optional, default = false)] show_subtasks_inline: bool,
+) -> impl IntoView {
     let priority_color = match task.priority {
         Some(1) => "border-l-ctp-red",
         Some(2) => "border-l-ctp-peach",
@@ -389,6 +393,7 @@ pub fn TaskCard(task: Task) -> impl IntoView {
 
     // Fetch subtask count
     let (subtask_count, set_subtask_count) = signal(0usize);
+    let (subtasks_expanded, set_subtasks_expanded) = signal(false);
     let task_id = task.id.clone();
     let list_id = task.list_id.clone();
 
@@ -419,56 +424,157 @@ pub fn TaskCard(task: Task) -> impl IntoView {
         });
     });
 
+    let toggle_subtasks = move |e: ev::MouseEvent| {
+        e.stop_propagation(); // Don't trigger parent task click
+        set_subtasks_expanded.update(|v| *v = !*v);
+    };
+
+    let task_id_for_list = task.id.clone();
+    let list_id_for_list = task.list_id.clone();
+
     view! {
-        <div class=move || {
-            format!(
-                "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
-                priority_color,
-                if subtask_count.get() > 0 { "task-card-parent" } else { "" },
-            )
-        }>
-            <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
+        <div>
+            <div class=move || {
+                format!(
+                    "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
+                    priority_color,
+                    if subtask_count.get() > 0 { "task-card-parent" } else { "" },
+                )
+            }>
+                <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
 
-            {(!task.tags.is_empty())
-                .then(|| {
-                    view! {
-                        <div class="flex flex-wrap gap-1 mt-2">
-                            {task
-                                .tags
-                                .iter()
-                                .map(|tag| {
-                                    view! {
-                                        <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                            {tag.clone()}
-                                        </span>
-                                    }
-                                })
-                                .collect::<Vec<_>>()}
-                        </div>
-                    }
-                })}
+                {(!task.tags.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                {task
+                                    .tags
+                                    .iter()
+                                    .map(|tag| {
+                                        view! {
+                                            <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                                {tag.clone()}
+                                            </span>
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()}
+                            </div>
+                        }
+                    })}
 
-            <div class="flex items-center justify-between mt-2">
-                <div class="flex items-center gap-2">
-                    {task
-                        .priority
-                        .map(|p| {
-                            view! {
-                                <div class="text-xs text-ctp-overlay0">"P" {p}</div>
-                            }
-                        })}
+                <div class="flex items-center justify-between mt-2">
+                    <div class="flex items-center gap-2">
+                        {task
+                            .priority
+                            .map(|p| {
+                                view! {
+                                    <div class="text-xs text-ctp-overlay0">"P" {p}</div>
+                                }
+                            })}
 
-                    {move || {
-                        (subtask_count.get() > 0).then(|| {
-                            view! {
-                                <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
-                                    "📁 " {subtask_count.get()} " subtask" {if subtask_count.get() > 1 { "s" } else { "" }}
-                                </Badge>
-                            }
-                        })
-                    }}
+                        {move || {
+                            (show_subtasks_inline && subtask_count.get() > 0).then(|| {
+                                view! {
+                                    <button
+                                        on:click=toggle_subtasks
+                                        class="flex items-center gap-1 text-xs text-ctp-brand hover:text-ctp-blue transition-colors"
+                                    >
+                                        <span>{if subtasks_expanded.get() { "▼" } else { "▶" }}</span>
+                                        <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
+                                            "📁 " {subtask_count.get()} " subtask" {if subtask_count.get() > 1 { "s" } else { "" }}
+                                        </Badge>
+                                    </button>
+                                }
+                            })
+                        }}
+
+                        {move || {
+                            (!show_subtasks_inline && subtask_count.get() > 0).then(|| {
+                                view! {
+                                    <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
+                                        "📁 " {subtask_count.get()} " subtask" {if subtask_count.get() > 1 { "s" } else { "" }}
+                                    </Badge>
+                                }
+                            })
+                        }}
+                    </div>
                 </div>
             </div>
+
+            {move || {
+                (show_subtasks_inline && subtasks_expanded.get() && subtask_count.get() > 0).then(|| {
+                    view! {
+                        <SubtaskList task_id=task_id_for_list.clone() list_id=list_id_for_list.clone() />
+                    }
+                })
+            }}
+        </div>
+    }
+}
+
+/// SubtaskList component - displays subtasks for a parent task
+/// Constraint: 1 level deep only (does not recursively show sub-subtasks)
+#[component]
+pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String) -> impl IntoView {
+    let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
+    let (loading, set_loading) = signal(true);
+    let (error, set_error) = signal(None::<String>);
+
+    let task_id_for_fetch = task_id.clone();
+    let list_id_for_fetch = list_id.clone();
+
+    // Fetch subtasks on mount
+    Effect::new(move || {
+        let task_id = task_id_for_fetch.clone();
+        let list_id = list_id_for_fetch.clone();
+        spawn_local(async move {
+            match tasks::list_for_task_list(
+                &list_id,
+                None,             // limit - get all subtasks
+                None,             // offset
+                None,             // status
+                Some("priority"), // sort by priority
+                Some("asc"),      // ascending
+                Some(&task_id),   // parent_id filter
+            )
+            .await
+            {
+                Ok(paginated) => {
+                    set_subtasks.set(paginated.items);
+                    set_loading.set(false);
+                }
+                Err(e) => {
+                    set_error.set(Some(format!("Failed to load subtasks: {}", e)));
+                    set_loading.set(false);
+                }
+            }
+        });
+    });
+
+    view! {
+        <div class="ml-6 border-l-2 border-ctp-surface1 pl-4 mt-3">
+            {move || {
+                if loading.get() {
+                    view! { <p class="text-xs text-ctp-overlay0">"Loading subtasks..."</p> }.into_any()
+                } else if let Some(err) = error.get() {
+                    view! { <p class="text-xs text-ctp-red">{err}</p> }.into_any()
+                } else if subtasks.get().is_empty() {
+                    view! { <p class="text-xs text-ctp-overlay0">"No subtasks"</p> }.into_any()
+                } else {
+                    view! {
+                        <For
+                            each=move || subtasks.get()
+                            key=|task| task.id.clone()
+                            let:subtask
+                        >
+                            <div class="my-2">
+                                <TaskCard task=subtask.clone() />
+                            </div>
+                        </For>
+                    }
+                    .into_any()
+                }
+            }}
         </div>
     }
 }
