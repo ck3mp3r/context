@@ -703,100 +703,120 @@ pub fn TaskDetailDrawer(task: Task, open: RwSignal<bool>) -> impl IntoView {
                     })
                 }}
 
-                <Accordion multiple=true>
-                    <AccordionItem value="metadata">
-                        <AccordionHeader slot>"Metadata"</AccordionHeader>
-                        <div class="space-y-3 text-sm">
-                            <div>
-                                <span class="text-ctp-subtext0">"Status: "</span>
-                                <span class="text-ctp-text font-medium">{format!("{:?}", task.status)}</span>
-                            </div>
+                // Main task detail card
+                <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg">
+                    <h3 class="text-lg font-semibold text-ctp-text mb-3">{task.content.clone()}</h3>
 
-                            {task.priority.map(|p| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-subtext0">"Priority: "</span>
-                                        <span class="text-ctp-text font-medium">"P"{p}</span>
-                                    </div>
-                                }
-                            })}
-
-                            <div>
-                                <span class="text-ctp-subtext0">"Created: "</span>
-                                <span class="text-ctp-text">{task.created_at.clone()}</span>
-                            </div>
-
-                            {task.started_at.clone().map(|started| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-subtext0">"Started: "</span>
-                                        <span class="text-ctp-text">{started}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {task.completed_at.clone().map(|completed| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-subtext0">"Completed: "</span>
-                                        <span class="text-ctp-text">{completed}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {(!task.tags.is_empty()).then(|| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-subtext0">"Tags: "</span>
-                                        <div class="flex flex-wrap gap-1 mt-1">
-                                            {task.tags.iter().map(|tag| {
-                                                view! {
-                                                    <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                                        {tag.clone()}
-                                                    </span>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    </div>
-                                }
-                            })}
-
-                            <div>
-                                <span class="text-ctp-subtext0">"List ID: "</span>
-                                <span class="text-ctp-text font-mono text-xs">{task.list_id.clone()}</span>
-                            </div>
+                    <div class="space-y-2 text-sm">
+                        <div>
+                            <span class="text-ctp-subtext0">"Status: "</span>
+                            <span class="text-ctp-text font-medium">{format!("{:?}", task.status)}</span>
                         </div>
-                    </AccordionItem>
 
-                    <AccordionItem value="description">
-                        <AccordionHeader slot>"Description"</AccordionHeader>
-                        <div class="text-sm text-ctp-text whitespace-pre-wrap break-words">
-                            {task.content.clone()}
+                        {task.priority.map(|p| {
+                            view! {
+                                <div>
+                                    <span class="text-ctp-subtext0">"Priority: "</span>
+                                    <span class="text-ctp-text font-medium">"P"{p}</span>
+                                </div>
+                            }
+                        })}
+
+                        <div>
+                            <span class="text-ctp-subtext0">"Created: "</span>
+                            <span class="text-ctp-text">{task.created_at.clone()}</span>
                         </div>
-                    </AccordionItem>
 
-                    <AccordionItem value="subtasks">
-                        <AccordionHeader slot>{move || format!("Subtasks ({})", subtasks.get().len())}</AccordionHeader>
-                        {move || {
-                            let tasks_list = subtasks.get();
-                            if tasks_list.is_empty() {
-                                view! {
-                                    <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <div class="space-y-2">
-                                        {tasks_list.into_iter().map(|subtask| {
+                        {task.started_at.clone().map(|started| {
+                            view! {
+                                <div>
+                                    <span class="text-ctp-subtext0">"Started: "</span>
+                                    <span class="text-ctp-text">{started}</span>
+                                </div>
+                            }
+                        })}
+
+                        {task.completed_at.clone().map(|completed| {
+                            view! {
+                                <div>
+                                    <span class="text-ctp-subtext0">"Completed: "</span>
+                                    <span class="text-ctp-text">{completed}</span>
+                                </div>
+                            }
+                        })}
+
+                        {(!task.tags.is_empty()).then(|| {
+                            view! {
+                                <div>
+                                    <span class="text-ctp-subtext0">"Tags: "</span>
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                        {task.tags.iter().map(|tag| {
                                             view! {
-                                                <TaskCard task=subtask show_subtasks_inline=false />
+                                                <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                                    {tag.clone()}
+                                                </span>
                                             }
                                         }).collect::<Vec<_>>()}
                                     </div>
-                                }.into_any()
+                                </div>
                             }
-                        }}
-                    </AccordionItem>
-                </Accordion>
+                        })}
+                    </div>
+                </div>
+
+                // Accordion for subtasks - each subtask is an accordion item
+                // Only ONE can be open at a time (no multiple=true)
+                {move || {
+                    let tasks_list = subtasks.get();
+                    if !tasks_list.is_empty() {
+                        Some(view! {
+                            <div class="mb-4">
+                                <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
+                                    {format!("Subtasks ({})", tasks_list.len())}
+                                </h3>
+                                <Accordion collapsible=true>
+                                    {tasks_list.into_iter().map(|subtask| {
+                                        let subtask_id = subtask.id.clone();
+                                        view! {
+                                            <AccordionItem value=subtask_id>
+                                                <AccordionHeader slot>{subtask.content.clone()}</AccordionHeader>
+                                                <div class="space-y-2 text-sm">
+                                                    <div>
+                                                        <span class="text-ctp-subtext0">"Status: "</span>
+                                                        <span class="text-ctp-text">{format!("{:?}", subtask.status)}</span>
+                                                    </div>
+                                                    {subtask.priority.map(|p| {
+                                                        view! {
+                                                            <div>
+                                                                <span class="text-ctp-subtext0">"Priority: "</span>
+                                                                <span class="text-ctp-text">"P"{p}</span>
+                                                            </div>
+                                                        }
+                                                    })}
+                                                    {(!subtask.tags.is_empty()).then(|| {
+                                                        view! {
+                                                            <div class="flex flex-wrap gap-1">
+                                                                {subtask.tags.iter().map(|tag| {
+                                                                    view! {
+                                                                        <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                                                            {tag.clone()}
+                                                                        </span>
+                                                                    }
+                                                                }).collect::<Vec<_>>()}
+                                                            </div>
+                                                        }
+                                                    })}
+                                                </div>
+                                            </AccordionItem>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </Accordion>
+                            </div>
+                        })
+                    } else {
+                        None
+                    }
+                }}
             </DrawerBody>
         </OverlayDrawer>
     }
