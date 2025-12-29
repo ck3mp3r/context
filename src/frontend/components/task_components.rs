@@ -878,26 +878,10 @@ pub fn TaskDetailDialog(
     open: RwSignal<bool>,
     #[prop(optional, default = None)] initial_open_subtask_id: Option<String>,
 ) -> impl IntoView {
-    let task_id = task.id.clone();
-
     view! {
-        <Dialog open>
+        <Dialog open=open>
             <DialogSurface class="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
-                    <DialogTitle class="flex items-center justify-between">
-                        <span
-                            class="text-xs text-ctp-overlay0 font-mono bg-ctp-surface0 px-2 py-1 rounded select-all cursor-pointer hover:bg-ctp-surface1"
-                            title="Click to select, then copy"
-                        >
-                            {task_id}
-                        </span>
-                        <button
-                            on:click=move |_| open.set(false)
-                            class="text-ctp-overlay0 hover:text-ctp-text transition-colors text-xl ml-auto"
-                        >
-                            "✕"
-                        </button>
-                    </DialogTitle>
                     <DialogContent class="flex-1 overflow-y-auto">
                         {match initial_open_subtask_id {
                             Some(id) => view! {
