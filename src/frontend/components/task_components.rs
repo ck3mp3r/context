@@ -552,7 +552,7 @@ pub fn SubtaskList(#[prop(into)] task_id: String, #[prop(into)] list_id: String)
     });
 
     view! {
-        <div class="ml-6 border-l-2 border-ctp-surface1 pl-4 mt-3">
+        <div class="ml-3 border-l-2 border-ctp-surface1 pl-2 mt-3">
             {move || {
                 if loading.get() {
                     view! { <p class="text-xs text-ctp-overlay0">"Loading subtasks..."</p> }.into_any()
