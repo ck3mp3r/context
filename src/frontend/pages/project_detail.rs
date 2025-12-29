@@ -1,9 +1,6 @@
-use leptos::ev::Event;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
-use std::collections::HashMap;
-use thaw::*;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
 use crate::components::{NoteCard, NoteDetailModal, TaskListCard, TaskListDetailModal};
@@ -185,8 +182,8 @@ pub fn ProjectDetail() -> impl IntoView {
                             // Tab Content
                             <div>
                                 {move || {
-                                    let proj_id = project.id.clone();
-                                    match active_tab.get().as_ref() {
+                                    let _proj_id = project.id.clone();
+                                    match active_tab.get() {
                                         "task-lists" => {
                                             view! {
                                                 <div>

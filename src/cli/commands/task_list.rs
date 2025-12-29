@@ -207,15 +207,15 @@ pub async fn update_task_list(
     tags: Option<&str>,
 ) -> CliResult<String> {
     // For update, we need to get the current name if not provided (API requires name field)
-    let current_name = if name.is_none() {
+    let current_name = if let Some(n) = name {
+        n.to_string()
+    } else {
         let response = api_client
             .get(&format!("/v1/task-lists/{}", id))
             .send()
             .await?;
         let task_list: TaskList = ApiClient::handle_response(response).await?;
         task_list.name
-    } else {
-        name.unwrap().to_string()
     };
 
     let request_body = UpdateTaskListRequest {

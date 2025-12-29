@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 // Re-export common types from shared db models
-#[cfg(feature = "backend")]
+#[cfg(all(feature = "backend", not(feature = "frontend")))]
 pub use crate::db::models::NoteType;
 
-// For frontend-only builds, define NoteType locally
-#[cfg(not(feature = "backend"))]
+// For frontend builds, define NoteType locally
+#[cfg(any(feature = "frontend", not(feature = "backend")))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum NoteType {

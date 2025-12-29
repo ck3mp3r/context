@@ -1,3 +1,6 @@
+// Allow dead code in API module - this is a library of functions used incrementally
+#![allow(dead_code)]
+
 use gloo_net::http::Request;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -37,7 +40,7 @@ async fn handle_response<T: DeserializeOwned>(
 
     let status = response.status();
 
-    if status >= 200 && status < 300 {
+    if (200..300).contains(&status) {
         response
             .json::<T>()
             .await
@@ -242,16 +245,16 @@ pub mod notes {
         if let Some(proj_id) = project_id {
             query_params.push(format!("project_id={}", proj_id));
         }
-        if let Some(q) = search_query {
-            if !q.trim().is_empty() {
-                // Simple URL encoding for search query
-                let encoded = q
-                    .replace(' ', "+")
-                    .replace('&', "%26")
-                    .replace('=', "%3D")
-                    .replace('#', "%23");
-                query_params.push(format!("q={}", encoded));
-            }
+        if let Some(q) = search_query
+            && !q.trim().is_empty()
+        {
+            // Simple URL encoding for search query
+            let encoded = q
+                .replace(' ', "+")
+                .replace('&', "%26")
+                .replace('=', "%3D")
+                .replace('#', "%23");
+            query_params.push(format!("q={}", encoded));
         }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));

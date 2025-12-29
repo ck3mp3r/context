@@ -110,7 +110,7 @@ fn NotesList() -> impl IntoView {
                     Some(result) => {
                                         match result {
                             Ok(paginated) => {
-                                let total_pages = (paginated.total + PAGE_SIZE - 1) / PAGE_SIZE;
+                                let total_pages = paginated.total.div_ceil(PAGE_SIZE);
 
                                 if paginated.items.is_empty() {
                                     view! {

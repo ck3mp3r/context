@@ -406,14 +406,14 @@ pub fn TaskListDetailModal(
         let list = task_list.get();
         let is_open = open.get();
 
-        if let Some(tl) = list {
-            if is_open {
-                let id = tl.id.clone();
-                spawn_local(async move {
-                    let result = tasks::list_for_task_list(&id, Some(200), None).await;
-                    set_tasks_data.set(Some(result.map(|paginated| paginated.items)));
-                });
-            }
+        if let Some(tl) = list
+            && is_open
+        {
+            let id = tl.id.clone();
+            spawn_local(async move {
+                let result = tasks::list_for_task_list(&id, Some(200), None).await;
+                set_tasks_data.set(Some(result.map(|paginated| paginated.items)));
+            });
         }
     });
 
