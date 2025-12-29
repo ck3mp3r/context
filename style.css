@@ -621,6 +621,10 @@ video {
   margin-right: auto;
 }
 
+.mb-1 {
+  margin-bottom: 0.25rem;
+}
+
 .mb-2 {
   margin-bottom: 0.5rem;
 }
@@ -755,6 +759,12 @@ video {
 
 .cursor-pointer {
   cursor: pointer;
+}
+
+.select-all {
+  -webkit-user-select: all;
+     -moz-user-select: all;
+          user-select: all;
 }
 
 .grid-cols-1 {

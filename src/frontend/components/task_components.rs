@@ -595,9 +595,17 @@ pub fn TaskListDetailModal(
                                     <div class="flex flex-col" style="height: calc(100vh - 4rem)">
                                         <div class="flex justify-between items-start mb-4 flex-shrink-0">
                                             <div class="flex-1">
-                                                <h2 class="text-2xl font-bold text-ctp-text">
-                                                    {tl.name.clone()}
-                                                </h2>
+                                                <div class="flex items-center gap-3 mb-1">
+                                                    <h2 class="text-2xl font-bold text-ctp-text">
+                                                        {tl.name.clone()}
+                                                    </h2>
+                                                    <span
+                                                        class="text-ctp-overlay0 text-xs font-mono bg-ctp-surface0 px-2 py-1 rounded cursor-pointer hover:bg-ctp-surface1 select-all"
+                                                        title="Click to select, then copy"
+                                                    >
+                                                        {tl.id.clone()}
+                                                    </span>
+                                                </div>
                                                 {tl.description.as_ref().map(|desc| {
                                                     view! { <p class="text-ctp-subtext0 text-sm mt-1">{desc.clone()}</p> }
                                                 })}
