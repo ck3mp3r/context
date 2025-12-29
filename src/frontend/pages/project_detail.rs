@@ -63,7 +63,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         if !id.is_empty() {
             spawn_local(async move {
-                let result = notes::list(Some(50), None, None, Some(id)).await;
+                let result = notes::list(Some(21), None, None, Some(id)).await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -352,7 +352,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                     .into_any()
                                                             } else {
                                                                 view! {
-                                                                    <div class="grid gap-4">
+                                                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                                                         {filtered
                                                                             .into_iter()
                                                                             .map(|note| {

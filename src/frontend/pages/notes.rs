@@ -15,7 +15,7 @@ pub fn Notes() -> impl IntoView {
 
 #[component]
 fn NotesList() -> impl IntoView {
-    const PAGE_SIZE: usize = 20;
+    const PAGE_SIZE: usize = 21;
 
     // State management
     let (page, set_page) = signal(0usize);
@@ -131,7 +131,7 @@ fn NotesList() -> impl IntoView {
                                             </div>
 
                                             // Notes grid
-                                            <div class="grid gap-4 mb-6">
+                                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                                                 {paginated
                                                     .items
                                                     .iter()
