@@ -360,27 +360,45 @@ pub fn TaskListCard(
                     }
                 })}
 
-            // Task stats badge
+            // Task stats badges - show all statuses (same order as kanban board)
             {move || {
                 stats.get().and_then(|result| {
                     match result {
-                        Ok(s) => Some(view! {
-                            <div class="flex gap-2 flex-wrap mb-2">
-                                <span class="bg-ctp-blue/20 text-ctp-blue text-xs px-2 py-1 rounded font-medium">
-                                    {s.done} " / " {s.total} " tasks"
-                                </span>
-                                {(s.in_progress > 0).then(|| view! {
-                                    <span class="bg-ctp-yellow/20 text-ctp-yellow text-xs px-2 py-1 rounded">
-                                        {s.in_progress} " in progress"
-                                    </span>
-                                })}
-                                {(s.backlog > 0).then(|| view! {
+                        Ok(s) => {
+                            Some(view! {
+                                <div class="flex gap-2 flex-wrap mb-2">
+                                    // Backlog
                                     <span class="bg-ctp-overlay0/20 text-ctp-overlay0 text-xs px-2 py-1 rounded">
                                         {s.backlog} " backlog"
                                     </span>
-                                })}
-                            </div>
-                        }),
+
+                                    // Todo
+                                    <span class="bg-ctp-blue/20 text-ctp-blue text-xs px-2 py-1 rounded">
+                                        {s.todo} " todo"
+                                    </span>
+
+                                    // In Progress
+                                    <span class="bg-ctp-yellow/20 text-ctp-yellow text-xs px-2 py-1 rounded">
+                                        {s.in_progress} " in progress"
+                                    </span>
+
+                                    // Review
+                                    <span class="bg-ctp-mauve/20 text-ctp-mauve text-xs px-2 py-1 rounded">
+                                        {s.review} " review"
+                                    </span>
+
+                                    // Done
+                                    <span class="bg-ctp-green/20 text-ctp-green text-xs px-2 py-1 rounded">
+                                        {s.done} " done"
+                                    </span>
+
+                                    // Cancelled
+                                    <span class="bg-ctp-red/20 text-ctp-red text-xs px-2 py-1 rounded">
+                                        {s.cancelled} " cancelled"
+                                    </span>
+                                </div>
+                            })
+                        },
                         Err(_) => None,
                     }
                 })

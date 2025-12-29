@@ -917,8 +917,16 @@ video {
   background-color: rgb(166 227 161 / 0.1);
 }
 
+.bg-ctp-green\/20 {
+  background-color: rgb(166 227 161 / 0.2);
+}
+
 .bg-ctp-mauve\/10 {
   background-color: rgb(203 166 247 / 0.1);
+}
+
+.bg-ctp-mauve\/20 {
+  background-color: rgb(203 166 247 / 0.2);
 }
 
 .bg-ctp-overlay0 {
@@ -932,6 +940,10 @@ video {
 
 .bg-ctp-red\/10 {
   background-color: rgb(243 139 168 / 0.1);
+}
+
+.bg-ctp-red\/20 {
+  background-color: rgb(243 139 168 / 0.2);
 }
 
 .bg-ctp-surface0 {
