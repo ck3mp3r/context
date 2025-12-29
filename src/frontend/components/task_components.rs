@@ -720,35 +720,53 @@ pub fn TaskDetailContent(
         });
     });
 
+    // Determine status color for left border (matching kanban columns)
+    let status_color = match task.status.as_str() {
+        "backlog" => "border-l-ctp-surface1",
+        "todo" => "border-l-ctp-blue",
+        "in_progress" => "border-l-ctp-yellow",
+        "review" => "border-l-ctp-mauve",
+        "done" => "border-l-ctp-green",
+        "cancelled" => "border-l-ctp-red",
+        _ => "border-l-ctp-surface1",
+    };
+
     view! {
         <div>
-            // Main task detail card
-                <div class="mb-4 p-4 bg-ctp-surface0 rounded-lg">
-                    <div class="space-y-2 text-sm mb-4">
+            // Main task - description first, metadata secondary
+            <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", status_color)>
+                // Task description - prominent
+                <div class="text-base text-ctp-text whitespace-pre-wrap break-words mb-4">
+                    {task.content.clone()}
+                </div>
+
+                // Metadata - compact and less prominent
+                <div class="pt-3 border-t border-ctp-surface1">
+                    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ctp-overlay0">
                         <div>
-                            <span class="text-ctp-subtext0">"Status: "</span>
-                            <span class="text-ctp-text font-medium">{format!("{:?}", task.status)}</span>
+                            <span class="text-ctp-overlay1">"Status: "</span>
+                            <span>{format!("{:?}", task.status)}</span>
                         </div>
 
                         {task.priority.map(|p| {
                             view! {
                                 <div>
-                                    <span class="text-ctp-subtext0">"Priority: "</span>
-                                    <span class="text-ctp-text font-medium">"P"{p}</span>
+                                    <span class="text-ctp-overlay1">"Priority: "</span>
+                                    <span>"P"{p}</span>
                                 </div>
                             }
                         })}
 
                         <div>
-                            <span class="text-ctp-subtext0">"Created: "</span>
-                            <span class="text-ctp-text">{task.created_at.clone()}</span>
+                            <span class="text-ctp-overlay1">"Created: "</span>
+                            <span>{task.created_at.clone()}</span>
                         </div>
 
                         {task.started_at.clone().map(|started| {
                             view! {
                                 <div>
-                                    <span class="text-ctp-subtext0">"Started: "</span>
-                                    <span class="text-ctp-text">{started}</span>
+                                    <span class="text-ctp-overlay1">"Started: "</span>
+                                    <span>{started}</span>
                                 </div>
                             }
                         })}
@@ -756,38 +774,28 @@ pub fn TaskDetailContent(
                         {task.completed_at.clone().map(|completed| {
                             view! {
                                 <div>
-                                    <span class="text-ctp-subtext0">"Completed: "</span>
-                                    <span class="text-ctp-text">{completed}</span>
-                                </div>
-                            }
-                        })}
-
-                        {(!task.tags.is_empty()).then(|| {
-                            view! {
-                                <div>
-                                    <span class="text-ctp-subtext0">"Tags: "</span>
-                                    <div class="flex flex-wrap gap-1 mt-1">
-                                        {task.tags.iter().map(|tag| {
-                                            view! {
-                                                <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                                    {tag.clone()}
-                                                </span>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </div>
+                                    <span class="text-ctp-overlay1">"Completed: "</span>
+                                    <span>{completed}</span>
                                 </div>
                             }
                         })}
                     </div>
 
-                    // Content/Description section
-                    <div class="border-t border-ctp-surface1 pt-4">
-                        <h4 class="text-sm text-ctp-subtext0 mb-2">"Description"</h4>
-                        <div class="text-sm text-ctp-text whitespace-pre-wrap break-words">
-                            {task.content.clone()}
-                        </div>
-                    </div>
+                    {(!task.tags.is_empty()).then(|| {
+                        view! {
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                {task.tags.iter().map(|tag| {
+                                    view! {
+                                        <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                            {tag.clone()}
+                                        </span>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }
+                    })}
                 </div>
+            </div>
 
                 // Accordion for subtasks - each subtask is an accordion item
                 // Only ONE can be open at a time (no multiple=true)
