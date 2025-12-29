@@ -263,7 +263,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .into_any()
                                                             } else {
                                                                 view! {
-                                                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                                          {filtered
                                                                             .into_iter()
                                                                             .map(|task_list| {
