@@ -923,7 +923,7 @@ pub fn TaskListCard(
     });
 
     view! {
-        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
+        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
             <div class="absolute top-2 right-2">
                 <CopyableId id=task_list.id.clone()/>
             </div>
@@ -936,9 +936,9 @@ pub fn TaskListCard(
                     }
                 }
 
-                class="block"
+                class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2">{task_list.name.clone()}</h3>
+                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{task_list.name.clone()}</h3>
 
             {task_list
                 .description
@@ -947,6 +947,9 @@ pub fn TaskListCard(
                     view! { <p class="text-ctp-subtext0 text-sm mb-3">{desc.clone()}</p> }
                 })}
 
+            <div class="flex-grow"></div>
+
+            <div class="mt-auto">
             {(!task_list.tags.is_empty())
                 .then(|| {
                     view! {
@@ -972,7 +975,7 @@ pub fn TaskListCard(
                     match result {
                         Ok(s) => {
                             Some(view! {
-                                <div class="flex gap-1.5 flex-wrap text-xs">
+                                <div class="flex gap-1.5 flex-wrap text-xs mb-3">
                                     // Backlog
                                     <Tooltip content="Backlog">
                                         <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded">
@@ -1022,9 +1025,10 @@ pub fn TaskListCard(
                 })
             }}
 
-            <div class="flex justify-between text-xs text-ctp-overlay0 mt-3">
+            <div class="flex justify-between text-xs text-ctp-overlay0">
                 <span>"Created: " {task_list.created_at}</span>
                 <span>"Updated: " {task_list.updated_at}</span>
+            </div>
             </div>
             </a>
         </div>

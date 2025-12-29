@@ -44,7 +44,7 @@ pub fn Projects() -> impl IntoView {
                             .into_any()
                     } else {
                         view! {
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
                                 {paginated
                                     .items
                                     .iter()
@@ -54,15 +54,15 @@ pub fn Projects() -> impl IntoView {
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         view! {
-                                            <div class="relative bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors">
+                                            <div class="relative bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <div class="absolute top-2 right-2">
                                                     <CopyableId id=project_id.clone()/>
                                                 </div>
                                                 <a
                                                     href=format!("/projects/{}", project_id)
-                                                    class="block"
+                                                    class="flex flex-col h-full"
                                                 >
-                                                    <h3 class="text-xl font-semibold text-ctp-text mb-2">
+                                                    <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">
                                                         {project_title}
                                                     </h3>
                                                 {project_description
@@ -75,10 +75,12 @@ pub fn Projects() -> impl IntoView {
                                                         }
                                                     })}
 
+                                                <div class="flex-grow"></div>
+
                                                 {(!project_tags.is_empty())
                                                     .then(|| {
                                                         view! {
-                                                            <div class="flex flex-wrap gap-2 mt-4">
+                                                            <div class="flex flex-wrap gap-2 mt-auto">
                                                                 {project_tags
                                                                     .iter()
                                                                     .map(|tag| {

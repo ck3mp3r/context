@@ -33,7 +33,7 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     };
 
     view! {
-        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
+        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]">
             <div class="absolute top-2 right-2">
                 <CopyableId id=note.id.clone()/>
             </div>
@@ -46,12 +46,16 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
                     }
                 }
 
-                class="block"
+                class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2">{note.title.clone()}</h3>
+                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{note.title.clone()}</h3>
 
-            <div class="text-ctp-subtext0 text-sm mb-3 line-clamp-3 note-preview" inner_html=html_output></div>
+            <div class="relative flex-grow mb-4">
+                <div class="text-ctp-subtext0 text-sm leading-relaxed note-preview overflow-hidden" style="max-height: 8rem;" inner_html=html_output></div>
+                <div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-ctp-surface0 to-transparent pointer-events-none"></div>
+            </div>
 
+            <div class="mt-auto">
             {(!note.tags.is_empty())
                 .then(|| {
                     view! {
@@ -71,9 +75,10 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
                     }
                 })}
 
-            <div class="flex justify-between text-xs text-ctp-overlay0 mt-3">
+            <div class="flex justify-between text-xs text-ctp-overlay0">
                 <span>"Created: " {note.created_at}</span>
                 <span>"Updated: " {note.updated_at}</span>
+            </div>
             </div>
             </a>
         </div>
