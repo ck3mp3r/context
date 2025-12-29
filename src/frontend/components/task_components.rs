@@ -973,49 +973,42 @@ pub fn TaskListCard(
                     }
                 })}
 
-            // Task stats badges - compact with abbreviations to prevent overflow
+            // Task stats badges - compact with icons, always show all statuses
             {move || {
                 stats.get().and_then(|result| {
                     match result {
                         Ok(s) => {
                             Some(view! {
                                 <div class="flex gap-1.5 flex-wrap text-xs">
-                                    // Only show statuses with counts > 0 to save space
-                                    {(s.backlog > 0).then(|| view! {
-                                        <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded" title="Backlog">
-                                            {s.backlog}
-                                        </span>
-                                    })}
+                                    // Backlog
+                                    <span class="bg-ctp-overlay0/20 text-ctp-overlay0 px-2 py-0.5 rounded" title="Backlog">
+                                        {s.backlog}
+                                    </span>
 
-                                    {(s.todo > 0).then(|| view! {
-                                        <span class="bg-ctp-blue/20 text-ctp-blue px-2 py-0.5 rounded" title="Todo">
-                                            "📋 " {s.todo}
-                                        </span>
-                                    })}
+                                    // Todo
+                                    <span class="bg-ctp-blue/20 text-ctp-blue px-2 py-0.5 rounded" title="Todo">
+                                        "📋 " {s.todo}
+                                    </span>
 
-                                    {(s.in_progress > 0).then(|| view! {
-                                        <span class="bg-ctp-yellow/20 text-ctp-yellow px-2 py-0.5 rounded" title="In Progress">
-                                            "⚡ " {s.in_progress}
-                                        </span>
-                                    })}
+                                    // In Progress
+                                    <span class="bg-ctp-yellow/20 text-ctp-yellow px-2 py-0.5 rounded" title="In Progress">
+                                        "⚡ " {s.in_progress}
+                                    </span>
 
-                                    {(s.review > 0).then(|| view! {
-                                        <span class="bg-ctp-mauve/20 text-ctp-mauve px-2 py-0.5 rounded" title="Review">
-                                            "👁 " {s.review}
-                                        </span>
-                                    })}
+                                    // Review
+                                    <span class="bg-ctp-mauve/20 text-ctp-mauve px-2 py-0.5 rounded" title="Review">
+                                        "👁 " {s.review}
+                                    </span>
 
-                                    {(s.done > 0).then(|| view! {
-                                        <span class="bg-ctp-green/20 text-ctp-green px-2 py-0.5 rounded" title="Done">
-                                            "✓ " {s.done}
-                                        </span>
-                                    })}
+                                    // Done
+                                    <span class="bg-ctp-green/20 text-ctp-green px-2 py-0.5 rounded" title="Done">
+                                        "✓ " {s.done}
+                                    </span>
 
-                                    {(s.cancelled > 0).then(|| view! {
-                                        <span class="bg-ctp-red/20 text-ctp-red px-2 py-0.5 rounded" title="Cancelled">
-                                            "✗ " {s.cancelled}
-                                        </span>
-                                    })}
+                                    // Cancelled
+                                    <span class="bg-ctp-red/20 text-ctp-red px-2 py-0.5 rounded" title="Cancelled">
+                                        "✗ " {s.cancelled}
+                                    </span>
                                 </div>
                             })
                         },
