@@ -206,6 +206,8 @@ pub mod tasks {
         limit: Option<usize>,
         offset: Option<usize>,
         status: Option<&str>,
+        sort: Option<&str>,
+        order: Option<&str>,
     ) -> Result<Paginated<Task>> {
         let mut url = format!("{}/task-lists/{}/tasks", API_BASE, list_id);
         let mut query_params = vec![];
@@ -218,6 +220,12 @@ pub mod tasks {
         }
         if let Some(s) = status {
             query_params.push(format!("status={}", s));
+        }
+        if let Some(s) = sort {
+            query_params.push(format!("sort={}", s));
+        }
+        if let Some(o) = order {
+            query_params.push(format!("order={}", o));
         }
 
         if !query_params.is_empty() {

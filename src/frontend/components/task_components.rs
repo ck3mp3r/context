@@ -254,11 +254,26 @@ pub fn KanbanColumn(
     // Store list_id in a signal so it can be shared across closures
     let list_id_signal = StoredValue::new(list_id.clone());
 
+    // Determine sort order based on status
+    let (sort_field, sort_order) = match status {
+        "backlog" | "todo" => ("priority", "asc"), // Priority 1-5, nulls last
+        "done" | "cancelled" => ("created_at", "desc"), // Newest first (use completed_at when backend supports it)
+        _ => ("created_at", "desc"),                    // In progress, review: newest first
+    };
+
     // Initial fetch
     Effect::new(move |_| {
         let list_id = list_id_signal.get_value();
         spawn_local(async move {
-            let result = tasks::list_for_task_list(&list_id, Some(25), Some(0), Some(status)).await;
+            let result = tasks::list_for_task_list(
+                &list_id,
+                Some(25),
+                Some(0),
+                Some(status),
+                Some(sort_field),
+                Some(sort_order),
+            )
+            .await;
             if let Ok(paginated) = result {
                 set_tasks.set(paginated.items);
             }
@@ -272,8 +287,15 @@ pub fn KanbanColumn(
         let new_offset = current_offset + 25;
 
         spawn_local(async move {
-            let result =
-                tasks::list_for_task_list(&list_id, Some(25), Some(new_offset), Some(status)).await;
+            let result = tasks::list_for_task_list(
+                &list_id,
+                Some(25),
+                Some(new_offset),
+                Some(status),
+                Some(sort_field),
+                Some(sort_order),
+            )
+            .await;
             if let Ok(paginated) = result {
                 set_tasks.update(|t| t.extend(paginated.items));
                 set_offset.set(new_offset);
