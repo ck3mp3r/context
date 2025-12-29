@@ -272,6 +272,7 @@ pub fn KanbanColumn(
                 Some(status),
                 Some(sort_field),
                 Some(sort_order),
+                None,
             )
             .await;
             if let Ok(paginated) = result {
@@ -294,6 +295,7 @@ pub fn KanbanColumn(
                 Some(status),
                 Some(sort_field),
                 Some(sort_order),
+                None,
             )
             .await;
             if let Ok(paginated) = result {
@@ -385,16 +387,46 @@ pub fn TaskCard(task: Task) -> impl IntoView {
         _ => "border-l-ctp-surface1",
     };
 
-    // For now, show stacked effect for all tasks with parent_id
-    // Later we'll check for actual subtasks via API
-    let has_parent = task.parent_id.is_some();
+    // Fetch subtask count
+    let (subtask_count, set_subtask_count) = signal(0usize);
+    let task_id = task.id.clone();
+    let list_id = task.list_id.clone();
+
+    Effect::new(move || {
+        let task_id = task_id.clone();
+        let list_id = list_id.clone();
+        spawn_local(async move {
+            // Fetch tasks where parent_id == this task's id
+            match tasks::list_for_task_list(
+                &list_id,
+                Some(1),        // limit 1 - we only need the count
+                None,           // offset
+                None,           // status
+                None,           // sort
+                None,           // order
+                Some(&task_id), // parent_id filter
+            )
+            .await
+            {
+                Ok(paginated) => {
+                    set_subtask_count.set(paginated.total);
+                }
+                Err(_) => {
+                    // Silently fail - subtask count is non-critical
+                    set_subtask_count.set(0);
+                }
+            }
+        });
+    });
 
     view! {
-        <div class=format!(
-            "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
-            priority_color,
-            if has_parent { "task-card-parent" } else { "" },
-        )>
+        <div class=move || {
+            format!(
+                "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
+                priority_color,
+                if subtask_count.get() > 0 { "task-card-parent" } else { "" },
+            )
+        }>
             <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
 
             {(!task.tags.is_empty())
@@ -416,13 +448,27 @@ pub fn TaskCard(task: Task) -> impl IntoView {
                     }
                 })}
 
-            {task
-                .priority
-                .map(|p| {
-                    view! {
-                        <div class="text-xs text-ctp-overlay0 mt-2">"P" {p}</div>
-                    }
-                })}
+            <div class="flex items-center justify-between mt-2">
+                <div class="flex items-center gap-2">
+                    {task
+                        .priority
+                        .map(|p| {
+                            view! {
+                                <div class="text-xs text-ctp-overlay0">"P" {p}</div>
+                            }
+                        })}
+
+                    {move || {
+                        (subtask_count.get() > 0).then(|| {
+                            view! {
+                                <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
+                                    "📁 " {subtask_count.get()} " subtask" {if subtask_count.get() > 1 { "s" } else { "" }}
+                                </Badge>
+                            }
+                        })
+                    }}
+                </div>
+            </div>
         </div>
     }
 }
