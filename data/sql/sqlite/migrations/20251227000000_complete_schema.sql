@@ -147,28 +147,27 @@ CREATE INDEX IF NOT EXISTS idx_note_repo_repo ON note_repo(repo_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
     title,
     content,
-    tags,
     content='note',
     content_rowid='rowid'
 );
 
 -- FTS sync triggers - keep full-text index in sync with note table
 CREATE TRIGGER IF NOT EXISTS note_ai AFTER INSERT ON note BEGIN
-    INSERT INTO note_fts(rowid, title, content, tags) 
-    VALUES (new.rowid, new.title, new.content, new.tags);
+    INSERT INTO note_fts(rowid, title, content) 
+    VALUES (new.rowid, new.title, new.content);
 END;
 
 CREATE TRIGGER IF NOT EXISTS note_au AFTER UPDATE ON note 
-WHEN old.title != new.title OR old.content != new.content OR old.tags != new.tags BEGIN
-    INSERT INTO note_fts(note_fts, rowid, title, content, tags) 
-    VALUES('delete', old.rowid, old.title, old.content, old.tags);
-    INSERT INTO note_fts(rowid, title, content, tags) 
-    VALUES (new.rowid, new.title, new.content, new.tags);
+WHEN old.title != new.title OR old.content != new.content BEGIN
+    INSERT INTO note_fts(note_fts, rowid, title, content) 
+    VALUES('delete', old.rowid, old.title, old.content);
+    INSERT INTO note_fts(rowid, title, content) 
+    VALUES (new.rowid, new.title, new.content);
 END;
 
 CREATE TRIGGER IF NOT EXISTS note_ad AFTER DELETE ON note BEGIN
-    INSERT INTO note_fts(note_fts, rowid, title, content, tags) 
-    VALUES('delete', old.rowid, old.title, old.content, old.tags);
+    INSERT INTO note_fts(note_fts, rowid, title, content) 
+    VALUES('delete', old.rowid, old.title, old.content);
 END;
 
 -- ============================================================================
