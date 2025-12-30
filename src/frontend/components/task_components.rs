@@ -487,21 +487,20 @@ pub fn TaskDetailContent(
         });
     });
 
-    // Determine status color for left border (matching kanban columns)
-    let status_color = match task.status.as_str() {
-        "backlog" => "border-l-ctp-surface1",
-        "todo" => "border-l-ctp-blue",
-        "in_progress" => "border-l-ctp-yellow",
-        "review" => "border-l-ctp-mauve",
-        "done" => "border-l-ctp-green",
-        "cancelled" => "border-l-ctp-red",
-        _ => "border-l-ctp-surface1",
+    // Determine priority color for left border (matching kanban cards)
+    let priority_color = match task.priority {
+        Some(1) => "border-l-ctp-red",      // P1 - Highest
+        Some(2) => "border-l-ctp-peach",    // P2 - High
+        Some(3) => "border-l-ctp-yellow",   // P3 - Medium
+        Some(4) => "border-l-ctp-blue",     // P4 - Low
+        Some(5) => "border-l-ctp-overlay0", // P5 - Lowest
+        _ => "border-l-ctp-surface1",       // No priority
     };
 
     view! {
         <div>
             // Main task - description first, metadata secondary
-            <div class=format!("relative mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", status_color)>
+            <div class=format!("relative mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
                 // Task ID in top-right corner
                 <div class="absolute top-2 right-2">
                     <CopyableId id=task.id.clone()/>
@@ -513,43 +512,81 @@ pub fn TaskDetailContent(
 
                 // Metadata - compact and less prominent
                 <div class="pt-3 border-t border-ctp-surface1">
-                    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ctp-overlay0">
-                        <div>
-                            <span class="text-ctp-overlay1">"Status: "</span>
-                            <span>{format!("{:?}", task.status)}</span>
+                    // Top row: Badges (left) | Timestamps (right)
+                    <div class="flex justify-between items-start gap-4 mb-3">
+                        // LEFT: Badges section - priority and status as visual badges
+                        <div class="flex items-center gap-2">
+                            // Priority badge (if exists)
+                            {task.priority.map(|p| {
+                                let priority_color = match p {
+                                    1 => "bg-ctp-red text-ctp-base",
+                                    2 => "bg-ctp-peach text-ctp-base",
+                                    3 => "bg-ctp-yellow text-ctp-base",
+                                    4 => "bg-ctp-blue text-ctp-base",
+                                    5 => "bg-ctp-overlay0 text-ctp-base",
+                                    _ => "bg-ctp-surface1 text-ctp-text",
+                                };
+                                view! {
+                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_color)>
+                                        "P"{p}
+                                    </span>
+                                }
+                            })}
+
+                            // Status badge
+                            {
+                                let status_color = match task.status.as_str() {
+                                    "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
+                                    "todo" => "bg-ctp-blue/20 text-ctp-blue",
+                                    "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
+                                    "review" => "bg-ctp-mauve/20 text-ctp-mauve",
+                                    "done" => "bg-ctp-green/20 text-ctp-green",
+                                    "cancelled" => "bg-ctp-red/20 text-ctp-red",
+                                    _ => "bg-ctp-surface1 text-ctp-text",
+                                };
+                                let status_label = match task.status.as_str() {
+                                    "in_progress" => "In Progress".to_string(),
+                                    status => {
+                                        let mut s = status.to_string();
+                                        if let Some(first_char) = s.get_mut(0..1) {
+                                            first_char.make_ascii_uppercase();
+                                        }
+                                        s
+                                    }
+                                };
+                                view! {
+                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_color)>
+                                        {status_label}
+                                    </span>
+                                }
+                            }
                         </div>
 
-                        {task.priority.map(|p| {
-                            view! {
-                                <div>
-                                    <span class="text-ctp-overlay1">"Priority: "</span>
-                                    <span>"P"{p}</span>
-                                </div>
-                            }
-                        })}
+                        // RIGHT: Timestamps section - right-aligned
+                        <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right">
+                            <div>
+                                <span class="text-ctp-overlay1">"Created: "</span>
+                                <span>{task.created_at.clone()}</span>
+                            </div>
 
-                        <div>
-                            <span class="text-ctp-overlay1">"Created: "</span>
-                            <span>{task.created_at.clone()}</span>
+                            {task.started_at.clone().map(|started| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-overlay1">"Started: "</span>
+                                        <span>{started}</span>
+                                    </div>
+                                }
+                            })}
+
+                            {task.completed_at.clone().map(|completed| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-overlay1">"Completed: "</span>
+                                        <span>{completed}</span>
+                                    </div>
+                                }
+                            })}
                         </div>
-
-                        {task.started_at.clone().map(|started| {
-                            view! {
-                                <div>
-                                    <span class="text-ctp-overlay1">"Started: "</span>
-                                    <span>{started}</span>
-                                </div>
-                            }
-                        })}
-
-                        {task.completed_at.clone().map(|completed| {
-                            view! {
-                                <div>
-                                    <span class="text-ctp-overlay1">"Completed: "</span>
-                                    <span>{completed}</span>
-                                </div>
-                            }
-                        })}
                     </div>
 
                     {(!task.tags.is_empty()).then(|| {
