@@ -325,6 +325,9 @@ enum RepoCommands {
 enum TaskListCommands {
     /// List all task lists
     List {
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
         /// Filter by status (active, archived)
         #[arg(long)]
         status: Option<String>,
@@ -503,6 +506,7 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::TaskList { command }) => match command {
             TaskListCommands::List {
+                project_id,
                 status,
                 tags,
                 limit,
@@ -510,6 +514,7 @@ pub async fn run() -> Result<()> {
             } => {
                 let output = commands::task_list::list_task_lists(
                     &api_client,
+                    project_id.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
                     limit,

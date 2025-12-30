@@ -95,6 +95,7 @@ fn format_table(task_lists: &[TaskList]) -> String {
 /// List task lists with optional filtering
 pub async fn list_task_lists(
     api_client: &ApiClient,
+    project_id: Option<&str>,
     status: Option<&str>,
     tags: Option<&str>,
     limit: Option<u32>,
@@ -103,6 +104,9 @@ pub async fn list_task_lists(
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/task-lists");
 
+    if let Some(p) = project_id {
+        request = request.query(&[("project_id", p)]);
+    }
     if let Some(s) = status {
         request = request.query(&[("status", s)]);
     }
