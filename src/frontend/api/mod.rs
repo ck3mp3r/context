@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::{ApiError, Note, Paginated, Project, Repo, Task, TaskList, TaskStats};
 
+// Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
+#[cfg(debug_assertions)]
+const API_BASE: &str = "/dev/api/v1";
+
+// Production: Direct calls to backend at /api/v1/*
+#[cfg(not(debug_assertions))]
 const API_BASE: &str = "/api/v1";
 
 /// API client error type
