@@ -52,7 +52,7 @@ pub fn KanbanColumn(
                 Some(sort_field),
                 Some(sort_order),
                 None,
-                Some("task"), // Only show top-level tasks, not subtasks
+                None, // Fetch all tasks - filter orphaned subtasks in UI (lines 136-160)
             )
             .await;
             if let Ok(paginated) = result {
@@ -76,7 +76,7 @@ pub fn KanbanColumn(
                 Some(sort_field),
                 Some(sort_order),
                 None,
-                Some("task"), // Only show top-level tasks, not subtasks
+                None, // Fetch all tasks - filter orphaned subtasks in UI (lines 136-160)
             )
             .await;
             if let Ok(paginated) = result {
@@ -131,39 +131,17 @@ pub fn KanbanColumn(
                 on:scroll=on_scroll
                 class="space-y-2 overflow-y-auto flex-1 min-h-0"
             >
-                {move || {
-                    let all_tasks = tasks.get();
-
-                    // 1. Separate parents and subtasks
-                    let parent_tasks: Vec<Task> = all_tasks
-                        .iter()
-                        .filter(|t| t.parent_id.is_none())
-                        .cloned()
-                        .collect();
-
-                    let parent_ids: std::collections::HashSet<String> = parent_tasks
-                        .iter()
-                        .map(|p| p.id.clone())
-                        .collect();
-
-                    // 2. Find orphaned subtasks (parent NOT in this column)
-                    let orphaned_subtasks: Vec<Task> = all_tasks
-                        .iter()
-                        .filter(|t| {
-                            if let Some(parent_id) = &t.parent_id {
-                                !parent_ids.contains(parent_id)
-                            } else {
-                                false
-                            }
-                        })
-                        .cloned()
-                        .collect();
-
-                    // 3. Render parent tasks
-                    let mut all_views = Vec::new();
-
-                    for task in parent_tasks {
-                        all_views.push(view! {
+                // Parent tasks with <For> to preserve component state across re-renders
+                <For
+                    each=move || {
+                        tasks.get()
+                            .into_iter()
+                            .filter(|t| t.parent_id.is_none())
+                            .collect::<Vec<_>>()
+                    }
+                    key=|task| task.id.clone()
+                    children=move |task| {
+                        view! {
                             <TaskCard
                                 task=task
                                 show_subtasks_inline=true
@@ -193,13 +171,35 @@ pub fn KanbanColumn(
                                     }
                                 })
                             />
-                        }.into_any());
+                        }
                     }
+                />
 
-                    // 4. Render orphaned subtasks
-                    for task in orphaned_subtasks {
+                // Orphaned subtasks with <For> to preserve component state
+                <For
+                    each=move || {
+                        let all_tasks = tasks.get();
+                        let parent_ids: std::collections::HashSet<String> = all_tasks
+                            .iter()
+                            .filter(|t| t.parent_id.is_none())
+                            .map(|p| p.id.clone())
+                            .collect();
+
+                        all_tasks
+                            .into_iter()
+                            .filter(|t| {
+                                if let Some(parent_id) = &t.parent_id {
+                                    !parent_ids.contains(parent_id)
+                                } else {
+                                    false
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                    key=|task| task.id.clone()
+                    children=move |task| {
                         let parent_id = task.parent_id.clone().unwrap_or_default();
-                        all_views.push(view! {
+                        view! {
                             <OrphanedSubtaskCard
                                 task=task
                                 parent_id=parent_id
@@ -209,11 +209,9 @@ pub fn KanbanColumn(
                                     dialog_open.set(true);
                                 })
                             />
-                        }.into_any());
+                        }
                     }
-
-                    all_views
-                }}
+                />
 
                 {move || {
                     loading.get().then(|| {
