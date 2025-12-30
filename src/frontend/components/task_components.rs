@@ -7,6 +7,54 @@ use crate::api::{ApiClientError, task_lists, tasks};
 use crate::components::CopyableId;
 use crate::models::{Task, TaskList, TaskStats};
 
+// Helper functions for badge colors and labels (DRY)
+fn priority_border_color(priority: Option<i32>) -> &'static str {
+    match priority {
+        Some(1) => "border-ctp-red",
+        Some(2) => "border-ctp-peach",
+        Some(3) => "border-ctp-yellow",
+        Some(4) => "border-ctp-blue",
+        Some(5) => "border-ctp-overlay0",
+        _ => "border-ctp-surface1",
+    }
+}
+
+fn priority_badge_color(priority: i32) -> &'static str {
+    match priority {
+        1 => "bg-ctp-red text-ctp-base",
+        2 => "bg-ctp-peach text-ctp-base",
+        3 => "bg-ctp-yellow text-ctp-base",
+        4 => "bg-ctp-blue text-ctp-base",
+        5 => "bg-ctp-overlay0 text-ctp-base",
+        _ => "bg-ctp-surface1 text-ctp-text",
+    }
+}
+
+fn status_badge_color(status: &str) -> &'static str {
+    match status {
+        "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
+        "todo" => "bg-ctp-blue/20 text-ctp-blue",
+        "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
+        "review" => "bg-ctp-mauve/20 text-ctp-mauve",
+        "done" => "bg-ctp-green/20 text-ctp-green",
+        "cancelled" => "bg-ctp-red/20 text-ctp-red",
+        _ => "bg-ctp-surface1 text-ctp-text",
+    }
+}
+
+fn status_badge_label(status: &str) -> String {
+    match status {
+        "in_progress" => "In Progress".to_string(),
+        s => {
+            let mut result = s.to_string();
+            if let Some(first_char) = result.get_mut(0..1) {
+                first_char.make_ascii_uppercase();
+            }
+            result
+        }
+    }
+}
+
 #[component]
 pub fn KanbanColumn(
     status: &'static str,
@@ -259,6 +307,119 @@ pub fn KanbanColumn(
                     }
                 })
             }}
+        </div>
+    }
+}
+
+/// SubtaskStackItem - Individual collapsible subtask in the stack
+#[component]
+pub fn SubtaskStackItem(
+    subtask: Task,
+    is_open: Signal<bool>,
+    on_click: Callback<String>,
+) -> impl IntoView {
+    let subtask_id = subtask.id.clone();
+    let subtask_id_for_click = subtask.id.clone();
+    let border_color = priority_border_color(subtask.priority);
+    let is_expanded = move || is_open.get();
+
+    view! {
+        <div
+            class=format!(
+                "relative mb-2 p-3 bg-ctp-surface0 rounded-lg border-l-4 {} cursor-pointer hover:bg-ctp-surface0/80 transition-colors",
+                border_color
+            )
+            on:click=move |ev: ev::MouseEvent| {
+                ev.prevent_default();
+                ev.stop_propagation();
+                on_click.run(subtask_id_for_click.clone());
+            }
+        >
+            // Header (always visible)
+            <div class="flex items-center justify-between gap-2">
+                // Left side: CopyableId (always visible) + Content
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <div class="flex-shrink-0" on:click=|ev: ev::MouseEvent| {
+                        ev.stop_propagation();
+                    }>
+                        <CopyableId id=subtask_id.clone()/>
+                    </div>
+
+                    // Content (truncated when collapsed, full when expanded)
+                    <div class="flex-1 text-sm text-ctp-text break-words">
+                        {move || {
+                            let content = &subtask.content;
+                            if !is_expanded() && content.len() > 60 {
+                                format!("{}...", &content[..60])
+                            } else {
+                                content.clone()
+                            }
+                        }}
+                    </div>
+                </div>
+
+                // Badges (right side)
+                <div class="flex items-center gap-1 flex-shrink-0">
+                    {subtask.priority.map(|p| {
+                        view! {
+                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
+                                "P"{p}
+                            </span>
+                        }
+                    })}
+                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
+                        {status_badge_label(&subtask.status)}
+                    </span>
+                </div>
+            </div>
+
+            // Metadata section (only when expanded)
+            {move || is_expanded().then(|| {
+                view! {
+                    <div class="pt-3 mt-3 border-t border-ctp-surface1">
+                        // Timestamps (right-aligned)
+                        <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right mb-2">
+                            <div>
+                                <span class="text-ctp-overlay1">"Created: "</span>
+                                <span>{subtask.created_at.clone()}</span>
+                            </div>
+
+                            {subtask.started_at.clone().map(|started| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-overlay1">"Started: "</span>
+                                        <span>{started}</span>
+                                    </div>
+                                }
+                            })}
+
+                            {subtask.completed_at.clone().map(|completed| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-overlay1">"Completed: "</span>
+                                        <span>{completed}</span>
+                                    </div>
+                                }
+                            })}
+                        </div>
+
+                        // Tags (below, left-aligned)
+                        {(!subtask.tags.is_empty()).then(|| {
+                            view! {
+                                <div class="flex flex-wrap gap-1">
+                                    {subtask.tags.iter().map(|tag| {
+                                        view! {
+                                            <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                                {tag.clone()}
+                                            </span>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
+                            }
+                        })}
+                    </div>
+                }
+            })}
         </div>
     }
 }
@@ -629,66 +790,36 @@ pub fn TaskDetailContent(
     view! {
         <div>
             // Main task - description first, metadata secondary
-            <div class=format!("relative mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
-                // Task ID in top-right corner
-                <div class="absolute top-2 right-2">
-                    <CopyableId id=task.id.clone()/>
-                </div>
-                // Task description - prominent
-                <div class="text-base text-ctp-text whitespace-pre-wrap break-words mb-4 pr-20">
-                    {task.content.clone()}
+            <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
+                // CopyableId + Task description
+                <div class="flex items-start gap-2 mb-4">
+                    <div class="flex-shrink-0">
+                        <CopyableId id=task.id.clone()/>
+                    </div>
+                    <div class="flex-1 text-base text-ctp-text whitespace-pre-wrap break-words">
+                        {task.content.clone()}
+                    </div>
                 </div>
 
                 // Metadata - compact and less prominent
                 <div class="pt-3 border-t border-ctp-surface1">
                     // Top row: Badges (left) | Timestamps (right)
-                    <div class="flex justify-between items-start gap-4 mb-3">
-                        // LEFT: Badges section - priority and status as visual badges
+                    <div class="flex justify-between items-center gap-4 mb-3">
+                        // LEFT: Badges section
                         <div class="flex items-center gap-2">
                             // Priority badge (if exists)
                             {task.priority.map(|p| {
-                                let priority_color = match p {
-                                    1 => "bg-ctp-red text-ctp-base",
-                                    2 => "bg-ctp-peach text-ctp-base",
-                                    3 => "bg-ctp-yellow text-ctp-base",
-                                    4 => "bg-ctp-blue text-ctp-base",
-                                    5 => "bg-ctp-overlay0 text-ctp-base",
-                                    _ => "bg-ctp-surface1 text-ctp-text",
-                                };
                                 view! {
-                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_color)>
+                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
                                         "P"{p}
                                     </span>
                                 }
                             })}
 
                             // Status badge
-                            {
-                                let status_color = match task.status.as_str() {
-                                    "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
-                                    "todo" => "bg-ctp-blue/20 text-ctp-blue",
-                                    "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
-                                    "review" => "bg-ctp-mauve/20 text-ctp-mauve",
-                                    "done" => "bg-ctp-green/20 text-ctp-green",
-                                    "cancelled" => "bg-ctp-red/20 text-ctp-red",
-                                    _ => "bg-ctp-surface1 text-ctp-text",
-                                };
-                                let status_label = match task.status.as_str() {
-                                    "in_progress" => "In Progress".to_string(),
-                                    status => {
-                                        let mut s = status.to_string();
-                                        if let Some(first_char) = s.get_mut(0..1) {
-                                            first_char.make_ascii_uppercase();
-                                        }
-                                        s
-                                    }
-                                };
-                                view! {
-                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_color)>
-                                        {status_label}
-                                    </span>
-                                }
-                            }
+                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&task.status))>
+                                {status_badge_label(&task.status)}
+                            </span>
                         </div>
 
                         // RIGHT: Timestamps section - right-aligned
@@ -734,19 +865,22 @@ pub fn TaskDetailContent(
                 </div>
             </div>
 
-                // Accordion for subtasks - each subtask is an accordion item
-                // Only ONE can be open at a time (no multiple=true)
-                {move || {
+            // SubtaskStack - custom collapsible stack (no accordion arrow, no duplicate content)
+            {move || {
                     let tasks_list = subtasks.get();
                     if !tasks_list.is_empty() {
-                        // Pre-populate accordion with initial open item if provided
-                        let open_items = RwSignal::new({
-                            let mut set = std::collections::HashSet::new();
-                            if let Some(id) = initial_open_subtask_id.clone() {
-                                set.insert(id);
-                            }
-                            set
-                        });
+                        // Track which subtask is currently open (only one at a time)
+                        let open_subtask_id = RwSignal::new(initial_open_subtask_id.clone());
+
+                        let handle_click = move |id: String| {
+                            open_subtask_id.update(|current| {
+                                if current.as_ref() == Some(&id) {
+                                    *current = None; // Close if already open
+                                } else {
+                                    *current = Some(id); // Open clicked item
+                                }
+                            });
+                        };
 
                         Some(view! {
                             <div class="mb-4">
@@ -754,169 +888,24 @@ pub fn TaskDetailContent(
                                     {format!("Subtasks ({})", tasks_list.len())}
                                 </h3>
                                 <div class="max-h-[40vh] overflow-y-auto">
-                                <Accordion open_items=open_items collapsible=true>
-                                    {tasks_list.into_iter().map(|subtask| {
-                                        let subtask_id = subtask.id.clone();
-                                        let subtask_content_header = subtask.content.clone();
-                                        let subtask_content_body = subtask.content.clone();
-                                        let subtask_status = subtask.status.clone();
-                                        view! {
-                                            <AccordionItem value=subtask_id.clone()>
-                                                <AccordionHeader slot>
-                                                    <div class="flex items-center gap-2 w-full">
-                                                        <span class="flex-1 truncate text-sm">
-                                                            {
-                                                                if subtask_content_header.len() > 60 {
-                                                                    format!("{}...", &subtask_content_header[..60])
-                                                                } else {
-                                                                    subtask_content_header
-                                                                }
-                                                            }
-                                                        </span>
-                                                        <div class="flex items-center gap-1 flex-shrink-0">
-                                                            {subtask.priority.map(|p| {
-                                                                let priority_color = match p {
-                                                                    1 => "bg-ctp-red text-ctp-base",
-                                                                    2 => "bg-ctp-peach text-ctp-base",
-                                                                    3 => "bg-ctp-yellow text-ctp-base",
-                                                                    4 => "bg-ctp-blue text-ctp-base",
-                                                                    5 => "bg-ctp-overlay0 text-ctp-base",
-                                                                    _ => "bg-ctp-surface1 text-ctp-text",
-                                                                };
-                                                                view! {
-                                                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_color)>
-                                                                        "P"{p}
-                                                                    </span>
-                                                                }
-                                                            })}
-                                                            {
-                                                                let status_color = match subtask_status.as_str() {
-                                                                    "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
-                                                                    "todo" => "bg-ctp-blue/20 text-ctp-blue",
-                                                                    "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
-                                                                    "review" => "bg-ctp-mauve/20 text-ctp-mauve",
-                                                                    "done" => "bg-ctp-green/20 text-ctp-green",
-                                                                    "cancelled" => "bg-ctp-red/20 text-ctp-red",
-                                                                    _ => "bg-ctp-surface1 text-ctp-text",
-                                                                };
-                                                                let status_label = match subtask_status.as_str() {
-                                                                    "in_progress" => "In Progress".to_string(),
-                                                                    status => {
-                                                                        let mut s = status.to_string();
-                                                                        if let Some(first_char) = s.get_mut(0..1) {
-                                                                            first_char.make_ascii_uppercase();
-                                                                        }
-                                                                        s
-                                                                    }
-                                                                };
-                                                                view! {
-                                                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_color)>
-                                                                        {status_label}
-                                                                    </span>
-                                                                }
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                </AccordionHeader>
-                                                <div class="relative bg-ctp-surface0 rounded-lg p-3 border border-ctp-surface1">
-                                                    <div class="absolute top-2 right-2">
-                                                        <CopyableId id=subtask_id.clone()/>
-                                                    </div>
-                                                    <div class="text-ctp-text break-words pr-20 mb-3">
-                                                        {subtask_content_body}
-                                                    </div>
+                                    <For
+                                        each=move || subtasks.get()
+                                        key=|task| task.id.clone()
+                                        children=move |subtask| {
+                                            let subtask_id = subtask.id.clone();
+                                            let is_open = Signal::derive(move || {
+                                                open_subtask_id.get().as_ref() == Some(&subtask_id)
+                                            });
 
-                                                    <div class="pt-3 border-t border-ctp-surface1">
-                                                        <div class="flex justify-between items-start gap-4 mb-2">
-                                                            <div class="flex items-center gap-2">
-                                                                {subtask.priority.map(|p| {
-                                                                    let priority_color = match p {
-                                                                        1 => "bg-ctp-red text-ctp-base",
-                                                                        2 => "bg-ctp-peach text-ctp-base",
-                                                                        3 => "bg-ctp-yellow text-ctp-base",
-                                                                        4 => "bg-ctp-blue text-ctp-base",
-                                                                        5 => "bg-ctp-overlay0 text-ctp-base",
-                                                                        _ => "bg-ctp-surface1 text-ctp-text",
-                                                                    };
-                                                                    view! {
-                                                                        <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_color)>
-                                                                            "P"{p}
-                                                                        </span>
-                                                                    }
-                                                                })}
-                                                                {
-                                                                    let status_color = match subtask.status.as_str() {
-                                                                        "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
-                                                                        "todo" => "bg-ctp-blue/20 text-ctp-blue",
-                                                                        "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
-                                                                        "review" => "bg-ctp-mauve/20 text-ctp-mauve",
-                                                                        "done" => "bg-ctp-green/20 text-ctp-green",
-                                                                        "cancelled" => "bg-ctp-red/20 text-ctp-red",
-                                                                        _ => "bg-ctp-surface1 text-ctp-text",
-                                                                    };
-                                                                    let status_label = match subtask.status.as_str() {
-                                                                        "in_progress" => "In Progress".to_string(),
-                                                                        status => {
-                                                                            let mut s = status.to_string();
-                                                                            if let Some(first_char) = s.get_mut(0..1) {
-                                                                                first_char.make_ascii_uppercase();
-                                                                            }
-                                                                            s
-                                                                        }
-                                                                    };
-                                                                    view! {
-                                                                        <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_color)>
-                                                                            {status_label}
-                                                                        </span>
-                                                                    }
-                                                                }
-                                                            </div>
-
-                                                            <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right">
-                                                                <div>
-                                                                    <span class="text-ctp-overlay1">"Created: "</span>
-                                                                    <span>{subtask.created_at.clone()}</span>
-                                                                </div>
-
-                                                                {subtask.started_at.clone().map(|started| {
-                                                                    view! {
-                                                                        <div>
-                                                                            <span class="text-ctp-overlay1">"Started: "</span>
-                                                                            <span>{started}</span>
-                                                                        </div>
-                                                                    }
-                                                                })}
-
-                                                                {subtask.completed_at.clone().map(|completed| {
-                                                                    view! {
-                                                                        <div>
-                                                                            <span class="text-ctp-overlay1">"Completed: "</span>
-                                                                            <span>{completed}</span>
-                                                                        </div>
-                                                                    }
-                                                                })}
-                                                            </div>
-                                                        </div>
-
-                                                        {(!subtask.tags.is_empty()).then(|| {
-                                                            view! {
-                                                                <div class="flex flex-wrap gap-1 mt-2">
-                                                                    {subtask.tags.iter().map(|tag| {
-                                                                        view! {
-                                                                            <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                                                                {tag.clone()}
-                                                                            </span>
-                                                                        }
-                                                                    }).collect::<Vec<_>>()}
-                                                                </div>
-                                                            }
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            </AccordionItem>
+                                            view! {
+                                                <SubtaskStackItem
+                                                    subtask=subtask
+                                                    is_open=is_open
+                                                    on_click=Callback::new(handle_click)
+                                                />
+                                            }
                                         }
-                                    }).collect::<Vec<_>>()}
-                                </Accordion>
+                                    />
                                 </div>
                             </div>
                         })
