@@ -203,10 +203,25 @@ pub fn KanbanColumn(
                             <OrphanedSubtaskCard
                                 task=task
                                 parent_id=parent_id
-                                on_click=Callback::new(move |t: Task| {
-                                    set_selected_task.set(Some(t.clone()));
-                                    set_initial_open_subtask.set(None);
-                                    dialog_open.set(true);
+                                on_click=Callback::new(move |clicked_subtask: Task| {
+                                    if let Some(parent_id) = clicked_subtask.parent_id.clone() {
+                                        let clicked_id = clicked_subtask.id.clone();
+                                        spawn_local(async move {
+                                            match tasks::get(&parent_id).await {
+                                                Ok(parent_task) => {
+                                                    set_selected_task.set(Some(parent_task));
+                                                    set_initial_open_subtask.set(Some(clicked_id));
+                                                    dialog_open.set(true);
+                                                }
+                                                Err(_) => {
+                                                    // Fallback: show subtask directly
+                                                    set_selected_task.set(Some(clicked_subtask));
+                                                    set_initial_open_subtask.set(None);
+                                                    dialog_open.set(true);
+                                                }
+                                            }
+                                        });
+                                    }
                                 })
                             />
                         }
