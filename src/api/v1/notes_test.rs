@@ -1202,3 +1202,234 @@ async fn patch_note_link_to_project_and_repo() {
     assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["repo_ids"][0], repo_id);
 }
+
+// =============================================================================
+// FTS5 Tag Search Integration Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_notes_by_tags_via_api() {
+    let app = test_app().await;
+
+    // Create notes with specific tags
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Programming",
+                        "content": "Learning async/await",
+                        "tags": ["rust", "programming"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Guide",
+                        "content": "Flask tutorial",
+                        "tags": ["python", "web"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "JavaScript Basics",
+                        "content": "ES6 features",
+                        "tags": ["javascript", "programming"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for "rust" - should find the note with "rust" tag
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        1,
+        "Should find note with 'rust' tag"
+    );
+    assert_eq!(body["items"][0]["title"], "Rust Programming");
+
+    // Search for "programming" - should find 2 notes with "programming" tag
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=programming")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        2,
+        "Should find both notes with 'programming' tag"
+    );
+
+    // Search for "python" - should find note with "python" tag
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=python")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        1,
+        "Should find note with 'python' tag"
+    );
+    assert_eq!(body["items"][0]["title"], "Python Guide");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_operators_with_tags_via_api() {
+    let app = test_app().await;
+
+    // Create notes with different tag combinations
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Web Development",
+                        "content": "Axum framework guide",
+                        "tags": ["rust", "web"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Web Development",
+                        "content": "Django tutorial",
+                        "tags": ["python", "web"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust CLI Tools",
+                        "content": "Command-line parsing",
+                        "tags": ["rust", "cli"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // FTS5 AND operator: search for notes with both "rust" AND "web"
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=rust+AND+web")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        1,
+        "Should find only note with both 'rust' AND 'web' tags"
+    );
+    assert_eq!(body["items"][0]["title"], "Rust Web Development");
+
+    // FTS5 OR operator: search for notes with "python" OR "cli"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/notes?q=python+OR+cli")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        2,
+        "Should find notes with 'python' OR 'cli' tags"
+    );
+}
