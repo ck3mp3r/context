@@ -34,7 +34,7 @@ pub struct ListTaskListsParams {
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
     pub offset: Option<usize>,
-    #[schemars(description = "Field to sort by (name, status, created_at, updated_at)")]
+    #[schemars(description = "Field to sort by (title, status, created_at, updated_at)")]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc)")]
     pub order: Option<String>,
@@ -49,9 +49,9 @@ pub struct GetTaskListParams {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskListParams {
     #[schemars(
-        description = "Task list name (e.g., 'Phase 2 Implementation', 'Bug Fixes Sprint 12')"
+        description = "Task list title (e.g., 'Phase 2 Implementation', 'Bug Fixes Sprint 12')"
     )]
-    pub name: String,
+    pub title: String,
     #[schemars(description = "Brief description of this workstream (optional)")]
     pub description: Option<String>,
     #[schemars(description = "Additional notes or context (optional)")]
@@ -76,8 +76,8 @@ pub struct CreateTaskListParams {
 pub struct UpdateTaskListParams {
     #[schemars(description = "TaskList ID")]
     pub id: String,
-    #[schemars(description = "TaskList name")]
-    pub name: String,
+    #[schemars(description = "TaskList title")]
+    pub title: String,
     #[schemars(description = "TaskList description (optional)")]
     pub description: Option<String>,
     #[schemars(description = "Notes for this task list (optional)")]
@@ -216,7 +216,7 @@ impl<D: Database + 'static> TaskListTools<D> {
     ) -> Result<CallToolResult, McpError> {
         let list = TaskList {
             id: String::new(), // Repository generates
-            name: params.0.name,
+            title: params.0.title,
             description: params.0.description,
             notes: params.0.notes,
             tags: params.0.tags.unwrap_or_default(),
@@ -260,7 +260,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             .map_err(map_db_error)?;
 
         // Update fields - only update if provided to preserve existing values
-        list.name = params.0.name;
+        list.title = params.0.title;
 
         if let Some(description) = params.0.description {
             list.description = Some(description);

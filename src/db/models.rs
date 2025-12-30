@@ -160,7 +160,7 @@ pub struct Repo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskList {
     pub id: Id,
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
@@ -212,7 +212,8 @@ pub struct Task {
     pub id: Id,
     pub list_id: Id,
     pub parent_id: Option<Id>,
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     pub status: TaskStatus,
     pub priority: Option<i32>,
     pub tags: Vec<String>,

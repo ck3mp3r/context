@@ -29,7 +29,8 @@ pub struct TaskResponse {
     pub list_id: String,
     pub parent_id: Option<String>,
     #[schema(example = "Complete the feature")]
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     #[schema(example = "in_progress")]
     pub status: String,
     pub priority: Option<i32>,
@@ -46,7 +47,8 @@ impl From<Task> for TaskResponse {
             id: t.id,
             list_id: t.list_id,
             parent_id: t.parent_id,
-            content: t.content,
+            title: t.title,
+            description: t.description,
             status: match t.status {
                 TaskStatus::Backlog => "backlog",
                 TaskStatus::Todo => "todo",
@@ -68,15 +70,17 @@ impl From<Task> for TaskResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
     #[schema(example = "Complete the feature")]
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     pub parent_id: Option<String>,
     pub priority: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTaskRequest {
-    #[schema(example = "Updated content")]
-    pub content: String,
+    #[schema(example = "Updated title")]
+    pub title: String,
+    pub description: Option<String>,
     #[schema(example = "done")]
     pub status: Option<String>,
     pub priority: Option<i32>,
@@ -88,9 +92,11 @@ pub struct UpdateTaskRequest {
 /// Patch task request DTO (partial update)
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct PatchTaskRequest {
-    /// Task content/description
-    #[schema(example = "Updated content")]
-    pub content: Option<String>,
+    /// Task title
+    #[schema(example = "Updated title")]
+    pub title: Option<String>,
+    /// Task description
+    pub description: Option<String>,
     /// Task status (auto-manages started_at and completed_at timestamps)
     #[schema(example = "done")]
     pub status: Option<String>,
@@ -108,8 +114,11 @@ pub struct PatchTaskRequest {
 
 impl PatchTaskRequest {
     fn merge_into(self, target: &mut Task) {
-        if let Some(content) = self.content {
-            target.content = content;
+        if let Some(title) = self.title {
+            target.title = title;
+        }
+        if let Some(description) = self.description {
+            target.description = Some(description);
         }
         if let Some(status_str) = self.status
             && let Ok(status) = status_str.parse()
@@ -287,7 +296,8 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         id: String::new(), // Repository will generate this
         list_id,
         parent_id: req.parent_id,
-        content: req.content,
+        title: req.title,
+        description: req.description,
         status: TaskStatus::Backlog,
         priority: req.priority,
         tags: vec![],
@@ -341,7 +351,8 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
         ),
     })?;
 
-    task.content = req.content;
+    task.title = req.title;
+    task.description = req.description;
     task.priority = req.priority;
     task.tags = req.tags;
 

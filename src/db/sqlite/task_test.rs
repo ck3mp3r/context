@@ -26,10 +26,10 @@ async fn setup_db() -> SqliteDatabase {
     db
 }
 
-fn make_task_list(id: &str, name: &str) -> TaskList {
+fn make_task_list(id: &str, title: &str) -> TaskList {
     TaskList {
         id: id.to_string(),
-        name: name.to_string(),
+        title: title.to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -43,12 +43,13 @@ fn make_task_list(id: &str, name: &str) -> TaskList {
     }
 }
 
-fn make_task(id: &str, list_id: &str, content: &str) -> Task {
+fn make_task(id: &str, list_id: &str, title: &str) -> Task {
     Task {
         id: id.to_string(),
         list_id: list_id.to_string(),
         parent_id: None,
-        content: content.to_string(),
+        title: title.to_string(),
+        description: None,
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec![],
@@ -75,7 +76,8 @@ async fn task_create_and_get() {
         id: "task0001".to_string(),
         list_id: "tasklst1".to_string(),
         parent_id: None,
-        content: "Complete the implementation".to_string(),
+        title: "Complete the implementation".to_string(),
+        description: None,
         status: TaskStatus::InProgress,
         priority: Some(2),
         tags: vec![],
@@ -89,7 +91,7 @@ async fn task_create_and_get() {
     let retrieved = tasks.get("task0001").await.expect("Get should succeed");
     assert_eq!(retrieved.id, task.id);
     assert_eq!(retrieved.list_id, task.list_id);
-    assert_eq!(retrieved.content, task.content);
+    assert_eq!(retrieved.title, task.title);
     assert_eq!(retrieved.status, TaskStatus::InProgress);
     assert_eq!(retrieved.priority, Some(2));
     assert_eq!(
@@ -238,14 +240,14 @@ async fn task_update() {
     let mut task = make_task("taskupd1", "listupd2", "Original");
     tasks.create(&task).await.expect("Create should succeed");
 
-    task.content = "Updated content".to_string();
+    task.title = "Updated content".to_string();
     task.status = TaskStatus::Done;
     task.completed_at = Some("2025-01-15 17:00:00".to_string());
     task.priority = Some(1);
     tasks.update(&task).await.expect("Update should succeed");
 
     let retrieved = tasks.get("taskupd1").await.expect("Get should succeed");
-    assert_eq!(retrieved.content, "Updated content");
+    assert_eq!(retrieved.title, "Updated content");
     assert_eq!(retrieved.status, TaskStatus::Done);
     assert_eq!(
         retrieved.completed_at,
@@ -294,7 +296,8 @@ async fn task_create_with_tags() {
         id: "taskwtag".to_string(),
         list_id: "listwtag".to_string(),
         parent_id: None,
-        content: "Task with tags".to_string(),
+        title: "Task with tags".to_string(),
+        description: None,
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
@@ -346,7 +349,7 @@ async fn task_list_with_tag_filter() {
     let results = tasks.list(Some(&query)).await.expect("List should succeed");
     assert_eq!(results.items.len(), 1);
     assert_eq!(results.total, 1); // DB-level filtering verified by total
-    assert_eq!(results.items[0].content, "Rust task");
+    assert_eq!(results.items[0].title, "Rust task");
 
     // Filter by "backend" tag - should find 2
     let query = TaskQuery {
@@ -381,7 +384,7 @@ async fn task_update_status_to_done_sets_completed_at() {
     let list = task_lists
         .create(&TaskList {
             id: String::new(), // Auto-generate
-            name: "Timestamp Test".to_string(),
+            title: "Timestamp Test".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -404,7 +407,8 @@ async fn task_update_status_to_done_sets_completed_at() {
             id: String::new(), // Auto-generate
             list_id: list.id.clone(),
             parent_id: None,
-            content: "Task to complete".to_string(),
+            title: "Task to complete".to_string(),
+            description: None,
             status: TaskStatus::Todo,
             priority: None,
             tags: vec![],
@@ -440,7 +444,7 @@ async fn task_update_status_to_done_twice_is_idempotent() {
     let list = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "Idempotent Test".to_string(),
+            title: "Idempotent Test".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -462,7 +466,8 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             id: String::new(),
             list_id: list.id.clone(),
             parent_id: None,
-            content: "Task".to_string(),
+            title: "Task".to_string(),
+            description: None,
             status: TaskStatus::Todo,
             priority: None,
             tags: vec![],
@@ -504,7 +509,7 @@ async fn task_update_status_to_in_progress_sets_started_at() {
     let list = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "Start Test".to_string(),
+            title: "Start Test".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -527,7 +532,8 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             id: String::new(),
             list_id: list.id.clone(),
             parent_id: None,
-            content: "Task to start".to_string(),
+            title: "Task to start".to_string(),
+            description: None,
             status: TaskStatus::Backlog,
             priority: None,
             tags: vec![],
@@ -563,7 +569,7 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
     let list = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "Revert Test".to_string(),
+            title: "Revert Test".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -586,7 +592,8 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
             id: String::new(),
             list_id: list.id.clone(),
             parent_id: None,
-            content: "Done task".to_string(),
+            title: "Done task".to_string(),
+            description: None,
             status: TaskStatus::Done,
             priority: None,
             tags: vec![],
@@ -622,7 +629,7 @@ async fn task_update_other_fields_preserves_timestamps() {
     let list = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "Preserve Test".to_string(),
+            title: "Preserve Test".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -645,7 +652,8 @@ async fn task_update_other_fields_preserves_timestamps() {
             id: String::new(),
             list_id: list.id.clone(),
             parent_id: None,
-            content: "Active task".to_string(),
+            title: "Active task".to_string(),
+            description: None,
             status: TaskStatus::InProgress,
             priority: None,
             tags: vec![],
@@ -658,15 +666,15 @@ async fn task_update_other_fields_preserves_timestamps() {
 
     let original_started_at = created.started_at.clone();
 
-    // Update other fields (content, priority) without changing status
+    // Update other fields (title, priority) without changing status
     let mut updated = created.clone();
-    updated.content = "Updated content".to_string();
+    updated.title = "Updated content".to_string();
     updated.priority = Some(5);
     tasks.update(&updated).await.expect("Update should succeed");
 
     // started_at should be preserved
     let after = tasks.get(&created.id).await.expect("Get should succeed");
-    assert_eq!(after.content, "Updated content");
+    assert_eq!(after.title, "Updated content");
     assert_eq!(after.priority, Some(5));
     assert_eq!(
         after.started_at, original_started_at,

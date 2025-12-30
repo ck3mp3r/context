@@ -263,7 +263,7 @@ async fn project_get_loads_all_relationships() {
         .expect("Insert repo should succeed");
 
     // Create task list WITH project_id (NOT NULL constraint)
-    sqlx::query("INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO task_list (id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("list0001")
         .bind("Test List")
         .bind(None::<String>)

@@ -35,7 +35,7 @@ async fn test_list_tasks_empty() {
     let default_project_id = get_default_project_id(&db).await;
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -85,7 +85,7 @@ async fn test_create_and_list_task() {
     // Create a task list first
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -102,7 +102,8 @@ async fn test_create_and_list_task() {
     // Create task
     let create_params = CreateTaskParams {
         list_id: created_list.id.clone(),
-        content: "Implement feature X".to_string(),
+        title: "Implement feature X".to_string(),
+        description: None,
         priority: Some(1),
         parent_id: None,
         tags: Some(vec!["urgent".to_string()]),
@@ -119,7 +120,7 @@ async fn test_create_and_list_task() {
     };
     let created: Task = serde_json::from_str(content_text).unwrap();
 
-    assert_eq!(created.content, "Implement feature X");
+    assert_eq!(created.title, "Implement feature X");
     assert_eq!(created.status, TaskStatus::Backlog);
     assert_eq!(created.priority, Some(1));
     assert_eq!(created.tags, vec!["urgent".to_string()]);
@@ -162,7 +163,7 @@ async fn test_get_task() {
     let default_project_id = get_default_project_id(&db).await;
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -180,7 +181,8 @@ async fn test_get_task() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Test task for get".to_string(),
+        title: "Test task for get".to_string(),
+        description: None,
         status: TaskStatus::Todo,
         priority: Some(2),
         tags: vec!["test".to_string()],
@@ -209,7 +211,7 @@ async fn test_get_task() {
     let retrieved: Task = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(retrieved.id, created_task.id);
-    assert_eq!(retrieved.content, "Test task for get");
+    assert_eq!(retrieved.title, "Test task for get");
     assert_eq!(retrieved.status, TaskStatus::Todo);
     assert_eq!(retrieved.priority, Some(2));
     assert_eq!(retrieved.tags, vec!["test".to_string()]);
@@ -239,7 +241,7 @@ async fn test_list_tasks_filtered_by_status() {
     // Create a task list
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -258,7 +260,8 @@ async fn test_list_tasks_filtered_by_status() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Task 1".to_string(),
+        title: "Task 1".to_string(),
+        description: None,
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
@@ -270,7 +273,8 @@ async fn test_list_tasks_filtered_by_status() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Task 2".to_string(),
+        title: "Task 2".to_string(),
+        description: None,
         status: TaskStatus::Done,
         priority: None,
         tags: vec![],
@@ -306,7 +310,7 @@ async fn test_list_tasks_filtered_by_status() {
 
     assert_eq!(json["total"], 1);
     let items = json["items"].as_array().unwrap();
-    assert_eq!(items[0]["content"], "Task 2");
+    assert_eq!(items[0]["title"], "Task 2");
     assert_eq!(items[0]["status"], "done");
 }
 
@@ -319,7 +323,7 @@ async fn test_update_task() {
     // Create task list and task
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -337,7 +341,8 @@ async fn test_update_task() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Original content".to_string(),
+        title: "Original title".to_string(),
+        description: None,
         status: TaskStatus::Backlog,
         priority: Some(3),
         tags: vec![],
@@ -352,7 +357,8 @@ async fn test_update_task() {
     // Update task
     let update_params = UpdateTaskParams {
         task_id: created_task.id.clone(),
-        content: Some("Updated content".to_string()),
+        title: Some("Updated title".to_string()),
+        description: Some("Updated description".to_string()),
         status: Some("in_progress".to_string()),
         priority: Some(1),
         tags: Some(vec!["urgent".to_string()]),
@@ -372,7 +378,8 @@ async fn test_update_task() {
     let updated: Task = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(updated.id, created_task.id);
-    assert_eq!(updated.content, "Updated content");
+    assert_eq!(updated.title, "Updated title");
+    assert_eq!(updated.description, Some("Updated description".to_string()));
     assert_eq!(updated.status, TaskStatus::InProgress);
     assert_eq!(updated.priority, Some(1));
     assert_eq!(updated.tags, vec!["urgent".to_string()]);
@@ -388,7 +395,7 @@ async fn test_complete_task() {
     // Create task list and task
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -406,7 +413,8 @@ async fn test_complete_task() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Complete this task".to_string(),
+        title: "Complete this task".to_string(),
+        description: None,
         status: TaskStatus::InProgress,
         priority: None,
         tags: vec![],
@@ -448,7 +456,7 @@ async fn test_delete_task() {
     // Create task list and task
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -466,7 +474,8 @@ async fn test_delete_task() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "To be deleted".to_string(),
+        title: "To be deleted".to_string(),
+        description: None,
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec![],
@@ -509,7 +518,7 @@ async fn test_list_tasks_with_parent_id_filter() {
     // Create task list
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -528,7 +537,8 @@ async fn test_list_tasks_with_parent_id_filter() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Parent task".to_string(),
+        title: "Parent task".to_string(),
+        description: None,
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
@@ -543,7 +553,8 @@ async fn test_list_tasks_with_parent_id_filter() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: Some(created_parent.id.clone()),
-        content: "Subtask 1".to_string(),
+        title: "Subtask 1".to_string(),
+        description: None,
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
@@ -578,7 +589,7 @@ async fn test_list_tasks_with_parent_id_filter() {
 
     assert_eq!(json["total"], 1);
     let items = json["items"].as_array().unwrap();
-    assert_eq!(items[0]["content"], "Subtask 1");
+    assert_eq!(items[0]["title"], "Subtask 1");
     assert_eq!(items[0]["parent_id"], created_parent.id);
 }
 
@@ -593,7 +604,7 @@ async fn test_update_task_move_to_different_list() {
     // Create two task lists
     let list1 = TaskList {
         id: String::new(),
-        name: "List 1".to_string(),
+        title: "List 1".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -609,7 +620,7 @@ async fn test_update_task_move_to_different_list() {
 
     let list2 = TaskList {
         id: String::new(),
-        name: "List 2".to_string(),
+        title: "List 2".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -628,7 +639,8 @@ async fn test_update_task_move_to_different_list() {
         id: String::new(),
         list_id: created_list1.id.clone(),
         parent_id: None,
-        content: "Task to move".to_string(),
+        title: "Task to move".to_string(),
+        description: None,
         status: TaskStatus::Todo,
         priority: Some(3),
         tags: vec!["move-test".to_string()],
@@ -643,7 +655,8 @@ async fn test_update_task_move_to_different_list() {
     // Move task to list2
     let params = UpdateTaskParams {
         task_id: created_task.id.clone(),
-        content: None,
+        title: None,
+        description: None,
         status: None,
         priority: None,
         tags: None,
@@ -664,7 +677,7 @@ async fn test_update_task_move_to_different_list() {
 
     // Verify task moved to list2
     assert_eq!(updated_task.list_id, created_list2.id);
-    assert_eq!(updated_task.content, "Task to move"); // Content unchanged
+    assert_eq!(updated_task.title, "Task to move"); // Title unchanged
     assert_eq!(updated_task.priority, Some(3)); // Priority unchanged
 }
 
@@ -677,7 +690,7 @@ async fn test_update_task_parent_id() {
     // Create a task list
     let task_list = TaskList {
         id: String::new(),
-        name: "Test List".to_string(),
+        title: "Test List".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -696,7 +709,8 @@ async fn test_update_task_parent_id() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Parent task".to_string(),
+        title: "Parent task".to_string(),
+        description: None,
         status: TaskStatus::InProgress,
         priority: Some(2),
         tags: vec![],
@@ -711,7 +725,8 @@ async fn test_update_task_parent_id() {
         id: String::new(),
         list_id: created_list.id.clone(),
         parent_id: None,
-        content: "Standalone task".to_string(),
+        title: "Standalone task".to_string(),
+        description: None,
         status: TaskStatus::Todo,
         priority: Some(3),
         tags: vec![],
@@ -726,7 +741,8 @@ async fn test_update_task_parent_id() {
     // Update standalone task to become a subtask of parent
     let update_params = UpdateTaskParams {
         task_id: created_standalone.id.clone(),
-        content: None,
+        title: None,
+        description: None,
         status: None,
         priority: None,
         tags: None,
@@ -747,13 +763,14 @@ async fn test_update_task_parent_id() {
 
     // Verify task is now a subtask of parent
     assert_eq!(updated_task.parent_id, Some(created_parent.id.clone()));
-    assert_eq!(updated_task.content, "Standalone task"); // Content unchanged
+    assert_eq!(updated_task.title, "Standalone task"); // Title unchanged
     assert_eq!(updated_task.priority, Some(3)); // Priority unchanged
 
     // Test case 2: Remove parent (convert subtask back to standalone)
     let update_params2 = UpdateTaskParams {
         task_id: updated_task.id.clone(),
-        content: None,
+        title: None,
+        description: None,
         status: None,
         priority: None,
         tags: None,
@@ -774,5 +791,5 @@ async fn test_update_task_parent_id() {
 
     // Verify task is standalone again (no parent)
     assert_eq!(standalone_again.parent_id, None);
-    assert_eq!(standalone_again.content, "Standalone task");
+    assert_eq!(standalone_again.title, "Standalone task");
 }

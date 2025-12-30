@@ -32,14 +32,15 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         sqlx::query(
             r#"
-            INSERT INTO task (id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
         .bind(&task.list_id)
         .bind(&task.parent_id)
-        .bind(&task.content)
+        .bind(&task.title)
+        .bind(&task.description)
         .bind(status_str)
         .bind(task.priority)
         .bind(&tags_json)
@@ -57,7 +58,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
-            "SELECT id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at
              FROM task WHERE id = ?",
         )
         .bind(id)
@@ -78,13 +79,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn list(&self, query: Option<&TaskQuery>) -> DbResult<ListResult<Task>> {
         let default_query = TaskQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = [
-            "content",
-            "status",
-            "priority",
-            "created_at",
-            "completed_at",
-        ];
+        let allowed_fields = ["title", "status", "priority", "created_at", "completed_at"];
 
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
@@ -145,7 +140,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build SQL based on whether we need json_each
         let (sql, count_sql) = if needs_json_each {
             let sql = format!(
-                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.content, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at
+                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at
                  FROM task t, json_each(t.tags)
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -157,7 +152,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             (sql, count_sql)
         } else {
             let sql = format!(
-                "SELECT id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at
+                "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at
                  FROM task
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -252,14 +247,15 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let result = sqlx::query(
             r#"
             UPDATE task 
-            SET list_id = ?, parent_id = ?, content = ?, status = ?, priority = ?, tags = ?,
+            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?,
                 started_at = ?, completed_at = ?
             WHERE id = ?
             "#,
         )
         .bind(&task.list_id)
         .bind(&task.parent_id)
-        .bind(&task.content)
+        .bind(&task.title)
+        .bind(&task.description)
         .bind(&status_str)
         .bind(task.priority)
         .bind(&tags_json)
@@ -416,7 +412,8 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
         id: row.get("id"),
         list_id: row.get("list_id"),
         parent_id: row.get("parent_id"),
-        content: row.get("content"),
+        title: row.get("title"),
+        description: row.get("description"),
         status: {
             let status_str: String = row.get("status");
             TaskStatus::from_str(&status_str).unwrap_or_default()

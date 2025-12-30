@@ -51,7 +51,7 @@ async fn create_task_list(app: &axum::Router) -> String {
                 .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Test List", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "Test List", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -92,7 +92,7 @@ async fn list_tasks_for_list() {
                 .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Do something"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Do something"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -128,7 +128,7 @@ async fn create_task_returns_created() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Complete the feature",
+                        "title": "Complete the feature",
                         "priority": 2
                     }))
                     .unwrap(),
@@ -141,7 +141,7 @@ async fn create_task_returns_created() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Complete the feature");
+    assert_eq!(body["title"], "Complete the feature");
     assert_eq!(body["priority"], 2);
     assert_eq!(body["status"], "backlog");
     assert_eq!(body["list_id"], list_id);
@@ -160,7 +160,7 @@ async fn create_task_minimal() {
                 .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Quick task"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Quick task"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -170,7 +170,7 @@ async fn create_task_minimal() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Quick task");
+    assert_eq!(body["title"], "Quick task");
     assert_eq!(body["status"], "backlog");
     assert!(body["priority"].is_null());
 }
@@ -189,7 +189,7 @@ async fn get_task_returns_task() {
                 .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Test task"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Test task"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -213,7 +213,7 @@ async fn get_task_returns_task() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
     assert_eq!(body["id"], task_id);
-    assert_eq!(body["content"], "Test task");
+    assert_eq!(body["title"], "Test task");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -251,7 +251,7 @@ async fn patch_task_move_to_different_list() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "content": "Task to move"
+                        "title": "Task to move"
                     })
                     .to_string(),
                 ))
@@ -289,7 +289,7 @@ async fn patch_task_move_to_different_list() {
 
     // Verify task moved to list2
     assert_eq!(patched_body["list_id"], list2_id);
-    assert_eq!(patched_body["content"], "Task to move"); // Content unchanged
+    assert_eq!(patched_body["title"], "Task to move"); // Content unchanged
     assert_eq!(patched_body["status"], "backlog"); // Status unchanged
 }
 
@@ -306,7 +306,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
                 .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
+                    serde_json::to_string(&json!({"title": "Test List", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -325,7 +325,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "content": "Task to complete"
+                        "title": "Task to complete"
                     }))
                     .unwrap(),
                 ))
@@ -377,7 +377,7 @@ async fn patch_task_not_found() {
                 .uri("/api/v1/tasks/notfound")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({"content": "New"})).unwrap(),
+                    serde_json::to_string(&json!({"title": "New"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -398,7 +398,7 @@ async fn update_task_not_found() {
                 .uri("/api/v1/tasks/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Wont work"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Wont work"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -423,7 +423,7 @@ async fn update_task_with_tags() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Task without tags"
+                        "title": "Task without tags"
                     }))
                     .unwrap(),
                 ))
@@ -449,7 +449,7 @@ async fn update_task_with_tags() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Updated task with tags",
+                        "title": "Updated task with tags",
                         "tags": ["updated", "bug-fix", "urgent"]
                     }))
                     .unwrap(),
@@ -464,7 +464,7 @@ async fn update_task_with_tags() {
     let updated = json_body(response).await;
 
     // Verify content was updated
-    assert_eq!(updated["content"], "Updated task with tags");
+    assert_eq!(updated["title"], "Updated task with tags");
 
     // Verify tags were set correctly via PUT
     assert_eq!(updated["tags"], json!(["updated", "bug-fix", "urgent"]));
@@ -479,7 +479,7 @@ async fn update_task_with_tags() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Updated task with different tags",
+                        "title": "Updated task with different tags",
                         "tags": ["production", "critical"]
                     }))
                     .unwrap(),
@@ -512,7 +512,7 @@ async fn delete_task_returns_no_content() {
                 .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "To delete"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "To delete"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -588,7 +588,7 @@ async fn api_cascade_status_to_matching_subtasks() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Parent task",
+                        "title": "Parent task",
                         "status": "backlog"
                     }))
                     .unwrap(),
@@ -610,7 +610,7 @@ async fn api_cascade_status_to_matching_subtasks() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Subtask 1",
+                        "title": "Subtask 1",
                         "status": "backlog",
                         "parent_id": parent_id
                     }))
@@ -632,7 +632,7 @@ async fn api_cascade_status_to_matching_subtasks() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Subtask 2",
+                        "title": "Subtask 2",
                         "status": "backlog",
                         "parent_id": parent_id
                     }))
@@ -712,7 +712,7 @@ async fn api_cascade_only_matching_subtasks() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Parent task",
+                        "title": "Parent task",
                         "status": "backlog"
                     }))
                     .unwrap(),
@@ -734,7 +734,7 @@ async fn api_cascade_only_matching_subtasks() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Matching subtask",
+                        "title": "Matching subtask",
                         "status": "backlog",
                         "parent_id": parent_id
                     }))
@@ -757,7 +757,7 @@ async fn api_cascade_only_matching_subtasks() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Diverged subtask",
+                        "title": "Diverged subtask",
                         "parent_id": parent_id
                     }))
                     .unwrap(),
@@ -837,11 +837,11 @@ async fn api_cascade_only_matching_subtasks() {
 async fn create_task(
     app: &axum::Router,
     list_id: &str,
-    content: &str,
+    title: &str,
     parent_id: Option<&str>,
     status: &str,
 ) -> String {
-    let mut payload = json!({"content": content});
+    let mut payload = json!({"title": title});
     if let Some(pid) = parent_id {
         payload["parent_id"] = json!(pid);
     }

@@ -28,7 +28,7 @@ pub struct TaskListResponse {
     #[schema(example = "a1b2c3d4")]
     pub id: String,
     #[schema(example = "Sprint 1")]
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
@@ -48,7 +48,7 @@ impl From<TaskList> for TaskListResponse {
     fn from(t: TaskList) -> Self {
         Self {
             id: t.id,
-            name: t.name,
+            title: t.title,
             description: t.description,
             notes: t.notes,
             tags: t.tags,
@@ -69,7 +69,7 @@ impl From<TaskList> for TaskListResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTaskListRequest {
     #[schema(example = "Sprint 1")]
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     #[serde(default)]
@@ -82,7 +82,7 @@ pub struct CreateTaskListRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTaskListRequest {
     #[schema(example = "Sprint 1")]
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     #[serde(default)]
@@ -100,7 +100,7 @@ pub struct UpdateTaskListRequest {
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct PatchTaskListRequest {
     #[schema(example = "Sprint 1")]
-    pub name: Option<String>,
+    pub title: Option<String>,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -115,8 +115,8 @@ pub struct PatchTaskListRequest {
 
 impl PatchTaskListRequest {
     fn merge_into(self, target: &mut TaskList) {
-        if let Some(name) = self.name {
-            target.name = name;
+        if let Some(title) = self.title {
+            target.title = title;
         }
         if let Some(description) = self.description {
             target.description = Some(description);
@@ -340,7 +340,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
     // Create task list with placeholder values - repository will generate ID and timestamps
     let list = TaskList {
         id: String::new(), // Repository will generate this
-        name: req.name,
+        title: req.title,
         description: req.description,
         notes: req.notes,
         tags: req.tags,
@@ -406,7 +406,7 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
             ),
         })?;
 
-    list.name = req.name;
+    list.title = req.title;
     list.description = req.description;
     list.notes = req.notes;
     list.tags = req.tags;

@@ -73,11 +73,11 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         })?;
 
         sqlx::query(
-            "INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at) 
+            "INSERT INTO task_list (id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
-        .bind(&task_list.name)
+        .bind(&task_list.title)
         .bind(&task_list.description)
         .bind(&task_list.notes)
         .bind(&tags_json)
@@ -112,7 +112,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         Ok(TaskList {
             id,
-            name: task_list.name.clone(),
+            title: task_list.title.clone(),
             description: task_list.description.clone(),
             notes: task_list.notes.clone(),
             tags: task_list.tags.clone(),
@@ -129,7 +129,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     async fn get(&self, id: &str) -> DbResult<TaskList> {
         // Get the main task_list record
         let row = sqlx::query(
-            "SELECT id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at
+            "SELECT id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at
              FROM task_list WHERE id = ?",
         )
         .bind(id)
@@ -169,7 +169,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         Ok(TaskList {
             id: row.get("id"),
-            name: row.get("name"),
+            title: row.get("title"),
             description: row.get("description"),
             notes: row.get("notes"),
             tags,
@@ -186,7 +186,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     async fn list(&self, query: Option<&TaskListQuery>) -> DbResult<ListResult<TaskList>> {
         let default_query = TaskListQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["name", "status", "created_at", "updated_at"];
+        let allowed_fields = ["title", "status", "created_at", "updated_at"];
 
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
@@ -226,7 +226,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             (
                 format!(
-                    "SELECT DISTINCT tl.id, tl.name, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at 
+                    "SELECT DISTINCT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at 
                      FROM task_list tl, json_each(tl.tags)
                      {} {} {}",
                     where_clause, order_clause, limit_clause
@@ -239,7 +239,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else if !conditions.is_empty() {
             (
                 format!(
-                    "SELECT id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
+                    "SELECT id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
                      FROM task_list tl {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -248,9 +248,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
+                    "SELECT id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
                      FROM task_list {} {}",
-                    order_clause, limit_clause
+                     order_clause, limit_clause
                 ),
                 "SELECT COUNT(*) FROM task_list".to_string(),
             )
@@ -280,7 +280,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
                 TaskList {
                     id: row.get("id"),
-                    name: row.get("name"),
+                    title: row.get("title"),
                     description: row.get("description"),
                     notes: row.get("notes"),
                     tags,
@@ -354,12 +354,12 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         sqlx::query(
             r#"
             UPDATE task_list 
-            SET name = ?, description = ?, notes = ?, tags = ?, external_ref = ?, 
+            SET title = ?, description = ?, notes = ?, tags = ?, external_ref = ?, 
                 status = ?, project_id = ?, updated_at = ?, archived_at = ?
             WHERE id = ?
             "#,
         )
-        .bind(&task_list.name)
+        .bind(&task_list.title)
         .bind(&task_list.description)
         .bind(&task_list.notes)
         .bind(tags_json)
