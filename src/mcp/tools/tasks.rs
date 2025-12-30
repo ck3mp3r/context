@@ -226,7 +226,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Update task content, status, priority, parent_id, tags, or move to different list. Status changes to 'in_progress' set started_at, changes to 'done' set completed_at. All fields optional."
+        description = "Update task content, status, priority, parent_id (reparent task), tags, or move to different list. Status changes to 'in_progress' set started_at, changes to 'done' set completed_at. All fields optional."
     )]
     pub async fn update_task(
         &self,
