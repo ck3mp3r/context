@@ -618,16 +618,37 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
         let needs_project_join = query.project_id.is_some();
 
-        let search_pattern = format!("%{}%", search_term);
-        let mut bind_values: Vec<String> = vec![search_pattern.clone(), search_pattern.clone()];
+        // Prepare FTS5 search query
+        // If the search term contains FTS5 operators (AND, OR, NOT, quotes), use it as-is
+        // Otherwise, add prefix matching (*) to each term for better user experience
+        let fts_query = if search_term.contains(" AND ")
+            || search_term.contains(" OR ")
+            || search_term.contains(" NOT ")
+            || search_term.contains('"')
+            || search_term.contains('*')
+        {
+            // User is using advanced FTS5 syntax, don't modify
+            search_term.to_string()
+        } else {
+            // Simple search - add prefix matching to support partial word matches
+            // Split on whitespace and add * to each term
+            search_term
+                .split_whitespace()
+                .map(|term| format!("{}*", term))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        let mut bind_values: Vec<String> = vec![fts_query];
         let mut where_conditions: Vec<String> = Vec::new();
 
-        // Decide on table alias usage
-        let (select_cols, from_clause, search_condition, order_field_prefix) = if needs_json_each
+        // Use FTS5 for search - join note_fts to note table
+        let (select_cols, from_clause, order_field_prefix) = if needs_json_each
             || needs_project_join
         {
             // Need aliases when doing JOINs
-            let mut from = "FROM note n".to_string();
+            let mut from =
+                "FROM note n INNER JOIN note_fts ON n.rowid = note_fts.rowid".to_string();
 
             if needs_project_join {
                 from.push_str("\nINNER JOIN project_note pn ON n.id = pn.note_id");
@@ -646,21 +667,19 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             (
                 "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at",
                 from,
-                "(n.title LIKE ? OR n.content LIKE ?)",
                 "n.",
             )
         } else {
-            // No joins, simple query
+            // No filters, simple FTS5 join - use explicit table prefix
             (
-                "id, title, content, tags, note_type, created_at, updated_at",
-                "FROM note".to_string(),
-                "(title LIKE ? OR content LIKE ?)",
-                "",
+                "note.id, note.title, note.content, note.tags, note.note_type, note.created_at, note.updated_at",
+                "FROM note INNER JOIN note_fts ON note.rowid = note_fts.rowid".to_string(),
+                "note.",
             )
         };
 
-        // Build WHERE clause with search condition first
-        where_conditions.insert(0, search_condition.to_string());
+        // FTS5 MATCH condition - searches across title, content, and tags
+        where_conditions.insert(0, "note_fts MATCH ?".to_string());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
         // Build ORDER BY with proper prefixes
@@ -693,7 +712,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 from_clause, where_clause
             )
         } else {
-            format!("SELECT COUNT(*) FROM note {}", where_clause)
+            format!("SELECT COUNT(*) {} {}", from_clause, where_clause)
         };
 
         // Get paginated results
