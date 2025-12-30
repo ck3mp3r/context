@@ -209,6 +209,7 @@ pub mod tasks {
         sort: Option<&str>,
         order: Option<&str>,
         parent_id: Option<&str>,
+        task_type: Option<&str>,
     ) -> Result<Paginated<Task>> {
         let mut url = format!("{}/task-lists/{}/tasks", API_BASE, list_id);
         let mut query_params = vec![];
@@ -230,6 +231,9 @@ pub mod tasks {
         }
         if let Some(p) = parent_id {
             query_params.push(format!("parent_id={}", p));
+        }
+        if let Some(t) = task_type {
+            query_params.push(format!("type={}", t));
         }
 
         if !query_params.is_empty() {

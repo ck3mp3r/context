@@ -52,6 +52,7 @@ pub fn KanbanColumn(
                 Some(sort_field),
                 Some(sort_order),
                 None,
+                Some("task"), // Only show top-level tasks, not subtasks
             )
             .await;
             if let Ok(paginated) = result {
@@ -75,6 +76,7 @@ pub fn KanbanColumn(
                 Some(sort_field),
                 Some(sort_order),
                 None,
+                Some("task"), // Only show top-level tasks, not subtasks
             )
             .await;
             if let Ok(paginated) = result {
@@ -283,6 +285,7 @@ pub fn TaskCard(
                 None,           // sort
                 None,           // order
                 Some(&task_id), // parent_id filter
+                None,           // task_type - we want subtasks here
             )
             .await
             {
@@ -435,6 +438,7 @@ pub fn SubtaskList(
                 Some("priority"), // sort by priority
                 Some("asc"),      // ascending
                 Some(&task_id),   // parent_id filter
+                None,             // task_type - we want subtasks here
             )
             .await
             {
@@ -585,6 +589,7 @@ pub fn TaskDetailContent(
                 Some("priority"),
                 Some("asc"),
                 Some(&task_id),
+                None, // task_type - we want subtasks here
             )
             .await
             {
