@@ -202,6 +202,7 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
         parent_id: query.parent_id.clone(),
         status: query.status.clone(),
         tags: None,
+        task_type: None,
     };
 
     let result = state

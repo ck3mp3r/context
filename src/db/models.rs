@@ -92,6 +92,9 @@ pub struct TaskQuery {
     pub status: Option<String>,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by task type: "task" (parent_id IS NULL) or "subtask" (parent_id IS NOT NULL).
+    /// Omit to return both tasks and subtasks.
+    pub task_type: Option<String>,
 }
 
 /// Query for Notes - pagination + tags/project filters.

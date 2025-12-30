@@ -103,6 +103,15 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             bind_values.push(parent_id.clone());
         }
 
+        // Filter by task type: "task" (parent_id IS NULL) or "subtask" (parent_id IS NOT NULL)
+        if let Some(task_type) = &query.task_type {
+            match task_type.as_str() {
+                "task" => conditions.push("parent_id IS NULL".to_string()),
+                "subtask" => conditions.push("parent_id IS NOT NULL".to_string()),
+                _ => {} // Ignore invalid values
+            }
+        }
+
         if let Some(status) = &query.status {
             // Handle multiple statuses (comma-separated OR logic)
             let statuses: Vec<&str> = status.split(',').map(|s| s.trim()).collect();

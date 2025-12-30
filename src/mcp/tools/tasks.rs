@@ -149,6 +149,7 @@ impl<D: Database + 'static> TaskTools<D> {
             status: status_str,
             parent_id: params.0.parent_id.clone(),
             tags: params.0.tags.clone(),
+            task_type: None,
         };
 
         let result = self

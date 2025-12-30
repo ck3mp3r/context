@@ -1186,3 +1186,204 @@ async fn cascade_works_with_standalone_parent() {
         "Standalone parent should be done"
     );
 }
+
+// ============================================================================
+// task_type Filter Tests
+// ============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_task_returns_only_parents() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0001", "Type Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 2 parents + 3 subtasks, all done
+    let mut parent1 = make_task("partyp01", "type0001", "Parent 1");
+    parent1.status = TaskStatus::Done;
+    tasks.create(&parent1).await.expect("Create parent1");
+
+    let mut parent2 = make_task("partyp02", "type0001", "Parent 2");
+    parent2.status = TaskStatus::Done;
+    tasks.create(&parent2).await.expect("Create parent2");
+
+    let mut subtask1 = make_task("subtyp01", "type0001", "Subtask 1");
+    subtask1.parent_id = Some("partyp01".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    let mut subtask2 = make_task("subtyp02", "type0001", "Subtask 2");
+    subtask2.parent_id = Some("partyp01".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks.create(&subtask2).await.expect("Create subtask2");
+
+    let mut subtask3 = make_task("subtyp03", "type0001", "Subtask 3");
+    subtask3.parent_id = Some("partyp02".to_string());
+    subtask3.status = TaskStatus::Done;
+    tasks.create(&subtask3).await.expect("Create subtask3");
+
+    // Query with type=task
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0001".to_string()),
+        parent_id: None,
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: Some("task".to_string()),
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: Only 2 parents returned, no subtasks
+    assert_eq!(result.total, 2, "Should return only 2 parent tasks");
+    assert_eq!(result.items.len(), 2, "Should have 2 items");
+
+    let ids: Vec<&str> = result.items.iter().map(|t| t.id.as_str()).collect();
+    assert!(ids.contains(&"partyp01"), "Should include partyp01");
+    assert!(ids.contains(&"partyp02"), "Should include partyp02");
+    assert!(!ids.contains(&"subtyp01"), "Should NOT include subtyp01");
+    assert!(!ids.contains(&"subtyp02"), "Should NOT include subtyp02");
+    assert!(!ids.contains(&"subtyp03"), "Should NOT include subtyp03");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_subtask_returns_only_subtasks() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0002", "Subtask Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 1 parent + 2 subtasks
+    let mut parent = make_task("partyp03", "type0002", "Parent");
+    parent.status = TaskStatus::Done;
+    tasks.create(&parent).await.expect("Create parent");
+
+    let mut subtask1 = make_task("subtyp04", "type0002", "Subtask 1");
+    subtask1.parent_id = Some("partyp03".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    let mut subtask2 = make_task("subtyp05", "type0002", "Subtask 2");
+    subtask2.parent_id = Some("partyp03".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks.create(&subtask2).await.expect("Create subtask2");
+
+    // Query with type=subtask
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0002".to_string()),
+        parent_id: None,
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: Some("subtask".to_string()),
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: Only 2 subtasks returned, no parent
+    assert_eq!(result.total, 2, "Should return only 2 subtasks");
+    assert_eq!(result.items.len(), 2, "Should have 2 items");
+
+    let ids: Vec<&str> = result.items.iter().map(|t| t.id.as_str()).collect();
+    assert!(ids.contains(&"subtyp04"), "Should include subtyp04");
+    assert!(ids.contains(&"subtyp05"), "Should include subtyp05");
+    assert!(!ids.contains(&"partyp03"), "Should NOT include partyp03");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_omitted_returns_all() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0003", "Omitted Type Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 1 parent + 1 subtask
+    let mut parent = make_task("partyp04", "type0003", "Parent");
+    parent.status = TaskStatus::Done;
+    tasks.create(&parent).await.expect("Create parent");
+
+    let mut subtask = make_task("subtyp06", "type0003", "Subtask");
+    subtask.parent_id = Some("partyp04".to_string());
+    subtask.status = TaskStatus::Done;
+    tasks.create(&subtask).await.expect("Create subtask");
+
+    // Query with type omitted (None)
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0003".to_string()),
+        parent_id: None,
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: None,
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: All tasks returned (backward compatibility)
+    assert_eq!(
+        result.total, 2,
+        "Should return all 2 tasks (backward compat)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_works_with_parent_id_filter() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0004", "Combined Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent with subtasks
+    let mut parent = make_task("partyp05", "type0004", "Parent");
+    parent.status = TaskStatus::Done;
+    tasks.create(&parent).await.expect("Create parent");
+
+    let mut subtask1 = make_task("subtyp07", "type0004", "Subtask 1");
+    subtask1.parent_id = Some("partyp05".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    let mut subtask2 = make_task("subtyp08", "type0004", "Subtask 2");
+    subtask2.parent_id = Some("partyp05".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks.create(&subtask2).await.expect("Create subtask2");
+
+    // Query: parent_id=partyp05 AND type=subtask
+    // This is valid! We want subtasks of specific parent
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0004".to_string()),
+        parent_id: Some("partyp05".to_string()),
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: Some("subtask".to_string()),
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: Both filters applied (parent_id AND type=subtask)
+    assert_eq!(
+        result.total, 2,
+        "Should return 2 subtasks of specific parent"
+    );
+}
