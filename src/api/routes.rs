@@ -190,7 +190,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
     });
 
     let mut router = system_routes
-        .merge(v1_routes)
+        .nest("/api/v1", v1_routes)
         .nest_service("/mcp", mcp_service); // MCP server endpoint
 
     // Conditionally add OpenAPI docs endpoint
