@@ -9,7 +9,8 @@ pub struct Task {
     pub id: String,
     pub list_id: String,
     pub parent_id: Option<String>,
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     pub status: String,
     pub priority: Option<i32>,
     pub tags: Option<Vec<String>>,
@@ -20,7 +21,9 @@ pub struct Task {
 
 #[derive(Debug, Serialize)]
 struct CreateTaskRequest {
-    content: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -30,7 +33,9 @@ struct CreateTaskRequest {
 #[derive(Debug, Serialize)]
 struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,8 +48,8 @@ struct UpdateTaskRequest {
 struct TaskDisplay {
     #[tabled(rename = "ID")]
     id: String,
-    #[tabled(rename = "Content")]
-    content: String,
+    #[tabled(rename = "Title")]
+    title: String,
     #[tabled(rename = "Status")]
     status: String,
     #[tabled(rename = "Priority")]
@@ -55,7 +60,7 @@ impl From<&Task> for TaskDisplay {
     fn from(task: &Task) -> Self {
         Self {
             id: task.id.clone(),
-            content: truncate_with_ellipsis(&task.content, 50),
+            title: truncate_with_ellipsis(&task.title, 50),
             status: task.status.clone(),
             priority: task
                 .priority
@@ -166,7 +171,10 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
             builder.push_record(["Field", "Value"]);
             builder.push_record(["ID", &task.id]);
             builder.push_record(["List ID", &task.list_id]);
-            builder.push_record(["Content", &task.content]);
+            builder.push_record(["Title", &task.title]);
+            if let Some(desc) = &task.description {
+                builder.push_record(["Description", desc]);
+            }
             builder.push_record(["Status", &task.status]);
             builder.push_record([
                 "Priority",
@@ -191,12 +199,14 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
 pub async fn create_task(
     api_client: &ApiClient,
     list_id: &str,
-    content: &str,
+    title: &str,
+    description: Option<&str>,
     priority: Option<i32>,
     tags: Option<&str>,
 ) -> CliResult<String> {
     let request_body = CreateTaskRequest {
-        content: content.to_string(),
+        title: title.to_string(),
+        description: description.map(|s| s.to_string()),
         priority,
         tags: parse_tags(tags),
     };
@@ -208,20 +218,22 @@ pub async fn create_task(
         .await?;
 
     let task: Task = ApiClient::handle_response(response).await?;
-    Ok(format!("✓ Created task: {} ({})", task.content, task.id))
+    Ok(format!("✓ Created task: {} ({})", task.title, task.id))
 }
 
 /// Update a task
 pub async fn update_task(
     api_client: &ApiClient,
     id: &str,
-    content: Option<&str>,
+    title: Option<&str>,
+    description: Option<&str>,
     status: Option<&str>,
     priority: Option<i32>,
     tags: Option<&str>,
 ) -> CliResult<String> {
     let request_body = UpdateTaskRequest {
-        content: content.map(|s| s.to_string()),
+        title: title.map(|s| s.to_string()),
+        description: description.map(|s| s.to_string()),
         status: status.map(|s| s.to_string()),
         priority,
         tags: parse_tags(tags),
@@ -234,7 +246,7 @@ pub async fn update_task(
         .await?;
 
     let task: Task = ApiClient::handle_response(response).await?;
-    Ok(format!("✓ Updated task: {} ({})", task.content, task.id))
+    Ok(format!("✓ Updated task: {} ({})", task.title, task.id))
 }
 
 /// Delete a task (requires --force flag for safety)
@@ -279,7 +291,8 @@ mod tests {
             id: "12345678".to_string(),
             list_id: "list1234".to_string(),
             parent_id: None,
-            content: "Test task 1".to_string(),
+            title: "Test task 1".to_string(),
+            description: None,
             status: "todo".to_string(),
             priority: Some(1),
             tags: None,
@@ -300,7 +313,8 @@ mod tests {
                 id: "12345678abcd".to_string(),
                 list_id: "list1234".to_string(),
                 parent_id: None,
-                content: "Test task 1".to_string(),
+                title: "Test task 1".to_string(),
+                description: None,
                 status: "todo".to_string(),
                 priority: Some(1),
                 tags: None,
@@ -312,8 +326,8 @@ mod tests {
                 id: "87654321efgh".to_string(),
                 list_id: "list1234".to_string(),
                 parent_id: None,
-                content: "Test task 2 with a very long content that should be truncated"
-                    .to_string(),
+                title: "Test task 2 with a very long title that should be truncated".to_string(),
+                description: None,
                 status: "done".to_string(),
                 priority: None,
                 tags: None,
@@ -353,7 +367,8 @@ mod tests {
             id: "12345678".to_string(), // IDs are always 8 chars
             list_id: "list1234".to_string(),
             parent_id: None,
-            content: "short".to_string(),
+            title: "short".to_string(),
+            description: None,
             status: "todo".to_string(),
             priority: Some(5),
             tags: None,
@@ -364,14 +379,15 @@ mod tests {
 
         let display: TaskDisplay = (&task).into();
         assert_eq!(display.id, "12345678");
-        assert_eq!(display.content, "short");
+        assert_eq!(display.title, "short");
         assert_eq!(display.priority, "5");
 
         let task_none = Task {
             id: "abc12345".to_string(), // IDs are always 8 chars
             list_id: "list1234".to_string(),
             parent_id: None,
-            content: "x".repeat(60),
+            title: "x".repeat(60),
+            description: None,
             status: "done".to_string(),
             priority: None,
             tags: None,
@@ -382,7 +398,7 @@ mod tests {
 
         let display_none: TaskDisplay = (&task_none).into();
         assert_eq!(display_none.id, "abc12345");
-        assert!(display_none.content.ends_with("..."));
+        assert!(display_none.title.ends_with("..."));
         assert_eq!(display_none.priority, "-");
     }
 
@@ -434,13 +450,15 @@ mod tests {
     #[test]
     fn test_create_request_serialization() {
         let req = CreateTaskRequest {
-            content: "Test task".to_string(),
+            title: "Test task".to_string(),
+            description: Some("Test description".to_string()),
             priority: Some(3),
             tags: Some(vec!["urgent".to_string()]),
         };
 
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("Test task"));
+        assert!(json.contains("Test description"));
         assert!(json.contains("3"));
         assert!(json.contains("urgent"));
     }
@@ -448,14 +466,16 @@ mod tests {
     #[test]
     fn test_update_request_serialization() {
         let req = UpdateTaskRequest {
-            content: Some("Updated content".to_string()),
+            title: Some("Updated title".to_string()),
+            description: Some("Updated description".to_string()),
             status: Some("in_progress".to_string()),
             priority: Some(2),
             tags: Some(vec!["important".to_string()]),
         };
 
         let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("Updated content"));
+        assert!(json.contains("Updated title"));
+        assert!(json.contains("Updated description"));
         assert!(json.contains("in_progress"));
         assert!(json.contains("2"));
         assert!(json.contains("important"));
@@ -467,7 +487,8 @@ mod tests {
             id: "abc12345".to_string(),
             list_id: "list1234".to_string(),
             parent_id: Some("parent12".to_string()),
-            content: "Full task".to_string(),
+            title: "Full task".to_string(),
+            description: Some("Full description".to_string()),
             status: "in_progress".to_string(),
             priority: Some(1),
             tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
@@ -478,6 +499,8 @@ mod tests {
 
         assert_eq!(task.id, "abc12345");
         assert_eq!(task.list_id, "list1234");
+        assert_eq!(task.title, "Full task");
+        assert_eq!(task.description, Some("Full description".to_string()));
         assert_eq!(task.priority, Some(1));
         assert_eq!(
             task.tags,
