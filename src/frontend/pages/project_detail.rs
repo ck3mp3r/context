@@ -19,9 +19,10 @@ pub fn ProjectDetail() -> impl IntoView {
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
 
     // Search/filter state for each tab
-    let task_list_filter = RwSignal::new(String::new());
-    let note_filter = RwSignal::new(String::new());
-    let repo_filter = RwSignal::new(String::new());
+    let task_list_filter = RwSignal::new(String::new()); // TODO: Add debouncing
+    let note_filter_input = RwSignal::new(String::new()); // Raw input
+    let note_filter = RwSignal::new(String::new()); // Debounced (uses backend FTS5 API)
+    let repo_filter = RwSignal::new(String::new()); // TODO: Add debouncing
 
     // Pagination state for task lists
     let (task_list_page, set_task_list_page) = signal(0usize);
@@ -49,6 +50,24 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
+    // Debounce search inputs (300ms delay)
+    Effect::new(move || {
+        let input = note_filter_input.get();
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::prelude::*;
+        let callback = Closure::once(move || {
+            note_filter.set(input.clone());
+        });
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                300,
+            )
+            .unwrap();
+        callback.forget();
+    });
+
     // Reset pagination when archived toggle changes
     Effect::new(move || {
         show_archived_task_lists.get();
@@ -72,12 +91,18 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Fetch notes for this project
+    // Fetch notes for this project (with FTS5 search support)
     Effect::new(move || {
         let id = project_id();
+        let search = note_filter.get();
         if !id.is_empty() {
             spawn_local(async move {
-                let result = notes::list(Some(12), None, None, Some(id)).await;
+                let search_query = if search.trim().is_empty() {
+                    None
+                } else {
+                    Some(search)
+                };
+                let result = notes::list(Some(50), None, search_query, Some(id)).await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -346,20 +371,23 @@ pub fn ProjectDetail() -> impl IntoView {
                                                     <div class="mb-4 relative">
                                                         <input
                                                             type="text"
-                                                            placeholder="Filter notes..."
-                                                            prop:value=move || note_filter.get()
+                                                            placeholder="Search notes..."
+                                                            prop:value=move || note_filter_input.get()
                                                             on:input=move |ev| {
-                                                                note_filter.set(event_target_value(&ev));
+                                                                note_filter_input.set(event_target_value(&ev));
                                                             }
 
-                                                            class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                            class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue"
                                                         />
                                                         {move || {
-                                                            if !note_filter.get().is_empty() {
+                                                            if !note_filter_input.get().is_empty() {
                                                                 Some(
                                                                     view! {
                                                                         <button
-                                                                            on:click=move |_| note_filter.set(String::new())
+                                                                            on:click=move |_| {
+                                                                                note_filter_input.set(String::new());
+                                                                                note_filter.set(String::new());
+                                                                            }
                                                                             class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
                                                                         >
                                                                             "×"
@@ -378,28 +406,20 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }.into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
-                                                            let search = note_filter.get().to_lowercase();
-                                                            let filtered: Vec<Note> = paginated
-                                                                .items
-                                                                .iter()
-                                                                .filter(|note| {
-                                                                    search.is_empty()
-                                                                        || note.title.to_lowercase().contains(&search)
-                                                                })
-                                                                .cloned()
-                                                                .collect();
-                                                            if filtered.is_empty() {
-                                                                view! { <p class="text-ctp-subtext0">"No notes linked to this project"</p> }
+                                                            // Backend already filtered with FTS5, just display results
+                                                            if paginated.items.is_empty() {
+                                                                view! { <p class="text-ctp-subtext0">"No notes found"</p> }
                                                                     .into_any()
                                                             } else {
                                                                 view! {
                                                                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
-                                                                        {filtered
-                                                                            .into_iter()
+                                                                        {paginated
+                                                                            .items
+                                                                            .iter()
                                                                             .map(|note| {
                                                                                 view! {
                                                                                      <NoteCard
-                                                                                        note=note
+                                                                                        note=note.clone()
                                                                                         on_click=Callback::new(move |note_id: String| {
                                                                                             selected_note_id.set(note_id);
                                                                                             note_modal_open.set(true);

@@ -19,12 +19,36 @@ fn NotesList() -> impl IntoView {
 
     // State management
     let (page, set_page) = signal(0usize);
-    let (search_query, set_search_query) = signal(String::new());
+    let (search_input, set_search_input) = signal(String::new()); // Raw input
+    let (search_query, set_search_query) = signal(String::new()); // Debounced search
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
     // Note detail modal state
     let note_modal_open = RwSignal::new(false);
     let selected_note_id = RwSignal::new(String::new());
+
+    // Debounce search input - only trigger API call after 300ms of no typing
+    Effect::new(move || {
+        let input = search_input.get();
+
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::prelude::*;
+
+        let callback = Closure::once(move || {
+            set_search_query.set(input.clone());
+            set_page.set(0); // Reset to first page on new search
+        });
+
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                300,
+            )
+            .unwrap();
+
+        callback.forget();
+    });
 
     // Use Effect to fetch when dependencies change
     Effect::new(move || {
@@ -68,11 +92,10 @@ fn NotesList() -> impl IntoView {
         });
     });
 
-    // Handle search input change
+    // Handle search input change (just update the input, debouncing handles the rest)
     let on_search = move |ev: web_sys::Event| {
         let value = event_target_value(&ev);
-        set_search_query.set(value);
-        set_page.set(0); // Reset to first page on new search
+        set_search_input.set(value);
     };
 
     // Pagination handlers
@@ -90,8 +113,8 @@ fn NotesList() -> impl IntoView {
             <div class="mb-6">
                 <input
                     type="text"
-                    placeholder="Search notes (FTS5)..."
-                    value=move || search_query.get()
+                    placeholder="Search notes..."
+                    value=move || search_input.get()
                     on:input=on_search
                     class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue"
                 />
