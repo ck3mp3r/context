@@ -121,14 +121,7 @@ pub fn KanbanColumn(
             <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center flex-shrink-0">
                 <span>{label}</span>
                 <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
-                    {move || {
-                        let displayed = tasks.get().len();
-                        if displayed < total_count {
-                            format!("{} of {}", displayed, total_count)
-                        } else {
-                            format!("{}", total_count)
-                        }
-                    }}
+                    {total_count}
                 </span>
             </h3>
             <div
@@ -136,11 +129,39 @@ pub fn KanbanColumn(
                 on:scroll=on_scroll
                 class="space-y-2 overflow-y-auto flex-1 min-h-0"
             >
-                {move || tasks.get()
-                    .into_iter()
-                    .filter(|task| task.parent_id.is_none())
-                    .map(|task| {
-                        view! {
+                {move || {
+                    let all_tasks = tasks.get();
+
+                    // 1. Separate parents and subtasks
+                    let parent_tasks: Vec<Task> = all_tasks
+                        .iter()
+                        .filter(|t| t.parent_id.is_none())
+                        .cloned()
+                        .collect();
+
+                    let parent_ids: std::collections::HashSet<String> = parent_tasks
+                        .iter()
+                        .map(|p| p.id.clone())
+                        .collect();
+
+                    // 2. Find orphaned subtasks (parent NOT in this column)
+                    let orphaned_subtasks: Vec<Task> = all_tasks
+                        .iter()
+                        .filter(|t| {
+                            if let Some(parent_id) = &t.parent_id {
+                                !parent_ids.contains(parent_id)
+                            } else {
+                                false
+                            }
+                        })
+                        .cloned()
+                        .collect();
+
+                    // 3. Render parent tasks
+                    let mut all_views = Vec::new();
+
+                    for task in parent_tasks {
+                        all_views.push(view! {
                             <TaskCard
                                 task=task
                                 show_subtasks_inline=true
@@ -170,9 +191,27 @@ pub fn KanbanColumn(
                                     }
                                 })
                             />
-                        }
-                    })
-                    .collect::<Vec<_>>()}
+                        }.into_any());
+                    }
+
+                    // 4. Render orphaned subtasks
+                    for task in orphaned_subtasks {
+                        let parent_id = task.parent_id.clone().unwrap_or_default();
+                        all_views.push(view! {
+                            <OrphanedSubtaskCard
+                                task=task
+                                parent_id=parent_id
+                                on_click=Callback::new(move |t: Task| {
+                                    set_selected_task.set(Some(t.clone()));
+                                    set_initial_open_subtask.set(None);
+                                    dialog_open.set(true);
+                                })
+                            />
+                        }.into_any());
+                    }
+
+                    all_views
+                }}
 
                 {move || {
                     loading.get().then(|| {
@@ -447,6 +486,78 @@ pub fn SubtaskList(
                     }
                 }
             }}
+        </div>
+    }
+}
+
+/// OrphanedSubtaskCard component - displays a subtask whose parent is in a different status column
+/// Shows "↳ Subtask of: [parent_id]" indicator to help user understand the relationship
+#[component]
+pub fn OrphanedSubtaskCard(
+    task: Task,
+    #[prop(into)] parent_id: String,
+    #[prop(optional)] on_click: Option<Callback<Task>>,
+) -> impl IntoView {
+    let priority_color = match task.priority {
+        Some(1) => "border-l-ctp-red",
+        Some(2) => "border-l-ctp-peach",
+        Some(3) => "border-l-ctp-yellow",
+        Some(4) => "border-l-ctp-blue",
+        Some(5) => "border-l-ctp-overlay0",
+        _ => "border-l-ctp-surface1",
+    };
+
+    let task_for_click = task.clone();
+    let handle_card_click = move |_| {
+        if let Some(callback) = on_click {
+            callback.run(task_for_click.clone());
+        }
+    };
+
+    view! {
+        <div
+            class=format!(
+                "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer opacity-80",
+                priority_color
+            )
+            on:click=handle_card_click
+        >
+            // Orphaned subtask indicator
+            <div class="flex items-center gap-1 mb-2 text-xs text-ctp-overlay1">
+                <span>"↳ Subtask of:"</span>
+                <CopyableId id=parent_id />
+            </div>
+
+            <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
+
+            {(!task.tags.is_empty())
+                .then(|| {
+                    view! {
+                        <div class="flex flex-wrap gap-1 mt-2">
+                            {task
+                                .tags
+                                .iter()
+                                .map(|tag| {
+                                    view! {
+                                        <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
+                                            {tag.clone()}
+                                        </span>
+                                    }
+                                })
+                                .collect::<Vec<_>>()}
+                        </div>
+                    }
+                })}
+
+            <div class="flex items-center gap-2 mt-2">
+                {task
+                    .priority
+                    .map(|p| {
+                        view! {
+                            <div class="text-xs text-ctp-overlay0">"P" {p}</div>
+                        }
+                    })}
+            </div>
         </div>
     }
 }

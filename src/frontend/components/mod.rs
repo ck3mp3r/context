@@ -3,5 +3,5 @@ pub mod task_components;
 pub mod ui_components;
 
 pub use note_components::{NoteCard, NoteDetailModal};
-pub use task_components::{TaskListCard, TaskListDetailModal};
+pub use task_components::{OrphanedSubtaskCard, TaskListCard, TaskListDetailModal};
 pub use ui_components::{CopyableId, Pagination};
