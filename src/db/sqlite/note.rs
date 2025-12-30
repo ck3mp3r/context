@@ -618,25 +618,52 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
         let needs_project_join = query.project_id.is_some();
 
-        // Prepare FTS5 search query
-        // If the search term contains FTS5 operators (AND, OR, NOT, quotes), use it as-is
-        // Otherwise, add prefix matching (*) to each term for better user experience
-        let fts_query = if search_term.contains(" AND ")
-            || search_term.contains(" OR ")
-            || search_term.contains(" NOT ")
-            || search_term.contains('"')
-            || search_term.contains('*')
-        {
-            // User is using advanced FTS5 syntax, don't modify
-            search_term.to_string()
-        } else {
-            // Simple search - add prefix matching to support partial word matches
-            // Split on whitespace and add * to each term
-            search_term
-                .split_whitespace()
-                .map(|term| format!("{}*", term))
-                .collect::<Vec<_>>()
-                .join(" ")
+        // Sanitize FTS5 search query to prevent syntax errors
+        // FTS5 has strict bareword requirements - only allows: A-Z, a-z, 0-9, _, non-ASCII
+        // Strategy: Strip dangerous chars, balance quotes, preserve Boolean ops, add prefix matching
+        let fts_query = {
+            // Step 1: Strip FTS5-dangerous special characters
+            // These cause syntax errors in FTS5 barewords
+            // Replace with spaces to prevent word concatenation
+            let cleaned = search_term.replace(['{', '}', '[', ']', '(', ')', '<', '>'], " ");
+
+            // Step 2: Handle unbalanced quotes
+            // FTS5 requires balanced quotes for phrase searches
+            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
+            let cleaned = if quote_count % 2 == 0 {
+                cleaned // Balanced - preserve phrase search capability
+            } else {
+                cleaned.replace('"', "") // Unbalanced - strip all quotes
+            };
+
+            // Step 3: Handle empty/whitespace-only queries
+            if cleaned.trim().is_empty() {
+                return Ok(ListResult {
+                    items: vec![],
+                    total: 0,
+                    limit: query.page.limit,
+                    offset: query.page.offset.unwrap_or(0),
+                });
+            }
+
+            // Step 4: Detect advanced search features
+            let has_boolean =
+                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
+            let has_phrase = cleaned.contains('"');
+
+            // Step 5: Apply query transformation
+            if has_boolean || has_phrase {
+                // Advanced mode - preserve operators and phrases
+                cleaned
+            } else {
+                // Simple mode - add prefix matching for fuzzy search
+                cleaned
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|term| format!("{}*", term))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
         };
 
         let mut bind_values: Vec<String> = vec![fts_query];

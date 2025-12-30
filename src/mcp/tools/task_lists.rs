@@ -48,19 +48,27 @@ pub struct GetTaskListParams {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskListParams {
-    #[schemars(description = "TaskList name")]
+    #[schemars(
+        description = "Task list name (e.g., 'Phase 2 Implementation', 'Bug Fixes Sprint 12')"
+    )]
     pub name: String,
-    #[schemars(description = "TaskList description (optional)")]
+    #[schemars(description = "Brief description of this workstream (optional)")]
     pub description: Option<String>,
-    #[schemars(description = "Notes for this task list (optional)")]
+    #[schemars(description = "Additional notes or context (optional)")]
     pub notes: Option<String>,
-    #[schemars(description = "Tags for organization (optional)")]
+    #[schemars(
+        description = "Tags for categorization (e.g., 'sprint-12', 'critical', 'backend') (optional)"
+    )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "External reference (e.g., Jira ticket) (optional)")]
+    #[schemars(
+        description = "External reference like Jira/GitHub issue (e.g., 'PROJ-123') (optional)"
+    )]
     pub external_ref: Option<String>,
-    #[schemars(description = "Repository IDs to link (optional)")]
+    #[schemars(description = "Repository IDs related to this workstream (optional)")]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(description = "Project ID this task list belongs to (REQUIRED)")]
+    #[schemars(
+        description = "Project ID this list belongs to (REQUIRED - ask user if unclear). Use list_projects to find available projects."
+    )]
     pub project_id: String,
 }
 
@@ -122,7 +130,9 @@ impl<D: Database + 'static> TaskListTools<D> {
         &self.tool_router
     }
 
-    #[tool(description = "List all task lists with optional filtering")]
+    #[tool(
+        description = "List task lists with filtering by project, status, or tags. Use this to find existing lists before creating new ones."
+    )]
     pub async fn list_task_lists(
         &self,
         params: Parameters<ListTaskListsParams>,
@@ -175,7 +185,9 @@ impl<D: Database + 'static> TaskListTools<D> {
         Ok(CallToolResult::success(vec![Content::text(content)]))
     }
 
-    #[tool(description = "Get a task list by ID")]
+    #[tool(
+        description = "Get a task list by ID with full details including metadata and relationships."
+    )]
     pub async fn get_task_list(
         &self,
         params: Parameters<GetTaskListParams>,
@@ -195,7 +207,9 @@ impl<D: Database + 'static> TaskListTools<D> {
         Ok(CallToolResult::success(vec![Content::text(content)]))
     }
 
-    #[tool(description = "Create a new task list")]
+    #[tool(
+        description = "Create a new task list. IMPORTANT: Only create when starting a NEW workstream/project/feature. Most work should be added as tasks to existing lists. MUST specify project_id - ask user which project if unclear. Task lists group related work, not individual tasks."
+    )]
     pub async fn create_task_list(
         &self,
         params: Parameters<CreateTaskListParams>,
@@ -230,7 +244,9 @@ impl<D: Database + 'static> TaskListTools<D> {
         Ok(CallToolResult::success(vec![Content::text(content)]))
     }
 
-    #[tool(description = "Update an existing task list")]
+    #[tool(
+        description = "Update task list metadata (name, description, status, etc). Use update_task for task-level changes. Archive completed lists with status='archived' instead of deleting."
+    )]
     pub async fn update_task_list(
         &self,
         params: Parameters<UpdateTaskListParams>,
@@ -299,7 +315,9 @@ impl<D: Database + 'static> TaskListTools<D> {
         Ok(CallToolResult::success(vec![Content::text(content)]))
     }
 
-    #[tool(description = "Delete a task list")]
+    #[tool(
+        description = "Delete a task list permanently. RARELY needed - use update_task_list with status='archived' instead to preserve history."
+    )]
     pub async fn delete_task_list(
         &self,
         params: Parameters<DeleteTaskListParams>,
@@ -329,7 +347,9 @@ impl<D: Database + 'static> TaskListTools<D> {
         Ok(CallToolResult::success(vec![Content::text(content)]))
     }
 
-    #[tool(description = "Get task statistics for a task list")]
+    #[tool(
+        description = "Get task statistics for a task list (counts by status: backlog, todo, in_progress, review, done, cancelled). Use to track progress."
+    )]
     pub async fn get_task_list_stats(
         &self,
         params: Parameters<GetTaskListStatsParams>,

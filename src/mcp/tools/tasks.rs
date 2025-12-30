@@ -24,12 +24,14 @@ pub struct ListTasksParams {
     #[schemars(description = "TaskList ID to list tasks from")]
     pub list_id: String,
     #[schemars(
-        description = "Filter by status (backlog, todo, in_progress, review, done, cancelled) - comma-separated"
+        description = "Filter by status: ['backlog'], ['todo'], ['in_progress'], ['review'], ['done'], ['cancelled']. Can combine: ['todo', 'in_progress'] for active tasks."
     )]
     pub status: Option<Vec<String>>,
-    #[schemars(description = "Filter by parent task ID (for subtasks)")]
+    #[schemars(
+        description = "Filter by parent task ID to list only subtasks of a specific task. Use null/omit to list only top-level tasks."
+    )]
     pub parent_id: Option<String>,
-    #[schemars(description = "Filter by tags - comma-separated")]
+    #[schemars(description = "Filter by tags to find tasks with specific labels.")]
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Maximum number of tasks to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
@@ -43,17 +45,25 @@ pub struct GetTaskParams {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskParams {
-    #[schemars(description = "TaskList ID this task belongs to")]
+    #[schemars(
+        description = "Task list ID this task belongs to. Use list_task_lists to find existing lists."
+    )]
     pub list_id: String,
-    #[schemars(description = "Task content/description")]
+    #[schemars(description = "Task description (what needs to be done)")]
     pub content: String,
-    #[schemars(description = "Task status (defaults to backlog)")]
+    #[schemars(
+        description = "Status: 'backlog' (default), 'todo', 'in_progress', 'review', 'done', 'cancelled'"
+    )]
     pub status: Option<String>,
-    #[schemars(description = "Priority level (1-5, where 1 is highest)")]
+    #[schemars(description = "Priority: 1 (highest/urgent) to 5 (lowest/nice-to-have). Optional.")]
     pub priority: Option<i32>,
-    #[schemars(description = "Parent task ID (for subtasks)")]
+    #[schemars(
+        description = "Parent task ID for subtasks. BEST PRACTICE: Only ONE level deep (subtasks should not have subtasks). Optional."
+    )]
     pub parent_id: Option<String>,
-    #[schemars(description = "Tags for organization (optional)")]
+    #[schemars(
+        description = "Tags for categorization (e.g., 'bug', 'frontend', 'critical'). Optional."
+    )]
     pub tags: Option<Vec<String>>,
 }
 
@@ -61,15 +71,19 @@ pub struct CreateTaskParams {
 pub struct UpdateTaskParams {
     #[schemars(description = "Task ID to update")]
     pub task_id: String,
-    #[schemars(description = "Task content/description (optional)")]
+    #[schemars(description = "Task description (optional)")]
     pub content: Option<String>,
-    #[schemars(description = "Task status (optional)")]
+    #[schemars(
+        description = "Status: 'backlog', 'todo', 'in_progress' (sets started_at), 'review', 'done' (sets completed_at), 'cancelled' (optional)"
+    )]
     pub status: Option<String>,
-    #[schemars(description = "Priority level (1-5) (optional)")]
+    #[schemars(description = "Priority: 1 (highest) to 5 (lowest) (optional)")]
     pub priority: Option<i32>,
-    #[schemars(description = "Tags for organization (optional)")]
+    #[schemars(description = "Tags (optional). Replaces all existing tags when provided.")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Move task to a different list (optional)")]
+    #[schemars(
+        description = "Move task to different list (optional). Use sparingly - tasks should stay in their original list."
+    )]
     pub list_id: Option<String>,
 }
 
@@ -109,7 +123,9 @@ impl<D: Database + 'static> TaskTools<D> {
         &self.tool_router
     }
 
-    #[tool(description = "List tasks for a task list with optional filtering")]
+    #[tool(
+        description = "List tasks in a task list. Filter by status, parent_id (for subtasks), or tags. Use this to see current work before adding new tasks."
+    )]
     pub async fn list_tasks(
         &self,
         params: Parameters<ListTasksParams>,
@@ -150,7 +166,9 @@ impl<D: Database + 'static> TaskTools<D> {
         )]))
     }
 
-    #[tool(description = "Get a task by ID")]
+    #[tool(
+        description = "Get a task by ID with full details including status, timestamps, and relationships."
+    )]
     pub async fn get_task(
         &self,
         params: Parameters<GetTaskParams>,
@@ -167,7 +185,9 @@ impl<D: Database + 'static> TaskTools<D> {
         )]))
     }
 
-    #[tool(description = "Create a new task")]
+    #[tool(
+        description = "Create a new task in a task list. For subtasks, provide parent_id (BEST PRACTICE: max ONE level deep - subtasks should NOT have their own subtasks). Default status is 'backlog'. Use create_task_list only for NEW workstreams, not individual tasks."
+    )]
     pub async fn create_task(
         &self,
         params: Parameters<CreateTaskParams>,
@@ -201,7 +221,9 @@ impl<D: Database + 'static> TaskTools<D> {
         )]))
     }
 
-    #[tool(description = "Update an existing task")]
+    #[tool(
+        description = "Update task content, status, priority, tags, or move to different list. Status changes to 'in_progress' set started_at, changes to 'done' set completed_at. All fields optional."
+    )]
     pub async fn update_task(
         &self,
         params: Parameters<UpdateTaskParams>,
@@ -249,7 +271,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Mark a task as complete (sets status to done and completed_at timestamp)"
+        description = "Mark task as complete. Shortcut for update_task with status='done'. Sets completed_at timestamp automatically."
     )]
     pub async fn complete_task(
         &self,
@@ -281,7 +303,9 @@ impl<D: Database + 'static> TaskTools<D> {
         )]))
     }
 
-    #[tool(description = "Delete a task")]
+    #[tool(
+        description = "Delete a task permanently. Consider setting status='cancelled' with update_task instead to preserve history."
+    )]
     pub async fn delete_task(
         &self,
         params: Parameters<DeleteTaskParams>,

@@ -232,6 +232,290 @@ async fn fts5_search_phrase_query_in_tags() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_unbalanced_quotes() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note("quotest1", "Test Note", "Some content here"))
+        .await
+        .unwrap();
+
+    // Search with unbalanced quote should not crash
+    let result = notes.search("\"test", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with unbalanced quote should not crash"
+    );
+
+    // Search with balanced quotes should work
+    let result = notes.search("\"test\"", None).await;
+    assert!(result.is_ok(), "Search with balanced quotes should work");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_curly_braces() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note(
+            "brace001",
+            "Rust Programming",
+            "Using async and await",
+        ))
+        .await
+        .unwrap();
+
+    // Search with curly braces should sanitize to "rust" and find the note
+    let result = notes.search("{rust}", None).await;
+    assert!(result.is_ok(), "Search with curly braces should not crash");
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "brace001"),
+        "Should find note after sanitizing curly braces"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_square_brackets() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note(
+            "brack001",
+            "Async Runtime",
+            "tokio and async-std",
+        ))
+        .await
+        .unwrap();
+
+    // Search with square brackets should sanitize to "tokio"
+    let result = notes.search("[tokio]", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with square brackets should not crash"
+    );
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "brack001"),
+        "Should find note after sanitizing square brackets"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_parentheses() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note(
+            "paren001",
+            "Async Programming",
+            "async/await patterns",
+        ))
+        .await
+        .unwrap();
+
+    // Search with parentheses should sanitize to "async"
+    let result = notes.search("(async)", None).await;
+    assert!(result.is_ok(), "Search with parentheses should not crash");
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "paren001"),
+        "Should find note after sanitizing parentheses"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_angle_brackets() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note(
+            "angle001",
+            "Generic Types",
+            "Using generic types in Rust",
+        ))
+        .await
+        .unwrap();
+
+    // Search with angle brackets should sanitize to "generic"
+    let result = notes.search("<generic>", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with angle brackets should not crash"
+    );
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "angle001"),
+        "Should find note after sanitizing angle brackets"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_mixed_special_chars() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note(
+            "mixed001",
+            "Web Development",
+            "Using rust for async web frameworks with tokio",
+        ))
+        .await
+        .unwrap();
+
+    // Search with multiple special characters should sanitize and find all terms
+    let result = notes.search("rust{async}[tokio]<web>", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with mixed special chars should not crash"
+    );
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "mixed001"),
+        "Should find note after sanitizing all special characters"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_with_special_chars() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note("bool0001", "Rust Guide", "rust programming"))
+        .await
+        .unwrap();
+    notes
+        .create(&make_note("bool0002", "Tokio Guide", "tokio runtime"))
+        .await
+        .unwrap();
+    notes
+        .create(&make_note(
+            "bool0003",
+            "Complete Guide",
+            "rust and tokio together",
+        ))
+        .await
+        .unwrap();
+
+    // Boolean query with special characters should preserve AND operator
+    let result = notes.search("rust AND {tokio}", None).await;
+    assert!(
+        result.is_ok(),
+        "Boolean query with special chars should not crash"
+    );
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "bool0003"),
+        "Should find note matching both terms with AND operator"
+    );
+    assert!(
+        !items.iter().any(|n| n.id == "bool0001"),
+        "Should not find note with only rust"
+    );
+    assert!(
+        !items.iter().any(|n| n.id == "bool0002"),
+        "Should not find note with only tokio"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_phrase_with_special_chars() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes
+    notes
+        .create(&make_note(
+            "phrase01",
+            "Framework Guide",
+            "A web framework for rust",
+        ))
+        .await
+        .unwrap();
+
+    // Phrase search with special characters should work
+    let result = notes.search("\"{web} framework\"", None).await;
+    assert!(
+        result.is_ok(),
+        "Phrase search with special chars should not crash"
+    );
+
+    let items = result.unwrap().items;
+    assert!(
+        items.iter().any(|n| n.id == "phrase01"),
+        "Should find note with phrase after sanitizing special chars"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_empty_string() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Empty search should return empty result set, not crash
+    let result = notes.search("", None).await;
+    assert!(result.is_ok(), "Empty search should not crash");
+
+    let items = result.unwrap().items;
+    assert!(items.is_empty(), "Empty search should return empty results");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_only_special_chars() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Search with only special characters should return empty result
+    let result = notes.search("{[]}", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with only special chars should not crash"
+    );
+
+    let items = result.unwrap().items;
+    assert!(
+        items.is_empty(),
+        "Search with only special chars should return empty results"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_whitespace_only() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Whitespace-only search should return empty result
+    let result = notes.search("   ", None).await;
+    assert!(result.is_ok(), "Whitespace-only search should not crash");
+
+    let items = result.unwrap().items;
+    assert!(
+        items.is_empty(),
+        "Whitespace-only search should return empty results"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn note_create_and_get() {
     let db = setup_db().await;
     let notes = db.notes();
