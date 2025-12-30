@@ -64,5 +64,5 @@ data/db/
 # WASM build output
 dist/
 
-# Test files
-test-output.css
+# Auto-generated CSS files (Tailwind via Trunk pre-build hook)
+src/frontend/assets/style.css
