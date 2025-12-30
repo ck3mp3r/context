@@ -5,7 +5,7 @@ use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, SqliteDatab
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
         .await
-        .expect("Failed to create in-memory database");
+        .expect("Failed to create in_memory database");
     db.migrate().expect("Migration should succeed");
     db
 }
@@ -22,6 +22,213 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         created_at: "2025-01-01 00:00:00".to_string(),
         updated_at: "2025-01-01 00:00:00".to_string(),
     }
+}
+
+// =============================================================================
+// FTS5 Tag Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_notes_by_tag_content() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes with specific tags
+    let mut note1 = make_note("fts00001", "Rust Programming", "Learning async/await");
+    note1.tags = vec!["rust".to_string(), "programming".to_string()];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("fts00002", "Python Guide", "Flask tutorial");
+    note2.tags = vec!["python".to_string(), "web".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    let mut note3 = make_note("fts00003", "JavaScript Basics", "ES6 features");
+    note3.tags = vec!["javascript".to_string(), "programming".to_string()];
+    notes.create(&note3).await.unwrap();
+
+    // Search for "rust" - should find the note with "rust" tag using FTS5
+    let results = notes
+        .search("rust", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should find note with 'rust' tag");
+    assert_eq!(results.items[0].id, "fts00001");
+
+    // Search for "programming" - should find 2 notes with "programming" tag
+    let results = notes
+        .search("programming", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        2,
+        "Should find both notes with 'programming' tag"
+    );
+
+    // Search for "python" - should find note with "python" tag
+    let results = notes
+        .search("python", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should find note with 'python' tag");
+    assert_eq!(results.items[0].id, "fts00002");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_combines_tag_and_content_results() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes where search term appears in different fields
+    let mut note1 = make_note("fts00004", "Database Design", "PostgreSQL patterns");
+    note1.tags = vec!["database".to_string(), "backend".to_string()];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("fts00005", "API Testing", "Testing database connections");
+    note2.tags = vec!["testing".to_string(), "api".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    let mut note3 = make_note("fts00006", "Frontend State", "Redux store patterns");
+    note3.tags = vec!["frontend".to_string()];
+    notes.create(&note3).await.unwrap();
+
+    // Search for "database" - should find note1 (tag) AND note2 (content)
+    let results = notes
+        .search("database", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        2,
+        "Should find notes where 'database' appears in tag OR content"
+    );
+
+    let found_ids: Vec<&str> = results.items.iter().map(|n| n.id.as_str()).collect();
+    assert!(
+        found_ids.contains(&"fts00004"),
+        "Should find note with 'database' tag"
+    );
+    assert!(
+        found_ids.contains(&"fts00005"),
+        "Should find note with 'database' in content"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_supports_boolean_operators_with_tags() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes with different tag combinations
+    let mut note1 = make_note("fts00007", "Rust Web Development", "Axum framework guide");
+    note1.tags = vec!["rust".to_string(), "web".to_string()];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("fts00008", "Python Web Development", "Django tutorial");
+    note2.tags = vec!["python".to_string(), "web".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    let mut note3 = make_note("fts00009", "Rust CLI Tools", "Command-line parsing");
+    note3.tags = vec!["rust".to_string(), "cli".to_string()];
+    notes.create(&note3).await.unwrap();
+
+    // FTS5 AND operator: search for notes with both "rust" AND "web"
+    let results = notes
+        .search("rust AND web", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        1,
+        "Should find only note with both 'rust' AND 'web' tags"
+    );
+    assert_eq!(results.items[0].id, "fts00007");
+
+    // FTS5 OR operator: search for notes with "python" OR "cli"
+    let results = notes
+        .search("python OR cli", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        2,
+        "Should find notes with 'python' OR 'cli' tags"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_with_tag_filter_and_tag_search() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes to test filtering and searching
+    let mut note1 = make_note("fts00010", "API Design", "REST patterns");
+    note1.tags = vec![
+        "api".to_string(),
+        "backend".to_string(),
+        "architecture".to_string(),
+    ];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("fts00011", "Backend Architecture", "Microservices");
+    note2.tags = vec!["backend".to_string(), "architecture".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    let mut note3 = make_note("fts00012", "Frontend Architecture", "Component design");
+    note3.tags = vec!["frontend".to_string(), "architecture".to_string()];
+    notes.create(&note3).await.unwrap();
+
+    // Search for "architecture" with "backend" tag filter
+    // Should find notes where "architecture" is in content/tags AND has "backend" tag
+    let query = NoteQuery {
+        tags: Some(vec!["backend".to_string()]),
+        ..Default::default()
+    };
+    let results = notes
+        .search("architecture", Some(&query))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(
+        results.items.len(),
+        2,
+        "Should find notes with 'architecture' in tags/content that also have 'backend' tag"
+    );
+
+    let found_ids: Vec<&str> = results.items.iter().map(|n| n.id.as_str()).collect();
+    assert!(found_ids.contains(&"fts00010"));
+    assert!(found_ids.contains(&"fts00011"));
+    assert!(
+        !found_ids.contains(&"fts00012"),
+        "Should not find frontend note"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_phrase_query_in_tags() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create notes with multi-word tags
+    let mut note1 = make_note("fts00013", "Project Planning", "Sprint organization");
+    note1.tags = vec!["project-management".to_string(), "agile".to_string()];
+    notes.create(&note1).await.unwrap();
+
+    let mut note2 = make_note("fts00014", "Code Review", "Best practices");
+    note2.tags = vec!["code-quality".to_string(), "review".to_string()];
+    notes.create(&note2).await.unwrap();
+
+    // Search for exact phrase or term matching
+    let results = notes
+        .search("project", None)
+        .await
+        .expect("Search should succeed");
+
+    // Should find the note because "project" matches "project-management" tag
+    assert!(
+        results.items.iter().any(|n| n.id == "fts00013"),
+        "Should find note with tag containing 'project'"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
