@@ -1017,3 +1017,58 @@ async fn note_list_with_content_excluded() {
         assert!(!item.title.is_empty(), "Title should still be present");
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_hyphens_in_boolean_queries() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Create test notes with hyphenated terms
+    notes
+        .create(&make_note(
+            "hyphen01",
+            "CLI Tools",
+            "Documentation about command-line interfaces",
+        ))
+        .await
+        .unwrap();
+
+    notes
+        .create(&make_note(
+            "hyphen02",
+            "Real-time Systems",
+            "Guide to real-time programming",
+        ))
+        .await
+        .unwrap();
+
+    notes
+        .create(&make_note(
+            "hyphen03",
+            "API Design",
+            "Best practices for REST APIs",
+        ))
+        .await
+        .unwrap();
+
+    // Test 1: Boolean query with hyphen should NOT crash
+    let result = notes.search("CLI OR command-line", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with 'CLI OR command-line' should not crash"
+    );
+
+    // Test 2: Hyphenated term alone should work
+    let result = notes.search("command-line", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with 'command-line' should not crash"
+    );
+
+    // Test 3: Complex Boolean with hyphens should work
+    let result = notes.search("real-time AND programming", None).await;
+    assert!(
+        result.is_ok(),
+        "Search with 'real-time AND programming' should not crash"
+    );
+}

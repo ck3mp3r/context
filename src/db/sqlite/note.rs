@@ -622,10 +622,24 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // FTS5 has strict bareword requirements - only allows: A-Z, a-z, 0-9, _, non-ASCII
         // Strategy: Strip dangerous chars, balance quotes, preserve Boolean ops, add prefix matching
         let fts_query = {
-            // Step 1: Strip FTS5-dangerous special characters
-            // These cause syntax errors in FTS5 barewords
-            // Replace with spaces to prevent word concatenation
-            let cleaned = search_term.replace(['{', '}', '[', ']', '(', ')', '<', '>'], " ");
+            // Step 1: Strip FTS5-dangerous special characters using allowlist
+            // FTS5 barewords ONLY allow: A-Z, a-z, 0-9, _, non-ASCII (>127), quotes, spaces
+            // Replace all other characters with spaces to prevent syntax errors
+            let cleaned = search_term
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric()
+                        || c == '_'
+                        || c == '"'
+                        || c.is_whitespace()
+                        || (c as u32) > 127
+                    {
+                        c
+                    } else {
+                        ' '
+                    }
+                })
+                .collect::<String>();
 
             // Step 2: Handle unbalanced quotes
             // FTS5 requires balanced quotes for phrase searches
