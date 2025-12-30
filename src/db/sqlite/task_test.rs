@@ -730,3 +730,459 @@ async fn get_stats_for_list_returns_counts_by_status() {
     assert_eq!(stats.done, 3);
     assert_eq!(stats.cancelled, 0);
 }
+
+// =============================================================================
+// Cascade status update tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cascade_status_to_all_matching_subtasks() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup: Create task list
+    task_lists
+        .create(&make_task_list("casclist", "Cascade Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent task (status: backlog)
+    let mut parent = make_task("parent01", "casclist", "Parent task");
+    parent.status = TaskStatus::Backlog;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    // Create 3 subtasks (all status: backlog, matching parent)
+    let mut subtask1 = make_task("subtsk01", "casclist", "Subtask 1");
+    subtask1.parent_id = Some("parent01".to_string());
+    subtask1.status = TaskStatus::Backlog;
+    tasks
+        .create(&subtask1)
+        .await
+        .expect("Create subtask1 should succeed");
+
+    let mut subtask2 = make_task("subtsk02", "casclist", "Subtask 2");
+    subtask2.parent_id = Some("parent01".to_string());
+    subtask2.status = TaskStatus::Backlog;
+    tasks
+        .create(&subtask2)
+        .await
+        .expect("Create subtask2 should succeed");
+
+    let mut subtask3 = make_task("subtsk03", "casclist", "Subtask 3");
+    subtask3.parent_id = Some("parent01".to_string());
+    subtask3.status = TaskStatus::Backlog;
+    tasks
+        .create(&subtask3)
+        .await
+        .expect("Create subtask3 should succeed");
+
+    // Update parent: backlog → in_progress
+    parent.status = TaskStatus::InProgress;
+    tasks
+        .update(&parent)
+        .await
+        .expect("Update parent should succeed");
+
+    // Verify: All 3 subtasks cascaded to in_progress
+    let updated_subtask1 = tasks
+        .get("subtsk01")
+        .await
+        .expect("Get subtask1 should succeed");
+    let updated_subtask2 = tasks
+        .get("subtsk02")
+        .await
+        .expect("Get subtask2 should succeed");
+    let updated_subtask3 = tasks
+        .get("subtsk03")
+        .await
+        .expect("Get subtask3 should succeed");
+
+    assert_eq!(
+        updated_subtask1.status,
+        TaskStatus::InProgress,
+        "Subtask 1 should cascade to in_progress"
+    );
+    assert_eq!(
+        updated_subtask2.status,
+        TaskStatus::InProgress,
+        "Subtask 2 should cascade to in_progress"
+    );
+    assert_eq!(
+        updated_subtask3.status,
+        TaskStatus::InProgress,
+        "Subtask 3 should cascade to in_progress"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cascade_only_matching_subtasks_diverged_unchanged() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("cascmix1", "Mixed Cascade Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent (status: backlog)
+    let mut parent = make_task("parent02", "cascmix1", "Parent task");
+    parent.status = TaskStatus::Backlog;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    // Create 2 subtasks matching parent status (backlog)
+    let mut matching1 = make_task("match001", "cascmix1", "Matching 1");
+    matching1.parent_id = Some("parent02".to_string());
+    matching1.status = TaskStatus::Backlog;
+    tasks
+        .create(&matching1)
+        .await
+        .expect("Create matching1 should succeed");
+
+    let mut matching2 = make_task("match002", "cascmix1", "Matching 2");
+    matching2.parent_id = Some("parent02".to_string());
+    matching2.status = TaskStatus::Backlog;
+    tasks
+        .create(&matching2)
+        .await
+        .expect("Create matching2 should succeed");
+
+    // Create 1 diverged subtask (in_progress, different from parent)
+    let mut diverged = make_task("diverg01", "cascmix1", "Diverged");
+    diverged.parent_id = Some("parent02".to_string());
+    diverged.status = TaskStatus::InProgress;
+    tasks
+        .create(&diverged)
+        .await
+        .expect("Create diverged should succeed");
+
+    // Update parent: backlog → done
+    parent.status = TaskStatus::Done;
+    tasks
+        .update(&parent)
+        .await
+        .expect("Update parent should succeed");
+
+    // Verify: Only matching subtasks cascaded
+    let updated_matching1 = tasks
+        .get("match001")
+        .await
+        .expect("Get matching1 should succeed");
+    let updated_matching2 = tasks
+        .get("match002")
+        .await
+        .expect("Get matching2 should succeed");
+    let updated_diverged = tasks
+        .get("diverg01")
+        .await
+        .expect("Get diverged should succeed");
+
+    assert_eq!(
+        updated_matching1.status,
+        TaskStatus::Done,
+        "Matching subtask 1 should cascade to done"
+    );
+    assert_eq!(
+        updated_matching2.status,
+        TaskStatus::Done,
+        "Matching subtask 2 should cascade to done"
+    );
+    assert_eq!(
+        updated_diverged.status,
+        TaskStatus::InProgress,
+        "Diverged subtask should remain in_progress"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cascade_bidirectional_backward() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("cascback", "Backward Cascade Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent + subtasks (all status: done)
+    let mut parent = make_task("parent03", "cascback", "Parent done");
+    parent.status = TaskStatus::Done;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    let mut subtask1 = make_task("subtsk04", "cascback", "Subtask done 1");
+    subtask1.parent_id = Some("parent03".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks
+        .create(&subtask1)
+        .await
+        .expect("Create subtask1 should succeed");
+
+    let mut subtask2 = make_task("subtsk05", "cascback", "Subtask done 2");
+    subtask2.parent_id = Some("parent03".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks
+        .create(&subtask2)
+        .await
+        .expect("Create subtask2 should succeed");
+
+    // Update parent backward: done → in_progress
+    parent.status = TaskStatus::InProgress;
+    tasks
+        .update(&parent)
+        .await
+        .expect("Update parent should succeed");
+
+    // Verify: Subtasks cascaded backward
+    let updated_subtask1 = tasks
+        .get("subtsk04")
+        .await
+        .expect("Get subtask1 should succeed");
+    let updated_subtask2 = tasks
+        .get("subtsk05")
+        .await
+        .expect("Get subtask2 should succeed");
+
+    assert_eq!(
+        updated_subtask1.status,
+        TaskStatus::InProgress,
+        "Subtask 1 should cascade backward to in_progress"
+    );
+    assert_eq!(
+        updated_subtask2.status,
+        TaskStatus::InProgress,
+        "Subtask 2 should cascade backward to in_progress"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cascade_cancelled_status() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("casccanc", "Cancelled Cascade Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent + subtask (both in_progress)
+    let mut parent = make_task("parent04", "casccanc", "Parent in progress");
+    parent.status = TaskStatus::InProgress;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    let mut subtask = make_task("subtsk06", "casccanc", "Subtask in progress");
+    subtask.parent_id = Some("parent04".to_string());
+    subtask.status = TaskStatus::InProgress;
+    tasks
+        .create(&subtask)
+        .await
+        .expect("Create subtask should succeed");
+
+    // Cancel parent: in_progress → cancelled
+    parent.status = TaskStatus::Cancelled;
+    tasks
+        .update(&parent)
+        .await
+        .expect("Update parent should succeed");
+
+    // Verify: Subtask cascaded to cancelled
+    let updated_subtask = tasks
+        .get("subtsk06")
+        .await
+        .expect("Get subtask should succeed");
+    assert_eq!(
+        updated_subtask.status,
+        TaskStatus::Cancelled,
+        "Subtask should cascade to cancelled"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn no_cascade_when_updating_subtask() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("nocasc01", "No Cascade Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent + subtask
+    let mut parent = make_task("parent05", "nocasc01", "Parent backlog");
+    parent.status = TaskStatus::Backlog;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    let mut subtask = make_task("subtsk07", "nocasc01", "Subtask backlog");
+    subtask.parent_id = Some("parent05".to_string());
+    subtask.status = TaskStatus::Backlog;
+    tasks
+        .create(&subtask)
+        .await
+        .expect("Create subtask should succeed");
+
+    // Update SUBTASK status (not parent)
+    subtask.status = TaskStatus::InProgress;
+    tasks
+        .update(&subtask)
+        .await
+        .expect("Update subtask should succeed");
+
+    // Verify: Parent unchanged (cascade only works parent → subtasks, not reverse)
+    let unchanged_parent = tasks
+        .get("parent05")
+        .await
+        .expect("Get parent should succeed");
+    assert_eq!(
+        unchanged_parent.status,
+        TaskStatus::Backlog,
+        "Parent should remain backlog when subtask changes"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cascade_sets_timestamps_correctly() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("cascts01", "Cascade Timestamps Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent + subtask (both backlog, no timestamps)
+    let mut parent = make_task("parent06", "cascts01", "Parent backlog");
+    parent.status = TaskStatus::Backlog;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    let mut subtask = make_task("subtsk08", "cascts01", "Subtask backlog");
+    subtask.parent_id = Some("parent06".to_string());
+    subtask.status = TaskStatus::Backlog;
+    tasks
+        .create(&subtask)
+        .await
+        .expect("Create subtask should succeed");
+
+    // Verify subtask has no timestamps initially
+    let initial_subtask = tasks
+        .get("subtsk08")
+        .await
+        .expect("Get initial subtask should succeed");
+    assert!(
+        initial_subtask.started_at.is_none(),
+        "Subtask should have no started_at initially"
+    );
+    assert!(
+        initial_subtask.completed_at.is_none(),
+        "Subtask should have no completed_at initially"
+    );
+
+    // Update parent: backlog → in_progress
+    parent.status = TaskStatus::InProgress;
+    tasks
+        .update(&parent)
+        .await
+        .expect("Update parent to in_progress should succeed");
+
+    // Verify: Subtask started_at was set
+    let after_in_progress = tasks
+        .get("subtsk08")
+        .await
+        .expect("Get subtask after in_progress should succeed");
+    assert!(
+        after_in_progress.started_at.is_some(),
+        "Subtask should have started_at after cascade to in_progress"
+    );
+    assert!(
+        after_in_progress.completed_at.is_none(),
+        "Subtask should have no completed_at yet"
+    );
+
+    // Update parent: in_progress → done
+    parent.status = TaskStatus::Done;
+    tasks
+        .update(&parent)
+        .await
+        .expect("Update parent to done should succeed");
+
+    // Verify: Subtask completed_at was set
+    let after_done = tasks
+        .get("subtsk08")
+        .await
+        .expect("Get subtask after done should succeed");
+    assert!(
+        after_done.started_at.is_some(),
+        "Subtask should still have started_at"
+    );
+    assert!(
+        after_done.completed_at.is_some(),
+        "Subtask should have completed_at after cascade to done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cascade_works_with_standalone_parent() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("cascstnd", "Standalone Parent Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create standalone parent (no subtasks)
+    let mut parent = make_task("parent07", "cascstnd", "Standalone parent");
+    parent.status = TaskStatus::Backlog;
+    tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    // Update standalone parent
+    parent.status = TaskStatus::Done;
+    let result = tasks.update(&parent).await;
+
+    // Verify: Update succeeds (no error when no subtasks to cascade)
+    assert!(
+        result.is_ok(),
+        "Standalone parent should update successfully"
+    );
+
+    let updated_parent = tasks
+        .get("parent07")
+        .await
+        .expect("Get parent should succeed");
+    assert_eq!(
+        updated_parent.status,
+        TaskStatus::Done,
+        "Standalone parent should be done"
+    );
+}

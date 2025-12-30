@@ -571,3 +571,253 @@ async fn delete_task_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// =============================================================================
+// Cascade status update integration tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn api_cascade_status_to_matching_subtasks() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create parent task (status: backlog)
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Parent task",
+                        "status": "backlog"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create 2 subtasks (status: backlog, matching parent)
+    let subtask1_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Subtask 1",
+                        "status": "backlog",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask1 = json_body(subtask1_response).await;
+    let subtask1_id = subtask1["id"].as_str().unwrap();
+
+    let subtask2_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Subtask 2",
+                        "status": "backlog",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask2 = json_body(subtask2_response).await;
+    let subtask2_id = subtask2["id"].as_str().unwrap();
+
+    // Update parent: backlog → done
+    let update_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/tasks/{}", parent_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "done"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(update_response.status(), StatusCode::OK);
+
+    // Verify subtasks cascaded to done
+    let subtask1_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/tasks/{}", subtask1_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask1_updated = json_body(subtask1_get).await;
+    assert_eq!(
+        subtask1_updated["status"], "done",
+        "Subtask 1 should cascade to done"
+    );
+
+    let subtask2_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/tasks/{}", subtask2_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask2_updated = json_body(subtask2_get).await;
+    assert_eq!(
+        subtask2_updated["status"], "done",
+        "Subtask 2 should cascade to done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn api_cascade_only_matching_subtasks() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create parent (status: backlog)
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Parent task",
+                        "status": "backlog"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create matching subtask (status: backlog)
+    let matching_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Matching subtask",
+                        "status": "backlog",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let matching = json_body(matching_response).await;
+    let matching_id = matching["id"].as_str().unwrap();
+
+    // Create diverged subtask (status: in_progress, different from parent)
+    let diverged_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "content": "Diverged subtask",
+                        "status": "in_progress",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let diverged = json_body(diverged_response).await;
+    let diverged_id = diverged["id"].as_str().unwrap();
+
+    // Update parent: backlog → done
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/v1/tasks/{}", parent_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "done"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Verify: Matching subtask cascaded, diverged did not
+    let matching_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/tasks/{}", matching_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let matching_updated = json_body(matching_get).await;
+    assert_eq!(
+        matching_updated["status"], "done",
+        "Matching subtask should cascade to done"
+    );
+
+    let diverged_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/tasks/{}", diverged_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let diverged_updated = json_body(diverged_get).await;
+    assert_eq!(
+        diverged_updated["status"], "in_progress",
+        "Diverged subtask should remain in_progress"
+    );
+}

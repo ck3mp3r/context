@@ -199,8 +199,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let mut task = task.clone();
 
+        // Track if status is changing and what the old status was (for cascade)
+        let status_changed = task.status != current.status;
+        let old_status = current.status.clone();
+
         // Auto-manage timestamps based on status transitions
-        if task.status != current.status {
+        if status_changed {
             match task.status {
                 TaskStatus::InProgress => {
                     // Starting work - set started_at only if not already set (idempotent)
@@ -230,6 +234,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
+        // Start transaction for atomic parent + cascade updates
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Update parent task
         let result = sqlx::query(
             r#"
             UPDATE task 
@@ -241,13 +251,13 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&task.list_id)
         .bind(&task.parent_id)
         .bind(&task.content)
-        .bind(status_str)
+        .bind(&status_str)
         .bind(task.priority)
         .bind(&tags_json)
         .bind(&task.started_at)
         .bind(&task.completed_at)
         .bind(&task.id)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -259,6 +269,58 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 id: task.id.clone(),
             });
         }
+
+        // CASCADE: If status changed and this is a parent task, update matching subtasks
+        if status_changed && current.parent_id.is_none() {
+            let old_status_str = old_status.to_string();
+            let new_status_str = task.status.to_string();
+
+            // Update all subtasks that match the parent's OLD status
+            let cascade_result = sqlx::query(
+                r#"
+                UPDATE task 
+                SET status = ?,
+                    started_at = CASE 
+                        WHEN ? = 'in_progress' AND started_at IS NULL THEN datetime('now')
+                        ELSE started_at 
+                    END,
+                    completed_at = CASE 
+                        WHEN ? IN ('done', 'cancelled') AND completed_at IS NULL THEN datetime('now')
+                        WHEN ? NOT IN ('done', 'cancelled') THEN NULL
+                        ELSE completed_at 
+                    END
+                WHERE parent_id = ? 
+                  AND status = ?
+                "#,
+            )
+            .bind(&new_status_str)
+            .bind(&new_status_str)  // For started_at CASE
+            .bind(&new_status_str)  // For completed_at CASE (set if done/cancelled)
+            .bind(&new_status_str)  // For completed_at CASE (clear if not done/cancelled)
+            .bind(&task.id)
+            .bind(&old_status_str)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: format!("Failed to cascade status to subtasks: {}", e),
+            })?;
+
+            let rows_affected = cascade_result.rows_affected();
+            if rows_affected > 0 {
+                tracing::debug!(
+                    "Cascaded status change from '{}' to '{}' for {} subtask(s) of parent '{}'",
+                    old_status_str,
+                    new_status_str,
+                    rows_affected,
+                    task.id
+                );
+            }
+        }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
