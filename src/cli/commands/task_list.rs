@@ -101,7 +101,7 @@ pub async fn list_task_lists(
     offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut request = api_client.get("/v1/task-lists");
+    let mut request = api_client.get("/api/v1/task-lists");
 
     if let Some(s) = status {
         request = request.query(&[("status", s)]);
@@ -127,7 +127,7 @@ pub async fn list_task_lists(
 /// Get a single task list by ID
 pub async fn get_task_list(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
     let response = api_client
-        .get(&format!("/v1/task-lists/{}", id))
+        .get(&format!("/api/v1/task-lists/{}", id))
         .send()
         .await?;
 
@@ -185,7 +185,7 @@ pub async fn create_task_list(
     };
 
     let response = api_client
-        .post("/v1/task-lists")
+        .post("/api/v1/task-lists")
         .json(&request_body)
         .send()
         .await?;
@@ -211,7 +211,7 @@ pub async fn update_task_list(
         n.to_string()
     } else {
         let response = api_client
-            .get(&format!("/v1/task-lists/{}", id))
+            .get(&format!("/api/v1/task-lists/{}", id))
             .send()
             .await?;
         let task_list: TaskList = ApiClient::handle_response(response).await?;
@@ -226,7 +226,7 @@ pub async fn update_task_list(
     };
 
     let response = api_client
-        .patch(&format!("/v1/task-lists/{}", id))
+        .patch(&format!("/api/v1/task-lists/{}", id))
         .json(&request_body)
         .send()
         .await?;
@@ -248,7 +248,7 @@ pub async fn delete_task_list(api_client: &ApiClient, id: &str, force: bool) -> 
     }
 
     let response = api_client
-        .delete(&format!("/v1/task-lists/{}", id))
+        .delete(&format!("/api/v1/task-lists/{}", id))
         .send()
         .await?;
 
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_list_task_lists_builds_correct_url() {
         let client = ApiClient::new(None);
-        let builder = client.get("/v1/task-lists");
+        let builder = client.get("/api/v1/task-lists");
         let _request = builder;
     }
 
@@ -354,14 +354,14 @@ mod tests {
     fn test_get_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.get(&format!("/v1/task-lists/{}", id));
+        let builder = client.get(&format!("/api/v1/task-lists/{}", id));
         let _request = builder;
     }
 
     #[test]
     fn test_create_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
-        let builder = client.post("/v1/task-lists");
+        let builder = client.post("/api/v1/task-lists");
         let _request = builder;
     }
 
@@ -369,7 +369,7 @@ mod tests {
     fn test_update_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.patch(&format!("/v1/task-lists/{}", id));
+        let builder = client.patch(&format!("/api/v1/task-lists/{}", id));
         let _request = builder;
     }
 
@@ -377,7 +377,7 @@ mod tests {
     fn test_delete_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.delete(&format!("/v1/task-lists/{}", id));
+        let builder = client.delete(&format!("/api/v1/task-lists/{}", id));
         let _request = builder;
     }
 

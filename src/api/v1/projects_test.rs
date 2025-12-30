@@ -41,7 +41,7 @@ async fn list_projects_returns_default_project() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -71,7 +71,7 @@ async fn create_project_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -126,7 +126,7 @@ async fn create_project_without_description() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -159,7 +159,7 @@ async fn get_project_returns_project() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -173,7 +173,7 @@ async fn get_project_returns_project() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/projects/{}", default_id))
+                .uri(format!("/api/v1/projects/{}", default_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -193,7 +193,7 @@ async fn get_project_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/projects/nonexist")
+                .uri("/api/v1/projects/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -219,7 +219,7 @@ async fn update_project_returns_updated() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -234,7 +234,7 @@ async fn update_project_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/projects/{}", default_id))
+                .uri(format!("/api/v1/projects/{}", default_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -263,7 +263,7 @@ async fn update_project_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/projects/nonexist")
+                .uri("/api/v1/projects/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -294,7 +294,7 @@ async fn delete_project_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -316,7 +316,7 @@ async fn delete_project_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -329,7 +329,7 @@ async fn delete_project_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -347,7 +347,7 @@ async fn delete_project_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/projects/nonexist")
+                .uri("/api/v1/projects/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -371,7 +371,7 @@ async fn update_repo_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -393,7 +393,7 @@ async fn update_repo_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -414,7 +414,7 @@ async fn update_repo_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -449,7 +449,7 @@ async fn update_note_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -471,7 +471,7 @@ async fn update_note_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -493,7 +493,7 @@ async fn update_note_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -516,7 +516,7 @@ async fn update_note_with_project_relationships_should_work() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -555,7 +555,7 @@ async fn patch_project_partial_title_update() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -579,7 +579,7 @@ async fn patch_project_partial_title_update() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -616,7 +616,7 @@ async fn patch_project_omit_field_preserves_it() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -639,7 +639,7 @@ async fn patch_project_omit_field_preserves_it() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -671,7 +671,7 @@ async fn patch_project_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/projects/notfound")
+                .uri("/api/v1/projects/notfound")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -697,7 +697,7 @@ async fn patch_project_empty_body_preserves_all() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -720,7 +720,7 @@ async fn patch_project_empty_body_preserves_all() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({})).unwrap()))
                 .unwrap(),

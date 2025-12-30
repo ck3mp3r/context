@@ -130,25 +130,25 @@ mod tests {
     async fn test_get_method_exists() {
         let client = ApiClient::new(None);
         // Test that get() method exists and returns RequestBuilder
-        let _builder = client.get("/v1/test");
+        let _builder = client.get("/api/v1/test");
     }
 
     #[tokio::test]
     async fn test_post_method_exists() {
         let client = ApiClient::new(None);
-        let _builder = client.post("/v1/test");
+        let _builder = client.post("/api/v1/test");
     }
 
     #[tokio::test]
     async fn test_patch_method_exists() {
         let client = ApiClient::new(None);
-        let _builder = client.patch("/v1/test");
+        let _builder = client.patch("/api/v1/test");
     }
 
     #[tokio::test]
     async fn test_delete_method_exists() {
         let client = ApiClient::new(None);
-        let _builder = client.delete("/v1/test");
+        let _builder = client.delete("/api/v1/test");
     }
 
     // Note: handle_response is tested via integration tests with real API

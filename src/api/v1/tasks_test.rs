@@ -48,7 +48,7 @@ async fn create_task_list(app: &axum::Router) -> String {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"name": "Test List", "project_id": "test0000"}))
@@ -72,7 +72,7 @@ async fn list_tasks_for_list() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -89,7 +89,7 @@ async fn list_tasks_for_list() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"content": "Do something"})).unwrap(),
@@ -103,7 +103,7 @@ async fn list_tasks_for_list() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -124,7 +124,7 @@ async fn create_task_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -158,7 +158,7 @@ async fn create_task_minimal() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"content": "Quick task"})).unwrap(),
@@ -187,7 +187,7 @@ async fn get_task_returns_task() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"content": "Test task"})).unwrap(),
@@ -204,7 +204,7 @@ async fn get_task_returns_task() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -224,7 +224,7 @@ async fn get_task_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/tasks/nonexist")
+                .uri("/api/v1/tasks/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -248,7 +248,7 @@ async fn patch_task_move_to_different_list() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list1_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list1_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -273,7 +273,7 @@ async fn patch_task_move_to_different_list() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -305,7 +305,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
@@ -323,7 +323,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -346,7 +346,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -377,7 +377,7 @@ async fn patch_task_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/tasks/notfound")
+                .uri("/api/v1/tasks/notfound")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({"content": "New"})).unwrap(),
@@ -398,7 +398,7 @@ async fn update_task_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/tasks/nonexist")
+                .uri("/api/v1/tasks/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"content": "Wont work"})).unwrap(),
@@ -422,7 +422,7 @@ async fn update_task_with_tags() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -448,7 +448,7 @@ async fn update_task_with_tags() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -478,7 +478,7 @@ async fn update_task_with_tags() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -512,7 +512,7 @@ async fn delete_task_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"content": "To delete"})).unwrap(),
@@ -531,7 +531,7 @@ async fn delete_task_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -544,7 +544,7 @@ async fn delete_task_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -562,7 +562,7 @@ async fn delete_task_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/tasks/nonexist")
+                .uri("/api/v1/tasks/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -587,7 +587,7 @@ async fn api_cascade_status_to_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -609,7 +609,7 @@ async fn api_cascade_status_to_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -631,7 +631,7 @@ async fn api_cascade_status_to_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -654,7 +654,7 @@ async fn api_cascade_status_to_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/tasks/{}", parent_id))
+                .uri(format!("/api/v1/tasks/{}", parent_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"status": "done"})).unwrap(),
@@ -671,7 +671,7 @@ async fn api_cascade_status_to_matching_subtasks() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", subtask1_id))
+                .uri(format!("/api/v1/tasks/{}", subtask1_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -687,7 +687,7 @@ async fn api_cascade_status_to_matching_subtasks() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", subtask2_id))
+                .uri(format!("/api/v1/tasks/{}", subtask2_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -711,7 +711,7 @@ async fn api_cascade_only_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -733,7 +733,7 @@ async fn api_cascade_only_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -756,7 +756,7 @@ async fn api_cascade_only_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -778,7 +778,7 @@ async fn api_cascade_only_matching_subtasks() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/tasks/{}", parent_id))
+                .uri(format!("/api/v1/tasks/{}", parent_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"status": "done"})).unwrap(),
@@ -793,7 +793,7 @@ async fn api_cascade_only_matching_subtasks() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", matching_id))
+                .uri(format!("/api/v1/tasks/{}", matching_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -809,7 +809,7 @@ async fn api_cascade_only_matching_subtasks() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", diverged_id))
+                .uri(format!("/api/v1/tasks/{}", diverged_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -843,7 +843,7 @@ async fn create_task(
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
@@ -874,7 +874,7 @@ async fn test_api_type_task_returns_only_parents() {
         .oneshot(
             Request::builder()
                 .uri(format!(
-                    "/v1/task-lists/{}/tasks?status=done&type=task",
+                    "/api/v1/task-lists/{}/tasks?status=done&type=task",
                     list_id
                 ))
                 .body(Body::empty())
@@ -915,7 +915,7 @@ async fn test_api_type_subtask_returns_only_subtasks() {
         .oneshot(
             Request::builder()
                 .uri(format!(
-                    "/v1/task-lists/{}/tasks?status=done&type=subtask",
+                    "/api/v1/task-lists/{}/tasks?status=done&type=subtask",
                     list_id
                 ))
                 .body(Body::empty())
@@ -954,7 +954,7 @@ async fn test_api_type_omitted_returns_all() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks?status=done", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks?status=done", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )

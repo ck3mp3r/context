@@ -39,7 +39,7 @@ async fn list_notes_initially_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -62,7 +62,7 @@ async fn list_notes_with_search_query() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -80,7 +80,7 @@ async fn list_notes_with_search_query() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -98,7 +98,7 @@ async fn list_notes_with_search_query() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=rust")
+                .uri("/api/v1/notes?q=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -124,7 +124,7 @@ async fn list_notes_with_pagination() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/notes")
+                    .uri("/api/v1/notes")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&json!({
@@ -144,7 +144,7 @@ async fn list_notes_with_pagination() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?limit=2&offset=0")
+                .uri("/api/v1/notes?limit=2&offset=0")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -164,7 +164,7 @@ async fn list_notes_with_pagination() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?limit=2&offset=2")
+                .uri("/api/v1/notes?limit=2&offset=2")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -179,7 +179,7 @@ async fn list_notes_with_pagination() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?limit=2&offset=4")
+                .uri("/api/v1/notes?limit=2&offset=4")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -199,7 +199,7 @@ async fn list_notes_search_no_match_returns_empty() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -217,7 +217,7 @@ async fn list_notes_search_no_match_returns_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=nonexistent")
+                .uri("/api/v1/notes?q=nonexistent")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -245,7 +245,7 @@ async fn list_notes_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -266,7 +266,7 @@ async fn list_notes_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -287,7 +287,7 @@ async fn list_notes_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -306,7 +306,7 @@ async fn list_notes_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -325,7 +325,7 @@ async fn list_notes_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -344,7 +344,7 @@ async fn list_notes_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -364,7 +364,7 @@ async fn list_notes_filtered_by_project_id() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes?project_id={}", project_a_id))
+                .uri(format!("/api/v1/notes?project_id={}", project_a_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -382,7 +382,7 @@ async fn list_notes_filtered_by_project_id() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes?project_id={}", project_b_id))
+                .uri(format!("/api/v1/notes?project_id={}", project_b_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -407,7 +407,7 @@ async fn list_notes_filtered_by_project_id_and_search() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -428,7 +428,7 @@ async fn list_notes_filtered_by_project_id_and_search() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -447,7 +447,7 @@ async fn list_notes_filtered_by_project_id_and_search() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -467,7 +467,7 @@ async fn list_notes_filtered_by_project_id_and_search() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -486,7 +486,7 @@ async fn list_notes_filtered_by_project_id_and_search() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes?project_id={}&q=Rust", project_id))
+                .uri(format!("/api/v1/notes?project_id={}&q=Rust", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -513,7 +513,7 @@ async fn create_note_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -547,7 +547,7 @@ async fn create_note_minimal() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -584,7 +584,7 @@ async fn get_note_returns_note() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -605,7 +605,7 @@ async fn get_note_returns_note() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -626,7 +626,7 @@ async fn get_note_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -650,7 +650,7 @@ async fn update_note_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -672,7 +672,7 @@ async fn update_note_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -703,7 +703,7 @@ async fn update_note_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -734,7 +734,7 @@ async fn delete_note_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -757,7 +757,7 @@ async fn delete_note_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -770,7 +770,7 @@ async fn delete_note_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -788,7 +788,7 @@ async fn delete_note_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -811,7 +811,7 @@ async fn list_notes_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -830,7 +830,7 @@ async fn list_notes_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -849,7 +849,7 @@ async fn list_notes_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -869,7 +869,7 @@ async fn list_notes_with_tag_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?tags=rust")
+                .uri("/api/v1/notes?tags=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -884,7 +884,7 @@ async fn list_notes_with_tag_filter() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?tags=programming")
+                .uri("/api/v1/notes?tags=programming")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -909,7 +909,7 @@ async fn list_notes_with_ordering() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/notes")
+                    .uri("/api/v1/notes")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&json!({
@@ -929,7 +929,7 @@ async fn list_notes_with_ordering() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?sort=title&order=asc")
+                .uri("/api/v1/notes?sort=title&order=asc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -946,7 +946,7 @@ async fn list_notes_with_ordering() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?sort=title&order=desc")
+                .uri("/api/v1/notes?sort=title&order=desc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -974,7 +974,7 @@ async fn patch_note_partial_title_update() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -997,7 +997,7 @@ async fn patch_note_partial_title_update() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/notes/{}", id))
+                .uri(format!("/api/v1/notes/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1031,7 +1031,7 @@ async fn patch_note_omit_field_preserves_it() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1054,7 +1054,7 @@ async fn patch_note_omit_field_preserves_it() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/notes/{}", id))
+                .uri(format!("/api/v1/notes/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&json!({})).unwrap()))
                 .unwrap(),
@@ -1079,7 +1079,7 @@ async fn patch_note_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1109,7 +1109,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1131,7 +1131,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1153,7 +1153,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1179,7 +1179,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1216,7 +1216,7 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1235,7 +1235,7 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1254,7 +1254,7 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1274,7 +1274,7 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=rust")
+                .uri("/api/v1/notes?q=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1295,7 +1295,7 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=programming")
+                .uri("/api/v1/notes?q=programming")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1314,7 +1314,7 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=python")
+                .uri("/api/v1/notes?q=python")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1340,7 +1340,7 @@ async fn fts5_search_boolean_operators_with_tags_via_api() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1359,7 +1359,7 @@ async fn fts5_search_boolean_operators_with_tags_via_api() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1378,7 +1378,7 @@ async fn fts5_search_boolean_operators_with_tags_via_api() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1398,7 +1398,7 @@ async fn fts5_search_boolean_operators_with_tags_via_api() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=rust+AND+web")
+                .uri("/api/v1/notes?q=rust+AND+web")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1418,7 +1418,7 @@ async fn fts5_search_boolean_operators_with_tags_via_api() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=python+OR+cli")
+                .uri("/api/v1/notes?q=python+OR+cli")
                 .body(Body::empty())
                 .unwrap(),
         )

@@ -76,7 +76,7 @@ pub async fn list_projects(
     offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut request = api_client.get("/v1/projects");
+    let mut request = api_client.get("/api/v1/projects");
 
     if let Some(t) = tags {
         request = request.query(&[("tags", t)]);
@@ -110,7 +110,7 @@ fn format_table(projects: &[Project]) -> String {
 /// Get a single project by ID
 pub async fn get_project(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
     let project: Project = api_client
-        .get(&format!("/v1/projects/{}", id))
+        .get(&format!("/api/v1/projects/{}", id))
         .send()
         .await?
         .json()
@@ -162,7 +162,7 @@ pub async fn create_project(
     };
 
     let response = api_client
-        .post("/v1/projects")
+        .post("/api/v1/projects")
         .json(&request)
         .send()
         .await?;
@@ -189,7 +189,7 @@ pub async fn update_project(
     };
 
     let response = api_client
-        .patch(&format!("/v1/projects/{}", id))
+        .patch(&format!("/api/v1/projects/{}", id))
         .json(&request)
         .send()
         .await?;
@@ -211,7 +211,7 @@ pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> Cl
     }
 
     let response = api_client
-        .delete(&format!("/v1/projects/{}", id))
+        .delete(&format!("/api/v1/projects/{}", id))
         .send()
         .await?;
 

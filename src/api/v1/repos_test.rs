@@ -41,7 +41,7 @@ async fn list_repos_initially_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -68,7 +68,7 @@ async fn create_repo_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -99,7 +99,7 @@ async fn create_repo_without_path() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -133,7 +133,7 @@ async fn list_repos_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -154,7 +154,7 @@ async fn list_repos_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -175,7 +175,7 @@ async fn list_repos_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -193,7 +193,7 @@ async fn list_repos_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -211,7 +211,7 @@ async fn list_repos_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -229,7 +229,7 @@ async fn list_repos_filtered_by_project_id() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -248,7 +248,7 @@ async fn list_repos_filtered_by_project_id() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/repos?project_id={}", project_a_id))
+                .uri(format!("/api/v1/repos?project_id={}", project_a_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -266,7 +266,7 @@ async fn list_repos_filtered_by_project_id() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/repos?project_id={}", project_b_id))
+                .uri(format!("/api/v1/repos?project_id={}", project_b_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -290,7 +290,7 @@ async fn list_repos_filtered_by_nonexistent_project() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -307,7 +307,7 @@ async fn list_repos_filtered_by_nonexistent_project() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/repos?project_id=nonexist")
+                .uri("/api/v1/repos?project_id=nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -335,7 +335,7 @@ async fn get_repo_returns_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -355,7 +355,7 @@ async fn get_repo_returns_repo() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -376,7 +376,7 @@ async fn get_repo_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/repos/nonexist")
+                .uri("/api/v1/repos/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -400,7 +400,7 @@ async fn patch_repo_partial_remote_update() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -424,7 +424,7 @@ async fn patch_repo_partial_remote_update() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -457,7 +457,7 @@ async fn patch_repo_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/repos/notfound")
+                .uri("/api/v1/repos/notfound")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -487,7 +487,7 @@ async fn update_repo_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -508,7 +508,7 @@ async fn update_repo_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -537,7 +537,7 @@ async fn update_repo_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/repos/nonexist")
+                .uri("/api/v1/repos/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -568,7 +568,7 @@ async fn delete_repo_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -590,7 +590,7 @@ async fn delete_repo_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -603,7 +603,7 @@ async fn delete_repo_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -621,7 +621,7 @@ async fn delete_repo_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/repos/nonexist")
+                .uri("/api/v1/repos/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -645,7 +645,7 @@ async fn patch_repo_link_to_project() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -667,7 +667,7 @@ async fn patch_repo_link_to_project() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -691,7 +691,7 @@ async fn patch_repo_link_to_project() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/repos/{}", repo_id))
+                .uri(format!("/api/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
