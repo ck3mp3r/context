@@ -826,28 +826,78 @@ pub fn TaskDetailContent(
                                 <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
                                     {format!("Subtasks ({})", tasks_list.len())}
                                 </h3>
+                                <div class="max-h-[40vh] overflow-y-auto">
                                 <Accordion open_items=open_items collapsible=true>
                                     {tasks_list.into_iter().map(|subtask| {
                                         let subtask_id = subtask.id.clone();
+                                        let subtask_content_header = subtask.content.clone();
+                                        let subtask_content_body = subtask.content.clone();
+                                        let subtask_status = subtask.status.clone();
                                         view! {
                                             <AccordionItem value=subtask_id.clone()>
-                                                <AccordionHeader slot>{subtask.content.clone()}</AccordionHeader>
+                                                <AccordionHeader slot>
+                                                    <div class="flex items-center gap-2 w-full">
+                                                        <span class="flex-1 truncate text-sm">
+                                                            {
+                                                                if subtask_content_header.len() > 60 {
+                                                                    format!("{}...", &subtask_content_header[..60])
+                                                                } else {
+                                                                    subtask_content_header
+                                                                }
+                                                            }
+                                                        </span>
+                                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                                            {subtask.priority.map(|p| {
+                                                                let priority_color = match p {
+                                                                    1 => "bg-ctp-red text-ctp-base",
+                                                                    2 => "bg-ctp-peach text-ctp-base",
+                                                                    3 => "bg-ctp-yellow text-ctp-base",
+                                                                    4 => "bg-ctp-blue text-ctp-base",
+                                                                    5 => "bg-ctp-overlay0 text-ctp-base",
+                                                                    _ => "bg-ctp-surface1 text-ctp-text",
+                                                                };
+                                                                view! {
+                                                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_color)>
+                                                                        "P"{p}
+                                                                    </span>
+                                                                }
+                                                            })}
+                                                            {
+                                                                let status_color = match subtask_status.as_str() {
+                                                                    "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
+                                                                    "todo" => "bg-ctp-blue/20 text-ctp-blue",
+                                                                    "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
+                                                                    "review" => "bg-ctp-mauve/20 text-ctp-mauve",
+                                                                    "done" => "bg-ctp-green/20 text-ctp-green",
+                                                                    "cancelled" => "bg-ctp-red/20 text-ctp-red",
+                                                                    _ => "bg-ctp-surface1 text-ctp-text",
+                                                                };
+                                                                let status_label = match subtask_status.as_str() {
+                                                                    "in_progress" => "In Progress".to_string(),
+                                                                    status => {
+                                                                        let mut s = status.to_string();
+                                                                        if let Some(first_char) = s.get_mut(0..1) {
+                                                                            first_char.make_ascii_uppercase();
+                                                                        }
+                                                                        s
+                                                                    }
+                                                                };
+                                                                view! {
+                                                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_color)>
+                                                                        {status_label}
+                                                                    </span>
+                                                                }
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </AccordionHeader>
                                                 <div class="relative space-y-2 text-sm">
                                                     <div class="absolute top-0 right-0">
                                                         <CopyableId id=subtask_id.clone()/>
                                                     </div>
-                                                    <div>
-                                                        <span class="text-ctp-subtext0">"Status: "</span>
-                                                        <span class="text-ctp-text">{format!("{:?}", subtask.status)}</span>
+                                                    <div class="text-ctp-text break-words pr-20">
+                                                        {subtask_content_body}
                                                     </div>
-                                                    {subtask.priority.map(|p| {
-                                                        view! {
-                                                            <div>
-                                                                <span class="text-ctp-subtext0">"Priority: "</span>
-                                                                <span class="text-ctp-text">"P"{p}</span>
-                                                            </div>
-                                                        }
-                                                    })}
                                                     {(!subtask.tags.is_empty()).then(|| {
                                                         view! {
                                                             <div class="flex flex-wrap gap-1">
@@ -866,6 +916,7 @@ pub fn TaskDetailContent(
                                         }
                                     }).collect::<Vec<_>>()}
                                 </Accordion>
+                                </div>
                             </div>
                         })
                     } else {
@@ -885,7 +936,7 @@ pub fn TaskDetailDialog(
 ) -> impl IntoView {
     view! {
         <Dialog open=open>
-            <DialogSurface class="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogSurface class="max-w-3xl max-h-[60vh] overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
                     <DialogContent class="flex-1 overflow-y-auto">
                         {match initial_open_subtask_id {
