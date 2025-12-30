@@ -520,7 +520,12 @@ pub fn TaskCard(
                 <div class="text-sm text-ctp-text mb-2 break-words">
                     <div class="font-medium">{task.title.clone()}</div>
                     {task.description.as_ref().map(|desc| {
-                        view! { <div class="text-ctp-subtext0 text-xs mt-1">{desc.clone()}</div> }
+                        let truncated = if desc.len() > 100 {
+                            format!("{}...", &desc.chars().take(100).collect::<String>())
+                        } else {
+                            desc.clone()
+                        };
+                        view! { <div class="text-ctp-subtext0 text-xs mt-1">{truncated}</div> }
                     })}
                 </div>
 
@@ -730,7 +735,12 @@ pub fn OrphanedSubtaskCard(
             <div class="text-sm text-ctp-text mb-2 break-words">
                 <div class="font-medium">{task.title.clone()}</div>
                 {task.description.as_ref().map(|desc| {
-                    view! { <div class="text-ctp-subtext0 text-xs mt-1">{desc.clone()}</div> }
+                    let truncated = if desc.len() > 100 {
+                        format!("{}...", &desc.chars().take(100).collect::<String>())
+                    } else {
+                        desc.clone()
+                    };
+                    view! { <div class="text-ctp-subtext0 text-xs mt-1">{truncated}</div> }
                 })}
             </div>
 
