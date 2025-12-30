@@ -153,6 +153,11 @@ pub struct ListTasksQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Filter by task type: "task" (top-level only) or "subtask" (only subtasks)
+    /// Omit to return both tasks and subtasks (default)
+    #[param(example = "task")]
+    #[serde(rename = "type")]
+    pub task_type: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -202,7 +207,7 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
         parent_id: query.parent_id.clone(),
         status: query.status.clone(),
         tags: None,
-        task_type: None,
+        task_type: query.task_type.clone(),
     };
 
     let result = state

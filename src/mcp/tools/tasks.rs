@@ -28,11 +28,16 @@ pub struct ListTasksParams {
     )]
     pub status: Option<Vec<String>>,
     #[schemars(
-        description = "Filter by parent task ID to list only subtasks of a specific task. Use null/omit to list only top-level tasks."
+        description = "Filter by parent task ID to list subtasks of a specific parent. Omit to return all tasks (both parents and subtasks). Use type='task' to filter only top-level tasks."
     )]
     pub parent_id: Option<String>,
     #[schemars(description = "Filter by tags to find tasks with specific labels.")]
     pub tags: Option<Vec<String>>,
+    #[schemars(
+        description = "Filter by task type: 'task' (top-level only) or 'subtask' (only subtasks). Omit to return both tasks and subtasks (default). Examples: type='task' lists only parents (parent_id IS NULL), type='subtask' lists only subtasks (parent_id IS NOT NULL), type='subtask' with parent_id='xyz' lists subtasks of specific parent."
+    )]
+    #[serde(rename = "type")]
+    pub task_type: Option<String>,
     #[schemars(description = "Maximum number of tasks to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
 }
@@ -149,7 +154,7 @@ impl<D: Database + 'static> TaskTools<D> {
             status: status_str,
             parent_id: params.0.parent_id.clone(),
             tags: params.0.tags.clone(),
-            task_type: None,
+            task_type: params.0.task_type.clone(),
         };
 
         let result = self

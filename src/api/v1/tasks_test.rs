@@ -821,3 +821,148 @@ async fn api_cascade_only_matching_subtasks() {
         "Diverged subtask should remain in_progress"
     );
 }
+
+/// Helper to create a task with specified content, parent_id, and status
+async fn create_task(
+    app: &axum::Router,
+    list_id: &str,
+    content: &str,
+    parent_id: Option<&str>,
+    status: &str,
+) -> String {
+    let mut payload = json!({
+        "content": content,
+        "status": status
+    });
+    if let Some(pid) = parent_id {
+        payload["parent_id"] = json!(pid);
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    body["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_task_returns_only_parents() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create 2 parents (done)
+    let parent1_id = create_task(&app, &list_id, "Parent 1", None, "done").await;
+    create_task(&app, &list_id, "Parent 2", None, "done").await;
+
+    // Create 2 subtasks (done)
+    create_task(&app, &list_id, "Subtask 1", Some(&parent1_id), "done").await;
+    create_task(&app, &list_id, "Subtask 2", Some(&parent1_id), "done").await;
+
+    // Query with type=task
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/task-lists/{}/tasks?status=done&type=task",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return only 2 parents");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned tasks have parent_id = null
+    for item in body["items"].as_array().unwrap() {
+        assert!(
+            item["parent_id"].is_null(),
+            "All tasks should be parents (parent_id IS NULL)"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_subtask_returns_only_subtasks() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create 1 parent (done)
+    let parent_id = create_task(&app, &list_id, "Parent", None, "done").await;
+
+    // Create 2 subtasks (done)
+    create_task(&app, &list_id, "Subtask 1", Some(&parent_id), "done").await;
+    create_task(&app, &list_id, "Subtask 2", Some(&parent_id), "done").await;
+
+    // Query with type=subtask
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/task-lists/{}/tasks?status=done&type=subtask",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return only 2 subtasks");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned tasks have parent_id NOT null
+    for item in body["items"].as_array().unwrap() {
+        assert!(
+            !item["parent_id"].is_null(),
+            "All tasks should be subtasks (parent_id IS NOT NULL)"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_omitted_returns_all() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create 1 parent (done)
+    let parent_id = create_task(&app, &list_id, "Parent", None, "done").await;
+
+    // Create 1 subtask (done)
+    create_task(&app, &list_id, "Subtask", Some(&parent_id), "done").await;
+
+    // Query WITHOUT type parameter (backward compatibility)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/task-lists/{}/tasks?status=done", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return both parent and subtask");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+}
