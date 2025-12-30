@@ -166,7 +166,7 @@ pub struct PaginatedRepos {
 /// Returns a paginated list of repositories with optional sorting
 #[utoipa::path(
     get,
-    path = "/v1/repos",
+    path = "/api/v1/repos",
     tag = "repos",
     params(ListReposQuery),
     responses(
@@ -230,7 +230,7 @@ pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
 /// Returns a single repository by its ID
 #[utoipa::path(
     get,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -269,7 +269,7 @@ pub async fn get_repo<D: Database, G: GitOps + Send + Sync>(
 /// Registers a new repository and returns it
 #[utoipa::path(
     post,
-    path = "/v1/repos",
+    path = "/api/v1/repos",
     tag = "repos",
     request_body = CreateRepoRequest,
     responses(
@@ -309,7 +309,7 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
 /// Updates an existing repository
 #[utoipa::path(
     put,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -366,7 +366,7 @@ pub async fn update_repo<D: Database, G: GitOps + Send + Sync>(
 /// Updates only the fields provided in the request (PATCH semantics)
 #[utoipa::path(
     patch,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -421,7 +421,7 @@ pub async fn patch_repo<D: Database, G: GitOps + Send + Sync>(
 /// Deletes a repository by its ID
 #[utoipa::path(
     delete,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")

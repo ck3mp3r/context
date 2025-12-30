@@ -184,7 +184,7 @@ pub struct PaginatedNotes {
 
 #[utoipa::path(
     get,
-    path = "/v1/notes",
+    path = "/api/v1/notes",
     tag = "notes",
     params(ListNotesQuery),
     responses(
@@ -268,7 +268,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     get,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     responses(
@@ -302,7 +302,7 @@ pub async fn get_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     post,
-    path = "/v1/notes",
+    path = "/api/v1/notes",
     tag = "notes",
     request_body = CreateNoteRequest,
     responses(
@@ -348,7 +348,7 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     put,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     request_body = UpdateNoteRequest,
@@ -403,7 +403,7 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     patch,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     request_body = PatchNoteRequest,
@@ -453,7 +453,7 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     delete,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     responses(

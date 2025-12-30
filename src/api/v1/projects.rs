@@ -171,7 +171,7 @@ pub struct PaginatedProjects {
 /// Returns a paginated list of projects with optional sorting
 #[utoipa::path(
     get,
-    path = "/v1/projects",
+    path = "/api/v1/projects",
     tag = "projects",
     params(ListProjectsQuery),
     responses(
@@ -238,7 +238,7 @@ pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
 /// Returns a single project by its ID
 #[utoipa::path(
     get,
-    path = "/v1/projects/{id}",
+    path = "/api/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")
@@ -277,7 +277,7 @@ pub async fn get_project<D: Database, G: GitOps + Send + Sync>(
 /// Creates a new project and returns it
 #[utoipa::path(
     post,
-    path = "/v1/projects",
+    path = "/api/v1/projects",
     tag = "projects",
     request_body = CreateProjectRequest,
     responses(
@@ -323,7 +323,7 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
 /// Updates an existing project
 #[utoipa::path(
     put,
-    path = "/v1/projects/{id}",
+    path = "/api/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")
@@ -389,7 +389,7 @@ pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
 /// Updates only the fields provided in the request (PATCH semantics)
 #[utoipa::path(
     patch,
-    path = "/v1/projects/{id}",
+    path = "/api/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")
@@ -454,7 +454,7 @@ pub async fn patch_project<D: Database, G: GitOps + Send + Sync>(
 /// Deletes a project by its ID
 #[utoipa::path(
     delete,
-    path = "/v1/projects/{id}",
+    path = "/api/v1/projects/{id}",
     tag = "projects",
     params(
         ("id" = String, Path, description = "Project ID (8-character hex)")

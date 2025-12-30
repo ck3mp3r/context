@@ -218,7 +218,7 @@ pub struct PaginatedTaskLists {
 
 #[utoipa::path(
     get,
-    path = "/v1/task-lists",
+    path = "/api/v1/task-lists",
     tag = "task-lists",
     params(ListTaskListsQuery),
     responses(
@@ -285,7 +285,7 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     get,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(
@@ -324,7 +324,7 @@ pub async fn get_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     post,
-    path = "/v1/task-lists",
+    path = "/api/v1/task-lists",
     tag = "task-lists",
     request_body = CreateTaskListRequest,
     responses(
@@ -370,7 +370,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     put,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     request_body = UpdateTaskListRequest,
@@ -440,7 +440,7 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     patch,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     request_body = PatchTaskListRequest,
@@ -505,7 +505,7 @@ pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     delete,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(
@@ -545,7 +545,7 @@ pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
 /// Get task statistics for a task list
 #[utoipa::path(
     get,
-    path = "/v1/task-lists/{id}/stats",
+    path = "/api/v1/task-lists/{id}/stats",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(

@@ -174,7 +174,7 @@ pub struct PaginatedTasks {
 
 #[utoipa::path(
     get,
-    path = "/v1/task-lists/{list_id}/tasks",
+    path = "/api/v1/task-lists/{list_id}/tasks",
     tag = "tasks",
     params(
         ("list_id" = String, Path, description = "TaskList ID"),
@@ -236,7 +236,7 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     get,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     responses(
@@ -270,7 +270,7 @@ pub async fn get_task<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     post,
-    path = "/v1/task-lists/{list_id}/tasks",
+    path = "/api/v1/task-lists/{list_id}/tasks",
     tag = "tasks",
     params(("list_id" = String, Path, description = "TaskList ID")),
     request_body = CreateTaskRequest,
@@ -325,7 +325,7 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     put,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     request_body = UpdateTaskRequest,
@@ -394,7 +394,7 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
 /// Auto-manages started_at and completed_at timestamps based on status transitions.
 #[utoipa::path(
     patch,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     request_body = PatchTaskRequest,
@@ -454,7 +454,7 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     delete,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     responses(
