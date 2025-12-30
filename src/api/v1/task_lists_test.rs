@@ -1304,8 +1304,7 @@ async fn get_task_list_stats_returns_counts_by_status() {
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&json!({
-                            "content": format!("Task {}", i),
-                            "status": status
+                            "content": format!("Task {}", i)
                         }))
                         .unwrap(),
                     ))
@@ -1320,6 +1319,26 @@ async fn get_task_list_stats_returns_counts_by_status() {
             "Failed to create task {}",
             i
         );
+
+        let task_body = json_body(create_task_response).await;
+        let task_id = task_body["id"].as_str().unwrap();
+
+        // Update to desired status (skip backlog as it's default)
+        if *status != "backlog" {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PATCH")
+                        .uri(format!("/api/v1/tasks/{}", task_id))
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::to_vec(&json!({"status": status})).unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
     }
 
     // Get stats

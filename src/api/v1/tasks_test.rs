@@ -129,8 +129,7 @@ async fn create_task_returns_created() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "content": "Complete the feature",
-                        "priority": 2,
-                        "status": "in_progress"
+                        "priority": 2
                     }))
                     .unwrap(),
                 ))
@@ -144,7 +143,7 @@ async fn create_task_returns_created() {
     let body = json_body(response).await;
     assert_eq!(body["content"], "Complete the feature");
     assert_eq!(body["priority"], 2);
-    assert_eq!(body["status"], "in_progress");
+    assert_eq!(body["status"], "backlog");
     assert_eq!(body["list_id"], list_id);
     assert!(body["id"].as_str().unwrap().len() == 8);
 }
@@ -252,8 +251,7 @@ async fn patch_task_move_to_different_list() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "content": "Task to move",
-                        "status": "todo"
+                        "content": "Task to move"
                     })
                     .to_string(),
                 ))
@@ -292,7 +290,7 @@ async fn patch_task_move_to_different_list() {
     // Verify task moved to list2
     assert_eq!(patched_body["list_id"], list2_id);
     assert_eq!(patched_body["content"], "Task to move"); // Content unchanged
-    assert_eq!(patched_body["status"], "todo"); // Status unchanged
+    assert_eq!(patched_body["status"], "backlog"); // Status unchanged
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -327,8 +325,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "content": "Task to complete",
-                        "status": "todo"
+                        "content": "Task to complete"
                     }))
                     .unwrap(),
                 ))
@@ -761,7 +758,6 @@ async fn api_cascade_only_matching_subtasks() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "content": "Diverged subtask",
-                        "status": "in_progress",
                         "parent_id": parent_id
                     }))
                     .unwrap(),
@@ -772,6 +768,21 @@ async fn api_cascade_only_matching_subtasks() {
         .unwrap();
     let diverged = json_body(diverged_response).await;
     let diverged_id = diverged["id"].as_str().unwrap();
+
+    // Update diverged subtask to in_progress
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", diverged_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "in_progress"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     // Update parent: backlog → done
     app.clone()
@@ -830,10 +841,7 @@ async fn create_task(
     parent_id: Option<&str>,
     status: &str,
 ) -> String {
-    let mut payload = json!({
-        "content": content,
-        "status": status
-    });
+    let mut payload = json!({"content": content});
     if let Some(pid) = parent_id {
         payload["parent_id"] = json!(pid);
     }
@@ -852,7 +860,26 @@ async fn create_task(
         .unwrap();
 
     let body = json_body(response).await;
-    body["id"].as_str().unwrap().to_string()
+    let task_id = body["id"].as_str().unwrap().to_string();
+
+    // Update to desired status if not backlog
+    if status != "backlog" {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/v1/tasks/{}", task_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({"status": status})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    task_id
 }
 
 #[tokio::test(flavor = "multi_thread")]

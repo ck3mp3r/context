@@ -70,8 +70,6 @@ pub struct CreateTaskRequest {
     #[schema(example = "Complete the feature")]
     pub content: String,
     pub parent_id: Option<String>,
-    #[schema(example = "backlog")]
-    pub status: Option<String>,
     pub priority: Option<i32>,
 }
 
@@ -285,29 +283,16 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
     Path(list_id): Path<String>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let status = req
-        .status
-        .as_deref()
-        .map(parse_status)
-        .unwrap_or(TaskStatus::Backlog);
-
-    let started_at = if matches!(status, TaskStatus::InProgress) {
-        Some(current_timestamp())
-    } else {
-        None
-    };
-
-    // Create task with placeholder values - repository will generate ID and timestamp
     let task = Task {
         id: String::new(), // Repository will generate this
         list_id,
         parent_id: req.parent_id,
         content: req.content,
-        status,
+        status: TaskStatus::Backlog,
         priority: req.priority,
         tags: vec![],
         created_at: String::new(), // Repository will generate this
-        started_at,
+        started_at: None,
         completed_at: None,
     };
 

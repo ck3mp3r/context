@@ -103,7 +103,6 @@ async fn test_create_and_list_task() {
     let create_params = CreateTaskParams {
         list_id: created_list.id.clone(),
         content: "Implement feature X".to_string(),
-        status: Some("todo".to_string()),
         priority: Some(1),
         parent_id: None,
         tags: Some(vec!["urgent".to_string()]),
@@ -121,7 +120,7 @@ async fn test_create_and_list_task() {
     let created: Task = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(created.content, "Implement feature X");
-    assert_eq!(created.status, TaskStatus::Todo);
+    assert_eq!(created.status, TaskStatus::Backlog);
     assert_eq!(created.priority, Some(1));
     assert_eq!(created.tags, vec!["urgent".to_string()]);
     assert_eq!(created.list_id, created_list.id);
