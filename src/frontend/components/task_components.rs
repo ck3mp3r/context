@@ -377,6 +377,7 @@ pub fn KanbanColumn(
             >
                 {move || tasks.get()
                     .into_iter()
+                    .filter(|task| task.parent_id.is_none())
                     .map(|task| {
                         view! {
                             <TaskCard
