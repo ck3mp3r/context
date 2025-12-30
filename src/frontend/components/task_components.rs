@@ -423,131 +423,6 @@ pub fn TaskCard(
     }
 }
 
-/// SubtaskCard component - displays a subtask with full metadata like parent cards
-#[component]
-pub fn SubtaskCard(
-    task: Task,
-    #[prop(optional)] on_click: Option<Callback<Task>>,
-) -> impl IntoView {
-    let priority_color = match task.priority {
-        Some(1) => "border-l-ctp-red",
-        Some(2) => "border-l-ctp-peach",
-        Some(3) => "border-l-ctp-yellow",
-        Some(4) => "border-l-ctp-blue",
-        Some(5) => "border-l-ctp-overlay0",
-        _ => "border-l-ctp-surface1",
-    };
-
-    let task_for_click = task.clone();
-    let handle_card_click = move |_| {
-        if let Some(callback) = on_click {
-            callback.run(task_for_click.clone());
-        }
-    };
-
-    view! {
-        <div
-            class=format!(
-                "bg-ctp-surface0 border-l-4 {} rounded p-3 hover:shadow-md transition-shadow cursor-pointer",
-                priority_color
-            )
-            on:click=handle_card_click
-        >
-            <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
-
-            <div class="flex items-start justify-between gap-2 mt-2 text-xs">
-                <div class="flex items-center gap-2 flex-wrap">
-                    {task.priority.map(|p| {
-                        let badge_color = match p {
-                            1 => "bg-ctp-red text-ctp-base",
-                            2 => "bg-ctp-peach text-ctp-base",
-                            3 => "bg-ctp-yellow text-ctp-base",
-                            4 => "bg-ctp-blue text-ctp-base",
-                            5 => "bg-ctp-overlay0 text-ctp-base",
-                            _ => "bg-ctp-surface1 text-ctp-text",
-                        };
-                        view! {
-                            <span class=format!("px-1.5 py-0.5 rounded font-medium {}", badge_color)>
-                                "P"{p}
-                            </span>
-                        }
-                    })}
-
-                    {
-                        let status_color = match task.status.as_str() {
-                            "backlog" => "bg-ctp-overlay0/20 text-ctp-overlay0",
-                            "todo" => "bg-ctp-blue/20 text-ctp-blue",
-                            "in_progress" => "bg-ctp-yellow/20 text-ctp-yellow",
-                            "review" => "bg-ctp-mauve/20 text-ctp-mauve",
-                            "done" => "bg-ctp-green/20 text-ctp-green",
-                            "cancelled" => "bg-ctp-red/20 text-ctp-red",
-                            _ => "bg-ctp-surface1 text-ctp-text",
-                        };
-                        let status_label = match task.status.as_str() {
-                            "in_progress" => "In Progress",
-                            s => {
-                                let mut chars = s.chars();
-                                match chars.next() {
-                                    None => "",
-                                    Some(c) => {
-                                        let mut result = c.to_uppercase().to_string();
-                                        result.push_str(chars.as_str());
-                                        result.leak()
-                                    }
-                                }
-                            }
-                        };
-                        view! {
-                            <span class=format!("px-1.5 py-0.5 rounded font-medium {}", status_color)>
-                                {status_label}
-                            </span>
-                        }
-                    }
-                </div>
-
-                <div class="flex flex-col items-end gap-0.5 text-ctp-overlay0 text-right">
-                    <div class="whitespace-nowrap">
-                        <span class="text-ctp-overlay1">"Created: "</span>
-                        <span>{task.created_at.clone()}</span>
-                    </div>
-
-                    {task.started_at.clone().map(|started| {
-                        view! {
-                            <div class="whitespace-nowrap">
-                                <span class="text-ctp-overlay1">"Started: "</span>
-                                <span>{started}</span>
-                            </div>
-                        }
-                    })}
-
-                    {task.completed_at.clone().map(|completed| {
-                        view! {
-                            <div class="whitespace-nowrap">
-                                <span class="text-ctp-overlay1">"Completed: "</span>
-                                <span>{completed}</span>
-                            </div>
-                        }
-                    })}
-                </div>
-            </div>
-
-            {(!task.tags.is_empty()).then(|| {
-                view! {
-                    <div class="flex flex-wrap gap-1 mt-2">
-                        {task.tags.iter().map(|tag| {
-                            view! {
-                                <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                    {tag.clone()}
-                                </span>
-                            }
-                        }).collect::<Vec<_>>()}
-                    </div>
-                }
-            })}
-        </div>
-    }
-}
-
 /// SubtaskList component - displays subtasks for a parent task
 /// Constraint: 1 level deep only (does not recursively show sub-subtasks)
 #[component]
@@ -593,7 +468,7 @@ pub fn SubtaskList(
     });
 
     view! {
-        <div class="ml-3 border-l-2 border-ctp-surface1 pl-2 mt-3 space-y-2">
+        <div class="ml-3 border-l-2 border-ctp-surface1 pl-2 mt-3">
             {move || {
                 if loading.get() {
                     view! { <p class="text-xs text-ctp-overlay0">"Loading subtasks..."</p> }.into_any()
@@ -609,7 +484,9 @@ pub fn SubtaskList(
                                 key=|task| task.id.clone()
                                 let:subtask
                             >
-                                <SubtaskCard task=subtask on_click=callback />
+                                <div class="my-2">
+                                    <TaskCard task=subtask.clone() on_click=callback />
+                                </div>
                             </For>
                         }.into_any(),
                         None => view! {
@@ -618,7 +495,9 @@ pub fn SubtaskList(
                                 key=|task| task.id.clone()
                                 let:subtask
                             >
-                                <SubtaskCard task=subtask />
+                                <div class="my-2">
+                                    <TaskCard task=subtask.clone() />
+                                </div>
                             </For>
                         }.into_any(),
                     }
