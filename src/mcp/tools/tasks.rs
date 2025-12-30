@@ -82,6 +82,10 @@ pub struct UpdateTaskParams {
     #[schemars(description = "Tags (optional). Replaces all existing tags when provided.")]
     pub tags: Option<Vec<String>>,
     #[schemars(
+        description = "Parent task ID (optional). Set to change task hierarchy - convert to/from subtask. Set to empty string to remove parent."
+    )]
+    pub parent_id: Option<String>,
+    #[schemars(
         description = "Move task to different list (optional). Use sparingly - tasks should stay in their original list."
     )]
     pub list_id: Option<String>,
@@ -222,7 +226,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Update task content, status, priority, tags, or move to different list. Status changes to 'in_progress' set started_at, changes to 'done' set completed_at. All fields optional."
+        description = "Update task content, status, priority, parent_id, tags, or move to different list. Status changes to 'in_progress' set started_at, changes to 'done' set completed_at. All fields optional."
     )]
     pub async fn update_task(
         &self,
@@ -250,6 +254,14 @@ impl<D: Database + 'static> TaskTools<D> {
         }
         if let Some(tags) = &params.0.tags {
             task.tags = tags.clone();
+        }
+        if let Some(parent_id) = &params.0.parent_id {
+            // Empty string means remove parent (convert subtask to standalone)
+            if parent_id.is_empty() {
+                task.parent_id = None;
+            } else {
+                task.parent_id = Some(parent_id.clone());
+            }
         }
         if let Some(list_id) = &params.0.list_id {
             task.list_id = list_id.clone();

@@ -354,6 +354,7 @@ async fn test_update_task() {
         status: Some("in_progress".to_string()),
         priority: Some(1),
         tags: Some(vec!["urgent".to_string()]),
+        parent_id: None,
         list_id: None,
     };
 
@@ -643,6 +644,7 @@ async fn test_update_task_move_to_different_list() {
         status: None,
         priority: None,
         tags: None,
+        parent_id: None,
         list_id: Some(created_list2.id.clone()),
     };
 
@@ -661,4 +663,113 @@ async fn test_update_task_move_to_different_list() {
     assert_eq!(updated_task.list_id, created_list2.id);
     assert_eq!(updated_task.content, "Task to move"); // Content unchanged
     assert_eq!(updated_task.priority, Some(3)); // Priority unchanged
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_parent_id() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create a task list
+    let task_list = TaskList {
+        id: String::new(),
+        name: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id: get_default_project_id(&db).await,
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create a parent task
+    let parent_task = Task {
+        id: String::new(),
+        list_id: created_list.id.clone(),
+        parent_id: None,
+        content: "Parent task".to_string(),
+        status: TaskStatus::InProgress,
+        priority: Some(2),
+        tags: vec![],
+        created_at: String::new(),
+        started_at: None,
+        completed_at: None,
+    };
+    let created_parent = db.tasks().create(&parent_task).await.unwrap();
+
+    // Create a standalone task (no parent)
+    let standalone_task = Task {
+        id: String::new(),
+        list_id: created_list.id.clone(),
+        parent_id: None,
+        content: "Standalone task".to_string(),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        created_at: String::new(),
+        started_at: None,
+        completed_at: None,
+    };
+    let created_standalone = db.tasks().create(&standalone_task).await.unwrap();
+
+    let tools = TaskTools::new(db.clone());
+
+    // Update standalone task to become a subtask of parent
+    let update_params = UpdateTaskParams {
+        task_id: created_standalone.id.clone(),
+        content: None,
+        status: None,
+        priority: None,
+        tags: None,
+        list_id: None,
+        parent_id: Some(created_parent.id.clone()),
+    };
+
+    let result = tools
+        .update_task(Parameters(update_params))
+        .await
+        .expect("update should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let updated_task: Task = serde_json::from_str(content_text).unwrap();
+
+    // Verify task is now a subtask of parent
+    assert_eq!(updated_task.parent_id, Some(created_parent.id.clone()));
+    assert_eq!(updated_task.content, "Standalone task"); // Content unchanged
+    assert_eq!(updated_task.priority, Some(3)); // Priority unchanged
+
+    // Test case 2: Remove parent (convert subtask back to standalone)
+    let update_params2 = UpdateTaskParams {
+        task_id: updated_task.id.clone(),
+        content: None,
+        status: None,
+        priority: None,
+        tags: None,
+        list_id: None,
+        parent_id: Some(String::new()), // Empty string = remove parent
+    };
+
+    let result2 = tools
+        .update_task(Parameters(update_params2))
+        .await
+        .expect("update should succeed");
+
+    let content_text2 = match &result2.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let standalone_again: Task = serde_json::from_str(content_text2).unwrap();
+
+    // Verify task is standalone again (no parent)
+    assert_eq!(standalone_again.parent_id, None);
+    assert_eq!(standalone_again.content, "Standalone task");
 }
