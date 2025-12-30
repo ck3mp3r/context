@@ -345,14 +345,30 @@ pub fn SubtaskStackItem(
                         <CopyableId id=subtask_id.clone()/>
                     </div>
 
-                    // Content (truncated when collapsed, full when expanded)
+                    // Title (truncated when collapsed, with description when expanded)
                     <div class="flex-1 text-sm text-ctp-text break-words">
                         {move || {
-                            let content = &subtask.content;
-                            if !is_expanded() && content.len() > 60 {
-                                format!("{}...", &content[..60])
-                            } else {
-                                content.clone()
+                            let title = &subtask.title;
+                            let truncated = !is_expanded() && title.len() > 60;
+                            let show_description = is_expanded() && subtask.description.is_some();
+
+                            view! {
+                                <div>
+                                    <div class=if show_description { "font-medium" } else { "" }>
+                                        {if truncated {
+                                            format!("{}...", &title[..60])
+                                        } else {
+                                            title.clone()
+                                        }}
+                                    </div>
+                                    {show_description.then(|| {
+                                        view! {
+                                            <div class="text-ctp-subtext0 text-xs mt-1">
+                                                {subtask.description.clone()}
+                                            </div>
+                                        }
+                                    })}
+                                </div>
                             }
                         }}
                     </div>
@@ -501,7 +517,12 @@ pub fn TaskCard(
                 }
                 on:click=handle_card_click
             >
-                <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
+                <div class="text-sm text-ctp-text mb-2 break-words">
+                    <div class="font-medium">{task.title.clone()}</div>
+                    {task.description.as_ref().map(|desc| {
+                        view! { <div class="text-ctp-subtext0 text-xs mt-1">{desc.clone()}</div> }
+                    })}
+                </div>
 
                 {(!task.tags.is_empty())
                     .then(|| {
@@ -706,7 +727,12 @@ pub fn OrphanedSubtaskCard(
                 <CopyableId id=parent_id />
             </div>
 
-            <p class="text-sm text-ctp-text mb-2 break-words">{task.content.clone()}</p>
+            <div class="text-sm text-ctp-text mb-2 break-words">
+                <div class="font-medium">{task.title.clone()}</div>
+                {task.description.as_ref().map(|desc| {
+                    view! { <div class="text-ctp-subtext0 text-xs mt-1">{desc.clone()}</div> }
+                })}
+            </div>
 
             {(!task.tags.is_empty())
                 .then(|| {
@@ -789,17 +815,26 @@ pub fn TaskDetailContent(
 
     view! {
         <div>
-            // Main task - description first, metadata secondary
+            // Main task - title and description first, metadata secondary
             <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
-                // CopyableId + Task description
-                <div class="flex items-start gap-2 mb-4">
+                // CopyableId + Task title
+                <div class="flex items-start gap-2 mb-3">
                     <div class="flex-shrink-0">
                         <CopyableId id=task.id.clone()/>
                     </div>
-                    <div class="flex-1 text-base text-ctp-text whitespace-pre-wrap break-words">
-                        {task.content.clone()}
-                    </div>
+                    <h2 class="flex-1 text-xl font-semibold text-ctp-text break-words">
+                        {task.title.clone()}
+                    </h2>
                 </div>
+
+                // Task description (if present)
+                {task.description.as_ref().map(|desc| {
+                    view! {
+                        <div class="mb-4 text-sm text-ctp-text whitespace-pre-wrap break-words prose prose-sm max-w-none prose-ctp">
+                            {desc.clone()}
+                        </div>
+                    }
+                })}
 
                 // Metadata - compact and less prominent
                 <div class="pt-3 border-t border-ctp-surface1">
@@ -984,7 +1019,7 @@ pub fn TaskListCard(
 
                 class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{task_list.name.clone()}</h3>
+                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{task_list.title.clone()}</h3>
 
             {task_list
                 .description
@@ -1137,7 +1172,7 @@ pub fn TaskListDetailModal(
                                             <div class="flex-1">
                                                 <div class="flex items-center gap-3 mb-1">
                                                     <h2 class="text-2xl font-bold text-ctp-text">
-                                                        {tl.name.clone()}
+                                                        {tl.title.clone()}
                                                     </h2>
                                                     <CopyableId id=tl.id.clone()/>
                                                 </div>

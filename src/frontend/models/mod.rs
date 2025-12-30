@@ -40,7 +40,7 @@ pub struct Repo {
 pub struct TaskList {
     pub id: String,
     pub project_id: String,
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub status: String,
     pub external_ref: Option<String>,
@@ -57,7 +57,8 @@ pub struct Task {
     pub id: String,
     pub list_id: String,
     pub parent_id: Option<String>,
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     pub status: String,
     pub priority: Option<i32>,
     pub tags: Vec<String>,

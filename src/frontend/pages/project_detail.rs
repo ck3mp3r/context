@@ -282,15 +282,15 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             let filtered: Vec<TaskList> = paginated
                                                                 .items
                                                                 .iter()
-                                                                .filter(|list| {
-                                                                    search.is_empty()
-                                                                        || list.name.to_lowercase().contains(&search)
-                                                                        || list
-                                                                            .description
-                                                                            .as_ref()
-                                                                            .map(|d| d.to_lowercase().contains(&search))
-                                                                            .unwrap_or(false)
-                                                                })
+                                                        .filter(|list| {
+                                                            search.is_empty()
+                                                                || list.title.to_lowercase().contains(&search)
+                                                                || list
+                                                                    .description
+                                                                    .as_ref()
+                                                                    .map(|d| d.to_lowercase().contains(&search))
+                                                                    .unwrap_or(false)
+                                                        })
                                                                 .cloned()
                                                                 .collect();
 
