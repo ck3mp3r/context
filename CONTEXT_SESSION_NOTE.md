@@ -35,9 +35,22 @@ Add `updated_at` field to tasks:
 6. ⏳ Fix all test files to include `updated_at` (ONE AT A TIME!)
 
 ## Current Step
-Step 3: Update DB layer to set `updated_at` on create/update
-- Added SQL trigger for cascading to parent
-- Now need to update create() and update() in src/db/sqlite/task.rs to set updated_at
+Step 4: Fix test files and update frontend
+
+## Progress (Latest)
+- ✅ Step 3: Updated DB layer to set updated_at on create/update
+- ✅ Added SQL trigger to cascade updated_at to parent automatically!
+- ✅ Committed: b4fe22c
+
+## Next Steps
+1. Fix test files - add `updated_at` to ALL Task struct initializers in test files
+   - src/db/sqlite/task_test.rs (helper function `make_task`)
+   - src/mcp/tools/tasks_test.rs  
+   - src/mcp/tools/task_lists_test.rs
+   - Do ONE AT A TIME! Check each file separately!
+2. Update frontend to sort by `updated_at` instead of `created_at` in:
+   - src/frontend/components/task_components.rs (KanbanColumn component)
+   - Find where sort_field is set and change to "updated_at"
 
 ## Progress
 - ✅ Step 1: Created migration 20251231132607_add_task_updated_at.sql
