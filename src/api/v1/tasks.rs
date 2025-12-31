@@ -39,6 +39,7 @@ pub struct TaskResponse {
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub updated_at: String,
 }
 
 impl From<Task> for TaskResponse {
@@ -63,6 +64,7 @@ impl From<Task> for TaskResponse {
             created_at: t.created_at,
             started_at: t.started_at,
             completed_at: t.completed_at,
+            updated_at: t.updated_at,
         }
     }
 }

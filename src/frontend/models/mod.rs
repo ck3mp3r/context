@@ -65,6 +65,7 @@ pub struct Task {
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub updated_at: String,
 }
 
 /// Task statistics for a task list

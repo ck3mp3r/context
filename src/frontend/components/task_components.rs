@@ -84,8 +84,8 @@ pub fn KanbanColumn(
     // Determine sort order based on status
     let (sort_field, sort_order) = match status {
         "backlog" | "todo" => ("priority", "asc"), // Priority 1-5, nulls last
-        "done" | "cancelled" => ("created_at", "desc"), // Newest first (use completed_at when backend supports it)
-        _ => ("created_at", "desc"),                    // In progress, review: newest first
+        "done" | "cancelled" => ("updated_at", "desc"), // Most recently updated first (completed_at is set on completion → updated_at cascades)
+        _ => ("updated_at", "desc"), // In progress, review: most recently updated first (parent updated_at cascades when subtask changes)
     };
 
     // Initial fetch
