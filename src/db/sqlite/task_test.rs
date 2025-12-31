@@ -53,11 +53,77 @@ fn make_task(id: &str, list_id: &str, title: &str) -> Task {
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
         started_at: None,
         completed_at: None,
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_timestamps_are_optional() {
+    let db = setup_db().await;
+    let list = db
+        .task_lists()
+        .create(&make_task_list("list0001", "Test List"))
+        .await
+        .expect("Create list");
+
+    // Test 1: Provided timestamps are respected
+    let task_with_timestamps = Task {
+        id: String::new(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Task with timestamps".to_string(),
+        description: None,
+        status: TaskStatus::Todo,
+        priority: None,
+        tags: vec![],
+        created_at: Some("2025-01-15 10:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-15 11:00:00".to_string()),
+    };
+
+    let created_with_ts = db
+        .tasks()
+        .create(&task_with_timestamps)
+        .await
+        .expect("Create task");
+    assert_eq!(
+        created_with_ts.created_at,
+        Some("2025-01-15 10:00:00".to_string())
+    );
+    assert_eq!(
+        created_with_ts.updated_at,
+        Some("2025-01-15 11:00:00".to_string())
+    );
+
+    // Test 2: None timestamps are auto-generated
+    let task_without_timestamps = Task {
+        id: String::new(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Task without timestamps".to_string(),
+        description: None,
+        status: TaskStatus::Todo,
+        priority: None,
+        tags: vec![],
+        created_at: None,
+        started_at: None,
+        completed_at: None,
+        updated_at: None,
+    };
+
+    let created_without_ts = db
+        .tasks()
+        .create(&task_without_timestamps)
+        .await
+        .expect("Create task");
+    assert!(created_without_ts.created_at.is_some());
+    assert!(created_without_ts.updated_at.is_some());
+    assert!(!created_without_ts.created_at.as_ref().unwrap().is_empty());
+    assert!(!created_without_ts.updated_at.as_ref().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -82,10 +148,10 @@ async fn task_create_and_get() {
         status: TaskStatus::InProgress,
         priority: Some(2),
         tags: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
         started_at: Some("2025-01-02 09:00:00".to_string()),
         completed_at: None,
-        updated_at: "2025-01-02 09:00:00".to_string(),
+        updated_at: Some("2025-01-02 09:00:00".to_string()),
     };
 
     tasks.create(&task).await.expect("Create should succeed");
@@ -303,10 +369,10 @@ async fn task_create_with_tags() {
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
         started_at: None,
         completed_at: None,
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     tasks.create(&task).await.expect("Create should succeed");
@@ -415,10 +481,10 @@ async fn task_update_status_to_done_sets_completed_at() {
             status: TaskStatus::Todo,
             priority: None,
             tags: vec![],
-            created_at: String::new(),
+            created_at: None,
             started_at: None,
             completed_at: None,
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .expect("Create should succeed");
@@ -475,10 +541,10 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             status: TaskStatus::Todo,
             priority: None,
             tags: vec![],
-            created_at: String::new(),
+            created_at: None,
             started_at: None,
             completed_at: None,
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .expect("Create should succeed");
@@ -542,10 +608,10 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             status: TaskStatus::Backlog,
             priority: None,
             tags: vec![],
-            created_at: String::new(),
+            created_at: None,
             started_at: None,
             completed_at: None,
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .expect("Create should succeed");
@@ -603,10 +669,10 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
             status: TaskStatus::Done,
             priority: None,
             tags: vec![],
-            created_at: String::new(),
+            created_at: None,
             started_at: None,
             completed_at: Some("2025-01-01 12:00:00".to_string()),
-            updated_at: "2025-01-01 12:00:00".to_string(),
+            updated_at: Some("2025-01-01 12:00:00".to_string()),
         })
         .await
         .expect("Create should succeed");
@@ -664,10 +730,10 @@ async fn task_update_other_fields_preserves_timestamps() {
             status: TaskStatus::InProgress,
             priority: None,
             tags: vec![],
-            created_at: String::new(),
+            created_at: None,
             started_at: Some("2025-01-01 10:00:00".to_string()),
             completed_at: None,
-            updated_at: "2025-01-01 10:00:00".to_string(),
+            updated_at: Some("2025-01-01 10:00:00".to_string()),
         })
         .await
         .expect("Create should succeed");
@@ -1432,11 +1498,11 @@ async fn task_update_cascades_updated_at_to_parent() {
         .await
         .expect("Create list");
 
-    // Create parent task
-    let parent = tasks
-        .create(&make_task("parent01", &list.id, "Parent Task"))
-        .await
-        .unwrap();
+    // Create parent task with None timestamps so DB generates current time
+    let mut parent_task = make_task("parent01", &list.id, "Parent Task");
+    parent_task.created_at = None;
+    parent_task.updated_at = None;
+    let parent = tasks.create(&parent_task).await.unwrap();
 
     let initial_parent_updated_at = parent.updated_at.clone();
 
@@ -1446,6 +1512,8 @@ async fn task_update_cascades_updated_at_to_parent() {
     // Create subtask
     let mut subtask = make_task("subtask1", &list.id, "Subtask");
     subtask.parent_id = Some(parent.id.clone());
+    subtask.created_at = None;
+    subtask.updated_at = None;
     let subtask = tasks.create(&subtask).await.unwrap();
 
     // Wait again to ensure update gets different timestamp
@@ -1499,11 +1567,11 @@ async fn task_create_cascades_updated_at_to_parent() {
         .await
         .expect("Create list");
 
-    // Create parent task
-    let parent = tasks
-        .create(&make_task("parent02", &list.id, "Parent Task"))
-        .await
-        .unwrap();
+    // Create parent task with None timestamps so DB generates current time
+    let mut parent_task = make_task("parent02", &list.id, "Parent Task");
+    parent_task.created_at = None;
+    parent_task.updated_at = None;
+    let parent = tasks.create(&parent_task).await.unwrap();
 
     let initial_parent_updated_at = parent.updated_at.clone();
 
@@ -1513,6 +1581,8 @@ async fn task_create_cascades_updated_at_to_parent() {
     // Create subtask - this INSERT should trigger cascade
     let mut subtask = make_task("subtask2", &list.id, "New Subtask");
     subtask.parent_id = Some(parent.id.clone());
+    subtask.created_at = None;
+    subtask.updated_at = None;
     let created_subtask = tasks.create(&subtask).await.unwrap();
 
     // Fetch parent again

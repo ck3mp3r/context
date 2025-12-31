@@ -39,6 +39,12 @@ pub struct ListNotesParams {
         description = "Include note content in response (default: false for lighter list responses). Set to true to retrieve full content."
     )]
     pub include_content: Option<bool>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -115,6 +121,12 @@ pub struct SearchNotesParams {
     pub limit: Option<usize>,
     #[schemars(description = "Number of results to skip (optional)")]
     pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 // =============================================================================
@@ -142,7 +154,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "List notes with optional filtering. Default excludes content (metadata only) - use include_content=true for full notes. Filter by tags, project_id, or note_type. Limit default: 10, max: 20."
+        description = "List notes with optional filtering and sorting. Default excludes content (metadata only) - use include_content=true for full notes. Filter by tags, project_id, or note_type. Sort by title, created_at, or updated_at. Limit default: 10, max: 20."
     )]
     pub async fn list_notes(
         &self,
@@ -156,8 +168,12 @@ impl<D: Database + 'static> NoteTools<D> {
             page: PageSort {
                 limit: params.0.limit,
                 offset: params.0.offset,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
@@ -247,8 +263,8 @@ impl<D: Database + 'static> NoteTools<D> {
             note_type,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
-            created_at: String::new(), // Will be set by DB
-            updated_at: String::new(), // Will be set by DB
+            created_at: None, // Will be set by DB
+            updated_at: None, // Will be set by DB
         };
 
         let created = self.db.notes().create(&note).await.map_err(map_db_error)?;
@@ -325,7 +341,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Full-text search notes (FTS5). Supports: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Filter results by tags/project_id. Returns metadata only (no content)."
+        description = "Full-text search notes (FTS5) with optional sorting. Supports: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Filter results by tags/project_id. Sort by title, created_at, or updated_at. Returns metadata only (no content)."
     )]
     pub async fn search_notes(
         &self,
@@ -336,8 +352,12 @@ impl<D: Database + 'static> NoteTools<D> {
             page: PageSort {
                 limit: Some(apply_limit(params.0.limit)),
                 offset: params.0.offset,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),

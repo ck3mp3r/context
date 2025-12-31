@@ -217,10 +217,10 @@ pub struct Task {
     pub status: TaskStatus,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
-    pub created_at: String,
+    pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
-    pub updated_at: String,
+    pub updated_at: Option<String>,
 }
 
 /// Status of a task.
@@ -292,8 +292,8 @@ pub struct Note {
     /// Linked project IDs (M:N relationship via project_note)
     #[serde(default)]
     pub project_ids: Vec<Id>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 /// Type of note.

@@ -23,6 +23,12 @@ pub struct ListProjectsParams {
         description = "Maximum number of projects to return (default: 10, max: 20). IMPORTANT: Keep this small to prevent context overflow."
     )]
     pub limit: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -87,9 +93,9 @@ impl<D: Database + 'static> ProjectTools<D> {
         &self.tool_router
     }
 
-    /// List projects with pagination (default: 10, max: 20)
+    /// List projects with pagination and sorting (default: 10, max: 20)
     #[tool(
-        description = "List projects with pagination to prevent context overflow (default: 10, max: 20)"
+        description = "List projects with pagination and sorting. Sort by title, created_at, or updated_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
     pub async fn list_projects(
         &self,
@@ -101,8 +107,12 @@ impl<D: Database + 'static> ProjectTools<D> {
             page: PageSort {
                 limit: Some(limit),
                 offset: None,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: None,
         };

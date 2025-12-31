@@ -62,10 +62,10 @@ pub struct Task {
     pub status: String,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
-    pub created_at: String,
+    pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
-    pub updated_at: String,
+    pub updated_at: Option<String>,
 }
 
 /// Task statistics for a task list

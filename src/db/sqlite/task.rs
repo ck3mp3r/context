@@ -24,9 +24,17 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             task.id.clone()
         };
 
-        // Always generate current timestamp - never use input timestamp
-        let created_at = current_timestamp();
-        let updated_at = created_at.clone();
+        // Use provided timestamps or generate if None/empty
+        let created_at = task
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None
+            .unwrap_or_else(|| current_timestamp());
+        let updated_at = task
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None
+            .unwrap_or_else(|| current_timestamp());
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
@@ -259,7 +267,13 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
-        let updated_at = current_timestamp();
+
+        // Use provided timestamp or generate if None/empty
+        let updated_at = task
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None
+            .unwrap_or_else(|| current_timestamp());
 
         // Start transaction for atomic parent + cascade updates
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {

@@ -23,6 +23,8 @@ async fn test_list_notes_empty() {
         limit: None,
         offset: None,
         include_content: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -132,8 +134,8 @@ async fn test_list_notes_with_tag_filter() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let note2 = Note {
         id: String::new(),
@@ -143,8 +145,8 @@ async fn test_list_notes_with_tag_filter() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     db.notes().create(&note1).await.unwrap();
     db.notes().create(&note2).await.unwrap();
@@ -159,6 +161,8 @@ async fn test_list_notes_with_tag_filter() {
         limit: None,
         offset: None,
         include_content: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -192,8 +196,8 @@ async fn test_update_note() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created = db.notes().create(&note).await.unwrap();
 
@@ -241,8 +245,8 @@ async fn test_delete_note() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created = db.notes().create(&note).await.unwrap();
 
@@ -285,8 +289,8 @@ async fn test_search_notes() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let note2 = Note {
         id: String::new(),
@@ -296,8 +300,8 @@ async fn test_search_notes() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     db.notes().create(&note1).await.unwrap();
     db.notes().create(&note2).await.unwrap();
@@ -311,6 +315,8 @@ async fn test_search_notes() {
         project_id: None,
         limit: None,
         offset: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -344,8 +350,8 @@ async fn test_search_notes_with_tag_filter() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let note2 = Note {
         id: String::new(),
@@ -355,8 +361,8 @@ async fn test_search_notes_with_tag_filter() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     db.notes().create(&note1).await.unwrap();
     db.notes().create(&note2).await.unwrap();
@@ -370,6 +376,8 @@ async fn test_search_notes_with_tag_filter() {
         project_id: None,
         limit: None,
         offset: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -386,4 +394,114 @@ async fn test_search_notes_with_tag_filter() {
     assert_eq!(json["total"], 1);
     let items = json["items"].as_array().unwrap();
     assert_eq!(items[0]["title"], "Rust Async");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_sort_and_order() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create notes with specific timestamps for sorting
+    let note1 = Note {
+        id: String::new(),
+        title: "First Note".to_string(),
+        content: "First content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: Some("2025-01-01 10:00:00".to_string()),
+        updated_at: Some("2025-01-01 10:00:00".to_string()),
+    };
+
+    let note2 = Note {
+        id: String::new(),
+        title: "Second Note".to_string(),
+        content: "Second content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: Some("2025-01-02 10:00:00".to_string()),
+        updated_at: Some("2025-01-03 10:00:00".to_string()),
+    };
+
+    let note3 = Note {
+        id: String::new(),
+        title: "Third Note".to_string(),
+        content: "Third content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: Some("2025-01-03 10:00:00".to_string()),
+        updated_at: Some("2025-01-02 10:00:00".to_string()),
+    };
+
+    db.notes().create(&note1).await.unwrap();
+    db.notes().create(&note2).await.unwrap();
+    db.notes().create(&note3).await.unwrap();
+
+    let tools = NoteTools::new(db.clone());
+
+    // Test sorting by updated_at DESC
+    let params = ListNotesParams {
+        note_type: None,
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        include_content: Some(false),
+        sort: Some("updated_at".to_string()),
+        order: Some("desc".to_string()),
+    };
+
+    let result = tools
+        .list_notes(Parameters(params))
+        .await
+        .expect("list_notes should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(json["total"], 3);
+    let items = json["items"].as_array().unwrap();
+    // Should be ordered by updated_at DESC: note2 (2025-01-03), note3 (2025-01-02), note1 (2025-01-01)
+    assert_eq!(items[0]["title"], "Second Note");
+    assert_eq!(items[1]["title"], "Third Note");
+    assert_eq!(items[2]["title"], "First Note");
+
+    // Test sorting by title ASC
+    let params = ListNotesParams {
+        note_type: None,
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        include_content: Some(false),
+        sort: Some("title".to_string()),
+        order: Some("asc".to_string()),
+    };
+
+    let result = tools
+        .list_notes(Parameters(params))
+        .await
+        .expect("list_notes should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(json["total"], 3);
+    let items = json["items"].as_array().unwrap();
+    // Should be ordered by title ASC
+    assert_eq!(items[0]["title"], "First Note");
+    assert_eq!(items[1]["title"], "Second Note");
+    assert_eq!(items[2]["title"], "Third Note");
 }

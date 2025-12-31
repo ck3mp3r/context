@@ -19,8 +19,8 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         note_type: NoteType::Manual,
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     }
 }
 
@@ -528,8 +528,8 @@ async fn note_create_and_get() {
         note_type: NoteType::Manual,
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     notes.create(&note).await.expect("Create should succeed");
@@ -865,8 +865,8 @@ async fn note_create_with_warn_size_content_succeeds_with_warning() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     // Should succeed (warn size is advisory, not enforced)
@@ -897,8 +897,8 @@ async fn note_create_at_hard_max_succeeds() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     let result = notes.create(&note).await;
@@ -922,8 +922,8 @@ async fn note_create_over_hard_max_fails() {
         note_type: NoteType::Manual,
         repo_ids: vec![],
         project_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     let result = notes.create(&note).await;
@@ -1071,4 +1071,59 @@ async fn fts5_search_handles_hyphens_in_boolean_queries() {
         result.is_ok(),
         "Search with 'real-time AND programming' should not crash"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_timestamps_are_optional() {
+    let db = setup_db().await;
+
+    // Test 1: Provided timestamps are respected
+    let note_with_timestamps = Note {
+        id: String::new(),
+        title: "Note with timestamps".to_string(),
+        content: "Test content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: Some("2025-01-15 10:00:00".to_string()),
+        updated_at: Some("2025-01-15 11:00:00".to_string()),
+    };
+
+    let created_with_ts = db
+        .notes()
+        .create(&note_with_timestamps)
+        .await
+        .expect("Create note");
+    assert_eq!(
+        created_with_ts.created_at,
+        Some("2025-01-15 10:00:00".to_string())
+    );
+    assert_eq!(
+        created_with_ts.updated_at,
+        Some("2025-01-15 11:00:00".to_string())
+    );
+
+    // Test 2: None timestamps are auto-generated
+    let note_without_timestamps = Note {
+        id: String::new(),
+        title: "Note without timestamps".to_string(),
+        content: "Test content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+
+    let created_without_ts = db
+        .notes()
+        .create(&note_without_timestamps)
+        .await
+        .expect("Create note");
+    assert!(created_without_ts.created_at.is_some());
+    assert!(created_without_ts.updated_at.is_some());
+    assert!(!created_without_ts.created_at.as_ref().unwrap().is_empty());
+    assert!(!created_without_ts.updated_at.as_ref().unwrap().is_empty());
 }

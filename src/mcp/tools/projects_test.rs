@@ -17,7 +17,11 @@ async fn test_list_projects_empty() {
     use crate::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams { limit: None }))
+        .list_projects(Parameters(ListProjectsParams {
+            limit: None,
+            sort: None,
+            order: None,
+        }))
         .await;
     assert!(result.is_ok());
 
@@ -63,7 +67,11 @@ async fn test_list_projects_with_data() {
     use crate::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams { limit: None }))
+        .list_projects(Parameters(ListProjectsParams {
+            limit: None,
+            sort: None,
+            order: None,
+        }))
         .await;
     assert!(result.is_ok());
 
@@ -298,7 +306,11 @@ async fn test_list_projects_respects_limit() {
 
     // Test 1: Without limit parameter, should return DEFAULT_LIMIT (10)
     let result = tools
-        .list_projects(Parameters(ListProjectsParams { limit: None }))
+        .list_projects(Parameters(ListProjectsParams {
+            limit: None,
+            sort: None,
+            order: None,
+        }))
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
@@ -311,7 +323,11 @@ async fn test_list_projects_respects_limit() {
 
     // Test 2: With limit=5, should return 5
     let result = tools
-        .list_projects(Parameters(ListProjectsParams { limit: Some(5) }))
+        .list_projects(Parameters(ListProjectsParams {
+            limit: Some(5),
+            sort: None,
+            order: None,
+        }))
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
@@ -324,7 +340,11 @@ async fn test_list_projects_respects_limit() {
 
     // Test 3: With limit=50 (exceeds MAX_LIMIT), should cap at MAX_LIMIT (20)
     let result = tools
-        .list_projects(Parameters(ListProjectsParams { limit: Some(50) }))
+        .list_projects(Parameters(ListProjectsParams {
+            limit: Some(50),
+            sort: None,
+            order: None,
+        }))
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
@@ -338,4 +358,130 @@ async fn test_list_projects_respects_limit() {
         20,
         "Should cap at MAX_LIMIT (20) even though 50 requested"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_projects_with_sort_and_order() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create projects with specific data for sorting
+    // Note: Like Repo, Project's timestamps are auto-generated, so we can't control exact values
+    let project1 = Project {
+        id: String::new(),
+        title: "ZZZ Project".to_string(),
+        description: Some("First project".to_string()),
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(), // Will be auto-generated
+        updated_at: String::new(), // Will be auto-generated
+    };
+
+    let project2 = Project {
+        id: String::new(),
+        title: "AAA Project".to_string(),
+        description: Some("Second project".to_string()),
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+
+    let project3 = Project {
+        id: String::new(),
+        title: "MMM Project".to_string(),
+        description: Some("Third project".to_string()),
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+
+    db.projects().create(&project1).await.unwrap();
+    db.projects().create(&project2).await.unwrap();
+    db.projects().create(&project3).await.unwrap();
+
+    let tools = ProjectTools::new(db);
+
+    // Test sorting by title ASC
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams {
+            limit: None,
+            sort: Some("title".to_string()),
+            order: Some("asc".to_string()),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(projects.len(), 3);
+    // Should be sorted by title ASC: AAA, MMM, ZZZ
+    assert_eq!(projects[0]["title"], "AAA Project");
+    assert_eq!(projects[1]["title"], "MMM Project");
+    assert_eq!(projects[2]["title"], "ZZZ Project");
+
+    // Test sorting by title DESC
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams {
+            limit: None,
+            sort: Some("title".to_string()),
+            order: Some("desc".to_string()),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(projects.len(), 3);
+    // Should be sorted by title DESC: ZZZ, MMM, AAA
+    assert_eq!(projects[0]["title"], "ZZZ Project");
+    assert_eq!(projects[1]["title"], "MMM Project");
+    assert_eq!(projects[2]["title"], "AAA Project");
+
+    // Test sorting by created_at DESC
+    // Note: created_at is auto-generated, so we verify order logic, not exact values
+    let result = tools
+        .list_projects(Parameters(ListProjectsParams {
+            limit: None,
+            sort: Some("created_at".to_string()),
+            order: Some("desc".to_string()),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(projects.len(), 3);
+    // Verify order is DESC by comparing timestamps
+    let ts0 = projects[0]["created_at"].as_str().unwrap();
+    let ts1 = projects[1]["created_at"].as_str().unwrap();
+    let ts2 = projects[2]["created_at"].as_str().unwrap();
+    assert!(ts0 >= ts1, "First timestamp should be >= second");
+    assert!(ts1 >= ts2, "Second timestamp should be >= third");
 }

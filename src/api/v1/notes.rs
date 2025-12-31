@@ -38,8 +38,8 @@ pub struct NoteResponse {
     /// Linked project IDs (M:N relationship via project_note)
     #[schema(example = json!(["proj123a", "proj456b"]))]
     pub project_ids: Vec<String>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 impl From<Note> for NoteResponse {
@@ -330,8 +330,8 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         note_type,
         repo_ids: req.repo_ids,
         project_ids: req.project_ids,
-        created_at: String::new(), // Repository will generate this
-        updated_at: String::new(), // Repository will generate this
+        created_at: None, // Repository will generate this
+        updated_at: None, // Repository will generate this
     };
 
     let created_note = state.db().notes().create(&note).await.map_err(|e| {

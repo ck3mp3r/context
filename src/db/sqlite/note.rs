@@ -64,9 +64,17 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             note.id.clone()
         };
 
-        // Always generate current timestamps - never use input timestamps
-        let created_at = current_timestamp();
-        let updated_at = created_at.clone();
+        // Use provided timestamps or generate if None/empty
+        let created_at = note
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None (backward compat)
+            .unwrap_or_else(|| current_timestamp());
+        let updated_at = note
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| current_timestamp());
 
         let tags_json = serde_json::to_string(&note.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
@@ -125,8 +133,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             note_type: note.note_type.clone(),
             repo_ids: note.repo_ids.clone(),
             project_ids: note.project_ids.clone(),
-            created_at,
-            updated_at,
+            created_at: Some(created_at),
+            updated_at: Some(updated_at),
         })
     }
 
@@ -513,6 +521,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         let note_type_str = note.note_type.to_string();
 
+        // Use provided timestamp or generate if None/empty
+        let updated_at = note
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| current_timestamp());
+
         let result = sqlx::query(
             r#"
             UPDATE note 
@@ -524,7 +539,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(&note.content)
         .bind(tags_json)
         .bind(note_type_str)
-        .bind(&note.updated_at)
+        .bind(&updated_at)
         .bind(&note.id)
         .execute(&mut *tx)
         .await

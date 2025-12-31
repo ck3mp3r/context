@@ -64,6 +64,9 @@ async fn test_list_tasks_empty() {
         tags: None,
         task_type: None,
         limit: None,
+        offset: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -144,6 +147,9 @@ async fn test_create_and_list_task() {
         tags: None,
         task_type: None,
         limit: None,
+        offset: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -194,10 +200,10 @@ async fn test_get_task() {
         status: TaskStatus::Todo,
         priority: Some(2),
         tags: vec!["test".to_string()],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -274,10 +280,10 @@ async fn test_list_tasks_filtered_by_status() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let task2 = Task {
         id: String::new(),
@@ -288,10 +294,10 @@ async fn test_list_tasks_filtered_by_status() {
         status: TaskStatus::Done,
         priority: None,
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: Some("2025-12-27T12:00:00Z".to_string()),
-        updated_at: String::new(),
+        updated_at: None,
     };
     db.tasks().create(&task1).await.unwrap();
     db.tasks().create(&task2).await.unwrap();
@@ -306,6 +312,9 @@ async fn test_list_tasks_filtered_by_status() {
         tags: None,
         task_type: None,
         limit: None,
+        offset: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -357,10 +366,10 @@ async fn test_update_task() {
         status: TaskStatus::Backlog,
         priority: Some(3),
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -430,10 +439,10 @@ async fn test_complete_task() {
         status: TaskStatus::InProgress,
         priority: None,
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: Some("2025-12-27T10:00:00Z".to_string()),
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -492,10 +501,10 @@ async fn test_delete_task() {
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -556,10 +565,10 @@ async fn test_list_tasks_with_parent_id_filter() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_parent = db.tasks().create(&parent_task).await.unwrap();
 
@@ -573,10 +582,10 @@ async fn test_list_tasks_with_parent_id_filter() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     db.tasks().create(&subtask).await.unwrap();
 
@@ -590,6 +599,9 @@ async fn test_list_tasks_with_parent_id_filter() {
         tags: None,
         task_type: None,
         limit: None,
+        offset: None,
+        sort: None,
+        order: None,
     };
 
     let result = tools
@@ -660,10 +672,10 @@ async fn test_update_task_move_to_different_list() {
         status: TaskStatus::Todo,
         priority: Some(3),
         tags: vec!["move-test".to_string()],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -731,10 +743,10 @@ async fn test_update_task_parent_id() {
         status: TaskStatus::InProgress,
         priority: Some(2),
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_parent = db.tasks().create(&parent_task).await.unwrap();
 
@@ -748,10 +760,10 @@ async fn test_update_task_parent_id() {
         status: TaskStatus::Todo,
         priority: Some(3),
         tags: vec![],
-        created_at: String::new(),
+        created_at: None,
         started_at: None,
         completed_at: None,
-        updated_at: String::new(),
+        updated_at: None,
     };
     let created_standalone = db.tasks().create(&standalone_task).await.unwrap();
 
@@ -811,4 +823,236 @@ async fn test_update_task_parent_id() {
     // Verify task is standalone again (no parent)
     assert_eq!(standalone_again.parent_id, None);
     assert_eq!(standalone_again.title, "Standalone task");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_sort_and_order() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone());
+
+    // Create project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id,
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let task_list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create 3 tasks with controlled timestamps
+    let task1 = Task {
+        id: String::new(),
+        list_id: task_list.id.clone(),
+        parent_id: None,
+        title: "Alpha Task".to_string(),
+        description: None,
+        status: TaskStatus::Done,
+        priority: Some(1),
+        tags: vec![],
+        created_at: Some("2025-01-01 10:00:00".to_string()),
+        started_at: None,
+        completed_at: Some("2025-01-01 11:00:00".to_string()),
+        updated_at: Some("2025-01-01 11:00:00".to_string()),
+    };
+    let task1 = db.tasks().create(&task1).await.unwrap();
+
+    let task2 = Task {
+        id: String::new(),
+        list_id: task_list.id.clone(),
+        parent_id: None,
+        title: "Beta Task".to_string(),
+        description: None,
+        status: TaskStatus::Done,
+        priority: Some(2),
+        tags: vec![],
+        created_at: Some("2025-01-02 10:00:00".to_string()),
+        started_at: None,
+        completed_at: Some("2025-01-03 11:00:00".to_string()),
+        updated_at: Some("2025-01-03 11:00:00".to_string()),
+    };
+    let task2 = db.tasks().create(&task2).await.unwrap();
+
+    let task3 = Task {
+        id: String::new(),
+        list_id: task_list.id.clone(),
+        parent_id: None,
+        title: "Gamma Task".to_string(),
+        description: None,
+        status: TaskStatus::Done,
+        priority: Some(3),
+        tags: vec![],
+        created_at: Some("2025-01-03 10:00:00".to_string()),
+        started_at: None,
+        completed_at: Some("2025-01-02 11:00:00".to_string()),
+        updated_at: Some("2025-01-02 11:00:00".to_string()),
+    };
+    let task3 = db.tasks().create(&task3).await.unwrap();
+
+    // Test: Sort by updated_at DESC (newest first)
+    let params = ListTasksParams {
+        list_id: task_list.id.clone(),
+        status: None,
+        parent_id: None,
+        tags: None,
+        task_type: None,
+        limit: None,
+        offset: None,
+        sort: Some("updated_at".to_string()),
+        order: Some("desc".to_string()),
+    };
+
+    let result = tools
+        .list_tasks(Parameters(params))
+        .await
+        .expect("list_tasks should succeed");
+
+    let response: serde_json::Value =
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+    let items = response["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["id"], task2.id); // Newest: 2025-01-03
+    assert_eq!(items[1]["id"], task3.id); // Middle: 2025-01-02
+    assert_eq!(items[2]["id"], task1.id); // Oldest: 2025-01-01
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_offset() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create a project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = db
+        .task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Test List".to_string(),
+            description: None,
+            notes: None,
+            external_ref: None,
+            status: crate::db::TaskListStatus::Active,
+            tags: vec![],
+            project_id,
+            repo_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    // Create 5 tasks
+    for i in 1..=5 {
+        db.tasks()
+            .create(&Task {
+                id: String::new(),
+                list_id: task_list.id.clone(),
+                parent_id: None,
+                title: format!("Task {}", i),
+                description: None,
+                status: TaskStatus::Backlog,
+                priority: Some(i),
+                tags: vec![],
+                created_at: None,
+                started_at: None,
+                completed_at: None,
+                updated_at: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    let tools = TaskTools::new(db);
+
+    // Test 1: No offset, limit 3 - should get first 3 tasks
+    let params = ListTasksParams {
+        list_id: task_list.id.clone(),
+        status: None,
+        parent_id: None,
+        tags: None,
+        task_type: None,
+        limit: Some(3),
+        offset: None,
+        sort: Some("priority".to_string()),
+        order: Some("asc".to_string()),
+    };
+
+    let result = tools
+        .list_tasks(Parameters(params))
+        .await
+        .expect("list_tasks should succeed");
+
+    let response: serde_json::Value =
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+    let items = response["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["title"], "Task 1");
+    assert_eq!(items[1]["title"], "Task 2");
+    assert_eq!(items[2]["title"], "Task 3");
+
+    // Test 2: Offset 2, limit 3 - should skip first 2 and get next 3
+    let params = ListTasksParams {
+        list_id: task_list.id.clone(),
+        status: None,
+        parent_id: None,
+        tags: None,
+        task_type: None,
+        limit: Some(3),
+        offset: Some(2),
+        sort: Some("priority".to_string()),
+        order: Some("asc".to_string()),
+    };
+
+    let result = tools
+        .list_tasks(Parameters(params))
+        .await
+        .expect("list_tasks should succeed");
+
+    let response: serde_json::Value =
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+    let items = response["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["title"], "Task 3");
+    assert_eq!(items[1]["title"], "Task 4");
+    assert_eq!(items[2]["title"], "Task 5");
+
+    // Test 3: Offset 4, limit 3 - should get only 1 task (Task 5)
+    let params = ListTasksParams {
+        list_id: task_list.id.clone(),
+        status: None,
+        parent_id: None,
+        tags: None,
+        task_type: None,
+        limit: Some(3),
+        offset: Some(4),
+        sort: Some("priority".to_string()),
+        order: Some("asc".to_string()),
+    };
+
+    let result = tools
+        .list_tasks(Parameters(params))
+        .await
+        .expect("list_tasks should succeed");
+
+    let response: serde_json::Value =
+        serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+    let items = response["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Task 5");
 }

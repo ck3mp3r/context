@@ -179,12 +179,29 @@ pub fn KanbanColumn(
                 on:scroll=on_scroll
                 class="space-y-2 overflow-y-auto flex-1 min-h-0"
             >
-                // Parent tasks with <For> to preserve component state across re-renders
+                // Parent tasks + Orphaned subtasks (interleaved by sort order)
+                // Orphaned subtasks = subtasks whose parent is NOT in this status column
                 <For
                     each=move || {
-                        tasks.get()
-                            .into_iter()
+                        let all_tasks = tasks.get();
+
+                        // Build set of parent IDs that exist in this column
+                        let parent_ids: std::collections::HashSet<String> = all_tasks
+                            .iter()
                             .filter(|t| t.parent_id.is_none())
+                            .map(|p| p.id.clone())
+                            .collect();
+
+                        // Filter to parent tasks + orphaned subtasks
+                        all_tasks
+                            .into_iter()
+                            .filter(|t| {
+                                // Include if: parent task OR orphaned subtask
+                                t.parent_id.is_none() || {
+                                    // Orphaned = has parent_id but parent not in this column
+                                    t.parent_id.as_ref().map_or(false, |pid| !parent_ids.contains(pid))
+                                }
+                            })
                             .collect::<Vec<_>>()
                     }
                     key=|task| task.id.clone()
@@ -199,59 +216,6 @@ pub fn KanbanColumn(
                                     dialog_open.set(true);
                                 })
                                 on_subtask_click=Callback::new(move |clicked_subtask: Task| {
-                                    if let Some(parent_id) = clicked_subtask.parent_id.clone() {
-                                        let clicked_id = clicked_subtask.id.clone();
-                                        spawn_local(async move {
-                                            match tasks::get(&parent_id).await {
-                                                Ok(parent_task) => {
-                                                    set_selected_task.set(Some(parent_task));
-                                                    set_initial_open_subtask.set(Some(clicked_id));
-                                                    dialog_open.set(true);
-                                                }
-                                                Err(_) => {
-                                                    // Fallback: show subtask directly
-                                                    set_selected_task.set(Some(clicked_subtask));
-                                                    set_initial_open_subtask.set(None);
-                                                    dialog_open.set(true);
-                                                }
-                                            }
-                                        });
-                                    }
-                                })
-                            />
-                        }
-                    }
-                />
-
-                // Orphaned subtasks with <For> to preserve component state
-                <For
-                    each=move || {
-                        let all_tasks = tasks.get();
-                        let parent_ids: std::collections::HashSet<String> = all_tasks
-                            .iter()
-                            .filter(|t| t.parent_id.is_none())
-                            .map(|p| p.id.clone())
-                            .collect();
-
-                        all_tasks
-                            .into_iter()
-                            .filter(|t| {
-                                if let Some(parent_id) = &t.parent_id {
-                                    !parent_ids.contains(parent_id)
-                                } else {
-                                    false
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                    }
-                    key=|task| task.id.clone()
-                    children=move |task| {
-                        let parent_id = task.parent_id.clone().unwrap_or_default();
-                        view! {
-                            <OrphanedSubtaskCard
-                                task=task
-                                parent_id=parent_id
-                                on_click=Callback::new(move |clicked_subtask: Task| {
                                     if let Some(parent_id) = clicked_subtask.parent_id.clone() {
                                         let clicked_id = clicked_subtask.id.clone();
                                         spawn_local(async move {
@@ -517,6 +481,16 @@ pub fn TaskCard(
                 }
                 on:click=handle_card_click
             >
+                // Show orphaned subtask indicator if this task has a parent
+                {task.parent_id.as_ref().map(|parent_id| {
+                    view! {
+                        <div class="flex items-center gap-1 mb-2 text-xs text-ctp-overlay1">
+                            <span>"↳ Subtask of:"</span>
+                            <CopyableId id=parent_id.clone() />
+                        </div>
+                    }
+                })}
+
                 <div class="text-sm text-ctp-text mb-2 break-words">
                     <div class="font-medium">{task.title.clone()}</div>
                     {task.description.as_ref().map(|desc| {

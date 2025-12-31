@@ -25,6 +25,10 @@ pub struct ListReposParams {
         description = "Maximum number of repos to return (default: 10, max: 20). IMPORTANT: Keep small to prevent context overflow."
     )]
     pub limit: Option<usize>,
+    #[schemars(description = "Field to sort by (remote, path, created_at). Default: created_at")]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -93,9 +97,9 @@ impl<D: Database + 'static> RepoTools<D> {
         &self.tool_router
     }
 
-    /// List repositories with pagination (default: 10, max: 20)
+    /// List repositories with pagination and sorting (default: 10, max: 20)
     #[tool(
-        description = "List repositories with pagination to prevent context overflow (default: 10, max: 20)"
+        description = "List repositories with pagination and sorting. Sort by remote, path, or created_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
     pub async fn list_repos(
         &self,
@@ -107,8 +111,12 @@ impl<D: Database + 'static> RepoTools<D> {
             page: PageSort {
                 limit: Some(limit),
                 offset: None,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: None,
             project_id: params.0.project_id,

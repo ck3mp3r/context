@@ -36,10 +36,10 @@ pub struct TaskResponse {
     pub priority: Option<i32>,
     #[schema(example = json!(["urgent", "bug-fix"]))]
     pub tags: Vec<String>,
-    pub created_at: String,
+    pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
-    pub updated_at: String,
+    pub updated_at: Option<String>,
 }
 
 impl From<Task> for TaskResponse {
@@ -303,10 +303,10 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         status: TaskStatus::Backlog,
         priority: req.priority,
         tags: vec![],
-        created_at: String::new(), // Repository will generate this
+        created_at: None, // Repository will generate this
         started_at: None,
         completed_at: None,
-        updated_at: String::new(), // Repository will generate this
+        updated_at: None, // Repository will generate this
     };
 
     let created_task = state.db().tasks().create(&task).await.map_err(|e| {

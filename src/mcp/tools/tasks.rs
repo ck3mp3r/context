@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
-use crate::db::{Database, PageSort, Task, TaskQuery, TaskRepository, TaskStatus};
+use crate::db::{Database, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus};
 use crate::mcp::tools::{apply_limit, map_db_error};
 
 // =============================================================================
@@ -40,6 +40,14 @@ pub struct ListTasksParams {
     pub task_type: Option<String>,
     #[schemars(description = "Maximum number of tasks to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
+    #[schemars(description = "Number of items to skip (for pagination)")]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, status, priority, created_at, updated_at, completed_at)"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc)")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -133,7 +141,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "List tasks in a task list. Filter by status, parent_id (for subtasks), or tags. Use this to see current work before adding new tasks."
+        description = "List tasks in a task list. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, updated_at, or completed_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
     pub async fn list_tasks(
         &self,
@@ -146,9 +154,13 @@ impl<D: Database + 'static> TaskTools<D> {
         let query = TaskQuery {
             page: PageSort {
                 limit: Some(apply_limit(params.0.limit)),
-                offset: None,
-                sort_by: None,
-                sort_order: None,
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(SortOrder::Desc),
+                    Some("asc") => Some(SortOrder::Asc),
+                    _ => None,
+                },
             },
             list_id: Some(params.0.list_id.clone()),
             status: status_str,
@@ -211,10 +223,10 @@ impl<D: Database + 'static> TaskTools<D> {
             status: TaskStatus::Backlog, // Always create as backlog
             priority: params.0.priority,
             tags: params.0.tags.clone().unwrap_or_default(),
-            created_at: String::new(), // Will be set by DB
+            created_at: None, // Will be set by DB
             started_at: None,
             completed_at: None,
-            updated_at: String::new(), // Will be set by DB
+            updated_at: None, // Will be set by DB
         };
 
         let created = self.db.tasks().create(&task).await.map_err(map_db_error)?;

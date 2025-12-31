@@ -349,8 +349,8 @@ mod tests {
             note_type: NoteType::Manual,
             repo_ids: vec!["repo0001".to_string()],
             project_ids: vec!["proj0001".to_string()],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.notes().create(&note).await.unwrap();
 
