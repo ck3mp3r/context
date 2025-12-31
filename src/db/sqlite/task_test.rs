@@ -1440,13 +1440,16 @@ async fn task_update_cascades_updated_at_to_parent() {
 
     let initial_parent_updated_at = parent.updated_at.clone();
 
-    // Wait a bit to ensure timestamp difference
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    // Wait to ensure timestamp difference (SQLite second precision)
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Create subtask
     let mut subtask = make_task("subtask1", &list.id, "Subtask");
     subtask.parent_id = Some(parent.id.clone());
     let subtask = tasks.create(&subtask).await.unwrap();
+
+    // Wait again to ensure update gets different timestamp
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Update the subtask
     let mut updated_subtask = subtask.clone();
