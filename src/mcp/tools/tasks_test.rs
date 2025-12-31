@@ -269,6 +269,7 @@ async fn test_list_tasks_filtered_by_status() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let task2 = Task {
         id: String::new(),
@@ -282,6 +283,7 @@ async fn test_list_tasks_filtered_by_status() {
         created_at: String::new(),
         started_at: None,
         completed_at: Some("2025-12-27T12:00:00Z".to_string()),
+        updated_at: String::new(),
     };
     db.tasks().create(&task1).await.unwrap();
     db.tasks().create(&task2).await.unwrap();
@@ -350,6 +352,7 @@ async fn test_update_task() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -422,6 +425,7 @@ async fn test_complete_task() {
         created_at: String::new(),
         started_at: Some("2025-12-27T10:00:00Z".to_string()),
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -483,6 +487,7 @@ async fn test_delete_task() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -546,6 +551,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_parent = db.tasks().create(&parent_task).await.unwrap();
 
@@ -562,6 +568,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     db.tasks().create(&subtask).await.unwrap();
 
@@ -648,6 +655,7 @@ async fn test_update_task_move_to_different_list() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
@@ -718,6 +726,7 @@ async fn test_update_task_parent_id() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_parent = db.tasks().create(&parent_task).await.unwrap();
 
@@ -734,6 +743,7 @@ async fn test_update_task_parent_id() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: String::new(),
     };
     let created_standalone = db.tasks().create(&standalone_task).await.unwrap();
 

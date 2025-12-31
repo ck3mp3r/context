@@ -279,6 +279,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             });
         }
 
+        // NOTE: updated_at cascade to parent is handled by SQL trigger
+        // (task_cascade_updated_at_to_parent in migration 20251231132607)
+
         // CASCADE: If status changed and this is a parent task, update matching subtasks
         if status_changed && current.parent_id.is_none() {
             let old_status_str = old_status.to_string();

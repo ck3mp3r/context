@@ -1,6 +1,9 @@
 -- Add updated_at column to task table
 -- Migration: 20251231132607_add_task_updated_at.sql
 
+-- Disable foreign keys during migration (prevent cascade issues)
+PRAGMA foreign_keys = OFF;
+
 -- Step 1: Add the column (initially NULL)
 ALTER TABLE task ADD COLUMN updated_at TEXT;
 
@@ -30,7 +33,13 @@ SET updated_at = (
     )
 );
 
--- Step 3: Make the column NOT NULL and add index
+-- Step 3: Drop FTS table BEFORE rebuilding task table (prevents ROWID corruption)
+DROP TABLE IF EXISTS task_fts;
+DROP TRIGGER IF EXISTS task_fts_insert;
+DROP TRIGGER IF EXISTS task_fts_delete;
+DROP TRIGGER IF EXISTS task_fts_update;
+
+-- Step 4: Make the column NOT NULL and add index
 -- SQLite doesn't support ALTER COLUMN, so we rebuild the table
 CREATE TABLE task_new (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
@@ -67,48 +76,45 @@ CREATE INDEX idx_task_priority ON task(priority);
 CREATE INDEX idx_task_created_at ON task(created_at);
 CREATE INDEX idx_task_updated_at ON task(updated_at);
 
--- Recreate FTS5 virtual table
-DROP TABLE IF EXISTS task_fts;
+-- Recreate FTS5 virtual table (after task table is rebuilt)
+-- NOTE: Removing content=task to avoid ROWID corruption after table rebuild
 CREATE VIRTUAL TABLE task_fts USING fts5(
     id UNINDEXED,
     title,
     description,
-    tags,
-    content=task,
-    content_rowid=rowid
+    tags
 );
 
--- Populate FTS5
-INSERT INTO task_fts(rowid, id, title, description, tags)
-SELECT rowid, id, title, description, tags FROM task;
+-- Populate FTS5 BEFORE creating triggers (avoid double-insert)
+INSERT INTO task_fts(id, title, description, tags)
+SELECT id, title, description, tags FROM task;
 
--- Recreate FTS5 triggers
-DROP TRIGGER IF EXISTS task_fts_insert;
+-- Recreate FTS5 triggers (AFTER population)
 CREATE TRIGGER task_fts_insert AFTER INSERT ON task BEGIN
-    INSERT INTO task_fts(rowid, id, title, description, tags)
-    VALUES (new.rowid, new.id, new.title, new.description, new.tags);
+    INSERT INTO task_fts(id, title, description, tags)
+    VALUES (new.id, new.title, new.description, new.tags);
 END;
 
-DROP TRIGGER IF EXISTS task_fts_delete;
 CREATE TRIGGER task_fts_delete AFTER DELETE ON task BEGIN
-    DELETE FROM task_fts WHERE rowid = old.rowid;
+    DELETE FROM task_fts WHERE id = old.id;
 END;
 
-DROP TRIGGER IF EXISTS task_fts_update;
 CREATE TRIGGER task_fts_update AFTER UPDATE ON task BEGIN
-    UPDATE task_fts 
-    SET title = new.title, 
-        description = new.description,
-        tags = new.tags
-    WHERE rowid = old.rowid;
+    DELETE FROM task_fts WHERE id = old.id;
+    INSERT INTO task_fts(id, title, description, tags)
+    VALUES (new.id, new.title, new.description, new.tags);
 END;
 
 -- Trigger to cascade updated_at to parent when subtask is updated
-DROP TRIGGER IF EXISTS task_cascade_updated_at_to_parent;
+-- No recursion: only fires when child (parent_id NOT NULL) is updated
+-- Parent update won't trigger again (parent has parent_id = NULL)
 CREATE TRIGGER task_cascade_updated_at_to_parent AFTER UPDATE ON task
 WHEN new.parent_id IS NOT NULL
 BEGIN
     UPDATE task 
-    SET updated_at = new.updated_at 
+    SET updated_at = datetime('now', 'subsec')
     WHERE id = new.parent_id;
 END;
+
+-- Re-enable foreign keys
+PRAGMA foreign_keys = ON;
