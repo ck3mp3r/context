@@ -1469,3 +1469,57 @@ async fn task_update_cascades_updated_at_to_parent() {
         "Parent's updated_at should be >= subtask's updated_at"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_create_cascades_updated_at_to_parent() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            title: "Cascade Insert Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: "test0000".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create list");
+
+    // Create parent task
+    let parent = tasks
+        .create(&make_task("parent02", &list.id, "Parent Task"))
+        .await
+        .unwrap();
+
+    let initial_parent_updated_at = parent.updated_at.clone();
+
+    // Wait to ensure timestamp difference
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Create subtask - this INSERT should trigger cascade
+    let mut subtask = make_task("subtask2", &list.id, "New Subtask");
+    subtask.parent_id = Some(parent.id.clone());
+    let created_subtask = tasks.create(&subtask).await.unwrap();
+
+    // Fetch parent again
+    let parent_after = tasks.get(&parent.id).await.expect("Get parent");
+
+    // ASSERT: Parent's updated_at should have changed when subtask was created
+    assert_ne!(
+        parent_after.updated_at, initial_parent_updated_at,
+        "Parent's updated_at should be updated when subtask is CREATED (INSERT trigger)"
+    );
+    assert!(
+        parent_after.updated_at >= created_subtask.updated_at,
+        "Parent's updated_at should be >= subtask's created_at"
+    );
+}
