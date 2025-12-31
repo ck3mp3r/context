@@ -216,28 +216,10 @@ CREATE TRIGGER IF NOT EXISTS note_update AFTER UPDATE ON note BEGIN
 END;
 
 -- ============================================================================
--- TASK CASCADE TRIGGERS (PARENT-CHILD SYNC)
+-- NOTE: Parent task updated_at cascade is handled in application layer
 -- ============================================================================
-
--- Cascade updated_at to parent when subtask is UPDATED
--- CRITICAL: Uses child's updated_at (new.updated_at) NOT datetime('now')
--- This preserves historical timestamps during import
-CREATE TRIGGER task_cascade_updated_at_to_parent AFTER UPDATE ON task
-WHEN new.parent_id IS NOT NULL
-BEGIN
-    UPDATE task 
-    SET updated_at = new.updated_at
-    WHERE id = new.parent_id;
-END;
-
--- Cascade updated_at to parent when subtask is INSERTED
--- CRITICAL: Uses child's updated_at (new.updated_at) NOT datetime('now')
--- This preserves historical timestamps during import
-CREATE TRIGGER task_cascade_updated_at_on_insert AFTER INSERT ON task
-WHEN new.parent_id IS NOT NULL
-BEGIN
-    UPDATE task 
-    SET updated_at = new.updated_at
-    WHERE id = new.parent_id;
-END;
+-- When a child task is created/updated, the parent's updated_at is updated
+-- by explicit SQL in:
+-- - src/db/sqlite/sync.rs (import)
+-- - src/db/sqlite/task.rs (create/update repository methods)
 

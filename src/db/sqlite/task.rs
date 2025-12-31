@@ -55,6 +55,19 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             message: e.to_string(),
         })?;
 
+        // If this is a child task, update parent's updated_at
+        // This replaces the SQL trigger logic
+        if let Some(parent_id) = &task.parent_id {
+            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
+                .bind(&updated_at)
+                .bind(parent_id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
         self.get(&id).await
     }
 
@@ -279,8 +292,18 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             });
         }
 
-        // NOTE: updated_at cascade to parent is handled by SQL trigger
-        // (task_cascade_updated_at_to_parent in migration 20251231132607)
+        // CASCADE: Update parent's updated_at if this is a child task
+        // This replaces the SQL trigger logic
+        if let Some(parent_id) = &task.parent_id {
+            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
+                .bind(&updated_at)
+                .bind(parent_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
 
         // CASCADE: If status changed and this is a parent task, update matching subtasks
         if status_changed && current.parent_id.is_none() {

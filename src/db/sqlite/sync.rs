@@ -238,6 +238,16 @@ async fn import_all_with_transaction(
             .execute(&mut **tx)
             .await?;
 
+            // If this task has a parent, update parent's updated_at to match child
+            // This replaces the SQL trigger logic and preserves exact timestamps during import
+            if let Some(parent_id) = &task.parent_id {
+                sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
+                    .bind(&task.updated_at)
+                    .bind(parent_id)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+
             summary.tasks += 1;
         }
     }
