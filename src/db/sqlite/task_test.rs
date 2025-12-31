@@ -56,6 +56,7 @@ fn make_task(id: &str, list_id: &str, title: &str) -> Task {
         created_at: "2025-01-01 00:00:00".to_string(),
         started_at: None,
         completed_at: None,
+        updated_at: "2025-01-01 00:00:00".to_string(),
     }
 }
 
