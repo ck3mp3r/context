@@ -32,9 +32,8 @@ async fn test_list_projects_empty() {
     };
 
     let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
-    // Migration creates a "Default" project
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "Default");
+    // No default project in migration
+    assert_eq!(projects.len(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -77,10 +76,9 @@ async fn test_list_projects_with_data() {
     };
 
     let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
-    // Migration creates a "Default" project, plus our test project = 2
-    assert_eq!(projects.len(), 2);
+    // Only our test project, no default
+    assert_eq!(projects.len(), 1);
     assert!(projects.iter().any(|p| p["title"] == "Test Project"));
-    assert!(projects.iter().any(|p| p["title"] == "Default"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

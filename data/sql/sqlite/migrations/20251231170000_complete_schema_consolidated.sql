@@ -241,10 +241,3 @@ BEGIN
     WHERE id = new.parent_id;
 END;
 
--- ============================================================================
--- DEFAULT DATA
--- ============================================================================
-
--- Insert Default project for general/uncategorized work
-INSERT INTO project (id, title, description)
-VALUES (lower(hex(randomblob(4))), 'Default', 'Default project for uncategorized work');

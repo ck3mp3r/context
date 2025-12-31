@@ -126,9 +126,9 @@ mod tests {
 
         let summary = export_all(&db, temp_dir.path()).await.unwrap();
 
-        // Note: migrations create a default project, so projects will be 1
+        // No default project in migrations
         assert_eq!(summary.repos, 0);
-        assert_eq!(summary.projects, 1); // Default project from migrations
+        assert_eq!(summary.projects, 0);
         assert_eq!(summary.task_lists, 0);
         assert_eq!(summary.tasks, 0);
         assert_eq!(summary.notes, 0);
@@ -174,8 +174,8 @@ mod tests {
         let summary = export_all(&db, temp_dir.path()).await.unwrap();
 
         assert_eq!(summary.repos, 1);
-        assert_eq!(summary.projects, 2); // 1 default + 1 we created
-        assert_eq!(summary.total(), 3);
+        assert_eq!(summary.projects, 1); // Just the one we created
+        assert_eq!(summary.total(), 2);
 
         // Verify JSONL content
         let repos: Vec<Repo> = read_jsonl(&temp_dir.path().join("repos.jsonl")).unwrap();
@@ -183,10 +183,10 @@ mod tests {
         assert_eq!(repos[0].id, "12345678");
 
         let projects: Vec<Project> = read_jsonl(&temp_dir.path().join("projects.jsonl")).unwrap();
-        assert_eq!(projects.len(), 2); // default + our test project
+        assert_eq!(projects.len(), 1); // Just our test project
 
-        // Find our test project
-        let our_project = projects.iter().find(|p| p.id == "abcdef12").unwrap();
+        // Get our test project
+        let our_project = &projects[0];
         assert_eq!(our_project.title, "Test Project");
     }
 

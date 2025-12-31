@@ -35,7 +35,7 @@ async fn json_body(response: axum::response::Response) -> Value {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_projects_returns_default_project() {
+async fn list_projects_initially_empty() {
     let app = test_app().await;
 
     let response = app
@@ -53,10 +53,9 @@ async fn list_projects_returns_default_project() {
     let body = json_body(response).await;
     let projects = body["items"].as_array().expect("Expected items array");
 
-    // Should have at least the default project from migrations
-    assert!(!projects.is_empty());
-    assert!(projects.iter().any(|p| p["title"] == "Default"));
-    assert!(body["total"].as_u64().unwrap() >= 1);
+    // Should be empty - no default project in migration
+    assert_eq!(projects.len(), 0);
+    assert_eq!(body["total"].as_u64().unwrap(), 0);
 }
 
 // =============================================================================
@@ -154,26 +153,33 @@ async fn create_project_without_description() {
 async fn get_project_returns_project() {
     let app = test_app().await;
 
-    // First, list projects to get the default project ID
+    // First, create a project
+    let create_req = serde_json::json!({
+        "title": "Test Project",
+        "description": "Test description"
+    });
+
     let response = app
         .clone()
         .oneshot(
             Request::builder()
+                .method("POST")
                 .uri("/api/v1/projects")
-                .body(Body::empty())
+                .header("Content-Type", "application/json")
+                .body(Body::from(create_req.to_string()))
                 .unwrap(),
         )
         .await
         .unwrap();
 
     let body = json_body(response).await;
-    let default_id = body["items"][0]["id"].as_str().unwrap();
+    let project_id = body["id"].as_str().unwrap();
 
     // Now get that specific project
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/projects/{}", default_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -183,7 +189,8 @@ async fn get_project_returns_project() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = json_body(response).await;
-    assert_eq!(body["id"], default_id);
+    assert_eq!(body["id"], project_id);
+    assert_eq!(body["title"], "Test Project");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -214,27 +221,34 @@ async fn get_project_not_found() {
 async fn update_project_returns_updated() {
     let app = test_app().await;
 
-    // Get the default project ID
+    // Create a project first
+    let create_req = serde_json::json!({
+        "title": "Original Title",
+        "description": "Original description"
+    });
+
     let response = app
         .clone()
         .oneshot(
             Request::builder()
+                .method("POST")
                 .uri("/api/v1/projects")
-                .body(Body::empty())
+                .header("Content-Type", "application/json")
+                .body(Body::from(create_req.to_string()))
                 .unwrap(),
         )
         .await
         .unwrap();
 
     let body = json_body(response).await;
-    let default_id = body["items"][0]["id"].as_str().unwrap();
+    let project_id = body["id"].as_str().unwrap();
 
     // Update it
     let response = app
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/api/v1/projects/{}", default_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({

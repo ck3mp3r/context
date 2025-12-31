@@ -291,8 +291,8 @@ mod tests {
         let output = result.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed.is_array(), "Output should be an array");
-        // Migrations seed a "Default" project, so we expect 1 not 0
-        assert_eq!(parsed.as_array().unwrap().len(), 1);
+        // No default project in migrations, expect empty list
+        assert_eq!(parsed.as_array().unwrap().len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -313,12 +313,12 @@ mod tests {
         let output = create_result.unwrap();
         assert!(output.contains("Created project"));
 
-        // List shows both the seeded "Default" project and our new one
+        // List shows our new project
         let list_result = list_projects(&api_client, None, None, None, "json").await;
         assert!(list_result.is_ok());
 
         let output = list_result.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        assert_eq!(parsed.as_array().unwrap().len(), 2); // Default + Test Project
+        assert_eq!(parsed.as_array().unwrap().len(), 1); // Just Test Project
     }
 }

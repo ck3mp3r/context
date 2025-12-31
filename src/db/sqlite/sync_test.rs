@@ -467,9 +467,20 @@ mod tests {
         let db2 = setup_test_db().await;
         let temp_dir = TempDir::new().unwrap();
 
-        // Get default project
-        let projects = db1.projects().list(None).await.unwrap();
-        let default_project_id = projects.items[0].id.clone();
+        // Create a test project
+        let project = Project {
+            id: "projtest".to_string(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        db1.projects().create(&project).await.unwrap();
+        let project_id = project.id.clone();
 
         // Create a task list
         let task_list = TaskList {
@@ -477,7 +488,7 @@ mod tests {
             title: "Test List".to_string(),
             description: None,
             notes: None,
-            project_id: default_project_id,
+            project_id,
             tags: vec![],
             status: TaskListStatus::Active,
             external_ref: None,

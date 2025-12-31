@@ -239,12 +239,12 @@ mod tests {
         // Export from db1
         let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
         assert_eq!(export_summary.repos, 1);
-        assert_eq!(export_summary.projects, 2); // 1 default + 1 test
+        assert_eq!(export_summary.projects, 1); // Just test project
 
         // Import to db2
         let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
         assert_eq!(import_summary.repos, 1);
-        assert_eq!(import_summary.projects, 2); // 1 default + 1 test
+        assert_eq!(import_summary.projects, 1); // Just test project
 
         // Verify data in db2
         let repos = db2.repos().list(None).await.unwrap();
@@ -252,12 +252,11 @@ mod tests {
         assert_eq!(repos.items[0].id, "12345678");
 
         let projects = db2.projects().list(None).await.unwrap();
-        // db2 started with 1 default project, imported 2 (including the default from db1)
-        // So now has 3: original default + imported default + imported test project
-        assert_eq!(projects.items.len(), 3);
+        // db2 has just the imported project
+        assert_eq!(projects.items.len(), 1);
 
-        // Find our imported project
-        let imported_project = projects.items.iter().find(|p| p.id == "abcdef12").unwrap();
+        // Get our imported project
+        let imported_project = &projects.items[0];
         assert_eq!(imported_project.title, "Test Project");
     }
 

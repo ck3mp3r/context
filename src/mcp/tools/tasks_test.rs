@@ -13,15 +13,23 @@ use rmcp::model::RawContent;
 use std::sync::Arc;
 
 /// Helper to get the default project ID created by migrations
-async fn get_default_project_id(db: &SqliteDatabase) -> String {
-    let projects = db.projects().list(None).await.unwrap();
-    projects
-        .items
-        .iter()
-        .find(|p| p.title == "Default")
-        .expect("Default project should exist")
-        .id
-        .clone()
+async fn create_test_project(db: &SqliteDatabase) -> String {
+    use crate::db::Project;
+
+    let project = Project {
+        id: "testproj".to_string(),
+        title: "Test Project".to_string(),
+        description: Some("Test project for tasks".to_string()),
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    db.projects().create(&project).await.unwrap();
+    project.id
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -32,7 +40,7 @@ async fn test_list_tasks_empty() {
     let tools = TaskTools::new(db.clone());
 
     // Create a task list first
-    let default_project_id = get_default_project_id(&db).await;
+    let project_id = create_test_project(&db).await;
     let task_list = TaskList {
         id: String::new(),
         title: "Test List".to_string(),
@@ -41,7 +49,7 @@ async fn test_list_tasks_empty() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: default_project_id,
+        project_id,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -91,7 +99,7 @@ async fn test_create_and_list_task() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -160,7 +168,7 @@ async fn test_get_task() {
     let db = Arc::new(db);
 
     // Create task list and task
-    let default_project_id = get_default_project_id(&db).await;
+    let project_id = create_test_project(&db).await;
     let task_list = TaskList {
         id: String::new(),
         title: "Test List".to_string(),
@@ -169,7 +177,7 @@ async fn test_get_task() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: default_project_id,
+        project_id,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -248,7 +256,7 @@ async fn test_list_tasks_filtered_by_status() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -332,7 +340,7 @@ async fn test_update_task() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -405,7 +413,7 @@ async fn test_complete_task() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -467,7 +475,7 @@ async fn test_delete_task() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -530,7 +538,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -607,7 +615,7 @@ async fn test_update_task_move_to_different_list() {
     db.migrate().unwrap();
     let db = Arc::new(db);
 
-    let default_project_id = get_default_project_id(&db).await;
+    let project_id = create_test_project(&db).await;
 
     // Create two task lists
     let list1 = TaskList {
@@ -618,7 +626,7 @@ async fn test_update_task_move_to_different_list() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: default_project_id.clone(),
+        project_id: project_id.clone(),
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -634,7 +642,7 @@ async fn test_update_task_move_to_different_list() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: default_project_id,
+        project_id,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
@@ -705,7 +713,7 @@ async fn test_update_task_parent_id() {
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
         external_ref: None,
-        project_id: get_default_project_id(&db).await,
+        project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
         updated_at: String::new(),
