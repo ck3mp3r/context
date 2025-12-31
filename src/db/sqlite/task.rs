@@ -94,7 +94,14 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn list(&self, query: Option<&TaskQuery>) -> DbResult<ListResult<Task>> {
         let default_query = TaskQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "status", "priority", "created_at", "completed_at"];
+        let allowed_fields = [
+            "title",
+            "status",
+            "priority",
+            "created_at",
+            "completed_at",
+            "updated_at",
+        ];
 
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
