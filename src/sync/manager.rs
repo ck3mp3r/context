@@ -3,7 +3,8 @@
 //! Coordinates git operations, export, import, and status checking.
 
 use crate::db::{
-    Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
+    Database, NoteRepository, ProjectRepository, RepoRepository, SyncRepository,
+    TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::PathBuf;
@@ -11,9 +12,9 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
-    export::{ExportError, ExportSummary, export_all},
+    export::{ExportError, ExportSummary},
     git::{GitError, GitOps},
-    import::{ImportError, ImportSummary, import_all},
+    import::{ImportError, ImportSummary},
     paths::get_sync_dir,
     read_jsonl,
 };
@@ -126,8 +127,8 @@ impl<G: GitOps> SyncManager<G> {
             let _ = self.git.pull(&self.sync_dir, "origin", "main");
         }
 
-        // Export to JSONL
-        let summary = export_all(db, &self.sync_dir).await?;
+        // Export to JSONL using sync repository
+        let summary = db.sync().export_all(&self.sync_dir).await?;
 
         // Add all JSONL files
         let files = vec![
@@ -176,8 +177,8 @@ impl<G: GitOps> SyncManager<G> {
             self.git.pull(&self.sync_dir, "origin", "main")?;
         }
 
-        // Import from JSONL
-        let summary = import_all(db, &self.sync_dir).await?;
+        // Import from JSONL using sync repository
+        let summary = db.sync().import_all(&self.sync_dir).await?;
 
         Ok(summary)
     }
