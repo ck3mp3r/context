@@ -4,7 +4,7 @@
 mod tests {
     use crate::db::sqlite::SqliteDatabase;
     use crate::db::{
-        Database, Project, ProjectRepository, Repo, RepoRepository, SyncRepository,
+        Database, Project, ProjectRepository, Repo, RepoRepository, SyncRepository, TaskList,
         TaskListRepository, TaskListStatus,
     };
     use crate::sync::write_jsonl;
@@ -457,5 +457,74 @@ mod tests {
         let imported_note = db2.notes().get("note0001").await.unwrap();
         assert_eq!(imported_note.project_ids, vec!["proj0001"]);
         assert_eq!(imported_note.repo_ids, vec!["repo0001"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_export_import_preserves_task_updated_at() {
+        use crate::db::{Task, TaskRepository, TaskStatus};
+
+        let db1 = setup_test_db().await;
+        let db2 = setup_test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+
+        // Get default project
+        let projects = db1.projects().list(None).await.unwrap();
+        let default_project_id = projects.items[0].id.clone();
+
+        // Create a task list
+        let task_list = TaskList {
+            id: "list0001".to_string(),
+            title: "Test List".to_string(),
+            description: None,
+            notes: None,
+            project_id: default_project_id,
+            tags: vec![],
+            status: TaskListStatus::Active,
+            external_ref: None,
+            repo_ids: vec![],
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            archived_at: None,
+        };
+        db1.task_lists().create(&task_list).await.unwrap();
+
+        // Create task with specific timestamps directly via SQL (bypassing create() which overwrites timestamps)
+        sqlx::query(
+            "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("task0001")
+        .bind("list0001")
+        .bind(None::<String>)
+        .bind("Test Task")
+        .bind(Some("Description"))
+        .bind("in_progress")
+        .bind(Some(2))
+        .bind(r#"["test"]"#)
+        .bind("2024-01-01T10:00:00Z")
+        .bind(Some("2024-01-01T11:00:00Z"))
+        .bind(None::<String>)
+        .bind("2024-01-01T12:00:00Z") // CRITICAL: Must be preserved
+        .execute(db1.pool())
+        .await
+        .unwrap();
+
+        // Export and import
+        db1.sync().export_all(temp_dir.path()).await.unwrap();
+        db2.sync().import_all(temp_dir.path()).await.unwrap();
+
+        // Verify updated_at is preserved
+        let imported_task = db2.tasks().get("task0001").await.unwrap();
+        assert_eq!(
+            imported_task.updated_at, "2024-01-01T12:00:00Z",
+            "CRITICAL: updated_at must be preserved during export/import!"
+        );
+        assert_eq!(imported_task.created_at, "2024-01-01T10:00:00Z");
+        assert_eq!(
+            imported_task.started_at,
+            Some("2024-01-01T11:00:00Z".to_string())
+        );
+        assert_eq!(imported_task.title, "Test Task");
+        assert_eq!(imported_task.status, TaskStatus::InProgress);
     }
 }
