@@ -30,6 +30,10 @@ pub fn ProjectDetail() -> impl IntoView {
     let (task_list_page, set_task_list_page) = signal(0usize);
     const TASK_LIST_PAGE_SIZE: usize = 12;
 
+    // Pagination state for notes
+    let (note_page, set_note_page) = signal(0usize);
+    const NOTE_PAGE_SIZE: usize = 12;
+
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
 
@@ -76,6 +80,12 @@ pub fn ProjectDetail() -> impl IntoView {
         set_task_list_page.set(0);
     });
 
+    // Reset note pagination when search filter changes
+    Effect::new(move || {
+        note_filter.get();
+        set_note_page.set(0);
+    });
+
     // Fetch task lists for this project (with archived toggle and pagination)
     Effect::new(move || {
         let id = project_id();
@@ -93,10 +103,11 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Fetch notes for this project (with FTS5 search support)
+    // Fetch notes for this project (with FTS5 search support and pagination)
     Effect::new(move || {
         let id = project_id();
         let search = note_filter.get();
+        let current_page = note_page.get();
         if !id.is_empty() {
             spawn_local(async move {
                 let search_query = if search.trim().is_empty() {
@@ -104,7 +115,9 @@ pub fn ProjectDetail() -> impl IntoView {
                 } else {
                     Some(search)
                 };
-                let result = notes::list(Some(50), None, search_query, Some(id)).await;
+                let offset = current_page * NOTE_PAGE_SIZE;
+                let result =
+                    notes::list(Some(NOTE_PAGE_SIZE), Some(offset), search_query, Some(id)).await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -411,28 +424,54 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             view! { <p class="text-ctp-subtext0">"Loading notes..."</p> }.into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
+                                                            let total_pages = paginated.total.div_ceil(NOTE_PAGE_SIZE);
+
                                                             // Backend already filtered with FTS5, just display results
                                                             if paginated.items.is_empty() {
                                                                 view! { <p class="text-ctp-subtext0">"No notes found"</p> }
                                                                     .into_any()
                                                             } else {
                                                                 view! {
-                                                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
-                                                                        {paginated
-                                                                            .items
-                                                                            .iter()
-                                                                            .map(|note| {
-                                                                                view! {
-                                                                                     <NoteCard
-                                                                                        note=note.clone()
-                                                                                        on_click=Callback::new(move |note_id: String| {
-                                                                                            selected_note_id.set(note_id);
-                                                                                            note_modal_open.set(true);
-                                                                                        })
-                                                                                    />
+                                                                    <div>
+                                                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
+                                                                            {paginated
+                                                                                .items
+                                                                                .iter()
+                                                                                .map(|note| {
+                                                                                    view! {
+                                                                                         <NoteCard
+                                                                                            note=note.clone()
+                                                                                            on_click=Callback::new(move |note_id: String| {
+                                                                                                selected_note_id.set(note_id);
+                                                                                                note_modal_open.set(true);
+                                                                                            })
+                                                                                        />
+                                                                                    }
+                                                                                })
+                                                                                .collect::<Vec<_>>()}
+                                                                        </div>
+
+                                                                        // Pagination
+                                                                        <Pagination
+                                                                            current_page=note_page
+                                                                            total_pages=total_pages
+                                                                            on_prev=Callback::new(move |_| {
+                                                                                let current = note_page.get();
+                                                                                if current > 0 {
+                                                                                    set_note_page.set(current - 1);
                                                                                 }
                                                                             })
-                                                                            .collect::<Vec<_>>()}
+                                                                            on_next=Callback::new(move |_| {
+                                                                                let current = note_page.get();
+                                                                                if current < total_pages - 1 {
+                                                                                    set_note_page.set(current + 1);
+                                                                                }
+                                                                            })
+                                                                            show_summary=true
+                                                                            total_items=paginated.total
+                                                                            page_size=NOTE_PAGE_SIZE
+                                                                            item_name="notes".to_string()
+                                                                        />
                                                                     </div>
                                                                 }
                                                                     .into_any()
