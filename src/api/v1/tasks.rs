@@ -304,6 +304,7 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         created_at: String::new(), // Repository will generate this
         started_at: None,
         completed_at: None,
+        updated_at: String::new(), // Repository will generate this
     };
 
     let created_task = state.db().tasks().create(&task).await.map_err(|e| {

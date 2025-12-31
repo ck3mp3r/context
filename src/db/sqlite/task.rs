@@ -428,5 +428,6 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),
+        updated_at: row.get("updated_at"),
     }
 }

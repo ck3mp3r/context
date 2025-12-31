@@ -214,6 +214,7 @@ impl<D: Database + 'static> TaskTools<D> {
             created_at: String::new(), // Will be set by DB
             started_at: None,
             completed_at: None,
+            updated_at: String::new(), // Will be set by DB
         };
 
         let created = self.db.tasks().create(&task).await.map_err(map_db_error)?;
