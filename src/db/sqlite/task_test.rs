@@ -1456,17 +1456,19 @@ async fn task_update_cascades_updated_at_to_parent() {
         .await
         .expect("Update subtask");
 
-    // Fetch parent again
+    // Fetch both parent and subtask after update
     let parent_after = tasks.get(&parent.id).await.expect("Get parent");
+    let subtask_after = tasks.get(&subtask.id).await.expect("Get subtask");
 
     // ASSERT: Parent's updated_at should have changed
     assert_ne!(
         parent_after.updated_at, initial_parent_updated_at,
         "Parent's updated_at should be updated when subtask changes"
     );
-    assert!(
-        parent_after.updated_at >= updated_subtask.updated_at,
-        "Parent's updated_at should be >= subtask's updated_at"
+    // With new trigger logic: parent's updated_at should EQUAL child's updated_at
+    assert_eq!(
+        parent_after.updated_at, subtask_after.updated_at,
+        "Parent's updated_at should equal subtask's updated_at (cascade trigger)"
     );
 }
 
