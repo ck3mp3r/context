@@ -108,11 +108,12 @@ END;
 -- Trigger to cascade updated_at to parent when subtask is updated
 -- No recursion: only fires when child (parent_id NOT NULL) is updated
 -- Parent update won't trigger again (parent has parent_id = NULL)
+-- Parent's updated_at is set to child's updated_at
 CREATE TRIGGER task_cascade_updated_at_to_parent AFTER UPDATE ON task
 WHEN new.parent_id IS NOT NULL
 BEGIN
     UPDATE task 
-    SET updated_at = datetime('now', 'subsec')
+    SET updated_at = new.updated_at
     WHERE id = new.parent_id;
 END;
 
