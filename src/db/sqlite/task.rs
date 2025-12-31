@@ -29,12 +29,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .created_at
             .clone()
             .filter(|s| !s.is_empty()) // Treat empty string as None
-            .unwrap_or_else(|| current_timestamp());
+            .unwrap_or_else(current_timestamp);
         let updated_at = task
             .updated_at
             .clone()
             .filter(|s| !s.is_empty()) // Treat empty string as None
-            .unwrap_or_else(|| current_timestamp());
+            .unwrap_or_else(current_timestamp);
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
@@ -273,7 +273,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .updated_at
             .clone()
             .filter(|s| !s.is_empty()) // Treat empty string as None
-            .unwrap_or_else(|| current_timestamp());
+            .unwrap_or_else(current_timestamp);
 
         // Start transaction for atomic parent + cascade updates
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {

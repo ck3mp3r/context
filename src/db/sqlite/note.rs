@@ -69,12 +69,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .created_at
             .clone()
             .filter(|s| !s.is_empty()) // Treat empty string as None (backward compat)
-            .unwrap_or_else(|| current_timestamp());
+            .unwrap_or_else(current_timestamp);
         let updated_at = note
             .updated_at
             .clone()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| current_timestamp());
+            .unwrap_or_else(current_timestamp);
 
         let tags_json = serde_json::to_string(&note.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
@@ -526,7 +526,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .updated_at
             .clone()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| current_timestamp());
+            .unwrap_or_else(current_timestamp);
 
         let result = sqlx::query(
             r#"

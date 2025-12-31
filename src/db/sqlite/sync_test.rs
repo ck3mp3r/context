@@ -192,7 +192,7 @@ mod tests {
         let projects = db.projects().list(None).await.unwrap();
         // Note: migrations create 1 default project, so we expect 2 total
         assert!(
-            projects.items.len() >= 1,
+            !projects.items.is_empty(),
             "Should have at least 1 project in database"
         );
 
@@ -461,7 +461,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_export_import_preserves_task_updated_at() {
-        use crate::db::{Task, TaskRepository, TaskStatus};
+        use crate::db::{TaskRepository, TaskStatus};
 
         let db1 = setup_test_db().await;
         let db2 = setup_test_db().await;

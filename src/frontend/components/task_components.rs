@@ -199,7 +199,7 @@ pub fn KanbanColumn(
                                 // Include if: parent task OR orphaned subtask
                                 t.parent_id.is_none() || {
                                     // Orphaned = has parent_id but parent not in this column
-                                    t.parent_id.as_ref().map_or(false, |pid| !parent_ids.contains(pid))
+                                    t.parent_id.as_ref().is_some_and(|pid| !parent_ids.contains(pid))
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -664,88 +664,6 @@ pub fn SubtaskList(
                     }
                 }
             }}
-        </div>
-    }
-}
-
-/// OrphanedSubtaskCard component - displays a subtask whose parent is in a different status column
-/// Shows "↳ Subtask of: [parent_id]" indicator to help user understand the relationship
-#[component]
-pub fn OrphanedSubtaskCard(
-    task: Task,
-    #[prop(into)] parent_id: String,
-    #[prop(optional)] on_click: Option<Callback<Task>>,
-) -> impl IntoView {
-    let priority_color = match task.priority {
-        Some(1) => "border-l-ctp-red",
-        Some(2) => "border-l-ctp-peach",
-        Some(3) => "border-l-ctp-yellow",
-        Some(4) => "border-l-ctp-blue",
-        Some(5) => "border-l-ctp-overlay0",
-        _ => "border-l-ctp-surface1",
-    };
-
-    let task_for_click = task.clone();
-    let handle_card_click = move |_| {
-        if let Some(callback) = on_click {
-            callback.run(task_for_click.clone());
-        }
-    };
-
-    view! {
-        <div
-            class=format!(
-                "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer opacity-80",
-                priority_color
-            )
-            on:click=handle_card_click
-        >
-            // Orphaned subtask indicator
-            <div class="flex items-center gap-1 mb-2 text-xs text-ctp-overlay1">
-                <span>"↳ Subtask of:"</span>
-                <CopyableId id=parent_id />
-            </div>
-
-            <div class="text-sm text-ctp-text mb-2 break-words">
-                <div class="font-medium">{task.title.clone()}</div>
-                {task.description.as_ref().map(|desc| {
-                    let truncated = if desc.len() > 100 {
-                        format!("{}...", &desc.chars().take(100).collect::<String>())
-                    } else {
-                        desc.clone()
-                    };
-                    view! { <div class="text-ctp-subtext0 text-xs mt-1">{truncated}</div> }
-                })}
-            </div>
-
-            {(!task.tags.is_empty())
-                .then(|| {
-                    view! {
-                        <div class="flex flex-wrap gap-1 mt-2">
-                            {task
-                                .tags
-                                .iter()
-                                .map(|tag| {
-                                    view! {
-                                        <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                            {tag.clone()}
-                                        </span>
-                                    }
-                                })
-                                .collect::<Vec<_>>()}
-                        </div>
-                    }
-                })}
-
-            <div class="flex items-center gap-2 mt-2">
-                {task
-                    .priority
-                    .map(|p| {
-                        view! {
-                            <div class="text-xs text-ctp-overlay0">"P" {p}</div>
-                        }
-                    })}
-            </div>
         </div>
     }
 }

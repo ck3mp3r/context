@@ -207,6 +207,7 @@ pub mod task_lists {
 pub mod tasks {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_for_task_list(
         list_id: &str,
         limit: Option<usize>,
