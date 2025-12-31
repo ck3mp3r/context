@@ -35,7 +35,9 @@ Add `updated_at` field to tasks:
 6. ⏳ Fix all test files to include `updated_at` (ONE AT A TIME!)
 
 ## Current Step
-Step 3: Update DB layer to set `updated_at` on create/update (in src/db/sqlite/task.rs)
+Step 3: Update DB layer to set `updated_at` on create/update
+- Added SQL trigger for cascading to parent
+- Now need to update create() and update() in src/db/sqlite/task.rs to set updated_at
 
 ## Progress
 - ✅ Step 1: Created migration 20251231132607_add_task_updated_at.sql

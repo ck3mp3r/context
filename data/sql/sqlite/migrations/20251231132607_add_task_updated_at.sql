@@ -102,3 +102,13 @@ CREATE TRIGGER task_fts_update AFTER UPDATE ON task BEGIN
         tags = new.tags
     WHERE rowid = old.rowid;
 END;
+
+-- Trigger to cascade updated_at to parent when subtask is updated
+DROP TRIGGER IF EXISTS task_cascade_updated_at_to_parent;
+CREATE TRIGGER task_cascade_updated_at_to_parent AFTER UPDATE ON task
+WHEN new.parent_id IS NOT NULL
+BEGIN
+    UPDATE task 
+    SET updated_at = new.updated_at 
+    WHERE id = new.parent_id;
+END;

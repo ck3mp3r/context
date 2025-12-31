@@ -1395,3 +1395,69 @@ async fn test_type_works_with_parent_id_filter() {
         "Should return 2 subtasks of specific parent"
     );
 }
+
+// =============================================================================
+// updated_at cascade tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_cascades_updated_at_to_parent() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    let list = task_lists
+        .create(&TaskList {
+            id: String::new(),
+            title: "Cascade Test".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_ref: None,
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: "test0000".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .expect("Create list");
+
+    // Create parent task
+    let parent = tasks
+        .create(&make_task("parent01", &list.id, "Parent Task"))
+        .await
+        .unwrap();
+
+    let initial_parent_updated_at = parent.updated_at.clone();
+
+    // Wait a bit to ensure timestamp difference
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Create subtask
+    let mut subtask = make_task("subtask1", &list.id, "Subtask");
+    subtask.parent_id = Some(parent.id.clone());
+    let subtask = tasks.create(&subtask).await.unwrap();
+
+    // Update the subtask
+    let mut updated_subtask = subtask.clone();
+    updated_subtask.title = "Updated Subtask".to_string();
+    tasks
+        .update(&updated_subtask)
+        .await
+        .expect("Update subtask");
+
+    // Fetch parent again
+    let parent_after = tasks.get(&parent.id).await.expect("Get parent");
+
+    // ASSERT: Parent's updated_at should have changed
+    assert_ne!(
+        parent_after.updated_at, initial_parent_updated_at,
+        "Parent's updated_at should be updated when subtask changes"
+    );
+    assert!(
+        parent_after.updated_at >= updated_subtask.updated_at,
+        "Parent's updated_at should be >= subtask's updated_at"
+    );
+}

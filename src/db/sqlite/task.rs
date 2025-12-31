@@ -26,14 +26,15 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         // Always generate current timestamp - never use input timestamp
         let created_at = current_timestamp();
+        let updated_at = created_at.clone();
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query(
             r#"
-            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -47,6 +48,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&created_at)
         .bind(&task.started_at)
         .bind(&task.completed_at)
+        .bind(&updated_at)
         .execute(self.pool)
         .await
         .map_err(|e| DbError::Database {
@@ -58,7 +60,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
-            "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at
              FROM task WHERE id = ?",
         )
         .bind(id)
@@ -140,7 +142,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build SQL based on whether we need json_each
         let (sql, count_sql) = if needs_json_each {
             let sql = format!(
-                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at
+                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at, t.updated_at
                  FROM task t, json_each(t.tags)
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -152,7 +154,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             (sql, count_sql)
         } else {
             let sql = format!(
-                "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at
+                "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at
                  FROM task
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -237,6 +239,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
+        let updated_at = current_timestamp();
 
         // Start transaction for atomic parent + cascade updates
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
@@ -248,7 +251,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             r#"
             UPDATE task 
             SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?,
-                started_at = ?, completed_at = ?
+                started_at = ?, completed_at = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
@@ -261,6 +264,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&tags_json)
         .bind(&task.started_at)
         .bind(&task.completed_at)
+        .bind(&updated_at)
         .bind(&task.id)
         .execute(&mut *tx)
         .await
