@@ -3,7 +3,9 @@ use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
-use crate::components::{NoteCard, NoteDetailModal, Pagination, TaskListCard, TaskListDetailModal};
+use crate::components::{
+    CopyableId, NoteCard, NoteDetailModal, Pagination, TaskListCard, TaskListDetailModal,
+};
 use crate::models::{Note, Paginated, Project, Repo, TaskList};
 
 #[component]
@@ -136,7 +138,10 @@ pub fn ProjectDetail() -> impl IntoView {
                             // Project Header
                             <div class="mb-8">
                                 <div class="flex items-center justify-between mb-4">
-                                    <h2 class="text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
+                                    <div class="flex items-center gap-3">
+                                        <CopyableId id=project.id.clone() />
+                                        <h2 class="text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
+                                    </div>
                                     <a
                                         href="/"
                                         class="text-ctp-blue hover:text-ctp-lavender text-sm"
