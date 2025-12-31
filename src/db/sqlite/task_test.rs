@@ -85,6 +85,7 @@ async fn task_create_and_get() {
         created_at: "2025-01-01 00:00:00".to_string(),
         started_at: Some("2025-01-02 09:00:00".to_string()),
         completed_at: None,
+        updated_at: "2025-01-02 09:00:00".to_string(),
     };
 
     tasks.create(&task).await.expect("Create should succeed");
@@ -305,6 +306,7 @@ async fn task_create_with_tags() {
         created_at: "2025-01-01 00:00:00".to_string(),
         started_at: None,
         completed_at: None,
+        updated_at: "2025-01-01 00:00:00".to_string(),
     };
 
     tasks.create(&task).await.expect("Create should succeed");
@@ -416,6 +418,7 @@ async fn task_update_status_to_done_sets_completed_at() {
             created_at: String::new(),
             started_at: None,
             completed_at: None,
+            updated_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
         .expect("Create should succeed");
@@ -475,6 +478,7 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             created_at: String::new(),
             started_at: None,
             completed_at: None,
+            updated_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
         .expect("Create should succeed");
@@ -541,6 +545,7 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             created_at: String::new(),
             started_at: None,
             completed_at: None,
+            updated_at: "2025-01-01 00:00:00".to_string(),
         })
         .await
         .expect("Create should succeed");
@@ -601,6 +606,7 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
             created_at: String::new(),
             started_at: None,
             completed_at: Some("2025-01-01 12:00:00".to_string()),
+            updated_at: "2025-01-01 12:00:00".to_string(),
         })
         .await
         .expect("Create should succeed");
@@ -661,6 +667,7 @@ async fn task_update_other_fields_preserves_timestamps() {
             created_at: String::new(),
             started_at: Some("2025-01-01 10:00:00".to_string()),
             completed_at: None,
+            updated_at: "2025-01-01 10:00:00".to_string(),
         })
         .await
         .expect("Create should succeed");

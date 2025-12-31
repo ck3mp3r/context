@@ -189,6 +189,7 @@ async fn test_get_task() {
         created_at: String::new(),
         started_at: None,
         completed_at: None,
+        updated_at: "2025-01-01 00:00:00".to_string(),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
