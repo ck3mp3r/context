@@ -135,9 +135,12 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                                         view! {
                                             <div class="space-y-4">
                                                 <div class="flex justify-between items-start mb-4">
-                                                    <h2 class="text-2xl font-bold text-ctp-text">
-                                                        {note.title.clone()}
-                                                    </h2>
+                                                    <div class="flex items-center gap-3">
+                                                        <CopyableId id=note.id.clone()/>
+                                                        <h2 class="text-2xl font-bold text-ctp-text">
+                                                            {note.title.clone()}
+                                                        </h2>
+                                                    </div>
                                                     <button
                                                         on:click=move |_| open.set(false)
                                                         class="text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2"
@@ -145,8 +148,7 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                                                         "✕"
                                                     </button>
                                                 </div>
-                                                <div class="flex justify-between text-sm text-ctp-overlay0">
-                                                    <span>"ID: " {note.id.clone()}</span>
+                                                <div class="flex justify-end text-sm text-ctp-overlay0 mb-4">
                                                     <span>"Updated: " {note.updated_at.clone()}</span>
                                                 </div>
 
