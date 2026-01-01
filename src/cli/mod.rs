@@ -34,8 +34,8 @@ enum Commands {
         #[arg(long, default_value = "true")]
         docs: bool,
 
-        /// Database path
-        #[arg(long, env = "C5T_DB_PATH")]
+        /// Database path (can also be set via C5T_DB_PATH environment variable)
+        #[arg(long)]
         db_path: Option<String>,
     },
     /// Project management

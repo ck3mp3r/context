@@ -6,13 +6,13 @@
 //! In debug mode, this script does nothing (frontend assets are read from
 //! filesystem at runtime by rust-embed).
 
-use std::process::Command;
-
 fn main() {
     // Only build frontend assets in release mode
     // In debug mode, rust-embed reads from filesystem (no build needed)
     #[cfg(not(debug_assertions))]
     {
+        use std::process::Command;
+
         println!("cargo:rerun-if-changed=src/frontend");
         println!("cargo:rerun-if-changed=Trunk.toml");
         println!("cargo:rerun-if-changed=src/frontend/assets");
