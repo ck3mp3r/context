@@ -480,29 +480,34 @@ pub fn TaskCard(
                     }
                 })}
 
-                <div class="text-sm text-ctp-text mb-2 break-words">
-                    <div class="font-medium">{task.title.clone()}</div>
-                    {task.description.as_ref().map(|desc| {
-                        // Truncate markdown before rendering to HTML
-                        let preview_content = if desc.chars().count() > 100 {
-                            let truncated: String = desc.chars().take(100).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            desc.clone()
-                        };
+                <div class="flex items-start gap-2 mb-2">
+                    <div class="flex-shrink-0">
+                        <CopyableId id=task.id.clone()/>
+                    </div>
+                    <div class="text-sm text-ctp-text break-words flex-1 min-w-0">
+                        <div class="font-medium">{task.title.clone()}</div>
+                        {task.description.as_ref().map(|desc| {
+                            // Truncate markdown before rendering to HTML
+                            let preview_content = if desc.chars().count() > 100 {
+                                let truncated: String = desc.chars().take(100).collect();
+                                format!("{}...", truncated)
+                            } else {
+                                desc.clone()
+                            };
 
-                        // Parse markdown to HTML for preview
-                        use pulldown_cmark::{Options, Parser, html};
-                        let mut options = Options::empty();
-                        options.insert(Options::ENABLE_STRIKETHROUGH);
-                        options.insert(Options::ENABLE_TABLES);
+                            // Parse markdown to HTML for preview
+                            use pulldown_cmark::{Options, Parser, html};
+                            let mut options = Options::empty();
+                            options.insert(Options::ENABLE_STRIKETHROUGH);
+                            options.insert(Options::ENABLE_TABLES);
 
-                        let parser = Parser::new_ext(&preview_content, options);
-                        let mut html_output = String::new();
-                        html::push_html(&mut html_output, parser);
+                            let parser = Parser::new_ext(&preview_content, options);
+                            let mut html_output = String::new();
+                            html::push_html(&mut html_output, parser);
 
-                        view! { <div class="text-ctp-subtext0 text-xs mt-1" inner_html=html_output></div> }
-                    })}
+                            view! { <div class="text-ctp-subtext0 text-xs mt-1" inner_html=html_output></div> }
+                        })}
+                    </div>
                 </div>
 
                 {(!task.tags.is_empty())
