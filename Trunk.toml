@@ -1,15 +1,10 @@
 [build]
 target = "src/frontend/assets/index.html"
-release = false
 dist = "dist"
 public_url = "/"
 filehash = true
 minify = "on_release"
-
-# Disable wasm-opt for faster builds
-# WASM is already optimized by cargo release profile
-# rust-embed compression will handle size reduction
-[build.release]
+# Disable wasm-opt for faster builds - cargo already optimizes WASM
 wasm_opt = false
 
 [watch]
