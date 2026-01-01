@@ -99,7 +99,9 @@
           };
           api = {
             type = "app";
-            program = "${config.packages.default}/bin/c5t-api";
+            program = "${pkgs.writeShellScript "c5t-api" ''
+              ${config.packages.default}/bin/c5t api "$@"
+            ''}";
           };
         };
 
