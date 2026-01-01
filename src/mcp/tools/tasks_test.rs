@@ -375,12 +375,11 @@ async fn test_update_task() {
 
     let tools = TaskTools::new(db.clone());
 
-    // Update task
+    // Update task (content only - no status changes)
     let update_params = UpdateTaskParams {
         task_id: created_task.id.clone(),
         title: Some("Updated title".to_string()),
         description: Some("Updated description".to_string()),
-        status: Some("in_progress".to_string()),
         priority: Some(1),
         tags: Some(vec!["urgent".to_string()]),
         parent_id: None,
@@ -401,10 +400,9 @@ async fn test_update_task() {
     assert_eq!(updated.id, created_task.id);
     assert_eq!(updated.title, "Updated title");
     assert_eq!(updated.description, Some("Updated description".to_string()));
-    assert_eq!(updated.status, TaskStatus::InProgress);
+    assert_eq!(updated.status, TaskStatus::Backlog); // Status unchanged
     assert_eq!(updated.priority, Some(1));
     assert_eq!(updated.tags, vec!["urgent".to_string()]);
-    assert!(updated.started_at.is_some()); // Status change to in_progress sets started_at
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -834,7 +832,6 @@ async fn test_update_task_move_to_different_list() {
         task_id: created_task.id.clone(),
         title: None,
         description: None,
-        status: None,
         priority: None,
         tags: None,
         parent_id: None,
@@ -922,7 +919,6 @@ async fn test_update_task_parent_id() {
         task_id: created_standalone.id.clone(),
         title: None,
         description: None,
-        status: None,
         priority: None,
         tags: None,
         list_id: None,
@@ -950,7 +946,6 @@ async fn test_update_task_parent_id() {
         task_id: updated_task.id.clone(),
         title: None,
         description: None,
-        status: None,
         priority: None,
         tags: None,
         list_id: None,

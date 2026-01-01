@@ -86,10 +86,6 @@ pub struct UpdateTaskParams {
     pub title: Option<String>,
     #[schemars(description = "Task description (optional)")]
     pub description: Option<String>,
-    #[schemars(
-        description = "Status: 'backlog', 'todo', 'in_progress' (sets started_at), 'review', 'done' (sets completed_at), 'cancelled' (optional)"
-    )]
-    pub status: Option<String>,
     #[schemars(description = "Priority: 1 (highest) to 5 (lowest) (optional)")]
     pub priority: Option<i32>,
     #[schemars(description = "Tags (optional). Replaces all existing tags when provided.")]
@@ -377,7 +373,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Update task content, status, priority, parent_id (reparent task), tags, or move to different list. STATUS WORKFLOW: backlog/todo → in_progress (sets started_at), in_progress → done (use complete_task instead for validation). IMPORTANT: Always move task to 'in_progress' before completing to ensure started_at is set. All fields optional."
+        description = "Update task content ONLY (title, description, priority, tags, parent_id, list_id). Does NOT change status - use transition_task for status changes. All fields optional."
     )]
     pub async fn update_task(
         &self,
@@ -391,17 +387,12 @@ impl<D: Database + 'static> TaskTools<D> {
             )
         })?;
 
-        // Update fields
+        // Update fields (content only - use transition_task for status changes)
         if let Some(title) = &params.0.title {
             task.title = title.clone();
         }
         if let Some(description) = &params.0.description {
             task.description = Some(description.clone());
-        }
-        if let Some(status_str) = &params.0.status {
-            task.status = status_str.parse::<TaskStatus>().map_err(|e| {
-                McpError::invalid_params("invalid_status", Some(serde_json::json!({"error": e})))
-            })?;
         }
         if let Some(priority) = params.0.priority {
             task.priority = Some(priority);
