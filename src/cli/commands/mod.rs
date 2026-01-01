@@ -1,3 +1,4 @@
+pub mod api;
 pub mod note;
 pub mod project;
 pub mod repo;

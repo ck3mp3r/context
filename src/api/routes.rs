@@ -7,6 +7,7 @@ use utoipa_scalar::{Scalar, Servable};
 
 use super::handlers::{self, HealthResponse};
 use super::state::AppState;
+use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
     CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest, PatchProjectRequest,
@@ -42,7 +43,6 @@ macro_rules! routes {
         license(name = "MIT")
     ),
     paths(
-        handlers::root,
         handlers::health,
         super::v1::list_projects,
         super::v1::get_project,
@@ -140,9 +140,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
     > = crate::mcp::create_mcp_service(state.db_arc(), ct);
 
     // System routes (non-generic, not versioned)
-    let system_routes = Router::new()
-        .route("/", get(handlers::root))
-        .route("/health", get(handlers::health));
+    let system_routes = Router::new().route("/health", get(handlers::health));
 
     // V1 API routes (generic over Database and GitOps)
     let v1_routes = routes!(D, G => {
@@ -199,5 +197,5 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         router = router.merge(Scalar::with_url("/docs", api));
     }
 
-    router.with_state(state)
+    router.with_state(state).fallback(serve_frontend) // Serve embedded frontend assets for all unmatched routes
 }
