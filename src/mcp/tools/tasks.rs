@@ -208,7 +208,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Create a new task (always status='backlog'). To change status: update_task. To complete: complete_task. For subtasks use parent_id (max ONE level deep)."
+        description = "Create a new task (always status='backlog'). WORKFLOW: 1) create_task (backlog), 2) update_task status='in_progress' (sets started_at), 3) complete_task (sets completed_at). NEVER create and immediately complete - this loses the started_at timestamp. For subtasks use parent_id (max ONE level deep)."
     )]
     pub async fn create_task(
         &self,
@@ -237,7 +237,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Update task content, status, priority, parent_id (reparent task), tags, or move to different list. Status changes to 'in_progress' set started_at, changes to 'done' set completed_at. All fields optional."
+        description = "Update task content, status, priority, parent_id (reparent task), tags, or move to different list. STATUS WORKFLOW: backlog/todo → in_progress (sets started_at), in_progress → done (use complete_task instead for validation). IMPORTANT: Always move task to 'in_progress' before completing to ensure started_at is set. All fields optional."
     )]
     pub async fn update_task(
         &self,
