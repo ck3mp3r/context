@@ -95,19 +95,25 @@ impl<G: GitOps> SyncManager<G> {
     ///
     /// Creates the sync directory, initializes git, and optionally adds a remote.
     pub async fn init(&self, remote_url: Option<String>) -> Result<(), SyncError> {
+        tracing::info!("Initializing sync repository at {:?}", self.sync_dir);
+
         // Create sync directory if it doesn't exist
         if !self.sync_dir.exists() {
+            tracing::debug!("Creating sync directory");
             std::fs::create_dir_all(&self.sync_dir)?;
         }
 
         // Initialize git repository
+        tracing::debug!("Initializing git repository");
         self.git.init(&self.sync_dir)?;
 
         // Add remote if provided
-        if let Some(url) = remote_url {
-            self.git.add_remote(&self.sync_dir, "origin", &url)?;
+        if let Some(url) = &remote_url {
+            tracing::info!("Adding remote 'origin': {}", url);
+            self.git.add_remote(&self.sync_dir, "origin", url)?;
         }
 
+        tracing::info!("Sync initialization complete");
         Ok(())
     }
 
@@ -117,18 +123,31 @@ impl<G: GitOps> SyncManager<G> {
         db: &D,
         message: Option<String>,
     ) -> Result<ExportSummary, SyncError> {
+        tracing::info!("Starting export operation");
+
         if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
         }
 
         // Pull latest changes first
         if self.has_remote()? {
+            tracing::debug!("Pulling latest changes from remote");
             // Only pull if remote exists, ignore errors (might be first push)
             let _ = self.git.pull(&self.sync_dir, "origin", "main");
         }
 
         // Export to JSONL using sync repository
+        tracing::info!("Exporting database to JSONL files");
         let summary = db.sync().export_all(&self.sync_dir).await?;
+        tracing::info!(
+            repos = summary.repos,
+            projects = summary.projects,
+            task_lists = summary.task_lists,
+            tasks = summary.tasks,
+            notes = summary.notes,
+            "Export complete"
+        );
 
         // Add all JSONL files
         let files = vec![
@@ -138,6 +157,7 @@ impl<G: GitOps> SyncManager<G> {
             "tasks.jsonl".to_string(),
             "notes.jsonl".to_string(),
         ];
+        tracing::debug!("Adding files to git");
         self.git.add_files(&self.sync_dir, &files)?;
 
         // Commit with timestamp-based message if not provided
@@ -147,18 +167,22 @@ impl<G: GitOps> SyncManager<G> {
         });
 
         // Try to commit - if nothing to commit, that's okay (not an error)
+        tracing::debug!(message = %commit_msg, "Committing changes");
         match self.git.commit(&self.sync_dir, &commit_msg) {
             Ok(_) => {
+                tracing::info!("Changes committed successfully");
                 // Push if remote exists
                 if self.has_remote()? {
+                    tracing::info!("Pushing to remote");
                     self.git.push(&self.sync_dir, "origin", "main")?;
+                    tracing::info!("Push complete");
                 }
             }
             Err(GitError::NonZeroExit { code: 1, output })
                 if output.contains("nothing to commit")
                     || output.contains("nothing added to commit") =>
             {
-                // Nothing to commit is not an error - data is already synced
+                tracing::info!("No changes to commit - data already synced");
             }
             Err(e) => return Err(e.into()),
         }
@@ -168,17 +192,31 @@ impl<G: GitOps> SyncManager<G> {
 
     /// Pull from remote and import JSONL to database.
     pub async fn import<D: Database>(&self, db: &D) -> Result<ImportSummary, SyncError> {
+        tracing::info!("Starting import operation");
+
         if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
         }
 
         // Pull latest changes
         if self.has_remote()? {
+            tracing::info!("Pulling latest changes from remote");
             self.git.pull(&self.sync_dir, "origin", "main")?;
+            tracing::info!("Pull complete");
         }
 
         // Import from JSONL using sync repository
+        tracing::info!("Importing JSONL files to database");
         let summary = db.sync().import_all(&self.sync_dir).await?;
+        tracing::info!(
+            repos = summary.repos,
+            projects = summary.projects,
+            task_lists = summary.task_lists,
+            tasks = summary.tasks,
+            notes = summary.notes,
+            "Import complete"
+        );
 
         Ok(summary)
     }

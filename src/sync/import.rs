@@ -47,6 +47,7 @@ pub async fn import_all<D: Database>(
     db: &D,
     input_dir: &Path,
 ) -> Result<ImportSummary, ImportError> {
+    tracing::debug!("Importing all entities from {:?}", input_dir);
     let mut summary = ImportSummary::default();
 
     // Import order respects foreign key dependencies:
@@ -59,6 +60,7 @@ pub async fn import_all<D: Database>(
     // Import projects FIRST (no dependencies)
     let projects_file = input_dir.join("projects.jsonl");
     if projects_file.exists() {
+        tracing::debug!("Importing projects");
         let projects: Vec<Project> = read_jsonl(&projects_file)?;
         for project in projects {
             match db.projects().get(&project.id).await {
@@ -71,11 +73,13 @@ pub async fn import_all<D: Database>(
             }
             summary.projects += 1;
         }
+        tracing::debug!(count = summary.projects, "Imported projects");
     }
 
     // Import repos SECOND (can reference projects)
     let repos_file = input_dir.join("repos.jsonl");
     if repos_file.exists() {
+        tracing::debug!("Importing repos");
         let repos: Vec<Repo> = read_jsonl(&repos_file)?;
         for repo in repos {
             match db.repos().get(&repo.id).await {
@@ -88,11 +92,13 @@ pub async fn import_all<D: Database>(
             }
             summary.repos += 1;
         }
+        tracing::debug!(count = summary.repos, "Imported repos");
     }
 
     // Import task lists
     let lists_file = input_dir.join("lists.jsonl");
     if lists_file.exists() {
+        tracing::debug!("Importing task lists");
         let task_lists: Vec<TaskList> = read_jsonl(&lists_file)?;
         for task_list in task_lists {
             match db.task_lists().get(&task_list.id).await {
@@ -105,11 +111,13 @@ pub async fn import_all<D: Database>(
             }
             summary.task_lists += 1;
         }
+        tracing::debug!(count = summary.task_lists, "Imported task lists");
     }
 
     // Import tasks
     let tasks_file = input_dir.join("tasks.jsonl");
     if tasks_file.exists() {
+        tracing::debug!("Importing tasks");
         let tasks: Vec<Task> = read_jsonl(&tasks_file)?;
         for task in tasks {
             match db.tasks().get(&task.id).await {
@@ -122,11 +130,13 @@ pub async fn import_all<D: Database>(
             }
             summary.tasks += 1;
         }
+        tracing::debug!(count = summary.tasks, "Imported tasks");
     }
 
     // Import notes
     let notes_file = input_dir.join("notes.jsonl");
     if notes_file.exists() {
+        tracing::debug!("Importing notes");
         let notes: Vec<Note> = read_jsonl(&notes_file)?;
         for note in notes {
             match db.notes().get(&note.id).await {
@@ -139,8 +149,10 @@ pub async fn import_all<D: Database>(
             }
             summary.notes += 1;
         }
+        tracing::debug!(count = summary.notes, "Imported notes");
     }
 
+    tracing::info!(total = summary.total(), "Import all complete");
     Ok(summary)
 }
 

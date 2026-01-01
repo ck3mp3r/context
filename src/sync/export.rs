@@ -40,9 +40,11 @@ pub async fn export_all<D: Database>(
     db: &D,
     output_dir: &Path,
 ) -> Result<ExportSummary, ExportError> {
+    tracing::debug!("Exporting all entities to {:?}", output_dir);
     let mut summary = ExportSummary::default();
 
     // Export repos - get full entities with relationships
+    tracing::debug!("Fetching repos");
     let repos_list = db.repos().list(None).await?;
     let mut repos = Vec::new();
     for repo in repos_list.items {
@@ -51,8 +53,10 @@ pub async fn export_all<D: Database>(
     }
     write_jsonl(&output_dir.join("repos.jsonl"), &repos)?;
     summary.repos = repos.len();
+    tracing::debug!(count = repos.len(), "Exported repos");
 
     // Export projects - get full entities with relationships
+    tracing::debug!("Fetching projects");
     let projects_list = db.projects().list(None).await?;
     let mut projects = Vec::new();
     for project in projects_list.items {
@@ -61,8 +65,10 @@ pub async fn export_all<D: Database>(
     }
     write_jsonl(&output_dir.join("projects.jsonl"), &projects)?;
     summary.projects = projects.len();
+    tracing::debug!(count = projects.len(), "Exported projects");
 
     // Export task lists - get full entities with relationships
+    tracing::debug!("Fetching task lists");
     let task_lists_list = db.task_lists().list(None).await?;
     let mut task_lists = Vec::new();
     for task_list in task_lists_list.items {
@@ -71,13 +77,17 @@ pub async fn export_all<D: Database>(
     }
     write_jsonl(&output_dir.join("lists.jsonl"), &task_lists)?;
     summary.task_lists = task_lists.len();
+    tracing::debug!(count = task_lists.len(), "Exported task lists");
 
     // Export tasks (no relationships to fetch)
+    tracing::debug!("Fetching tasks");
     let tasks = db.tasks().list(None).await?;
     write_jsonl(&output_dir.join("tasks.jsonl"), &tasks.items)?;
     summary.tasks = tasks.items.len();
+    tracing::debug!(count = tasks.items.len(), "Exported tasks");
 
     // Export notes - get full entities with relationships
+    tracing::debug!("Fetching notes");
     let notes_list = db.notes().list(None).await?;
     let mut notes = Vec::new();
     for note in notes_list.items {
@@ -86,7 +96,9 @@ pub async fn export_all<D: Database>(
     }
     write_jsonl(&output_dir.join("notes.jsonl"), &notes)?;
     summary.notes = notes.len();
+    tracing::debug!(count = notes.len(), "Exported notes");
 
+    tracing::info!(total = summary.total(), "Export all complete");
     Ok(summary)
 }
 

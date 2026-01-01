@@ -60,7 +60,7 @@ async fn main() -> Result<(), BinaryError> {
     // Create the concrete database implementation
     let db_path = get_db_path(cli.home);
 
-    println!("Opening database at {:?}", db_path);
+    tracing::info!("Opening database at {:?}", db_path);
 
     // Ensure parent directory exists
     if let Some(parent) = db_path.parent() {
@@ -71,7 +71,7 @@ async fn main() -> Result<(), BinaryError> {
 
     // Run migrations before starting the server
     db.migrate()?;
-    println!("Database migrations complete");
+    tracing::info!("Database migrations complete");
 
     // Pass the abstract Database to the API layer
     api::run(
