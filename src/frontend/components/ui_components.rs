@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use thaw::*;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(
@@ -8,7 +9,7 @@ extern "C" {
     fn copy_to_clipboard(text: &str);
 }
 
-/// Copyable ID component - displays an ID in a monospace block with click-to-copy functionality
+/// Copyable ID component - icon-only with tooltip showing ID and click-to-copy functionality
 #[component]
 pub fn CopyableId(id: String) -> impl IntoView {
     let (copied, set_copied) = signal(false);
@@ -30,22 +31,22 @@ pub fn CopyableId(id: String) -> impl IntoView {
     };
 
     view! {
-        <button
-            on:click=do_copy
-            class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-ctp-surface0/50 border border-ctp-surface1/50 rounded text-[10px] hover:border-ctp-blue hover:bg-ctp-surface0 transition-colors cursor-pointer"
-            title="Copy ID to clipboard"
-        >
-            <code class="font-mono text-ctp-overlay0">{id}</code>
-            <span class="text-[8px] text-ctp-overlay0">
-                {move || {
-                    if copied.get() {
-                        "✓"
-                    } else {
-                        "📋"
-                    }
-                }}
-            </span>
-        </button>
+        <Tooltip content=id>
+            <button
+                on:click=do_copy
+                class="inline-flex items-center justify-center w-5 h-5 bg-ctp-surface0/50 border border-ctp-surface1/50 rounded hover:border-ctp-blue hover:bg-ctp-surface0 transition-colors cursor-pointer"
+            >
+                <span class="text-xs text-ctp-overlay0">
+                    {move || {
+                        if copied.get() {
+                            "✓"
+                        } else {
+                            "🔖"
+                        }
+                    }}
+                </span>
+            </button>
+        </Tooltip>
     }
 }
 
