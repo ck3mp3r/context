@@ -327,8 +327,8 @@ pub fn SubtaskStackItem(
                                     </div>
                                     {show_description.then(|| {
                                         view! {
-                                            <div class="text-ctp-subtext0 text-xs mt-1">
-                                                {subtask.description.clone()}
+                                            <div class="text-ctp-subtext0 text-xs mt-1 prose prose-invert prose-xs max-w-none">
+                                                <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
                                             </div>
                                         }
                                     })}
@@ -410,6 +410,7 @@ pub fn TaskCard(
     #[prop(optional, default = false)] show_subtasks_inline: bool,
     #[prop(optional)] on_click: Option<Callback<Task>>,
     #[prop(optional)] on_subtask_click: Option<Callback<Task>>,
+    #[prop(optional, default = false)] show_status_badge: bool,
 ) -> impl IntoView {
     let priority_color = match task.priority {
         Some(1) => "border-l-ctp-red",
@@ -504,12 +505,25 @@ pub fn TaskCard(
                 <div class="text-sm text-ctp-text mb-2 break-words">
                     <div class="font-medium">{task.title.clone()}</div>
                     {task.description.as_ref().map(|desc| {
-                        let truncated = if desc.len() > 100 {
-                            format!("{}...", &desc.chars().take(100).collect::<String>())
+                        // Truncate markdown before rendering to HTML
+                        let preview_content = if desc.chars().count() > 100 {
+                            let truncated: String = desc.chars().take(100).collect();
+                            format!("{}...", truncated)
                         } else {
                             desc.clone()
                         };
-                        view! { <div class="text-ctp-subtext0 text-xs mt-1">{truncated}</div> }
+
+                        // Parse markdown to HTML for preview
+                        use pulldown_cmark::{Options, Parser, html};
+                        let mut options = Options::empty();
+                        options.insert(Options::ENABLE_STRIKETHROUGH);
+                        options.insert(Options::ENABLE_TABLES);
+
+                        let parser = Parser::new_ext(&preview_content, options);
+                        let mut html_output = String::new();
+                        html::push_html(&mut html_output, parser);
+
+                        view! { <div class="text-ctp-subtext0 text-xs mt-1" inner_html=html_output></div> }
                     })}
                 </div>
 
@@ -541,6 +555,15 @@ pub fn TaskCard(
                                     <div class="text-xs text-ctp-overlay0">"P" {p}</div>
                                 }
                             })}
+
+                        // Show status badge for inline subtasks
+                        {show_status_badge.then(|| {
+                            view! {
+                                <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&task.status))>
+                                    {status_badge_label(&task.status)}
+                                </span>
+                            }
+                        })}
 
                         {move || {
                             (show_subtasks_inline && subtask_count.get() > 0).then(|| {
@@ -656,7 +679,7 @@ pub fn SubtaskList(
                                 let:subtask
                             >
                                 <div class="my-2">
-                                    <TaskCard task=subtask.clone() on_click=callback />
+                                    <TaskCard task=subtask.clone() show_status_badge=true on_click=callback />
                                 </div>
                             </For>
                         }.into_any(),
@@ -667,7 +690,7 @@ pub fn SubtaskList(
                                 let:subtask
                             >
                                 <div class="my-2">
-                                    <TaskCard task=subtask.clone() />
+                                    <TaskCard task=subtask.clone() show_status_badge=true />
                                 </div>
                             </For>
                         }.into_any(),
@@ -730,7 +753,7 @@ pub fn TaskDetailContent(
             // Main task - title and description first, metadata secondary
             <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
                 // CopyableId + Task title
-                <div class="flex items-start gap-2 mb-3">
+                <div class="flex items-start gap-2 mb-4 pb-4 border-b border-ctp-surface1">
                     <div class="flex-shrink-0">
                         <CopyableId id=task.id.clone()/>
                     </div>
@@ -742,8 +765,8 @@ pub fn TaskDetailContent(
                 // Task description (if present)
                 {task.description.as_ref().map(|desc| {
                     view! {
-                        <div class="mb-4 text-sm text-ctp-text whitespace-pre-wrap break-words prose prose-sm max-w-none prose-ctp">
-                            {desc.clone()}
+                        <div class="mb-4 prose prose-invert prose-sm max-w-none">
+                            <crate::components::note_components::MarkdownContent content=desc.clone()/>
                         </div>
                     }
                 })}

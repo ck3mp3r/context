@@ -148,29 +148,27 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                                                         "✕"
                                                     </button>
                                                 </div>
-                                                <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 mb-4">
-                                                    <span>"Created: " {note.created_at.clone()}</span>
-                                                    <span>"Updated: " {note.updated_at.clone()}</span>
-                                                </div>
-
+                                                <div class="flex justify-between items-start mb-4">
+                                                    <div class="flex flex-wrap gap-2">
                                                         {(!note.tags.is_empty())
                                                             .then(|| {
-                                                                view! {
-                                                                    <div class="flex flex-wrap gap-2">
-                                                                        {note
-                                                                            .tags
-                                                                            .iter()
-                                                                            .map(|tag: &String| {
-                                                                                view! {
-                                                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                                                        {tag.clone()}
-                                                                                    </span>
-                                                                                }
-                                                                            })
-                                                                            .collect::<Vec<_>>()}
-                                                                    </div>
-                                                                }
+                                                                note.tags
+                                                                    .iter()
+                                                                    .map(|tag: &String| {
+                                                                        view! {
+                                                                            <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                                {tag.clone()}
+                                                                            </span>
+                                                                        }
+                                                                    })
+                                                                    .collect::<Vec<_>>()
                                                             })}
+                                                    </div>
+                                                    <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
+                                                        <span>"Created: " {note.created_at.clone()}</span>
+                                                        <span>"Updated: " {note.updated_at.clone()}</span>
+                                                    </div>
+                                                </div>
 
                                                 <div class="prose prose-invert max-w-none">
                                                     <MarkdownContent content=note.content.clone()/>
