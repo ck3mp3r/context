@@ -148,7 +148,7 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                                                         "✕"
                                                     </button>
                                                 </div>
-                                                <div class="flex justify-between text-sm text-ctp-overlay0 mb-4">
+                                                <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 mb-4">
                                                     <span>"Created: " {note.created_at.clone()}</span>
                                                     <span>"Updated: " {note.updated_at.clone()}</span>
                                                 </div>
