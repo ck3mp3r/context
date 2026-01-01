@@ -6,6 +6,12 @@ public_url = "/"
 filehash = true
 minify = "on_release"
 
+# Disable wasm-opt for faster builds
+# WASM is already optimized by cargo release profile
+# rust-embed compression will handle size reduction
+[build.release]
+wasm_opt = false
+
 [watch]
 watch = ["src/frontend"]
 ignore = ["target", "dist"]
