@@ -297,21 +297,40 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Mark task as complete. Shortcut for update_task with status='done'. Sets completed_at timestamp automatically."
+        description = "Mark task as complete. Shortcut for update_task with status='done'. Sets completed_at timestamp automatically. IMPORTANT: Task must be in 'in_progress' status before completion to ensure started_at timestamp is set. Use update_task to move task to 'in_progress' first if needed."
     )]
     pub async fn complete_task(
         &self,
         params: Parameters<CompleteTaskParams>,
     ) -> Result<CallToolResult, McpError> {
         // Get existing task
-        let mut task = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
+        let task = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
             McpError::resource_not_found(
                 "task_not_found",
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
 
+        // Validate task is in_progress before allowing completion
+        if task.status != TaskStatus::InProgress {
+            let current_status = task.status.to_string().to_lowercase();
+            let error_message = format!(
+                "Task must be in 'in_progress' status before completion. Current status: '{}'. Use update_task to set status='in_progress' first.",
+                current_status
+            );
+            return Err(McpError::invalid_params(
+                "invalid_status_for_completion",
+                Some(serde_json::json!({
+                    "error": error_message,
+                    "task_id": task.id,
+                    "current_status": current_status,
+                    "required_status": "in_progress"
+                })),
+            ));
+        }
+
         // Set status to done
+        let mut task = task;
         task.status = TaskStatus::Done;
 
         self.db.tasks().update(&task).await.map_err(map_db_error)?;
