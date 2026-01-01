@@ -279,17 +279,17 @@ pub fn SubtaskStackItem(
             }
         >
             // Header (always visible)
-            <div class="flex items-center justify-between gap-2">
-                // Left side: CopyableId (always visible) + Content
-                <div class="flex items-center gap-2 flex-1 min-w-0">
+            <div class="flex items-start justify-between gap-4">
+                // Left side: CopyableId + Title + Description
+                <div class="flex items-start gap-2 flex-1 min-w-0">
                     <div class="flex-shrink-0" on:click=|ev: ev::MouseEvent| {
                         ev.stop_propagation();
                     }>
                         <CopyableId id=subtask_id.clone()/>
                     </div>
 
-                    // Title (truncated when collapsed, with description when expanded)
-                    <div class="flex-1 text-sm text-ctp-text break-words">
+                    // Title + Description
+                    <div class="flex-1 min-w-0 text-sm text-ctp-text break-words">
                         {move || {
                             let title = &subtask.title;
                             let truncated = !is_expanded() && title.len() > 60;
@@ -317,7 +317,7 @@ pub fn SubtaskStackItem(
                     </div>
                 </div>
 
-                // Badges (right side)
+                // Right side: Badges (right-aligned)
                 <div class="flex items-center gap-1 flex-shrink-0">
                     {subtask.priority.map(|p| {
                         view! {
@@ -734,14 +734,14 @@ pub fn TaskDetailContent(
         <div>
             // Main task - title and description first, metadata secondary
             <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
-                // CopyableId + Task title
-                <div class="flex items-start gap-2 mb-4 pb-4 border-b border-ctp-surface1">
+                // Task title + CopyableId (right-aligned)
+                <div class="flex items-start justify-between gap-4 mb-4 pb-4 border-b border-ctp-surface1">
+                    <h2 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">
+                        {task.title.clone()}
+                    </h2>
                     <div class="flex-shrink-0">
                         <CopyableId id=task.id.clone()/>
                     </div>
-                    <h2 class="flex-1 text-xl font-semibold text-ctp-text break-words">
-                        {task.title.clone()}
-                    </h2>
                 </div>
 
                 // Task description (if present)
@@ -973,7 +973,7 @@ pub fn TaskListCard(
 
                 class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{task_list.title.clone()}</h3>
+                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-24 break-words">{task_list.title.clone()}</h3>
 
             {task_list
                 .description

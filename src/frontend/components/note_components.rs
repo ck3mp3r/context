@@ -48,7 +48,7 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
 
                 class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{note.title.clone()}</h3>
+                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-24 break-words">{note.title.clone()}</h3>
 
             <div class="relative flex-grow mb-4">
                 <div class="text-ctp-subtext0 text-sm leading-relaxed note-preview overflow-hidden" style="max-height: 8rem;" inner_html=html_output></div>

@@ -62,7 +62,7 @@ pub fn Projects() -> impl IntoView {
                                                     href=format!("/projects/{}", project_id)
                                                     class="flex flex-col h-full"
                                                 >
-                                                    <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">
+                                                    <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-24 break-words">
                                                         {project_title}
                                                     </h3>
                                                 {project_description
