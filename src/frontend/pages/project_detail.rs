@@ -151,16 +151,18 @@ pub fn ProjectDetail() -> impl IntoView {
                             // Project Header
                             <div class="mb-8">
                                 <div class="flex items-center justify-between mb-4">
-                                    <h2 class="flex-1 min-w-0 break-words text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
-                                    <div class="flex items-center gap-3 flex-shrink-0">
-                                        <CopyableId id=project.id.clone() />
-                                        <a
-                                            href="/"
-                                            class="text-ctp-blue hover:text-ctp-lavender text-sm whitespace-nowrap"
-                                        >
-                                            "← Back to Projects"
-                                        </a>
+                                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                                        <div class="flex-shrink-0">
+                                            <CopyableId id=project.id.clone() />
+                                        </div>
+                                        <h2 class="flex-1 min-w-0 break-words text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
                                     </div>
+                                    <a
+                                        href="/"
+                                        class="text-ctp-blue hover:text-ctp-lavender text-sm whitespace-nowrap flex-shrink-0"
+                                    >
+                                        "← Back to Projects"
+                                    </a>
                                 </div>
 
                                 {project

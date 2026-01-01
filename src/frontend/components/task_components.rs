@@ -278,25 +278,30 @@ pub fn SubtaskStackItem(
                 on_click.run(subtask_id_for_click.clone());
             }
         >
-            // Header: Title (left) + Badges inline (right: Priority → Status → CopyableId)
+            // Header: CopyableId + Title (left) | Badges (right: Priority → Status)
             <div class="flex items-center justify-between gap-4">
-                // Left side: Title only
-                <div class="flex-1 min-w-0 text-sm text-ctp-text break-words font-medium">
-                    {move || {
-                        let title = &subtask.title;
-                        let truncated = !is_expanded() && title.len() > 60;
-                        if truncated {
-                            format!("{}...", &title[..60])
-                        } else {
-                            title.clone()
-                        }
-                    }}
+                // Left side: CopyableId + Title
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <div class="flex-shrink-0" on:click=|ev: ev::MouseEvent| {
+                        ev.stop_propagation();
+                    }>
+                        <CopyableId id=subtask_id.clone()/>
+                    </div>
+                    <div class="flex-1 min-w-0 text-sm text-ctp-text break-words font-medium">
+                        {move || {
+                            let title = &subtask.title;
+                            let truncated = !is_expanded() && title.len() > 60;
+                            if truncated {
+                                format!("{}...", &title[..60])
+                            } else {
+                                title.clone()
+                            }
+                        }}
+                    </div>
                 </div>
 
-                // Right side: Priority → Status → CopyableId (inline)
-                <div class="flex items-center gap-1 flex-shrink-0" on:click=|ev: ev::MouseEvent| {
-                    ev.stop_propagation();
-                }>
+                // Right side: Priority → Status badges
+                <div class="flex items-center gap-1 flex-shrink-0">
                     {subtask.priority.map(|p| {
                         view! {
                             <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
@@ -307,7 +312,6 @@ pub fn SubtaskStackItem(
                     <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
                         {status_badge_label(&subtask.status)}
                     </span>
-                    <CopyableId id=subtask_id.clone()/>
                 </div>
             </div>
 
@@ -726,14 +730,14 @@ pub fn TaskDetailContent(
         <div>
             // Main task - title and description first, metadata secondary
             <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
-                // Task title + CopyableId (right-aligned)
-                <div class="flex items-start justify-between gap-4 mb-4 pb-4 border-b border-ctp-surface1">
-                    <h2 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">
-                        {task.title.clone()}
-                    </h2>
+                // CopyableId + Task title (left-aligned)
+                <div class="flex items-start gap-2 mb-4 pb-4 border-b border-ctp-surface1">
                     <div class="flex-shrink-0">
                         <CopyableId id=task.id.clone()/>
                     </div>
+                    <h2 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">
+                        {task.title.clone()}
+                    </h2>
                 </div>
 
                 // Task description (if present)
@@ -950,10 +954,7 @@ pub fn TaskListCard(
     });
 
     view! {
-        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
-            <div class="absolute top-2 right-2">
-                <CopyableId id=task_list.id.clone()/>
-            </div>
+        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
             <a
                 href=href
                 on:click=move |ev| {
@@ -965,7 +966,12 @@ pub fn TaskListCard(
 
                 class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-24 break-words">{task_list.title.clone()}</h3>
+                <div class="flex items-start gap-2 mb-2">
+                    <div class="flex-shrink-0">
+                        <CopyableId id=task_list.id.clone()/>
+                    </div>
+                    <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{task_list.title.clone()}</h3>
+                </div>
 
             {task_list
                 .description
