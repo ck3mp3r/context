@@ -32,6 +32,7 @@ backend = [
   "dep:miette",
   "dep:reqwest",
   "dep:rmcp",
+  "dep:rustls",
   "dep:sqlx",
   "dep:tabled",
   "dep:tokio",
@@ -67,7 +68,8 @@ axum = { version = "0.8.8", optional = true }
 chrono = { version = "0.4.42", optional = true }
 clap = { version = "4.5.53", features = ["derive"], optional = true }
 miette = { version = "7.6.0", features = ["fancy"], optional = true }
-reqwest = { version = "0.13.1", default-features = false, features = ["json", "rustls", "query"], optional = true }
+reqwest = { version = "0.13.1", default-features = false, features = ["json", "rustls-no-provider", "query"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 rmcp = { version = "0.12.0", features = ["server", "transport-streamable-http-server"], optional = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"], optional = true }
 tabled = { version = "0.20.0", features = ["derive"], optional = true }

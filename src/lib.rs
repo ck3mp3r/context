@@ -12,3 +12,10 @@ pub mod mcp;
 
 #[cfg(feature = "backend")]
 pub mod sync;
+
+#[cfg(feature = "backend")]
+pub fn init() {
+    // Install ring as the default crypto provider for rustls
+    // This must be called before any reqwest Client is created
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
