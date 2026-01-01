@@ -86,6 +86,8 @@
             buildPhase = ''
               # Set writable HOME for wasm-bindgen cache
               export HOME=$TMPDIR
+              # Tell trunk to use wasm-bindgen from nix store (prevent network download)
+              export WASM_BINDGEN=${pkgs.wasm-bindgen-cli}/bin/wasm-bindgen
               trunk build --release
             '';
 
