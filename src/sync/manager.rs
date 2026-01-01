@@ -94,6 +94,7 @@ impl<G: GitOps> SyncManager<G> {
     /// Initialize sync repository.
     ///
     /// Creates the sync directory, initializes git, and optionally adds a remote.
+    /// Idempotent: safe to call multiple times, won't reinitialize existing repos.
     pub async fn init(&self, remote_url: Option<String>) -> Result<(), SyncError> {
         tracing::info!("Initializing sync repository at {:?}", self.sync_dir);
 
@@ -103,14 +104,36 @@ impl<G: GitOps> SyncManager<G> {
             std::fs::create_dir_all(&self.sync_dir)?;
         }
 
-        // Initialize git repository
-        tracing::debug!("Initializing git repository");
-        self.git.init(&self.sync_dir)?;
+        // Initialize git repository only if not already initialized
+        if self.is_initialized() {
+            tracing::info!("Git repository already initialized, skipping git init");
+        } else {
+            tracing::debug!("Initializing git repository");
+            self.git.init(&self.sync_dir)?;
+        }
 
-        // Add remote if provided
+        // Add remote if provided and not already present
         if let Some(url) = &remote_url {
-            tracing::info!("Adding remote 'origin': {}", url);
-            self.git.add_remote(&self.sync_dir, "origin", url)?;
+            match self.git.remote_get_url(&self.sync_dir, "origin") {
+                Ok(existing_output) => {
+                    let existing_url = String::from_utf8_lossy(&existing_output.stdout)
+                        .trim()
+                        .to_string();
+                    if existing_url == *url {
+                        tracing::info!("Remote 'origin' already set to: {}", url);
+                    } else {
+                        tracing::warn!(
+                            existing = %existing_url,
+                            new = %url,
+                            "Remote 'origin' already exists with different URL, skipping"
+                        );
+                    }
+                }
+                Err(_) => {
+                    tracing::info!("Adding remote 'origin': {}", url);
+                    self.git.add_remote(&self.sync_dir, "origin", url)?;
+                }
+            }
         }
 
         tracing::info!("Sync initialization complete");
@@ -403,6 +426,12 @@ mod tests {
             .expect_init()
             .times(1)
             .returning(|_| Ok(mock_output(0, "Initialized", "")));
+        // Now expects remote_get_url to check if remote already exists
+        mock_git
+            .expect_remote_get_url()
+            .with(eq(sync_dir.clone()), eq("origin"))
+            .times(1)
+            .returning(|_, _| Err(GitError::GitNotFound)); // No existing remote
         mock_git
             .expect_add_remote()
             .with(
