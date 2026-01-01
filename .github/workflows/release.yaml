@@ -34,6 +34,11 @@ jobs:
           use nu-tools *
           setup-git-user
 
+          # Create placeholder dist/ folder for rust-embed compile-time check
+          # The real frontend build happens later in the build job
+          mkdir dist
+          echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save dist/index.html
+
           let current_version = (open Cargo.toml).package.version
           let latest_tag = (get-latest-tag)
           let version = (semver-calculate $latest_tag $current_version | create-release-branch)
