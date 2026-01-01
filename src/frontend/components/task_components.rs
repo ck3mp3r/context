@@ -280,55 +280,51 @@ pub fn SubtaskStackItem(
         >
             // Header (always visible)
             <div class="flex items-start justify-between gap-4">
-                // Left side: CopyableId + Title + Description
-                <div class="flex items-start gap-2 flex-1 min-w-0">
-                    <div class="flex-shrink-0" on:click=|ev: ev::MouseEvent| {
-                        ev.stop_propagation();
-                    }>
-                        <CopyableId id=subtask_id.clone()/>
-                    </div>
+                // Left side: Title + Description only
+                <div class="flex-1 min-w-0 text-sm text-ctp-text break-words">
+                    {move || {
+                        let title = &subtask.title;
+                        let truncated = !is_expanded() && title.len() > 60;
+                        let show_description = is_expanded() && subtask.description.is_some();
 
-                    // Title + Description
-                    <div class="flex-1 min-w-0 text-sm text-ctp-text break-words">
-                        {move || {
-                            let title = &subtask.title;
-                            let truncated = !is_expanded() && title.len() > 60;
-                            let show_description = is_expanded() && subtask.description.is_some();
-
-                            view! {
-                                <div>
-                                    <div class=if show_description { "font-medium" } else { "" }>
-                                        {if truncated {
-                                            format!("{}...", &title[..60])
-                                        } else {
-                                            title.clone()
-                                        }}
-                                    </div>
-                                    {show_description.then(|| {
-                                        view! {
-                                            <div class="text-ctp-subtext0 text-xs mt-1 prose prose-invert prose-xs max-w-none">
-                                                <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
-                                            </div>
-                                        }
-                                    })}
+                        view! {
+                            <div>
+                                <div class=if show_description { "font-medium" } else { "" }>
+                                    {if truncated {
+                                        format!("{}...", &title[..60])
+                                    } else {
+                                        title.clone()
+                                    }}
                                 </div>
-                            }
-                        }}
-                    </div>
+                                {show_description.then(|| {
+                                    view! {
+                                        <div class="text-ctp-subtext0 text-xs mt-1 prose prose-invert prose-xs max-w-none">
+                                            <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
+                                        </div>
+                                    }
+                                })}
+                            </div>
+                        }
+                    }}
                 </div>
 
-                // Right side: Badges (right-aligned)
-                <div class="flex items-center gap-1 flex-shrink-0">
-                    {subtask.priority.map(|p| {
-                        view! {
-                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
-                                "P"{p}
-                            </span>
-                        }
-                    })}
-                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
-                        {status_badge_label(&subtask.status)}
-                    </span>
+                // Right side: CopyableId + Badges stacked vertically
+                <div class="flex flex-col gap-1 flex-shrink-0 items-end" on:click=|ev: ev::MouseEvent| {
+                    ev.stop_propagation();
+                }>
+                    <CopyableId id=subtask_id.clone()/>
+                    <div class="flex items-center gap-1">
+                        {subtask.priority.map(|p| {
+                            view! {
+                                <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
+                                    "P"{p}
+                                </span>
+                            }
+                        })}
+                        <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
+                            {status_badge_label(&subtask.status)}
+                        </span>
+                    </div>
                 </div>
             </div>
 
@@ -464,13 +460,19 @@ pub fn TaskCard(
             <div
                 class=move || {
                     format!(
-                        "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
+                        "relative bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
                         priority_color,
                         if subtask_count.get() > 0 { "task-card-parent" } else { "" },
                     )
                 }
                 on:click=handle_card_click
             >
+                // CopyableId badge - top right corner
+                <div class="absolute top-1 right-1" on:click=|ev: ev::MouseEvent| {
+                    ev.stop_propagation();
+                }>
+                    <CopyableId id=task.id.clone()/>
+                </div>
                 // Show orphaned subtask indicator ONLY for orphaned subtasks (not inline nested ones)
                 // show_subtasks_inline=true → kanban view (show label for orphaned subtasks)
                 // show_subtasks_inline=false → SubtaskList (don't show label, already nested under parent)
