@@ -111,9 +111,52 @@ pub struct CompleteTaskParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TransitionTaskParams {
+    #[schemars(description = "Task ID to transition")]
+    pub task_id: String,
+    #[schemars(
+        description = "Target status: 'backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled'"
+    )]
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteTaskParams {
     #[schemars(description = "Task ID to delete")]
     pub task_id: String,
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Returns allowed target statuses for a given current status
+fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
+    match current {
+        TaskStatus::Backlog => vec![
+            TaskStatus::Todo,
+            TaskStatus::InProgress,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::Todo => vec![
+            TaskStatus::Backlog,
+            TaskStatus::InProgress,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::InProgress => vec![
+            TaskStatus::Todo,
+            TaskStatus::Review,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::Review => vec![
+            TaskStatus::InProgress,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::Done => vec![],      // Final state
+        TaskStatus::Cancelled => vec![], // Final state
+    }
 }
 
 // =============================================================================
@@ -233,6 +276,103 @@ impl<D: Database + 'static> TaskTools<D> {
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
+        )]))
+    }
+
+    #[tool(
+        description = "Transition task between statuses with validation. Enforces workflow rules and sets timestamps. Valid transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled]. done and cancelled are final states. Sets started_at when transitioning to in_progress, completed_at when transitioning to done."
+    )]
+    pub async fn transition_task(
+        &self,
+        params: Parameters<TransitionTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Get existing task
+        let task = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
+            McpError::resource_not_found(
+                "task_not_found",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Parse target status
+        let target_status = params.0.status.parse::<TaskStatus>().map_err(|e| {
+            McpError::invalid_params(
+                "invalid_status",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Check if transition is allowed
+        let allowed = allowed_transitions(&task.status);
+        if !allowed.contains(&target_status) {
+            let current_str = task.status.to_string().to_lowercase();
+            let target_str = target_status.to_string().to_lowercase();
+            let allowed_strs: Vec<String> = allowed
+                .iter()
+                .map(|s| s.to_string().to_lowercase())
+                .collect();
+
+            let error_message = if allowed.is_empty() {
+                format!(
+                    "Cannot transition from '{}' - it is a final state. Current: {}, Attempted: {}",
+                    current_str, current_str, target_str
+                )
+            } else {
+                format!(
+                    "Invalid transition from '{}' to '{}'. Allowed transitions: [{}]",
+                    current_str,
+                    target_str,
+                    allowed_strs.join(", ")
+                )
+            };
+
+            return Err(McpError::invalid_params(
+                "invalid_transition",
+                Some(serde_json::json!({
+                    "error": error_message,
+                    "current_status": current_str,
+                    "attempted_status": target_str,
+                    "allowed_statuses": allowed_strs,
+                })),
+            ));
+        }
+
+        // Perform transition
+        let mut updated_task = task;
+        updated_task.status = target_status.clone();
+
+        // Set timestamps based on target status
+        match target_status {
+            TaskStatus::InProgress => {
+                // Set started_at if not already set
+                if updated_task.started_at.is_none() {
+                    // Let database set it via trigger
+                }
+            }
+            TaskStatus::Done => {
+                // completed_at will be set by database trigger
+            }
+            _ => {
+                // Other transitions don't modify timestamps
+            }
+        }
+
+        self.db
+            .tasks()
+            .update(&updated_task)
+            .await
+            .map_err(map_db_error)?;
+
+        // Fetch updated task to get auto-set timestamps
+        let result_task = self
+            .db
+            .tasks()
+            .get(&params.0.task_id)
+            .await
+            .map_err(map_db_error)?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&result_task).unwrap(),
         )]))
     }
 
