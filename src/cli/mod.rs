@@ -20,6 +20,24 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Start the API server (REST API + MCP + embedded frontend)
+    Api {
+        /// Port to listen on
+        #[arg(long, default_value = "3737")]
+        port: u16,
+
+        /// Host to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Enable OpenAPI docs at /docs
+        #[arg(long, default_value = "true")]
+        docs: bool,
+
+        /// Database path
+        #[arg(long, env = "C5T_DB_PATH")]
+        db_path: Option<String>,
+    },
     /// Project management
     Project {
         #[command(subcommand)]
@@ -399,6 +417,14 @@ pub async fn run() -> Result<()> {
     let api_client = api_client::ApiClient::new(cli.api_url);
 
     match cli.command {
+        Some(Commands::Api {
+            port,
+            host,
+            docs,
+            db_path,
+        }) => {
+            commands::api::run(host, port, docs, db_path).await?;
+        }
         Some(Commands::Project { command }) => match command {
             ProjectCommands::List { tags, limit, json } => {
                 let output = commands::project::list_projects(

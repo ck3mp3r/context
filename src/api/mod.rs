@@ -5,6 +5,7 @@
 mod handlers;
 pub(crate) mod routes;
 mod state;
+pub mod static_assets;
 pub mod v1;
 
 use std::net::IpAddr;

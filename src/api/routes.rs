@@ -7,6 +7,7 @@ use utoipa_scalar::{Scalar, Servable};
 
 use super::handlers::{self, HealthResponse};
 use super::state::AppState;
+use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
     CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest, PatchProjectRequest,
@@ -199,5 +200,5 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         router = router.merge(Scalar::with_url("/docs", api));
     }
 
-    router.with_state(state)
+    router.with_state(state).fallback(serve_frontend) // Serve embedded frontend assets for all unmatched routes
 }
