@@ -21,6 +21,7 @@ fn main() {
 
         let status = Command::new("trunk")
             .args(["build", "--release", "--dist", "dist"])
+            .env("CARGO_TARGET_DIR", "target/trunk")
             .status()
             .expect("Failed to execute trunk command. Is trunk installed?");
 
