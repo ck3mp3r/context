@@ -278,55 +278,51 @@ pub fn SubtaskStackItem(
                 on_click.run(subtask_id_for_click.clone());
             }
         >
-            // Header (always visible)
-            <div class="flex items-start justify-between gap-4">
-                // Left side: Title + Description only
-                <div class="flex-1 min-w-0 text-sm text-ctp-text break-words">
+            // Header: Title (left) + Badges inline (right: Priority → Status → CopyableId)
+            <div class="flex items-center justify-between gap-4">
+                // Left side: Title only
+                <div class="flex-1 min-w-0 text-sm text-ctp-text break-words font-medium">
                     {move || {
                         let title = &subtask.title;
                         let truncated = !is_expanded() && title.len() > 60;
-                        let show_description = is_expanded() && subtask.description.is_some();
-
-                        view! {
-                            <div>
-                                <div class=if show_description { "font-medium" } else { "" }>
-                                    {if truncated {
-                                        format!("{}...", &title[..60])
-                                    } else {
-                                        title.clone()
-                                    }}
-                                </div>
-                                {show_description.then(|| {
-                                    view! {
-                                        <div class="text-ctp-subtext0 text-xs mt-1 prose prose-invert prose-xs max-w-none">
-                                            <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
-                                        </div>
-                                    }
-                                })}
-                            </div>
+                        if truncated {
+                            format!("{}...", &title[..60])
+                        } else {
+                            title.clone()
                         }
                     }}
                 </div>
 
-                // Right side: CopyableId + Badges stacked vertically
-                <div class="flex flex-col gap-1 flex-shrink-0 items-end" on:click=|ev: ev::MouseEvent| {
+                // Right side: Priority → Status → CopyableId (inline)
+                <div class="flex items-center gap-1 flex-shrink-0" on:click=|ev: ev::MouseEvent| {
                     ev.stop_propagation();
                 }>
+                    {subtask.priority.map(|p| {
+                        view! {
+                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
+                                "P"{p}
+                            </span>
+                        }
+                    })}
+                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
+                        {status_badge_label(&subtask.status)}
+                    </span>
                     <CopyableId id=subtask_id.clone()/>
-                    <div class="flex items-center gap-1">
-                        {subtask.priority.map(|p| {
-                            view! {
-                                <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
-                                    "P"{p}
-                                </span>
-                            }
-                        })}
-                        <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
-                            {status_badge_label(&subtask.status)}
-                        </span>
-                    </div>
                 </div>
             </div>
+
+            // Description (only when expanded, with separator)
+            {move || {
+                (is_expanded() && subtask.description.is_some()).then(|| {
+                    view! {
+                        <div class="mt-2 pt-2 border-t border-ctp-surface1">
+                            <div class="text-ctp-subtext0 text-xs prose prose-invert prose-xs max-w-none">
+                                <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
+                            </div>
+                        </div>
+                    }
+                })
+            }}
 
             // Metadata section (only when expanded)
             {move || is_expanded().then(|| {
