@@ -66,8 +66,8 @@ pub fn KanbanColumn(
     let (offset, set_offset) = signal(0);
     let (loading, set_loading) = signal(false);
 
-    // Task detail dialog state
-    let (selected_task, set_selected_task) = signal(None::<Task>);
+    // Task detail dialog state - store task ID only, not the whole object
+    let (selected_task_id, set_selected_task_id) = signal(String::new());
     let dialog_open = RwSignal::new(false);
     let (initial_open_subtask, set_initial_open_subtask) = signal(None::<String>);
 
@@ -211,28 +211,21 @@ pub fn KanbanColumn(
                                 task=task
                                 show_subtasks_inline=true
                                 on_click=Callback::new(move |t: Task| {
-                                    set_selected_task.set(Some(t.clone()));
+                                    set_selected_task_id.set(t.id.clone());
                                     set_initial_open_subtask.set(None);
                                     dialog_open.set(true);
                                 })
                                 on_subtask_click=Callback::new(move |clicked_subtask: Task| {
                                     if let Some(parent_id) = clicked_subtask.parent_id.clone() {
                                         let clicked_id = clicked_subtask.id.clone();
-                                        spawn_local(async move {
-                                            match tasks::get(&parent_id).await {
-                                                Ok(parent_task) => {
-                                                    set_selected_task.set(Some(parent_task));
-                                                    set_initial_open_subtask.set(Some(clicked_id));
-                                                    dialog_open.set(true);
-                                                }
-                                                Err(_) => {
-                                                    // Fallback: show subtask directly
-                                                    set_selected_task.set(Some(clicked_subtask));
-                                                    set_initial_open_subtask.set(None);
-                                                    dialog_open.set(true);
-                                                }
-                                            }
-                                        });
+                                        set_selected_task_id.set(parent_id);
+                                        set_initial_open_subtask.set(Some(clicked_id));
+                                        dialog_open.set(true);
+                                    } else {
+                                        // Fallback: show subtask directly
+                                        set_selected_task_id.set(clicked_subtask.id.clone());
+                                        set_initial_open_subtask.set(None);
+                                        dialog_open.set(true);
                                     }
                                 })
                             />
@@ -252,25 +245,11 @@ pub fn KanbanColumn(
             </div>
 
             // Task detail dialog
-            {move || {
-                selected_task.get().map(|task| {
-                    match initial_open_subtask.get() {
-                        Some(subtask_id) => view! {
-                            <TaskDetailDialog
-                                task=task
-                                open=dialog_open
-                                initial_open_subtask_id=subtask_id
-                            />
-                        }.into_any(),
-                        None => view! {
-                            <TaskDetailDialog
-                                task=task
-                                open=dialog_open
-                            />
-                        }.into_any(),
-                    }
-                })
-            }}
+            <TaskDetailDialog
+                task_id=selected_task_id
+                open=dialog_open
+                initial_open_subtask_id=initial_open_subtask.into()
+            />
         </div>
     }
 }
@@ -888,25 +867,62 @@ pub fn TaskDetailContent(
 }
 
 /// TaskDetailDialog component - shows full task details in a centered modal dialog
+/// Fetches fresh data from API using task_id
 #[component]
 pub fn TaskDetailDialog(
-    task: Task,
+    task_id: ReadSignal<String>,
     open: RwSignal<bool>,
-    #[prop(optional, default = None)] initial_open_subtask_id: Option<String>,
+    #[prop(optional, default = Signal::derive(|| None))] initial_open_subtask_id: Signal<
+        Option<String>,
+    >,
 ) -> impl IntoView {
+    let task_resource = LocalResource::new(move || {
+        let id = task_id.get();
+        async move {
+            if id.is_empty() {
+                Err(crate::api::ApiClientError::Network(
+                    "No task selected".to_string(),
+                ))
+            } else {
+                tasks::get(&id).await
+            }
+        }
+    });
+
     view! {
         <Dialog open=open>
             <DialogSurface class="max-w-3xl max-h-[60vh] overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
                     <DialogContent class="flex-1 overflow-y-auto">
-                        {match initial_open_subtask_id {
-                            Some(id) => view! {
-                                <TaskDetailContent task=task initial_open_subtask_id=id />
-                            }.into_any(),
-                            None => view! {
-                                <TaskDetailContent task=task />
-                            }.into_any(),
-                        }}
+                        <Suspense fallback=move || {
+                            view! { <p class="text-ctp-subtext0">"Loading task..."</p> }
+                        }>
+                            {move || {
+                                task_resource
+                                    .get()
+                                    .map(|result| {
+                                        match result {
+                                            Ok(task) => {
+                                                match initial_open_subtask_id.get() {
+                                                    Some(id) => view! {
+                                                        <TaskDetailContent task=task initial_open_subtask_id=id />
+                                                    }.into_any(),
+                                                    None => view! {
+                                                        <TaskDetailContent task=task />
+                                                    }.into_any(),
+                                                }
+                                            }
+                                            Err(e) => {
+                                                view! {
+                                                    <div class="p-4 text-ctp-red">
+                                                        "Error loading task: " {e.to_string()}
+                                                    </div>
+                                                }.into_any()
+                                            }
+                                        }
+                                    })
+                            }}
+                        </Suspense>
                     </DialogContent>
                 </DialogBody>
             </DialogSurface>
