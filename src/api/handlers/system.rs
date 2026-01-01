@@ -13,22 +13,6 @@ pub struct HealthResponse {
     pub status: String,
 }
 
-/// Root endpoint
-///
-/// Returns the API name
-#[utoipa::path(
-    get,
-    path = "/",
-    tag = "system",
-    responses(
-        (status = 200, description = "API name", body = String)
-    )
-)]
-#[instrument]
-pub async fn root() -> &'static str {
-    "c5t-api"
-}
-
 /// Health check endpoint
 ///
 /// Returns the current health status of the API

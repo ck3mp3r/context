@@ -17,6 +17,7 @@ required-features = ["backend"]
 name = "c5t-frontend"
 path = "src/frontend/main.rs"
 required-features = ["frontend"]
+test = false  # Don't compile tests for WASM binary
 
 [features]
 default = ["backend"]

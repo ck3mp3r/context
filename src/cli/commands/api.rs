@@ -1,36 +1,41 @@
 //! API server command - starts REST API + MCP + embedded frontend
 
+use std::net::IpAddr;
+use std::path::PathBuf;
+
 use miette::{IntoDiagnostic, Result};
 
-use crate::api::{self, AppState};
+use crate::api::{self, Config};
 use crate::db::Database;
 use crate::db::sqlite::SqliteDatabase;
-use crate::sync::RealGit;
+use crate::sync::get_db_path;
 
 /// Run the API server
 pub async fn run(
-    host: String,
+    host: IpAddr,
     port: u16,
+    home: Option<PathBuf>,
+    verbosity: u8,
     enable_docs: bool,
-    db_path: Option<String>,
 ) -> Result<()> {
-    // Initialize database - check env var if not provided via CLI
-    let db_path = db_path
-        .or_else(|| std::env::var("C5T_DB_PATH").ok())
-        .unwrap_or_else(|| {
-            let home = std::env::var("HOME").expect("HOME environment variable not set");
-            format!("{}/.c5t/c5t.db", home)
-        });
+    // Use the same logic as the old c5t-api binary
+    let db_path = get_db_path(home);
+
+    println!("Opening database at {:?}", db_path);
+
+    // Ensure parent directory exists
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).into_diagnostic()?;
+    }
 
     let db = SqliteDatabase::open(&db_path).await?;
+
+    // Run migrations before starting the server
     db.migrate()?;
+    println!("Database migrations complete");
 
-    let sync_manager = crate::sync::SyncManager::new(RealGit::new());
-
-    let state = AppState::new(db, sync_manager);
-    let router = api::routes::create_router(state, enable_docs);
-
-    // Print startup banner
+    // Print startup banner BEFORE starting server (before logging is initialized)
+    println!();
     println!("🚀 c5t API server starting...");
     println!("   API:      http://{}:{}/api/v1", host, port);
     println!("   MCP:      http://{}:{}/mcp", host, port);
@@ -39,16 +44,21 @@ pub async fn run(
         println!("   Docs:     http://{}:{}/docs", host, port);
     }
     println!();
-    println!("   Database: {}", db_path);
+    println!("   Database: {}", db_path.display());
     println!();
 
-    // Start server
-    let addr = format!("{}:{}", host, port);
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .into_diagnostic()?;
-
-    axum::serve(listener, router).await.into_diagnostic()?;
+    // Pass the abstract Database to the API layer
+    api::run(
+        Config {
+            host,
+            port,
+            verbosity,
+            enable_docs,
+        },
+        db,
+    )
+    .await
+    .into_diagnostic()?;
 
     Ok(())
 }

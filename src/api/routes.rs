@@ -43,7 +43,6 @@ macro_rules! routes {
         license(name = "MIT")
     ),
     paths(
-        handlers::root,
         handlers::health,
         super::v1::list_projects,
         super::v1::get_project,
@@ -141,9 +140,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
     > = crate::mcp::create_mcp_service(state.db_arc(), ct);
 
     // System routes (non-generic, not versioned)
-    let system_routes = Router::new()
-        .route("/", get(handlers::root))
-        .route("/health", get(handlers::health));
+    let system_routes = Router::new().route("/health", get(handlers::health));
 
     // V1 API routes (generic over Database and GitOps)
     let v1_routes = routes!(D, G => {

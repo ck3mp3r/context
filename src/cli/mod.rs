@@ -22,21 +22,25 @@ pub struct Cli {
 enum Commands {
     /// Start the API server (REST API + MCP + embedded frontend)
     Api {
+        /// Host address to bind to
+        #[arg(long, default_value = "0.0.0.0")]
+        host: std::net::IpAddr,
+
         /// Port to listen on
-        #[arg(long, default_value = "3737")]
+        #[arg(short, long, default_value = "3737")]
         port: u16,
 
-        /// Host to bind to
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-
-        /// Enable OpenAPI docs at /docs
-        #[arg(long, default_value = "true")]
-        docs: bool,
-
-        /// Database path (can also be set via C5T_DB_PATH environment variable)
+        /// Override data home directory (defaults to XDG_DATA_HOME/c5t or ~/.local/share/c5t)
         #[arg(long)]
-        db_path: Option<String>,
+        home: Option<std::path::PathBuf>,
+
+        /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
+        #[arg(short, long, action = clap::ArgAction::Count)]
+        verbose: u8,
+
+        /// Enable OpenAPI documentation endpoint at /docs
+        #[arg(long)]
+        docs: bool,
     },
     /// Project management
     Project {
@@ -418,12 +422,13 @@ pub async fn run() -> Result<()> {
 
     match cli.command {
         Some(Commands::Api {
-            port,
             host,
+            port,
+            home,
+            verbose,
             docs,
-            db_path,
         }) => {
-            commands::api::run(host, port, docs, db_path).await?;
+            commands::api::run(host, port, home, verbose, docs).await?;
         }
         Some(Commands::Project { command }) => match command {
             ProjectCommands::List { tags, limit, json } => {

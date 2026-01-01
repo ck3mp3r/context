@@ -4,8 +4,8 @@ dist = "dist"
 public_url = "/"
 filehash = true
 minify = "on_release"
-# Disable wasm-opt for faster builds - cargo already optimizes WASM
-wasm_opt = false
+# Disable wasm-opt - cargo already optimizes WASM with opt-level="z"
+wasm_opt = "off"
 # Use separate target directory to avoid lock contention with outer cargo build
 target_dir = "target/trunk"
 
