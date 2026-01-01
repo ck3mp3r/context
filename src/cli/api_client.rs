@@ -1,8 +1,41 @@
 use reqwest::{Client, Response};
+use rustls_platform_verifier::Verifier;
 use serde::de::DeserializeOwned;
 use std::env;
+use std::sync::Arc;
 
 use crate::cli::error::CliResult;
+
+/// Build a reqwest Client with TLS using platform verifier + webpki-root-certs fallback
+///
+/// This provides the best UX:
+/// - macOS/Windows: Uses native OS certificate verification (respects enterprise CAs, revocation)
+/// - Linux with system CAs: Uses system bundle (via rustls-native-certs)
+/// - Linux without system CAs (Nix sandbox): Falls back to Mozilla's CA bundle from webpki-root-certs
+fn build_http_client() -> Client {
+    // Get the ring crypto provider
+    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
+
+    // Create platform verifier with webpki-root-certs as fallback
+    // This ensures we work in all environments while maintaining OS integration where available
+    let verifier = Verifier::new_with_extra_roots(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().cloned(),
+        crypto_provider.clone(),
+    )
+    .expect("Failed to create TLS verifier with webpki-root-certs fallback");
+
+    // Build rustls config with platform verifier
+    let tls_config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth();
+
+    // Build reqwest client with custom TLS
+    Client::builder()
+        .use_preconfigured_tls(tls_config)
+        .build()
+        .expect("Failed to build HTTP client")
+}
 
 /// API client for communicating with the c5t REST API
 pub struct ApiClient {
@@ -24,7 +57,7 @@ impl ApiClient {
 
         Self {
             base_url,
-            client: Client::new(),
+            client: build_http_client(),
         }
     }
 
