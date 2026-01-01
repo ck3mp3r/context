@@ -252,12 +252,12 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_tools.update_task(params).await
     }
 
-    #[tool(description = "Mark a task as complete")]
-    pub async fn complete_task(
+    #[tool(description = "Transition task between statuses with validation")]
+    pub async fn transition_task(
         &self,
-        params: Parameters<CompleteTaskParams>,
+        params: Parameters<TransitionTaskParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.task_tools.complete_task(params).await
+        self.task_tools.transition_task(params).await
     }
 
     #[tool(description = "Delete a task")]
