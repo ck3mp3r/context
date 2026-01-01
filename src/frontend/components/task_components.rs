@@ -463,9 +463,19 @@ pub fn TaskCard(
     let list_id_for_list = task.list_id.clone();
 
     let task_for_click = task.clone();
+    let task_for_subtask_click = task.clone();
     let handle_card_click = move |_| {
-        if let Some(callback) = on_click {
-            callback.run(task_for_click.clone());
+        // If this is an orphaned subtask (has parent_id AND show_subtasks_inline is true),
+        // use subtask callback behavior to fetch and open parent
+        if task_for_click.parent_id.is_some() && show_subtasks_inline {
+            if let Some(callback) = on_subtask_click {
+                callback.run(task_for_subtask_click.clone());
+            }
+        } else {
+            // Regular parent task OR inline subtask (where on_click IS the subtask callback)
+            if let Some(callback) = on_click {
+                callback.run(task_for_click.clone());
+            }
         }
     };
 
