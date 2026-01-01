@@ -16,5 +16,5 @@ pub use git::MockGitOps;
 pub use git::{GitError, GitOps, RealGit};
 pub use import::{ImportError, ImportSummary, import_all};
 pub use jsonl::{JsonlError, read_jsonl, write_jsonl};
-pub use manager::{EntityCounts, GitStatus, SyncError, SyncManager, SyncStatus};
+pub use manager::{EntityCounts, GitStatus, InitResult, SyncError, SyncManager, SyncStatus};
 pub use paths::{get_data_dir, get_db_path, get_sync_dir};

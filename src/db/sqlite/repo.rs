@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause};
+use super::helpers::build_limit_offset_clause;
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
 
@@ -37,12 +37,24 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 message: e.to_string(),
             })?;
 
+        // Insert project relationships
+        for project_id in &repo.project_ids {
+            sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
+                .bind(project_id)
+                .bind(&id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
         Ok(Repo {
             id,
             remote: repo.remote.clone(),
             path: repo.path.clone(),
             tags: repo.tags.clone(),
-            project_ids: vec![], // Empty by default - relationships managed separately
+            project_ids: repo.project_ids.clone(),
             created_at,
         })
     }
@@ -89,51 +101,86 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["remote", "path", "created_at"];
 
-        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(&query.page);
-
-        // Build conditions and bind values
-        let mut conditions: Vec<String> = vec![];
-        let mut bind_values: Vec<String> = vec![];
-
-        // Tag filtering requires json_each join
+        // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let needs_project_join = query.project_id.is_some();
 
-        if let Some(tags) = &query.tags
-            && !tags.is_empty()
+        let mut bind_values: Vec<String> = Vec::new();
+        let mut where_conditions: Vec<String> = Vec::new();
+
+        // Decide on table alias usage
+        let (select_cols, from_clause, order_field_prefix) = if needs_json_each
+            || needs_project_join
         {
-            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
-            conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
-            bind_values.extend(tags.clone());
-        }
+            // Need aliases when doing JOINs
+            let mut from = "FROM repo r".to_string();
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
+            if needs_project_join {
+                from.push_str("\nINNER JOIN project_repo pr ON r.id = pr.repo_id");
+                where_conditions.push("pr.project_id = ?".to_string());
+                bind_values.push(query.project_id.as_ref().unwrap().clone());
+            }
+
+            if needs_json_each {
+                from.push_str(", json_each(r.tags)");
+                let tags = query.tags.as_ref().unwrap();
+                let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+                where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+                bind_values.extend(tags.clone());
+            }
+
+            (
+                "DISTINCT r.id, r.remote, r.path, r.tags, r.created_at",
+                from,
+                "r.",
+            )
         } else {
-            format!("WHERE {}", conditions.join(" AND "))
+            // No joins, simple query
+            (
+                "id, remote, path, tags, created_at",
+                "FROM repo".to_string(),
+                "",
+            )
         };
 
-        // Build SQL based on whether we need json_each
-        let (sql, count_sql) = if needs_json_each {
-            (
-                format!(
-                    "SELECT DISTINCT r.id, r.remote, r.path, r.tags, r.created_at \
-                     FROM repo r, json_each(r.tags) {} {} {}",
-                    where_clause, order_clause, limit_clause
-                ),
-                format!(
-                    "SELECT COUNT(DISTINCT r.id) FROM repo r, json_each(r.tags) {}",
-                    where_clause
-                ),
+        // Build WHERE clause
+        let where_clause = if !where_conditions.is_empty() {
+            format!("WHERE {}", where_conditions.join(" AND "))
+        } else {
+            String::new()
+        };
+
+        // Build ORDER BY with proper prefixes
+        let sort_field = query
+            .page
+            .sort_by
+            .as_deref()
+            .filter(|f| allowed_fields.contains(f))
+            .unwrap_or("created_at");
+        let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+            crate::db::SortOrder::Asc => "ASC",
+            crate::db::SortOrder::Desc => "DESC",
+        };
+        let order_clause = format!(
+            "ORDER BY {}{} {}",
+            order_field_prefix, sort_field, sort_order
+        );
+
+        let limit_clause = build_limit_offset_clause(&query.page);
+
+        // Build final SQL
+        let sql = format!(
+            "SELECT {} {} {} {} {}",
+            select_cols, from_clause, where_clause, order_clause, limit_clause
+        );
+
+        let count_sql = if needs_json_each || needs_project_join {
+            format!(
+                "SELECT COUNT(DISTINCT r.id) {} {}",
+                from_clause, where_clause
             )
         } else {
-            (
-                format!(
-                    "SELECT id, remote, path, tags, created_at FROM repo {} {}",
-                    order_clause, limit_clause
-                ),
-                "SELECT COUNT(*) FROM repo".to_string(),
-            )
+            "SELECT COUNT(*) FROM repo".to_string()
         };
 
         // Execute main query
@@ -187,6 +234,11 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn update(&self, repo: &Repo) -> DbResult<()> {
+        // Use transaction for atomicity
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
         let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
 
         let result = sqlx::query("UPDATE repo SET remote = ?, path = ?, tags = ? WHERE id = ?")
@@ -194,7 +246,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             .bind(&repo.path)
             .bind(&tags_json)
             .bind(&repo.id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
@@ -206,6 +258,32 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 id: repo.id.clone(),
             });
         }
+
+        // Update project relationships (replace all)
+        // Delete existing relationships
+        sqlx::query("DELETE FROM project_repo WHERE repo_id = ?")
+            .bind(&repo.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Insert new relationships
+        for project_id in &repo.project_ids {
+            sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
+                .bind(project_id)
+                .bind(&repo.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }

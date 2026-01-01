@@ -45,13 +45,13 @@ async fn get_nonexistent_project_returns_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_projects_includes_default_and_created() {
+async fn list_projects_includes_created() {
     let db = setup_db().await;
     let repo = db.projects();
 
-    // Default project exists from migration
+    // Initially empty - no default project
     let result = repo.list(None).await.expect("List should succeed");
-    assert!(result.items.iter().any(|p| p.title == "Default"));
+    assert_eq!(result.items.len(), 0);
 
     // Create another project
     let project = Project {
@@ -68,7 +68,7 @@ async fn list_projects_includes_default_and_created() {
     repo.create(&project).await.expect("Create should succeed");
 
     let result = repo.list(None).await.expect("List should succeed");
-    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.items.len(), 1); // Just the one we created
     assert!(result.items.iter().any(|p| p.title == "My Project"));
 }
 
@@ -263,7 +263,7 @@ async fn project_get_loads_all_relationships() {
         .expect("Insert repo should succeed");
 
     // Create task list WITH project_id (NOT NULL constraint)
-    sqlx::query("INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO task_list (id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("list0001")
         .bind("Test List")
         .bind(None::<String>)

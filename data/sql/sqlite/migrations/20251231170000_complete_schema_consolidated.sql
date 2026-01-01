@@ -1,5 +1,5 @@
--- c5t Complete Database Schema
--- Single consolidated migration with all features
+-- c5t Complete Database Schema - CONSOLIDATED MIGRATION
+-- This migration replaces all previous migrations
 -- SQLite database for context/memory management with project support
 -- Uses 8-character hex TEXT primary keys for sync support
 
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS project (
 -- Task List table - collections of work items (belongs to ONE project)
 CREATE TABLE IF NOT EXISTS task_list (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
-    name TEXT NOT NULL,
+    title TEXT NOT NULL,                -- NOTE: renamed from 'name' for consistency
     description TEXT,
     notes TEXT,
     tags TEXT DEFAULT '[]',             -- JSON array
@@ -47,13 +47,15 @@ CREATE TABLE IF NOT EXISTS task (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
     list_id TEXT NOT NULL CHECK(length(list_id) == 8),
     parent_id TEXT CHECK(parent_id IS NULL OR length(parent_id) == 8),  -- NULL = root task, otherwise FK to task.id
-    content TEXT NOT NULL,
-    status TEXT DEFAULT 'backlog' CHECK(status IN ('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')),
-    priority INTEGER CHECK(priority BETWEEN 1 AND 5 OR priority IS NULL),
-    tags TEXT DEFAULT '[]',             -- JSON array
-    created_at TEXT DEFAULT (datetime('now')),
+    title TEXT NOT NULL CHECK(length(title) <= 500),           -- NOTE: renamed from 'content'
+    description TEXT CHECK(description IS NULL OR length(description) <= 10000),  -- NOTE: added for consistency
+    status TEXT NOT NULL CHECK(status IN ('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')),
+    priority INTEGER CHECK(priority BETWEEN 1 AND 5),
+    tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags)),   -- JSON array
+    created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
+    updated_at TEXT NOT NULL,                                  -- NOTE: added for parent-child sync
     FOREIGN KEY (list_id) REFERENCES task_list(id) ON DELETE CASCADE,
     FOREIGN KEY (parent_id) REFERENCES task(id) ON DELETE CASCADE
 );
@@ -121,12 +123,14 @@ CREATE TABLE IF NOT EXISTS note_repo (
 CREATE INDEX IF NOT EXISTS idx_repo_remote ON repo(remote);
 CREATE INDEX IF NOT EXISTS idx_task_list_status ON task_list(status);
 CREATE INDEX IF NOT EXISTS idx_task_list_project ON task_list(project_id);
-CREATE INDEX IF NOT EXISTS idx_task_list ON task(list_id);
+CREATE INDEX IF NOT EXISTS idx_task_list_id ON task(list_id);
 CREATE INDEX IF NOT EXISTS idx_task_status ON task(status);
 CREATE INDEX IF NOT EXISTS idx_task_list_status ON task(list_id, status);
 CREATE INDEX IF NOT EXISTS idx_task_priority ON task(priority);
 CREATE INDEX IF NOT EXISTS idx_task_list_priority ON task(list_id, priority);
-CREATE INDEX IF NOT EXISTS idx_task_parent ON task(parent_id);
+CREATE INDEX IF NOT EXISTS idx_task_parent_id ON task(parent_id);
+CREATE INDEX IF NOT EXISTS idx_task_created_at ON task(created_at);
+CREATE INDEX IF NOT EXISTS idx_task_updated_at ON task(updated_at);
 CREATE INDEX IF NOT EXISTS idx_note_type ON note(note_type);
 
 -- Join table indexes
@@ -143,31 +147,56 @@ CREATE INDEX IF NOT EXISTS idx_note_repo_repo ON note_repo(repo_id);
 -- FULL-TEXT SEARCH
 -- ============================================================================
 
--- Full-text search virtual table for notes
+-- Full-text search virtual table for notes (includes tags)
 CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
     title,
     content,
+    tags,
     content='note',
     content_rowid='rowid'
 );
 
--- FTS sync triggers - keep full-text index in sync with note table
+-- FTS sync triggers for notes - keep full-text index in sync with note table
 CREATE TRIGGER IF NOT EXISTS note_ai AFTER INSERT ON note BEGIN
-    INSERT INTO note_fts(rowid, title, content) 
-    VALUES (new.rowid, new.title, new.content);
+    INSERT INTO note_fts(rowid, title, content, tags) 
+    VALUES (new.rowid, new.title, new.content, new.tags);
 END;
 
 CREATE TRIGGER IF NOT EXISTS note_au AFTER UPDATE ON note 
-WHEN old.title != new.title OR old.content != new.content BEGIN
-    INSERT INTO note_fts(note_fts, rowid, title, content) 
-    VALUES('delete', old.rowid, old.title, old.content);
-    INSERT INTO note_fts(rowid, title, content) 
-    VALUES (new.rowid, new.title, new.content);
+WHEN old.title != new.title OR old.content != new.content OR old.tags != new.tags BEGIN
+    INSERT INTO note_fts(note_fts, rowid, title, content, tags) 
+    VALUES('delete', old.rowid, old.title, old.content, old.tags);
+    INSERT INTO note_fts(rowid, title, content, tags) 
+    VALUES (new.rowid, new.title, new.content, new.tags);
 END;
 
 CREATE TRIGGER IF NOT EXISTS note_ad AFTER DELETE ON note BEGIN
-    INSERT INTO note_fts(note_fts, rowid, title, content) 
-    VALUES('delete', old.rowid, old.title, old.content);
+    INSERT INTO note_fts(note_fts, rowid, title, content, tags) 
+    VALUES('delete', old.rowid, old.title, old.content, old.tags);
+END;
+
+-- Full-text search virtual table for tasks
+CREATE VIRTUAL TABLE IF NOT EXISTS task_fts USING fts5(
+    id UNINDEXED,
+    title,
+    description,
+    tags
+);
+
+-- FTS sync triggers for tasks
+CREATE TRIGGER IF NOT EXISTS task_fts_insert AFTER INSERT ON task BEGIN
+    INSERT INTO task_fts(id, title, description, tags)
+    VALUES (new.id, new.title, new.description, new.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_fts_delete AFTER DELETE ON task BEGIN
+    DELETE FROM task_fts WHERE id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_fts_update AFTER UPDATE ON task BEGIN
+    DELETE FROM task_fts WHERE id = old.id;
+    INSERT INTO task_fts(id, title, description, tags)
+    VALUES (new.id, new.title, new.description, new.tags);
 END;
 
 -- ============================================================================
@@ -187,9 +216,10 @@ CREATE TRIGGER IF NOT EXISTS note_update AFTER UPDATE ON note BEGIN
 END;
 
 -- ============================================================================
--- DEFAULT DATA
+-- NOTE: Parent task updated_at cascade is handled in application layer
 -- ============================================================================
+-- When a child task is created/updated, the parent's updated_at is updated
+-- by explicit SQL in:
+-- - src/db/sqlite/sync.rs (import)
+-- - src/db/sqlite/task.rs (create/update repository methods)
 
--- Insert Default project for general/uncategorized work
-INSERT INTO project (id, title, description)
-VALUES (lower(hex(randomblob(4))), 'Default', 'Default project for uncategorized work');

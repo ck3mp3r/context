@@ -29,7 +29,7 @@ pub async fn init(api_client: &ApiClient, remote_url: Option<String>) -> CliResu
     let req = InitSyncRequest { remote_url };
 
     let response = api_client
-        .post("/v1/sync/init")
+        .post("/api/v1/sync/init")
         .json(&req)
         .send()
         .await
@@ -53,7 +53,10 @@ pub async fn init(api_client: &ApiClient, remote_url: Option<String>) -> CliResu
             })?;
 
     let mut output = String::new();
-    output.push_str(&format!("✓ {}\n\n", sync_response.message));
+
+    // Check if this was a new creation (201) or already initialized (200)
+    let icon = if status_code == 201 { "✓" } else { "ℹ" };
+    output.push_str(&format!("{} {}\n\n", icon, sync_response.message));
 
     if let Some(data) = &sync_response.data {
         if let Some(sync_dir) = data.get("sync_dir").and_then(|v| v.as_str()) {
@@ -80,7 +83,7 @@ pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResul
     let req = ExportSyncRequest { message };
 
     let response = api_client
-        .post("/v1/sync/export")
+        .post("/api/v1/sync/export")
         .json(&req)
         .send()
         .await
@@ -171,7 +174,7 @@ pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResul
 /// Import from sync to database
 pub async fn import(api_client: &ApiClient) -> CliResult<String> {
     let response = api_client
-        .post("/v1/sync/import")
+        .post("/api/v1/sync/import")
         .send()
         .await
         .map_err(|e| CliError::ConnectionFailed { source: e })?;
@@ -261,7 +264,7 @@ pub async fn import(api_client: &ApiClient) -> CliResult<String> {
 /// Get sync status
 pub async fn status(api_client: &ApiClient) -> CliResult<String> {
     let response = api_client
-        .get("/v1/sync/status")
+        .get("/api/v1/sync/status")
         .send()
         .await
         .map_err(|e| CliError::ConnectionFailed { source: e })?;

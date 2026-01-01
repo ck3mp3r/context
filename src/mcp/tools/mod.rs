@@ -143,5 +143,11 @@ pub(crate) fn map_db_error(err: DbError) -> McpError {
                 "message": message
             })),
         ),
+        DbError::Constraint { message } => McpError::invalid_params(
+            "constraint_violation",
+            Some(serde_json::json!({
+                "message": message
+            })),
+        ),
     }
 }

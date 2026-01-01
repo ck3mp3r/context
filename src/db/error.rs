@@ -37,6 +37,10 @@ pub enum DbError {
     #[error("Connection error: {message}")]
     #[diagnostic(code(context::db::connection_error))]
     Connection { message: String },
+
+    #[error("Constraint violation: {message}")]
+    #[diagnostic(code(context::db::constraint))]
+    Constraint { message: String },
 }
 
 /// Result type for database operations.

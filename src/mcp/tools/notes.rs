@@ -21,10 +21,16 @@ use crate::mcp::tools::{apply_limit, map_db_error};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesParams {
-    #[schemars(description = "Filter by note type (manual, archived_todo)")]
+    #[schemars(
+        description = "Filter by note type: 'manual' (user notes) or 'archived_todo' (completed tasks)"
+    )]
     pub note_type: Option<String>,
-    #[schemars(description = "Filter by tags (comma-separated)")]
+    #[schemars(
+        description = "Filter by tags. Use reference tags to find linked notes: ['parent:NOTE_ID'], ['related:NOTE_ID']"
+    )]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Filter by project ID")]
+    pub project_id: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -33,6 +39,12 @@ pub struct ListNotesParams {
         description = "Include note content in response (default: false for lighter list responses). Set to true to retrieve full content."
     )]
     pub include_content: Option<bool>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -50,12 +62,16 @@ pub struct CreateNoteParams {
     #[schemars(description = "Note title")]
     pub title: String,
     #[schemars(
-        description = "Note content (Markdown supported). Size limits: warns at 10k chars (~2.5k tokens), soft max 50k chars (~12.5k tokens), hard max 100k chars (~25k tokens). Split large notes and link with tags."
+        description = "Note content (Markdown supported). KEEP UNDER 10k chars to avoid context overflow. Larger content? Create new note with 'parent:THIS_ID' tag."
     )]
     pub content: String,
-    #[schemars(description = "Tags for organization (optional)")]
+    #[schemars(
+        description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes."
+    )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Note type (manual, archived_todo) (optional, defaults to manual)")]
+    #[schemars(
+        description = "Note type: 'manual' (default, user notes) or 'archived_todo' (system-generated from completed tasks)"
+    )]
     pub note_type: Option<String>,
     #[schemars(description = "Repository IDs to link (optional)")]
     pub repo_ids: Option<Vec<String>>,
@@ -70,10 +86,12 @@ pub struct UpdateNoteParams {
     #[schemars(description = "Note title (optional)")]
     pub title: Option<String>,
     #[schemars(
-        description = "Note content (optional). Size limits: warns at 10k chars (~2.5k tokens), soft max 50k chars (~12.5k tokens), hard max 100k chars (~25k tokens). Split large notes and link with tags."
+        description = "Note content (optional). KEEP UNDER 10k chars. If note is getting large, create continuation note with 'parent:THIS_ID' tag instead."
     )]
     pub content: Option<String>,
-    #[schemars(description = "Tags for organization (optional)")]
+    #[schemars(
+        description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
+    )]
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Repository IDs to link (optional)")]
     pub repo_ids: Option<Vec<String>>,
@@ -90,15 +108,25 @@ pub struct DeleteNoteParams {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchNotesParams {
     #[schemars(
-        description = "FTS5 search query (e.g., 'rust AND async', '\"exact phrase\"', 'term*')"
+        description = "FTS5 search query. Examples: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase match), 'term*' (prefix), 'NOT deprecated' (exclude), 'api AND (error OR bug)' (complex)"
     )]
     pub query: String,
-    #[schemars(description = "Filter results by tags (optional)")]
+    #[schemars(
+        description = "Filter results by tags (optional). Can combine with search to find e.g. session notes matching a term."
+    )]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Filter by project ID (optional)")]
+    pub project_id: Option<String>,
     #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of results to skip (optional)")]
     pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 // =============================================================================
@@ -126,7 +154,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "List notes with optional filtering by tags and note type (default: metadata only)"
+        description = "List notes with optional filtering and sorting. Default excludes content (metadata only) - use include_content=true for full notes. Filter by tags, project_id, or note_type. Sort by title, created_at, or updated_at. Limit default: 10, max: 20."
     )]
     pub async fn list_notes(
         &self,
@@ -140,10 +168,15 @@ impl<D: Database + 'static> NoteTools<D> {
             page: PageSort {
                 limit: params.0.limit,
                 offset: params.0.offset,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: params.0.tags.clone(),
+            project_id: params.0.project_id.clone(),
         };
 
         let result = if include_content {
@@ -179,7 +212,9 @@ impl<D: Database + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(description = "Get a note by ID with optional content exclusion")]
+    #[tool(
+        description = "Get a note by ID. Returns full content by default - set include_content=false for metadata only."
+    )]
     pub async fn get_note(
         &self,
         params: Parameters<GetNoteParams>,
@@ -205,7 +240,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Create a new note. Size limits: warns at 10k chars, soft max 50k chars, hard max 100k chars. For large content, split into multiple notes and link using tags (e.g., 'parent:NOTE_ID', 'related:NOTE_ID'). See docs/mcp.md for tag conventions."
+        description = "Create a new note (Markdown supported). IMPORTANT: Keep under 10k chars (~2.5k tokens) to avoid context overflow. For larger content, split into multiple notes and link with tags: 'parent:NOTE_ID' (continuation), 'related:NOTE_ID' (reference). Link to projects/repos via project_ids/repo_ids."
     )]
     pub async fn create_note(
         &self,
@@ -228,8 +263,8 @@ impl<D: Database + 'static> NoteTools<D> {
             note_type,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
-            created_at: String::new(), // Will be set by DB
-            updated_at: String::new(), // Will be set by DB
+            created_at: None, // Will be set by DB
+            updated_at: None, // Will be set by DB
         };
 
         let created = self.db.notes().create(&note).await.map_err(map_db_error)?;
@@ -240,7 +275,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Update an existing note. Size limits: warns at 10k chars, soft max 50k chars, hard max 100k chars. For large content, split into multiple notes and link using tags (e.g., 'parent:NOTE_ID', 'related:NOTE_ID'). See docs/mcp.md for tag conventions."
+        description = "Update an existing note. All fields optional - only provided fields are updated. IMPORTANT: Keep under 10k chars. To add content without exceeding limit, create a new note with 'parent:THIS_ID' tag instead of updating."
     )]
     pub async fn update_note(
         &self,
@@ -286,7 +321,9 @@ impl<D: Database + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(description = "Delete a note")]
+    #[tool(
+        description = "Delete a note permanently. Use sparingly - consider archiving via tags instead."
+    )]
     pub async fn delete_note(
         &self,
         params: Parameters<DeleteNoteParams>,
@@ -303,7 +340,9 @@ impl<D: Database + 'static> NoteTools<D> {
         ))]))
     }
 
-    #[tool(description = "Full-text search notes using FTS5")]
+    #[tool(
+        description = "Full-text search notes (FTS5) with optional sorting. Supports: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Filter results by tags/project_id. Sort by title, created_at, or updated_at. Returns metadata only (no content)."
+    )]
     pub async fn search_notes(
         &self,
         params: Parameters<SearchNotesParams>,
@@ -313,10 +352,15 @@ impl<D: Database + 'static> NoteTools<D> {
             page: PageSort {
                 limit: Some(apply_limit(params.0.limit)),
                 offset: params.0.offset,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: params.0.tags.clone(),
+            project_id: params.0.project_id.clone(),
         };
 
         let result = self

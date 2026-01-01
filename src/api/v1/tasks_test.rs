@@ -48,10 +48,10 @@ async fn create_task_list(app: &axum::Router) -> String {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Test List", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "Test List", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -72,7 +72,7 @@ async fn list_tasks_for_list() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -89,10 +89,10 @@ async fn list_tasks_for_list() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Do something"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Do something"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -103,7 +103,7 @@ async fn list_tasks_for_list() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -124,13 +124,12 @@ async fn create_task_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Complete the feature",
-                        "priority": 2,
-                        "status": "in_progress"
+                        "title": "Complete the feature",
+                        "priority": 2
                     }))
                     .unwrap(),
                 ))
@@ -142,9 +141,9 @@ async fn create_task_returns_created() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Complete the feature");
+    assert_eq!(body["title"], "Complete the feature");
     assert_eq!(body["priority"], 2);
-    assert_eq!(body["status"], "in_progress");
+    assert_eq!(body["status"], "backlog");
     assert_eq!(body["list_id"], list_id);
     assert!(body["id"].as_str().unwrap().len() == 8);
 }
@@ -158,10 +157,10 @@ async fn create_task_minimal() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Quick task"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Quick task"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -171,7 +170,7 @@ async fn create_task_minimal() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["content"], "Quick task");
+    assert_eq!(body["title"], "Quick task");
     assert_eq!(body["status"], "backlog");
     assert!(body["priority"].is_null());
 }
@@ -187,10 +186,10 @@ async fn get_task_returns_task() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Test task"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Test task"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -204,7 +203,7 @@ async fn get_task_returns_task() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -214,7 +213,7 @@ async fn get_task_returns_task() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
     assert_eq!(body["id"], task_id);
-    assert_eq!(body["content"], "Test task");
+    assert_eq!(body["title"], "Test task");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -224,7 +223,7 @@ async fn get_task_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/tasks/nonexist")
+                .uri("/api/v1/tasks/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -234,69 +233,51 @@ async fn get_task_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-// =============================================================================
-// PATCH /v1/tasks/{id} - Partial Update Task
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn patch_task_partial_content_update() {
+async fn patch_task_move_to_different_list() {
     let app = test_app().await;
 
-    // Create task list and task
-    let list_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
-                        .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let list = json_body(list_response).await;
-    let list_id = list["id"].as_str().unwrap();
+    // Create two task lists
+    let list1_id = create_task_list(&app).await;
+    let list2_id = create_task_list(&app).await;
 
-    let create_response = app
+    // Create task in list1
+    let task_response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list1_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "content": "Original content",
-                        "status": "backlog",
-                        "priority": 3,
-                        "tags": ["tag1"]
-                    }))
-                    .unwrap(),
+                    json!({
+                        "title": "Task to move"
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    let created = json_body(create_response).await;
-    let task_id = created["id"].as_str().unwrap();
+    assert_eq!(task_response.status(), StatusCode::CREATED);
+    let task_body = json_body(task_response).await;
+    let task_id = task_body["id"].as_str().unwrap();
+    assert_eq!(task_body["list_id"], list1_id);
 
-    // PATCH only content
+    // Move task to list2 using PATCH
     let patch_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "content": "Updated content"
-                    }))
-                    .unwrap(),
+                    json!({
+                        "list_id": list2_id
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
@@ -304,11 +285,12 @@ async fn patch_task_partial_content_update() {
         .unwrap();
 
     assert_eq!(patch_response.status(), StatusCode::OK);
-    let patched = json_body(patch_response).await;
+    let patched_body = json_body(patch_response).await;
 
-    assert_eq!(patched["content"], "Updated content");
-    assert_eq!(patched["status"], "backlog");
-    assert_eq!(patched["priority"], 3);
+    // Verify task moved to list2
+    assert_eq!(patched_body["list_id"], list2_id);
+    assert_eq!(patched_body["title"], "Task to move"); // Content unchanged
+    assert_eq!(patched_body["status"], "backlog"); // Status unchanged
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -321,10 +303,10 @@ async fn patch_task_status_to_done_sets_completed_at() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({"name": "Test List", "project_id": "test0000"}))
+                    serde_json::to_string(&json!({"title": "Test List", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -339,12 +321,11 @@ async fn patch_task_status_to_done_sets_completed_at() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "content": "Task to complete",
-                        "status": "todo"
+                        "title": "Task to complete"
                     }))
                     .unwrap(),
                 ))
@@ -362,7 +343,7 @@ async fn patch_task_status_to_done_sets_completed_at() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -393,10 +374,10 @@ async fn patch_task_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/tasks/notfound")
+                .uri("/api/v1/tasks/notfound")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({"content": "New"})).unwrap(),
+                    serde_json::to_string(&json!({"title": "New"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -414,10 +395,10 @@ async fn update_task_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/tasks/nonexist")
+                .uri("/api/v1/tasks/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "Wont work"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "Wont work"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -438,11 +419,11 @@ async fn update_task_with_tags() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Task without tags"
+                        "title": "Task without tags"
                     }))
                     .unwrap(),
                 ))
@@ -464,11 +445,11 @@ async fn update_task_with_tags() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Updated task with tags",
+                        "title": "Updated task with tags",
                         "tags": ["updated", "bug-fix", "urgent"]
                     }))
                     .unwrap(),
@@ -483,7 +464,7 @@ async fn update_task_with_tags() {
     let updated = json_body(response).await;
 
     // Verify content was updated
-    assert_eq!(updated["content"], "Updated task with tags");
+    assert_eq!(updated["title"], "Updated task with tags");
 
     // Verify tags were set correctly via PUT
     assert_eq!(updated["tags"], json!(["updated", "bug-fix", "urgent"]));
@@ -494,11 +475,11 @@ async fn update_task_with_tags() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "content": "Updated task with different tags",
+                        "title": "Updated task with different tags",
                         "tags": ["production", "critical"]
                     }))
                     .unwrap(),
@@ -528,10 +509,10 @@ async fn delete_task_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"content": "To delete"})).unwrap(),
+                    serde_json::to_vec(&json!({"title": "To delete"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -547,7 +528,7 @@ async fn delete_task_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -560,7 +541,7 @@ async fn delete_task_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -578,7 +559,7 @@ async fn delete_task_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/tasks/nonexist")
+                .uri("/api/v1/tasks/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -586,4 +567,429 @@ async fn delete_task_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// =============================================================================
+// Cascade status update integration tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn api_cascade_status_to_matching_subtasks() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create parent task (status: backlog)
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent task",
+                        "status": "backlog"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create 2 subtasks (status: backlog, matching parent)
+    let subtask1_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subtask 1",
+                        "status": "backlog",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask1 = json_body(subtask1_response).await;
+    let subtask1_id = subtask1["id"].as_str().unwrap();
+
+    let subtask2_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subtask 2",
+                        "status": "backlog",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask2 = json_body(subtask2_response).await;
+    let subtask2_id = subtask2["id"].as_str().unwrap();
+
+    // Update parent: backlog → done
+    let update_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", parent_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "done"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(update_response.status(), StatusCode::OK);
+
+    // Verify subtasks cascaded to done
+    let subtask1_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}", subtask1_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask1_updated = json_body(subtask1_get).await;
+    assert_eq!(
+        subtask1_updated["status"], "done",
+        "Subtask 1 should cascade to done"
+    );
+
+    let subtask2_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}", subtask2_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let subtask2_updated = json_body(subtask2_get).await;
+    assert_eq!(
+        subtask2_updated["status"], "done",
+        "Subtask 2 should cascade to done"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn api_cascade_only_matching_subtasks() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create parent (status: backlog)
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent task",
+                        "status": "backlog"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create matching subtask (status: backlog)
+    let matching_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Matching subtask",
+                        "status": "backlog",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let matching = json_body(matching_response).await;
+    let matching_id = matching["id"].as_str().unwrap();
+
+    // Create diverged subtask (status: in_progress, different from parent)
+    let diverged_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Diverged subtask",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let diverged = json_body(diverged_response).await;
+    let diverged_id = diverged["id"].as_str().unwrap();
+
+    // Update diverged subtask to in_progress
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", diverged_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "in_progress"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Update parent: backlog → done
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", parent_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "done"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Verify: Matching subtask cascaded, diverged did not
+    let matching_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}", matching_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let matching_updated = json_body(matching_get).await;
+    assert_eq!(
+        matching_updated["status"], "done",
+        "Matching subtask should cascade to done"
+    );
+
+    let diverged_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}", diverged_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let diverged_updated = json_body(diverged_get).await;
+    assert_eq!(
+        diverged_updated["status"], "in_progress",
+        "Diverged subtask should remain in_progress"
+    );
+}
+
+/// Helper to create a task with specified content, parent_id, and status
+async fn create_task(
+    app: &axum::Router,
+    list_id: &str,
+    title: &str,
+    parent_id: Option<&str>,
+    status: &str,
+) -> String {
+    let mut payload = json!({"title": title});
+    if let Some(pid) = parent_id {
+        payload["parent_id"] = json!(pid);
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    let task_id = body["id"].as_str().unwrap().to_string();
+
+    // Update to desired status if not backlog
+    if status != "backlog" {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/v1/tasks/{}", task_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({"status": status})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    task_id
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_task_returns_only_parents() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create 2 parents (done)
+    let parent1_id = create_task(&app, &list_id, "Parent 1", None, "done").await;
+    create_task(&app, &list_id, "Parent 2", None, "done").await;
+
+    // Create 2 subtasks (done)
+    create_task(&app, &list_id, "Subtask 1", Some(&parent1_id), "done").await;
+    create_task(&app, &list_id, "Subtask 2", Some(&parent1_id), "done").await;
+
+    // Query with type=task
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists/{}/tasks?status=done&type=task",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return only 2 parents");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned tasks have parent_id = null
+    for item in body["items"].as_array().unwrap() {
+        assert!(
+            item["parent_id"].is_null(),
+            "All tasks should be parents (parent_id IS NULL)"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_subtask_returns_only_subtasks() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create 1 parent (done)
+    let parent_id = create_task(&app, &list_id, "Parent", None, "done").await;
+
+    // Create 2 subtasks (done)
+    create_task(&app, &list_id, "Subtask 1", Some(&parent_id), "done").await;
+    create_task(&app, &list_id, "Subtask 2", Some(&parent_id), "done").await;
+
+    // Query with type=subtask
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists/{}/tasks?status=done&type=subtask",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return only 2 subtasks");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned tasks have parent_id NOT null
+    for item in body["items"].as_array().unwrap() {
+        assert!(
+            !item["parent_id"].is_null(),
+            "All tasks should be subtasks (parent_id IS NOT NULL)"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_omitted_returns_all() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create 1 parent (done)
+    let parent_id = create_task(&app, &list_id, "Parent", None, "done").await;
+
+    // Create 1 subtask (done)
+    create_task(&app, &list_id, "Subtask", Some(&parent_id), "done").await;
+
+    // Query WITHOUT type parameter (backward compatibility)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/task-lists/{}/tasks?status=done", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return both parent and subtask");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
 }

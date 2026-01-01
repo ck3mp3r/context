@@ -39,7 +39,7 @@ async fn list_notes_initially_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -62,7 +62,7 @@ async fn list_notes_with_search_query() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -80,7 +80,7 @@ async fn list_notes_with_search_query() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -98,7 +98,7 @@ async fn list_notes_with_search_query() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=rust")
+                .uri("/api/v1/notes?q=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -124,7 +124,7 @@ async fn list_notes_with_pagination() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/notes")
+                    .uri("/api/v1/notes")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&json!({
@@ -144,7 +144,7 @@ async fn list_notes_with_pagination() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?limit=2&offset=0")
+                .uri("/api/v1/notes?limit=2&offset=0")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -164,7 +164,7 @@ async fn list_notes_with_pagination() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?limit=2&offset=2")
+                .uri("/api/v1/notes?limit=2&offset=2")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -179,7 +179,7 @@ async fn list_notes_with_pagination() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?limit=2&offset=4")
+                .uri("/api/v1/notes?limit=2&offset=4")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -199,7 +199,7 @@ async fn list_notes_search_no_match_returns_empty() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -217,7 +217,7 @@ async fn list_notes_search_no_match_returns_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?q=nonexistent")
+                .uri("/api/v1/notes?q=nonexistent")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -232,6 +232,276 @@ async fn list_notes_search_no_match_returns_empty() {
 }
 
 // =============================================================================
+// GET /v1/notes?project_id=X - Filter by Project
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_filtered_by_project_id() {
+    let app = test_app().await;
+
+    // Create two projects
+    let project_a_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_a_body = json_body(project_a_response).await;
+    let project_a_id = project_a_body["id"].as_str().unwrap();
+
+    let project_b_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_b_body = json_body(project_b_response).await;
+    let project_b_id = project_b_body["id"].as_str().unwrap();
+
+    // Create notes: 2 for project A, 1 for project B, 1 for both
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A Note 1",
+                        "content": "Content for A",
+                        "project_ids": [project_a_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A Note 2",
+                        "content": "More content for A",
+                        "project_ids": [project_a_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B Note",
+                        "content": "Content for B",
+                        "project_ids": [project_b_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Shared Note",
+                        "content": "Content for both",
+                        "project_ids": [project_a_id, project_b_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id for Project A
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes?project_id={}", project_a_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return 3 notes: 2 exclusive to A + 1 shared
+    assert_eq!(body["total"], 3);
+    assert_eq!(body["items"].as_array().unwrap().len(), 3);
+
+    // Filter by project_id for Project B
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes?project_id={}", project_b_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return 2 notes: 1 exclusive to B + 1 shared
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_filtered_by_project_id_and_search() {
+    let app = test_app().await;
+
+    // Create a project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap();
+
+    // Create notes with different content
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Guide",
+                        "content": "Learning Rust programming",
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Guide",
+                        "content": "Learning Python programming",
+                        "project_ids": [project_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Create a note in a different (non-existent) project
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Mastery",
+                        "content": "Advanced Rust techniques",
+                        "project_ids": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id AND search for "Rust"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes?project_id={}&q=Rust", project_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should return only 1 note: "Rust Guide" from the project
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Rust Guide");
+}
+
+// =============================================================================
 // POST /v1/notes - Create Note
 // =============================================================================
 
@@ -243,7 +513,7 @@ async fn create_note_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -277,7 +547,7 @@ async fn create_note_minimal() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -314,7 +584,7 @@ async fn get_note_returns_note() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -335,7 +605,7 @@ async fn get_note_returns_note() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -356,7 +626,7 @@ async fn get_note_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -380,7 +650,7 @@ async fn update_note_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -402,7 +672,7 @@ async fn update_note_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -433,7 +703,7 @@ async fn update_note_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -464,7 +734,7 @@ async fn delete_note_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -487,7 +757,7 @@ async fn delete_note_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -500,7 +770,7 @@ async fn delete_note_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -518,7 +788,7 @@ async fn delete_note_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -541,7 +811,7 @@ async fn list_notes_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -560,7 +830,7 @@ async fn list_notes_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -579,7 +849,7 @@ async fn list_notes_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -599,7 +869,7 @@ async fn list_notes_with_tag_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?tags=rust")
+                .uri("/api/v1/notes?tags=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -614,7 +884,7 @@ async fn list_notes_with_tag_filter() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?tags=programming")
+                .uri("/api/v1/notes?tags=programming")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -639,7 +909,7 @@ async fn list_notes_with_ordering() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/notes")
+                    .uri("/api/v1/notes")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&json!({
@@ -659,7 +929,7 @@ async fn list_notes_with_ordering() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?sort=title&order=asc")
+                .uri("/api/v1/notes?sort=title&order=asc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -676,7 +946,7 @@ async fn list_notes_with_ordering() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/notes?sort=title&order=desc")
+                .uri("/api/v1/notes?sort=title&order=desc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -704,7 +974,7 @@ async fn patch_note_partial_title_update() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -727,7 +997,7 @@ async fn patch_note_partial_title_update() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/notes/{}", id))
+                .uri(format!("/api/v1/notes/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -761,7 +1031,7 @@ async fn patch_note_omit_field_preserves_it() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -784,7 +1054,7 @@ async fn patch_note_omit_field_preserves_it() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/notes/{}", id))
+                .uri(format!("/api/v1/notes/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&json!({})).unwrap()))
                 .unwrap(),
@@ -809,7 +1079,7 @@ async fn patch_note_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/notes/nonexist")
+                .uri("/api/v1/notes/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -839,7 +1109,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -861,7 +1131,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -883,7 +1153,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/notes")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -909,7 +1179,7 @@ async fn patch_note_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/notes/{}", note_id))
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -931,4 +1201,235 @@ async fn patch_note_link_to_project_and_repo() {
     assert_eq!(body["project_ids"][0], project_id);
     assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["repo_ids"][0], repo_id);
+}
+
+// =============================================================================
+// FTS5 Tag Search Integration Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_notes_by_tags_via_api() {
+    let app = test_app().await;
+
+    // Create notes with specific tags
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Programming",
+                        "content": "Learning async/await",
+                        "tags": ["rust", "programming"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Guide",
+                        "content": "Flask tutorial",
+                        "tags": ["python", "web"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "JavaScript Basics",
+                        "content": "ES6 features",
+                        "tags": ["javascript", "programming"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for "rust" - should find the note with "rust" tag
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?q=rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        1,
+        "Should find note with 'rust' tag"
+    );
+    assert_eq!(body["items"][0]["title"], "Rust Programming");
+
+    // Search for "programming" - should find 2 notes with "programming" tag
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?q=programming")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        2,
+        "Should find both notes with 'programming' tag"
+    );
+
+    // Search for "python" - should find note with "python" tag
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?q=python")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        1,
+        "Should find note with 'python' tag"
+    );
+    assert_eq!(body["items"][0]["title"], "Python Guide");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_operators_with_tags_via_api() {
+    let app = test_app().await;
+
+    // Create notes with different tag combinations
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Web Development",
+                        "content": "Axum framework guide",
+                        "tags": ["rust", "web"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Web Development",
+                        "content": "Django tutorial",
+                        "tags": ["python", "web"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust CLI Tools",
+                        "content": "Command-line parsing",
+                        "tags": ["rust", "cli"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // FTS5 AND operator: search for notes with both "rust" AND "web"
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?q=rust+AND+web")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        1,
+        "Should find only note with both 'rust' AND 'web' tags"
+    );
+    assert_eq!(body["items"][0]["title"], "Rust Web Development");
+
+    // FTS5 OR operator: search for notes with "python" OR "cli"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?q=python+OR+cli")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["items"].as_array().unwrap().len(),
+        2,
+        "Should find notes with 'python' OR 'cli' tags"
+    );
 }

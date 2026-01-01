@@ -58,15 +58,17 @@ pub struct ProjectQuery {
     pub tags: Option<Vec<String>>,
 }
 
-/// Query for Repos - pagination + tags filter.
+/// Query for Repos - pagination + tags/project filters.
 #[derive(Debug, Clone, Default)]
 pub struct RepoQuery {
     pub page: PageSort,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by project ID (repos with project_id in project_ids array).
+    pub project_id: Option<String>,
 }
 
-/// Query for TaskLists - pagination + status/tags filters.
+/// Query for TaskLists - pagination + status/tags/project filters.
 #[derive(Debug, Clone, Default)]
 pub struct TaskListQuery {
     pub page: PageSort,
@@ -74,6 +76,8 @@ pub struct TaskListQuery {
     pub status: Option<String>,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by project ID.
+    pub project_id: Option<String>,
 }
 
 /// Query for Tasks - pagination + list/parent/status/tags filters.
@@ -88,14 +92,19 @@ pub struct TaskQuery {
     pub status: Option<String>,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by task type: "task" (parent_id IS NULL) or "subtask" (parent_id IS NOT NULL).
+    /// Omit to return both tasks and subtasks.
+    pub task_type: Option<String>,
 }
 
-/// Query for Notes - pagination + tags filter.
+/// Query for Notes - pagination + tags/project filters.
 #[derive(Debug, Clone, Default)]
 pub struct NoteQuery {
     pub page: PageSort,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by project ID (notes with project_id in project_ids array).
+    pub project_id: Option<String>,
 }
 
 /// Result of a paginated list query.
@@ -151,7 +160,7 @@ pub struct Repo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskList {
     pub id: Id,
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
@@ -203,13 +212,15 @@ pub struct Task {
     pub id: Id,
     pub list_id: Id,
     pub parent_id: Option<Id>,
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     pub status: TaskStatus,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
-    pub created_at: String,
+    pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 /// Status of a task.
@@ -254,6 +265,19 @@ impl std::str::FromStr for TaskStatus {
     }
 }
 
+/// Statistics for tasks in a task list, grouped by status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskStats {
+    pub list_id: Id,
+    pub total: usize,
+    pub backlog: usize,
+    pub todo: usize,
+    pub in_progress: usize,
+    pub review: usize,
+    pub done: usize,
+    pub cancelled: usize,
+}
+
 /// A persistent markdown note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
@@ -268,8 +292,8 @@ pub struct Note {
     /// Linked project IDs (M:N relationship via project_note)
     #[serde(default)]
     pub project_ids: Vec<Id>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 /// Type of note.

@@ -76,7 +76,7 @@ pub async fn list_projects(
     offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut request = api_client.get("/v1/projects");
+    let mut request = api_client.get("/api/v1/projects");
 
     if let Some(t) = tags {
         request = request.query(&[("tags", t)]);
@@ -110,7 +110,7 @@ fn format_table(projects: &[Project]) -> String {
 /// Get a single project by ID
 pub async fn get_project(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
     let project: Project = api_client
-        .get(&format!("/v1/projects/{}", id))
+        .get(&format!("/api/v1/projects/{}", id))
         .send()
         .await?
         .json()
@@ -162,7 +162,7 @@ pub async fn create_project(
     };
 
     let response = api_client
-        .post("/v1/projects")
+        .post("/api/v1/projects")
         .json(&request)
         .send()
         .await?;
@@ -189,7 +189,7 @@ pub async fn update_project(
     };
 
     let response = api_client
-        .patch(&format!("/v1/projects/{}", id))
+        .patch(&format!("/api/v1/projects/{}", id))
         .json(&request)
         .send()
         .await?;
@@ -211,7 +211,7 @@ pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> Cl
     }
 
     let response = api_client
-        .delete(&format!("/v1/projects/{}", id))
+        .delete(&format!("/api/v1/projects/{}", id))
         .send()
         .await?;
 
@@ -291,8 +291,8 @@ mod tests {
         let output = result.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed.is_array(), "Output should be an array");
-        // Migrations seed a "Default" project, so we expect 1 not 0
-        assert_eq!(parsed.as_array().unwrap().len(), 1);
+        // No default project in migrations, expect empty list
+        assert_eq!(parsed.as_array().unwrap().len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -313,12 +313,12 @@ mod tests {
         let output = create_result.unwrap();
         assert!(output.contains("Created project"));
 
-        // List shows both the seeded "Default" project and our new one
+        // List shows our new project
         let list_result = list_projects(&api_client, None, None, None, "json").await;
         assert!(list_result.is_ok());
 
         let output = list_result.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        assert_eq!(parsed.as_array().unwrap().len(), 2); // Default + Test Project
+        assert_eq!(parsed.as_array().unwrap().len(), 1); // Just Test Project
     }
 }

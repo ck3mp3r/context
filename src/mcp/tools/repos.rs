@@ -19,10 +19,16 @@ use std::sync::Arc;
 // Parameter types for tools
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListReposParams {
+    #[schemars(description = "Filter by project ID")]
+    pub project_id: Option<String>,
     #[schemars(
         description = "Maximum number of repos to return (default: 10, max: 20). IMPORTANT: Keep small to prevent context overflow."
     )]
     pub limit: Option<usize>,
+    #[schemars(description = "Field to sort by (remote, path, created_at). Default: created_at")]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -39,6 +45,8 @@ pub struct CreateRepoParams {
     pub path: Option<String>,
     #[schemars(description = "Tags for categorization")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Project IDs to link (optional)")]
+    pub project_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -51,6 +59,8 @@ pub struct UpdateRepoParams {
     pub path: Option<String>,
     #[schemars(description = "New tags")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Project IDs to link (optional)")]
+    pub project_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -87,9 +97,9 @@ impl<D: Database + 'static> RepoTools<D> {
         &self.tool_router
     }
 
-    /// List repositories with pagination (default: 10, max: 20)
+    /// List repositories with pagination and sorting (default: 10, max: 20)
     #[tool(
-        description = "List repositories with pagination to prevent context overflow (default: 10, max: 20)"
+        description = "List repositories with pagination and sorting. Sort by remote, path, or created_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
     pub async fn list_repos(
         &self,
@@ -101,10 +111,15 @@ impl<D: Database + 'static> RepoTools<D> {
             page: PageSort {
                 limit: Some(limit),
                 offset: None,
-                sort_by: None,
-                sort_order: None,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
             },
             tags: None,
+            project_id: params.0.project_id,
         };
 
         let result = self
@@ -158,7 +173,7 @@ impl<D: Database + 'static> RepoTools<D> {
             remote: params.0.remote,
             path: params.0.path,
             tags: params.0.tags.unwrap_or_default(),
-            project_ids: vec![],
+            project_ids: params.0.project_ids.unwrap_or_default(),
             created_at: String::new(), // Repository generates this
         };
 
@@ -197,6 +212,9 @@ impl<D: Database + 'static> RepoTools<D> {
         }
         if let Some(tags) = params.0.tags {
             repo.tags = tags;
+        }
+        if let Some(project_ids) = params.0.project_ids {
+            repo.project_ids = project_ids;
         }
 
         self.db.repos().update(&repo).await.map_err(map_db_error)?;

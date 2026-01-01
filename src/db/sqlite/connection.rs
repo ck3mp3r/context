@@ -4,8 +4,8 @@ use sqlx::{SqlitePool, migrate::MigrateDatabase};
 use std::path::Path;
 
 use super::{
-    SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteTaskListRepository,
-    SqliteTaskRepository,
+    SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSyncRepository,
+    SqliteTaskListRepository, SqliteTaskRepository,
 };
 use crate::db::{Database, DbError, DbResult};
 
@@ -84,6 +84,7 @@ impl Database for SqliteDatabase {
     type TaskLists<'a> = SqliteTaskListRepository<'a>;
     type Tasks<'a> = SqliteTaskRepository<'a>;
     type Notes<'a> = SqliteNoteRepository<'a>;
+    type Sync<'a> = SqliteSyncRepository<'a>;
 
     fn migrate(&self) -> DbResult<()> {
         // Use tokio::task::block_in_place for sync interface compatibility
@@ -110,5 +111,9 @@ impl Database for SqliteDatabase {
 
     fn notes(&self) -> Self::Notes<'_> {
         SqliteNoteRepository { pool: &self.pool }
+    }
+
+    fn sync(&self) -> Self::Sync<'_> {
+        SqliteSyncRepository { pool: &self.pool }
     }
 }

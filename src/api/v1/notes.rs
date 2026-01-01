@@ -38,8 +38,8 @@ pub struct NoteResponse {
     /// Linked project IDs (M:N relationship via project_note)
     #[schema(example = json!(["proj123a", "proj456b"]))]
     pub project_ids: Vec<String>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 impl From<Note> for NoteResponse {
@@ -73,6 +73,14 @@ pub struct CreateNoteRequest {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: Option<String>,
+    /// Linked repository IDs (M:N relationship via note_repo)
+    #[schema(example = json!(["repo123a", "repo456b"]))]
+    #[serde(default)]
+    pub repo_ids: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_note)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -145,6 +153,9 @@ pub struct ListNotesQuery {
     /// Filter by tags (comma-separated)
     #[param(example = "api,session")]
     pub tags: Option<String>,
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -173,7 +184,7 @@ pub struct PaginatedNotes {
 
 #[utoipa::path(
     get,
-    path = "/v1/notes",
+    path = "/api/v1/notes",
     tag = "notes",
     params(ListNotesQuery),
     responses(
@@ -215,6 +226,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
             },
         },
         tags,
+        project_id: query.project_id.clone(),
     };
 
     // Get notes - either search or list all (at database level)
@@ -256,7 +268,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     get,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     responses(
@@ -290,7 +302,7 @@ pub async fn get_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     post,
-    path = "/v1/notes",
+    path = "/api/v1/notes",
     tag = "notes",
     request_body = CreateNoteRequest,
     responses(
@@ -316,10 +328,10 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         content: req.content,
         tags: req.tags,
         note_type,
-        repo_ids: vec![],    // Empty by default - relationships managed separately
-        project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: String::new(), // Repository will generate this
-        updated_at: String::new(), // Repository will generate this
+        repo_ids: req.repo_ids,
+        project_ids: req.project_ids,
+        created_at: None, // Repository will generate this
+        updated_at: None, // Repository will generate this
     };
 
     let created_note = state.db().notes().create(&note).await.map_err(|e| {
@@ -336,7 +348,7 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     put,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     request_body = UpdateNoteRequest,
@@ -391,7 +403,7 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     patch,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     request_body = PatchNoteRequest,
@@ -441,7 +453,7 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     delete,
-    path = "/v1/notes/{id}",
+    path = "/api/v1/notes/{id}",
     tag = "notes",
     params(("id" = String, Path, description = "Note ID")),
     responses(

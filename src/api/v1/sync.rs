@@ -43,19 +43,20 @@ pub struct SyncResponse {
 /// Initialize sync repository
 #[utoipa::path(
     post,
-    path = "/v1/sync/init",
+    path = "/api/v1/sync/init",
     tag = "sync",
     request_body = InitSyncRequest,
     responses(
-        (status = 200, description = "Sync initialized successfully", body = SyncResponse),
+        (status = 201, description = "Sync created successfully", body = SyncResponse),
+        (status = 200, description = "Sync already initialized", body = SyncResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn init_sync<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Json(req): Json<InitSyncRequest>,
-) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
-    state
+) -> Result<(StatusCode, Json<SyncResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let result = state
         .sync_manager()
         .init(req.remote_url.clone())
         .await
@@ -68,20 +69,30 @@ pub async fn init_sync<D: Database, G: GitOps + Send + Sync>(
             )
         })?;
 
-    Ok(Json(SyncResponse {
-        status: "success".to_string(),
-        message: "Sync initialized successfully".to_string(),
-        data: Some(serde_json::json!({
-            "sync_dir": crate::sync::get_sync_dir().display().to_string(),
-            "remote_url": req.remote_url,
-        })),
-    }))
+    use crate::sync::InitResult;
+    let (status_code, message) = match result {
+        InitResult::Created => (StatusCode::CREATED, "Sync initialized successfully"),
+        InitResult::AlreadyInitialized => (StatusCode::OK, "Sync already initialized"),
+    };
+
+    Ok((
+        status_code,
+        Json(SyncResponse {
+            status: "success".to_string(),
+            message: message.to_string(),
+            data: Some(serde_json::json!({
+                "sync_dir": crate::sync::get_sync_dir().display().to_string(),
+                "remote_url": req.remote_url,
+                "created": matches!(result, InitResult::Created),
+            })),
+        }),
+    ))
 }
 
 /// Export database to sync
 #[utoipa::path(
     post,
-    path = "/v1/sync/export",
+    path = "/api/v1/sync/export",
     tag = "sync",
     request_body = ExportSyncRequest,
     responses(
@@ -125,7 +136,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
 /// Import sync data to database
 #[utoipa::path(
     post,
-    path = "/v1/sync/import",
+    path = "/api/v1/sync/import",
     tag = "sync",
     responses(
         (status = 200, description = "Import completed successfully", body = SyncResponse),
@@ -163,7 +174,7 @@ pub async fn import_sync<D: Database, G: GitOps + Send + Sync>(
 /// Get sync status
 #[utoipa::path(
     get,
-    path = "/v1/sync/status",
+    path = "/api/v1/sync/status",
     tag = "sync",
     responses(
         (status = 200, description = "Sync status retrieved", body = SyncResponse),

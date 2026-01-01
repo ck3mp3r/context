@@ -56,7 +56,7 @@ async fn task_list_create_with_relationships() {
     task_lists
         .create(&TaskList {
             id: "list0001".to_string(),
-            name: "Test List".to_string(),
+            title: "Test List".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -133,7 +133,7 @@ async fn task_list_update_replaces_relationships() {
     task_lists
         .create(&TaskList {
             id: "listupd1".to_string(),
-            name: "Test List".to_string(),
+            title: "Test List".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -152,7 +152,7 @@ async fn task_list_update_replaces_relationships() {
     task_lists
         .update(&TaskList {
             id: "listupd1".to_string(),
-            name: "Updated List".to_string(),
+            title: "Updated List".to_string(),
             description: Some("Updated".to_string()),
             notes: None,
             tags: vec![],
@@ -186,7 +186,7 @@ async fn task_list_create_validates_repo_ids() {
     let result = task_lists
         .create(&TaskList {
             id: "invalid1".to_string(),
-            name: "Invalid List".to_string(),
+            title: "Invalid List".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -212,7 +212,7 @@ async fn task_list_create_validates_project_ids() {
     let result = task_lists
         .create(&TaskList {
             id: "invalid2".to_string(),
-            name: "Invalid List".to_string(),
+            title: "Invalid List".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -238,7 +238,7 @@ async fn task_list_list_with_tag_filter() {
     task_lists
         .create(&TaskList {
             id: "listtag1".to_string(),
-            name: "Work List".to_string(),
+            title: "Work List".to_string(),
             description: None,
             notes: None,
             tags: vec!["work".to_string(), "urgent".to_string()],
@@ -256,7 +256,7 @@ async fn task_list_list_with_tag_filter() {
     task_lists
         .create(&TaskList {
             id: "listtag2".to_string(),
-            name: "Personal List".to_string(),
+            title: "Personal List".to_string(),
             description: None,
             notes: None,
             tags: vec!["personal".to_string()],
@@ -282,7 +282,7 @@ async fn task_list_list_with_tag_filter() {
         .expect("List should succeed");
     assert_eq!(results.items.len(), 1);
     assert_eq!(results.total, 1); // DB-level filtering verified by total
-    assert_eq!(results.items[0].name, "Work List");
+    assert_eq!(results.items[0].title, "Work List");
 
     // Filter by "urgent" tag - should find 1
     let query = TaskListQuery {
@@ -322,7 +322,7 @@ async fn task_list_archive_sets_archived_at() {
     let created = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "List to archive".to_string(),
+            title: "List to archive".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -368,7 +368,7 @@ async fn task_list_archive_twice_is_idempotent() {
     let created = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "Idempotent archive".to_string(),
+            title: "Idempotent archive".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -427,7 +427,7 @@ async fn task_list_unarchive_clears_archived_at() {
     let created = task_lists
         .create(&TaskList {
             id: String::new(),
-            name: "Archived list".to_string(),
+            title: "Archived list".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -490,7 +490,7 @@ async fn task_list_belongs_to_one_project() {
     let created = task_lists
         .create(&TaskList {
             id: "list0001".to_string(),
-            name: "Test List".to_string(),
+            title: "Test List".to_string(),
             description: None,
             notes: None,
             tags: vec![],
@@ -542,7 +542,7 @@ async fn task_list_can_change_project() {
     let created = task_lists
         .create(&TaskList {
             id: "list0001".to_string(),
-            name: "Test List".to_string(),
+            title: "Test List".to_string(),
             description: None,
             notes: None,
             tags: vec![],

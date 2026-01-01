@@ -3,7 +3,8 @@
 //! Coordinates git operations, export, import, and status checking.
 
 use crate::db::{
-    Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
+    Database, NoteRepository, ProjectRepository, RepoRepository, SyncRepository,
+    TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::PathBuf;
@@ -11,12 +12,21 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
-    export::{ExportError, ExportSummary, export_all},
+    export::{ExportError, ExportSummary},
     git::{GitError, GitOps},
-    import::{ImportError, ImportSummary, import_all},
+    import::{ImportError, ImportSummary},
     paths::get_sync_dir,
     read_jsonl,
 };
+
+/// Result of sync initialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitResult {
+    /// Sync was newly created
+    Created,
+    /// Sync was already initialized (idempotent operation)
+    AlreadyInitialized,
+}
 
 /// Errors that can occur during sync operations.
 #[derive(Error, Diagnostic, Debug)]
@@ -93,21 +103,60 @@ impl<G: GitOps> SyncManager<G> {
     /// Initialize sync repository.
     ///
     /// Creates the sync directory, initializes git, and optionally adds a remote.
-    pub async fn init(&self, remote_url: Option<String>) -> Result<(), SyncError> {
+    /// Idempotent: safe to call multiple times, won't reinitialize existing repos.
+    ///
+    /// Returns InitResult::Created if newly initialized, InitResult::AlreadyInitialized if already set up.
+    pub async fn init(&self, remote_url: Option<String>) -> Result<InitResult, SyncError> {
+        tracing::info!("Initializing sync repository at {:?}", self.sync_dir);
+
+        let was_initialized = self.is_initialized();
+
         // Create sync directory if it doesn't exist
         if !self.sync_dir.exists() {
+            tracing::debug!("Creating sync directory");
             std::fs::create_dir_all(&self.sync_dir)?;
         }
 
-        // Initialize git repository
-        self.git.init(&self.sync_dir)?;
-
-        // Add remote if provided
-        if let Some(url) = remote_url {
-            self.git.add_remote(&self.sync_dir, "origin", &url)?;
+        // Initialize git repository only if not already initialized
+        if was_initialized {
+            tracing::info!("Git repository already initialized, skipping git init");
+        } else {
+            tracing::debug!("Initializing git repository");
+            self.git.init(&self.sync_dir)?;
         }
 
-        Ok(())
+        // Add remote if provided and not already present
+        if let Some(url) = &remote_url {
+            match self.git.remote_get_url(&self.sync_dir, "origin") {
+                Ok(existing_output) => {
+                    let existing_url = String::from_utf8_lossy(&existing_output.stdout)
+                        .trim()
+                        .to_string();
+                    if existing_url == *url {
+                        tracing::info!("Remote 'origin' already set to: {}", url);
+                    } else {
+                        tracing::warn!(
+                            existing = %existing_url,
+                            new = %url,
+                            "Remote 'origin' already exists with different URL, skipping"
+                        );
+                    }
+                }
+                Err(_) => {
+                    tracing::info!("Adding remote 'origin': {}", url);
+                    self.git.add_remote(&self.sync_dir, "origin", url)?;
+                }
+            }
+        }
+
+        let result = if was_initialized {
+            InitResult::AlreadyInitialized
+        } else {
+            InitResult::Created
+        };
+
+        tracing::info!(result = ?result, "Sync initialization complete");
+        Ok(result)
     }
 
     /// Export database to JSONL and push to remote.
@@ -116,18 +165,31 @@ impl<G: GitOps> SyncManager<G> {
         db: &D,
         message: Option<String>,
     ) -> Result<ExportSummary, SyncError> {
+        tracing::info!("Starting export operation");
+
         if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
         }
 
         // Pull latest changes first
         if self.has_remote()? {
+            tracing::debug!("Pulling latest changes from remote");
             // Only pull if remote exists, ignore errors (might be first push)
             let _ = self.git.pull(&self.sync_dir, "origin", "main");
         }
 
-        // Export to JSONL
-        let summary = export_all(db, &self.sync_dir).await?;
+        // Export to JSONL using sync repository
+        tracing::info!("Exporting database to JSONL files");
+        let summary = db.sync().export_all(&self.sync_dir).await?;
+        tracing::info!(
+            repos = summary.repos,
+            projects = summary.projects,
+            task_lists = summary.task_lists,
+            tasks = summary.tasks,
+            notes = summary.notes,
+            "Export complete"
+        );
 
         // Add all JSONL files
         let files = vec![
@@ -137,6 +199,7 @@ impl<G: GitOps> SyncManager<G> {
             "tasks.jsonl".to_string(),
             "notes.jsonl".to_string(),
         ];
+        tracing::debug!("Adding files to git");
         self.git.add_files(&self.sync_dir, &files)?;
 
         // Commit with timestamp-based message if not provided
@@ -146,18 +209,22 @@ impl<G: GitOps> SyncManager<G> {
         });
 
         // Try to commit - if nothing to commit, that's okay (not an error)
+        tracing::debug!(message = %commit_msg, "Committing changes");
         match self.git.commit(&self.sync_dir, &commit_msg) {
             Ok(_) => {
+                tracing::info!("Changes committed successfully");
                 // Push if remote exists
                 if self.has_remote()? {
+                    tracing::info!("Pushing to remote");
                     self.git.push(&self.sync_dir, "origin", "main")?;
+                    tracing::info!("Push complete");
                 }
             }
             Err(GitError::NonZeroExit { code: 1, output })
                 if output.contains("nothing to commit")
                     || output.contains("nothing added to commit") =>
             {
-                // Nothing to commit is not an error - data is already synced
+                tracing::info!("No changes to commit - data already synced");
             }
             Err(e) => return Err(e.into()),
         }
@@ -167,17 +234,31 @@ impl<G: GitOps> SyncManager<G> {
 
     /// Pull from remote and import JSONL to database.
     pub async fn import<D: Database>(&self, db: &D) -> Result<ImportSummary, SyncError> {
+        tracing::info!("Starting import operation");
+
         if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
         }
 
         // Pull latest changes
         if self.has_remote()? {
+            tracing::info!("Pulling latest changes from remote");
             self.git.pull(&self.sync_dir, "origin", "main")?;
+            tracing::info!("Pull complete");
         }
 
-        // Import from JSONL
-        let summary = import_all(db, &self.sync_dir).await?;
+        // Import from JSONL using sync repository
+        tracing::info!("Importing JSONL files to database");
+        let summary = db.sync().import_all(&self.sync_dir).await?;
+        tracing::info!(
+            repos = summary.repos,
+            projects = summary.projects,
+            task_lists = summary.task_lists,
+            tasks = summary.tasks,
+            notes = summary.notes,
+            "Import complete"
+        );
 
         Ok(summary)
     }
@@ -364,6 +445,12 @@ mod tests {
             .expect_init()
             .times(1)
             .returning(|_| Ok(mock_output(0, "Initialized", "")));
+        // Now expects remote_get_url to check if remote already exists
+        mock_git
+            .expect_remote_get_url()
+            .with(eq(sync_dir.clone()), eq("origin"))
+            .times(1)
+            .returning(|_, _| Err(GitError::GitNotFound)); // No existing remote
         mock_git
             .expect_add_remote()
             .with(

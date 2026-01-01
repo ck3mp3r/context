@@ -75,9 +75,12 @@ enum TaskCommands {
         /// Task list ID
         #[arg(long)]
         list_id: String,
-        /// Task content/description
+        /// Task title (short summary)
         #[arg(long)]
-        content: String,
+        title: String,
+        /// Task description (optional, detailed information)
+        #[arg(long)]
+        description: Option<String>,
         /// Priority (1-5, where 1 is highest)
         #[arg(long)]
         priority: Option<i32>,
@@ -89,9 +92,12 @@ enum TaskCommands {
     Update {
         /// Task ID
         id: String,
-        /// New content/description
+        /// New title
         #[arg(long)]
-        content: Option<String>,
+        title: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
         /// New status (backlog, todo, in_progress, review, done, cancelled)
         #[arg(long)]
         status: Option<String>,
@@ -319,6 +325,9 @@ enum RepoCommands {
 enum TaskListCommands {
     /// List all task lists
     List {
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
         /// Filter by status (active, archived)
         #[arg(long)]
         status: Option<String>,
@@ -342,9 +351,9 @@ enum TaskListCommands {
     },
     /// Create a new task list
     Create {
-        /// Task list name
+        /// Task list title
         #[arg(long)]
-        name: String,
+        title: String,
         /// Project ID this task list belongs to (REQUIRED)
         #[arg(long)]
         project_id: String,
@@ -362,9 +371,9 @@ enum TaskListCommands {
     Update {
         /// Task list ID
         id: String,
-        /// New name
+        /// New title
         #[arg(long)]
-        name: Option<String>,
+        title: Option<String>,
         /// New description
         #[arg(long)]
         description: Option<String>,
@@ -497,6 +506,7 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::TaskList { command }) => match command {
             TaskListCommands::List {
+                project_id,
                 status,
                 tags,
                 limit,
@@ -504,6 +514,7 @@ pub async fn run() -> Result<()> {
             } => {
                 let output = commands::task_list::list_task_lists(
                     &api_client,
+                    project_id.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
                     limit,
@@ -523,7 +534,7 @@ pub async fn run() -> Result<()> {
                 println!("{}", output);
             }
             TaskListCommands::Create {
-                name,
+                title,
                 project_id,
                 description,
                 tags,
@@ -531,7 +542,7 @@ pub async fn run() -> Result<()> {
             } => {
                 let output = commands::task_list::create_task_list(
                     &api_client,
-                    &name,
+                    &title,
                     &project_id,
                     description.as_deref(),
                     tags.as_deref(),
@@ -542,7 +553,7 @@ pub async fn run() -> Result<()> {
             }
             TaskListCommands::Update {
                 id,
-                name,
+                title,
                 description,
                 status,
                 tags,
@@ -550,7 +561,7 @@ pub async fn run() -> Result<()> {
                 let output = commands::task_list::update_task_list(
                     &api_client,
                     &id,
-                    name.as_deref(),
+                    title.as_deref(),
                     description.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
@@ -589,14 +600,16 @@ pub async fn run() -> Result<()> {
             }
             TaskCommands::Create {
                 list_id,
-                content,
+                title,
+                description,
                 priority,
                 tags,
             } => {
                 let output = commands::task::create_task(
                     &api_client,
                     &list_id,
-                    &content,
+                    &title,
+                    description.as_deref(),
                     priority,
                     tags.as_deref(),
                 )
@@ -605,7 +618,8 @@ pub async fn run() -> Result<()> {
             }
             TaskCommands::Update {
                 id,
-                content,
+                title,
+                description,
                 status,
                 priority,
                 tags,
@@ -613,7 +627,8 @@ pub async fn run() -> Result<()> {
                 let output = commands::task::update_task(
                     &api_client,
                     &id,
-                    content.as_deref(),
+                    title.as_deref(),
+                    description.as_deref(),
                     status.as_deref(),
                     priority,
                     tags.as_deref(),

@@ -7,11 +7,13 @@
 //! async runtimes like Tokio and web frameworks like Axum.
 
 use std::future::Future;
+use std::path::Path;
 
 use crate::db::{
     DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
-    models::{Note, Project, Repo, Task, TaskList},
+    models::{Note, Project, Repo, Task, TaskList, TaskStats},
 };
+use crate::sync::{ExportSummary, ImportSummary};
 
 /// Repository for Project operations.
 pub trait ProjectRepository: Send + Sync {
@@ -69,6 +71,8 @@ pub trait TaskRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn get_stats_for_list(&self, list_id: &str)
+    -> impl Future<Output = DbResult<TaskStats>> + Send;
 }
 
 /// Repository for Note operations.
@@ -91,6 +95,14 @@ pub trait NoteRepository: Send + Sync {
         search_term: &str,
         query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+}
+
+/// Repository for sync operations (import/export).
+pub trait SyncRepository: Send + Sync {
+    fn import_all(&self, input_dir: &Path) -> impl Future<Output = DbResult<ImportSummary>> + Send;
+
+    fn export_all(&self, output_dir: &Path)
+    -> impl Future<Output = DbResult<ExportSummary>> + Send;
 }
 
 /// Combined database interface.
@@ -121,6 +133,10 @@ pub trait Database: Send + Sync {
     type Notes<'a>: NoteRepository
     where
         Self: 'a;
+    /// The sync repository type.
+    type Sync<'a>: SyncRepository
+    where
+        Self: 'a;
 
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
@@ -139,4 +155,7 @@ pub trait Database: Send + Sync {
 
     /// Get the note repository.
     fn notes(&self) -> Self::Notes<'_>;
+
+    /// Get the sync repository.
+    fn sync(&self) -> Self::Sync<'_>;
 }

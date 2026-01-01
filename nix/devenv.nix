@@ -5,9 +5,19 @@
   inputs,
   ...
 }: {
-  packages = [
-    inputs.fenix.packages.${pkgs.system}.stable.toolchain
+  packages = let
+    toolchain = inputs.fenix.packages.${pkgs.system}.combine [
+      inputs.fenix.packages.${pkgs.system}.stable.cargo
+      inputs.fenix.packages.${pkgs.system}.stable.rustc
+      inputs.fenix.packages.${pkgs.system}.targets.wasm32-unknown-unknown.stable.rust-std
+    ];
+  in [
+    toolchain
     pkgs.cargo-tarpaulin
+    pkgs.trunk
+    pkgs.wasm-bindgen-cli
+    pkgs.nodejs
+    pkgs.nodePackages.tailwindcss
   ];
 
   scripts = {

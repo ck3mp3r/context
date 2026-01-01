@@ -76,7 +76,7 @@ pub async fn list_repos(
     offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut request = api_client.get("/v1/repos");
+    let mut request = api_client.get("/api/v1/repos");
 
     if let Some(t) = tags {
         request = request.query(&[("tags", t)]);
@@ -110,7 +110,7 @@ fn format_table(repos: &[Repo]) -> String {
 /// Get a single repo by ID
 pub async fn get_repo(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
     let repo: Repo = api_client
-        .get(&format!("/v1/repos/{}", id))
+        .get(&format!("/api/v1/repos/{}", id))
         .send()
         .await?
         .json()
@@ -162,7 +162,11 @@ pub async fn create_repo(
         tags: parse_tags(tags).unwrap_or_default(),
     };
 
-    let response = api_client.post("/v1/repos").json(&request).send().await?;
+    let response = api_client
+        .post("/api/v1/repos")
+        .json(&request)
+        .send()
+        .await?;
 
     let repo: Repo = ApiClient::handle_response(response).await?;
     Ok(format!(
@@ -186,7 +190,7 @@ pub async fn update_repo(
     };
 
     let response = api_client
-        .patch(&format!("/v1/repos/{}", id))
+        .patch(&format!("/api/v1/repos/{}", id))
         .json(&request)
         .send()
         .await?;
@@ -207,7 +211,7 @@ pub async fn delete_repo(api_client: &ApiClient, id: &str, force: bool) -> CliRe
     }
 
     let response = api_client
-        .delete(&format!("/v1/repos/{}", id))
+        .delete(&format!("/api/v1/repos/{}", id))
         .send()
         .await?;
 

@@ -6,7 +6,9 @@ use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStatus};
+use crate::db::{
+    DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
+};
 
 /// SQLx-backed task repository.
 pub struct SqliteTaskRepository<'a> {
@@ -22,51 +24,64 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             task.id.clone()
         };
 
-        // Always generate current timestamp - never use input timestamp
-        let created_at = current_timestamp();
+        // Use provided timestamps or generate if None/empty
+        let created_at = task
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None
+            .unwrap_or_else(current_timestamp);
+        let updated_at = task
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None
+            .unwrap_or_else(current_timestamp);
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query(
             r#"
-            INSERT INTO task (id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
         .bind(&task.list_id)
         .bind(&task.parent_id)
-        .bind(&task.content)
+        .bind(&task.title)
+        .bind(&task.description)
         .bind(status_str)
         .bind(task.priority)
         .bind(&tags_json)
         .bind(&created_at)
         .bind(&task.started_at)
         .bind(&task.completed_at)
+        .bind(&updated_at)
         .execute(self.pool)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
 
-        Ok(Task {
-            id,
-            list_id: task.list_id.clone(),
-            parent_id: task.parent_id.clone(),
-            content: task.content.clone(),
-            status: task.status.clone(),
-            priority: task.priority,
-            tags: task.tags.clone(),
-            created_at,
-            started_at: task.started_at.clone(),
-            completed_at: task.completed_at.clone(),
-        })
+        // If this is a child task, update parent's updated_at
+        // This replaces the SQL trigger logic
+        if let Some(parent_id) = &task.parent_id {
+            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
+                .bind(&updated_at)
+                .bind(parent_id)
+                .execute(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        self.get(&id).await
     }
 
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
-            "SELECT id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at
              FROM task WHERE id = ?",
         )
         .bind(id)
@@ -88,11 +103,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let default_query = TaskQuery::default();
         let query = query.unwrap_or(&default_query);
         let allowed_fields = [
-            "content",
+            "title",
             "status",
             "priority",
             "created_at",
             "completed_at",
+            "updated_at",
         ];
 
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
@@ -110,6 +126,15 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         if let Some(parent_id) = &query.parent_id {
             conditions.push("parent_id = ?".to_string());
             bind_values.push(parent_id.clone());
+        }
+
+        // Filter by task type: "task" (parent_id IS NULL) or "subtask" (parent_id IS NOT NULL)
+        if let Some(task_type) = &query.task_type {
+            match task_type.as_str() {
+                "task" => conditions.push("parent_id IS NULL".to_string()),
+                "subtask" => conditions.push("parent_id IS NOT NULL".to_string()),
+                _ => {} // Ignore invalid values
+            }
         }
 
         if let Some(status) = &query.status {
@@ -145,7 +170,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build SQL based on whether we need json_each
         let (sql, count_sql) = if needs_json_each {
             let sql = format!(
-                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.content, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at
+                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at, t.updated_at
                  FROM task t, json_each(t.tags)
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -157,7 +182,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             (sql, count_sql)
         } else {
             let sql = format!(
-                "SELECT id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at
+                "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at
                  FROM task
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -208,8 +233,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let mut task = task.clone();
 
+        // Track if status is changing and what the old status was (for cascade)
+        let status_changed = task.status != current.status;
+        let old_status = current.status.clone();
+
         // Auto-manage timestamps based on status transitions
-        if task.status != current.status {
+        if status_changed {
             match task.status {
                 TaskStatus::InProgress => {
                     // Starting work - set started_at only if not already set (idempotent)
@@ -239,24 +268,39 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
+        // Use provided timestamp or generate if None/empty
+        let updated_at = task
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty()) // Treat empty string as None
+            .unwrap_or_else(current_timestamp);
+
+        // Start transaction for atomic parent + cascade updates
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Update parent task
         let result = sqlx::query(
             r#"
             UPDATE task 
-            SET list_id = ?, parent_id = ?, content = ?, status = ?, priority = ?, tags = ?,
-                started_at = ?, completed_at = ?
+            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?,
+                started_at = ?, completed_at = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
         .bind(&task.list_id)
         .bind(&task.parent_id)
-        .bind(&task.content)
-        .bind(status_str)
+        .bind(&task.title)
+        .bind(&task.description)
+        .bind(&status_str)
         .bind(task.priority)
         .bind(&tags_json)
         .bind(&task.started_at)
         .bind(&task.completed_at)
+        .bind(&updated_at)
         .bind(&task.id)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -268,6 +312,71 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 id: task.id.clone(),
             });
         }
+
+        // CASCADE: Update parent's updated_at if this is a child task
+        // This replaces the SQL trigger logic
+        if let Some(parent_id) = &task.parent_id {
+            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
+                .bind(&updated_at)
+                .bind(parent_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        // CASCADE: If status changed and this is a parent task, update matching subtasks
+        if status_changed && current.parent_id.is_none() {
+            let old_status_str = old_status.to_string();
+            let new_status_str = task.status.to_string();
+
+            // Update all subtasks that match the parent's OLD status
+            let cascade_result = sqlx::query(
+                r#"
+                UPDATE task 
+                SET status = ?,
+                    started_at = CASE 
+                        WHEN ? = 'in_progress' AND started_at IS NULL THEN datetime('now')
+                        ELSE started_at 
+                    END,
+                    completed_at = CASE 
+                        WHEN ? IN ('done', 'cancelled') AND completed_at IS NULL THEN datetime('now')
+                        WHEN ? NOT IN ('done', 'cancelled') THEN NULL
+                        ELSE completed_at 
+                    END
+                WHERE parent_id = ? 
+                  AND status = ?
+                "#,
+            )
+            .bind(&new_status_str)
+            .bind(&new_status_str)  // For started_at CASE
+            .bind(&new_status_str)  // For completed_at CASE (set if done/cancelled)
+            .bind(&new_status_str)  // For completed_at CASE (clear if not done/cancelled)
+            .bind(&task.id)
+            .bind(&old_status_str)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: format!("Failed to cascade status to subtasks: {}", e),
+            })?;
+
+            let rows_affected = cascade_result.rows_affected();
+            if rows_affected > 0 {
+                tracing::debug!(
+                    "Cascaded status change from '{}' to '{}' for {} subtask(s) of parent '{}'",
+                    old_status_str,
+                    new_status_str,
+                    rows_affected,
+                    task.id
+                );
+            }
+        }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -290,6 +399,62 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         Ok(())
     }
+
+    async fn get_stats_for_list(&self, list_id: &str) -> DbResult<TaskStats> {
+        let rows = sqlx::query(
+            r#"
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM task
+            WHERE list_id = ?
+            GROUP BY status
+            "#,
+        )
+        .bind(list_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let mut backlog = 0;
+        let mut todo = 0;
+        let mut in_progress = 0;
+        let mut review = 0;
+        let mut done = 0;
+        let mut cancelled = 0;
+        let mut total = 0;
+
+        for row in rows {
+            let status: String = row.get("status");
+            let count: i64 = row.get("count");
+            let count = count as usize;
+
+            total += count;
+
+            match status.as_str() {
+                "backlog" => backlog = count,
+                "todo" => todo = count,
+                "in_progress" => in_progress = count,
+                "review" => review = count,
+                "done" => done = count,
+                "cancelled" => cancelled = count,
+                _ => {}
+            }
+        }
+
+        Ok(TaskStats {
+            list_id: list_id.to_string(),
+            total,
+            backlog,
+            todo,
+            in_progress,
+            review,
+            done,
+            cancelled,
+        })
+    }
 }
 
 /// Convert a database row to a Task model.
@@ -298,7 +463,8 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
         id: row.get("id"),
         list_id: row.get("list_id"),
         parent_id: row.get("parent_id"),
-        content: row.get("content"),
+        title: row.get("title"),
+        description: row.get("description"),
         status: {
             let status_str: String = row.get("status");
             TaskStatus::from_str(&status_str).unwrap_or_default()
@@ -313,5 +479,6 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),
+        updated_at: row.get("updated_at"),
     }
 }

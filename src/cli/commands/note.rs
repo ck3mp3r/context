@@ -71,7 +71,7 @@ pub async fn list_notes(
     offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut request = api_client.get("/v1/notes");
+    let mut request = api_client.get("/api/v1/notes");
 
     if let Some(tag_str) = tags {
         request = request.query(&[("tags", tag_str)]);
@@ -105,7 +105,7 @@ fn format_table(notes: &[Note]) -> String {
 /// Search notes using FTS5 full-text search
 pub async fn search_notes(api_client: &ApiClient, query: &str, format: &str) -> CliResult<String> {
     let response: NoteListResponse = api_client
-        .get("/v1/notes/search")
+        .get("/api/v1/notes/search")
         .query(&[("query", query)])
         .send()
         .await?
@@ -120,7 +120,10 @@ pub async fn search_notes(api_client: &ApiClient, query: &str, format: &str) -> 
 
 /// Get a single note by ID
 pub async fn get_note(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
-    let response = api_client.get(&format!("/v1/notes/{}", id)).send().await?;
+    let response = api_client
+        .get(&format!("/api/v1/notes/{}", id))
+        .send()
+        .await?;
 
     let note: Note = ApiClient::handle_response(response).await?;
 
@@ -160,7 +163,7 @@ pub async fn create_note(
     };
 
     let response = api_client
-        .post("/v1/notes")
+        .post("/api/v1/notes")
         .json(&request_body)
         .send()
         .await?;
@@ -184,7 +187,7 @@ pub async fn update_note(
     };
 
     let response = api_client
-        .patch(&format!("/v1/notes/{}", id))
+        .patch(&format!("/api/v1/notes/{}", id))
         .json(&request_body)
         .send()
         .await?;
@@ -203,7 +206,7 @@ pub async fn delete_note(api_client: &ApiClient, id: &str, force: bool) -> CliRe
     }
 
     let response = api_client
-        .delete(&format!("/v1/notes/{}", id))
+        .delete(&format!("/api/v1/notes/{}", id))
         .send()
         .await?;
 
@@ -345,14 +348,14 @@ mod tests {
     fn test_get_note_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.get(&format!("/v1/notes/{}", id));
+        let builder = client.get(&format!("/api/v1/notes/{}", id));
         let _request = builder;
     }
 
     #[test]
     fn test_create_note_builds_correct_url() {
         let client = ApiClient::new(None);
-        let builder = client.post("/v1/notes");
+        let builder = client.post("/api/v1/notes");
         let _request = builder;
     }
 
@@ -360,7 +363,7 @@ mod tests {
     fn test_update_note_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.patch(&format!("/v1/notes/{}", id));
+        let builder = client.patch(&format!("/api/v1/notes/{}", id));
         let _request = builder;
     }
 
@@ -368,7 +371,7 @@ mod tests {
     fn test_delete_note_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.delete(&format!("/v1/notes/{}", id));
+        let builder = client.delete(&format!("/api/v1/notes/{}", id));
         let _request = builder;
     }
 

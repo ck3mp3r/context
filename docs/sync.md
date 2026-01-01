@@ -31,20 +31,29 @@ git init --bare /path/to/c5t-sync.git
 
 ### 2. Initialize Sync
 
+Using CLI:
+```sh
+c5t sync init git@github.com:username/c5t-sync.git
+```
+
 Using MCP tools (from AI assistant):
 ```
 sync(operation: "init", remote_url: "git@github.com:username/c5t-sync.git")
-```
-
-Using CLI (future):
-```sh
-c5t sync init git@github.com:username/c5t-sync.git
 ```
 
 This creates:
 - `~/.local/share/c5t/sync/` directory
 - Git repository with configured remote
 - Initial commit (if data exists)
+
+Or using API server (must be running):
+```sh
+# Start API server in background
+c5t-api &
+
+# Then use CLI commands
+c5t sync init git@github.com:username/c5t-sync.git
+```
 
 ### 3. Configure SSH (if using SSH URLs)
 
@@ -63,19 +72,25 @@ cat ~/.ssh/id_ed25519.pub
 
 ### 4. Verify Setup
 
-```
-sync(operation: "status")
+```sh
+c5t sync status
 ```
 
 Should show:
-```json
-{
-  "initialized": true,
-  "git_status": {
-    "clean": true,
-    "branch": "main"
-  }
-}
+```
+Remote: git@github.com:username/c5t-sync.git
+Status: ✓ Clean
+
+╭─────────────┬──────────┬────────────╮
+│ Item        │ Database │ Sync Files │
+├─────────────┼──────────┼────────────┤
+│ Repos       │ 0        │ 0          │
+│ Projects    │ 1        │ 1          │
+│ Task Lists  │ 2        │ 2          │
+│ Tasks       │ 15       │ 15         │
+│ Notes       │ 3        │ 3          │
+│ Total       │ 21       │ 21         │
+╰─────────────┴──────────┴────────────╯
 ```
 
 ## Usage
@@ -84,8 +99,8 @@ Should show:
 
 Export local database and push to remote:
 
-```
-sync(operation: "export", message: "Update from laptop")
+```sh
+c5t sync export -m "Update from laptop"
 ```
 
 This:
@@ -94,12 +109,28 @@ This:
 3. Commits changes with your message
 4. Pushes to remote
 
+Output:
+```
+✓ Successfully exported and pushed to remote
+
+╭─────────────┬───────╮
+│ Item        │ Count │
+├─────────────┼───────┤
+│ Repos       │ 0     │
+│ Projects    │ 1     │
+│ Task Lists  │ 2     │
+│ Tasks       │ 15    │
+│ Notes       │ 3     │
+│ Total       │ 21    │
+╰─────────────┴───────╯
+```
+
 ### Import (Pull Changes)
 
 Import changes from another machine:
 
-```
-sync(operation: "import")
+```sh
+c5t sync import
 ```
 
 This:
@@ -107,48 +138,65 @@ This:
 2. Imports JSONL files to database
 3. Uses last-write-wins for conflicts
 
+Output shows count of imported items (same format as export).
+
 ### Check Status
 
-```
-sync(operation: "status")
+```sh
+c5t sync status
 ```
 
 Returns:
 - Initialization status
 - Git repository state (clean/dirty)
-- Current branch
+- Remote URL
 - Count of entities in sync vs database
 
 ## Sync Workflow
 
 ### Single Machine Setup
 
-```
-1. sync(operation: "init", remote_url: "git@github.com:user/c5t-sync.git")
-2. Work normally (create tasks, notes, etc.)
-3. sync(operation: "export") when done for the day
+```sh
+# 1. Initialize with your private git repo
+c5t sync init git@github.com:user/c5t-sync.git
+
+# 2. Work normally (create tasks, notes, etc.)
+c5t task create --list-id abc123 --content "Fix bug"
+
+# 3. Export when done for the day
+c5t sync export -m "End of day backup"
 ```
 
 ### Multi-Machine Setup
 
 **Machine A** (initial setup):
-```
-1. sync(operation: "init", remote_url: "git@github.com:user/c5t-sync.git")
-2. sync(operation: "export")  # Push existing data
+```sh
+# Initialize and push existing data
+c5t sync init git@github.com:user/c5t-sync.git
+c5t sync export -m "Initial sync from Machine A"
 ```
 
 **Machine B** (new machine):
-```
-1. sync(operation: "init", remote_url: "git@github.com:user/c5t-sync.git")
-2. sync(operation: "import")  # Pull data from Machine A
-3. Work normally
-4. sync(operation: "export")  # Push changes
+```sh
+# Initialize and pull data from Machine A
+c5t sync init git@github.com:user/c5t-sync.git
+c5t sync import
+
+# Work normally
+c5t task create --list-id abc123 --content "New feature"
+
+# Push changes
+c5t sync export -m "Work from Machine B"
 ```
 
 **Back on Machine A**:
-```
-1. sync(operation: "import")  # Pull changes from Machine B
-2. Continue working
+```sh
+# Pull changes from Machine B
+c5t sync import
+
+# Continue working
+c5t task update abc123 --status done
+c5t sync export -m "Updates from Machine A"
 ```
 
 ## JSONL Format
@@ -256,8 +304,8 @@ git init --bare
 ### "Sync not initialized"
 
 Run init first:
-```
-sync(operation: "init", remote_url: "your-git-url")
+```sh
+c5t sync init git@github.com:username/c5t-sync.git
 ```
 
 ### "Failed to push"

@@ -1,0 +1,261 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root[data-theme="mocha"] {
+  --ctp-base: #1e1e2e;
+  --ctp-text: #cdd6f4;
+}
+
+body {
+  background-color: var(--ctp-base);
+  color: var(--ctp-text);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Markdown content styling */
+.prose {
+  color: #cdd6f4;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: #cdd6f4;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose h1 { font-size: 2em; }
+.prose h2 { font-size: 1.5em; }
+.prose h3 { font-size: 1.25em; }
+
+.prose p {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose a {
+  color: #89b4fa;
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  color: #b4befe;
+}
+
+.prose code {
+  background-color: #313244;
+  padding: 0.2em 0.4em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: 'Courier New', monospace;
+}
+
+.prose pre {
+  background-color: #313244;
+  padding: 1em;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+.prose ul,
+.prose ol {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.prose blockquote {
+  border-left: 4px solid #89b4fa;
+  padding-left: 1em;
+  color: #a6adc8;
+  font-style: italic;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid #45475a;
+  padding: 0.5em;
+  text-align: left;
+}
+
+.prose th {
+  background-color: #313244;
+  font-weight: 600;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid #45475a;
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+
+/* Thaw UI OverlayDrawer custom styling */
+.note-detail-drawer {
+  width: 85vw !important;
+  max-width: 85vw !important;
+}
+
+.task-list-detail-drawer {
+  width: 95vw !important;
+  max-width: 95vw !important;
+}
+
+/* Dark theme for drawer - Catppuccin Mocha colors */
+.thaw-overlay-drawer {
+  background-color: #1e1e2e !important; /* ctp-base */
+}
+
+.thaw-drawer-header {
+  background-color: #181825 !important; /* ctp-mantle */
+  border-bottom: 1px solid #313244 !important; /* ctp-surface0 */
+}
+
+.thaw-drawer-body {
+  background-color: #1e1e2e !important; /* ctp-base */
+  color: #cdd6f4 !important; /* ctp-text */
+}
+
+/* Task Card Stacked Effect - indicates parent task with subtasks */
+.task-card-parent {
+  position: relative;
+}
+
+.task-card-parent::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 3px;
+  right: -3px;
+  height: 100%;
+  background: var(--ctp-surface0);
+  border-radius: 0.5rem;
+  z-index: -1;
+  opacity: 0.5;
+}
+
+.task-card-parent::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 6px;
+  right: -6px;
+  height: 100%;
+  background: var(--ctp-surface0);
+  border-radius: 0.5rem;
+  z-index: -2;
+  opacity: 0.25;
+}
+
+/* Note Preview - Compact markdown styling for note cards */
+.note-preview {
+  max-width: none;
+}
+
+.note-preview h1,
+.note-preview h2,
+.note-preview h3,
+.note-preview h4,
+.note-preview h5,
+.note-preview h6 {
+  font-size: 0.875rem; /* Same as parent text-sm */
+  font-weight: 600;
+  margin: 0.25em 0;
+  color: #bac2de; /* Slightly brighter than subtext0 */
+}
+
+.note-preview p {
+  margin: 0.25em 0;
+  font-size: 0.875rem;
+}
+
+.note-preview ul,
+.note-preview ol {
+  margin: 0.25em 0;
+  padding-left: 1.5em;
+  font-size: 0.875rem;
+  list-style-position: outside;
+}
+
+.note-preview ul {
+  list-style-type: disc;
+}
+
+.note-preview ol {
+  list-style-type: decimal;
+}
+
+.note-preview li {
+  margin: 0.125em 0;
+  padding-left: 0.25em;
+}
+
+.note-preview code {
+  background-color: #313244;
+  padding: 0.125em 0.25em;
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-family: 'Courier New', monospace;
+}
+
+.note-preview pre {
+  display: none; /* Hide code blocks in preview */
+}
+
+.note-preview blockquote {
+  border-left: 2px solid #89b4fa;
+  padding-left: 0.5em;
+  margin: 0.25em 0 0.25em 0.5em;
+  font-style: italic;
+}
+
+.note-preview a {
+  color: #89b4fa;
+  text-decoration: none;
+}
+
+.note-preview strong,
+.note-preview b {
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.note-preview em,
+.note-preview i {
+  font-style: italic;
+}
+
+.note-preview table {
+  display: none; /* Hide tables in preview */
+}
+
+.note-preview hr {
+  display: none; /* Hide horizontal rules in preview */
+}

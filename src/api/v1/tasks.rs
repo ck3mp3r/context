@@ -29,15 +29,17 @@ pub struct TaskResponse {
     pub list_id: String,
     pub parent_id: Option<String>,
     #[schema(example = "Complete the feature")]
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     #[schema(example = "in_progress")]
     pub status: String,
     pub priority: Option<i32>,
     #[schema(example = json!(["urgent", "bug-fix"]))]
     pub tags: Vec<String>,
-    pub created_at: String,
+    pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 impl From<Task> for TaskResponse {
@@ -46,7 +48,8 @@ impl From<Task> for TaskResponse {
             id: t.id,
             list_id: t.list_id,
             parent_id: t.parent_id,
-            content: t.content,
+            title: t.title,
+            description: t.description,
             status: match t.status {
                 TaskStatus::Backlog => "backlog",
                 TaskStatus::Todo => "todo",
@@ -61,6 +64,7 @@ impl From<Task> for TaskResponse {
             created_at: t.created_at,
             started_at: t.started_at,
             completed_at: t.completed_at,
+            updated_at: t.updated_at,
         }
     }
 }
@@ -68,17 +72,17 @@ impl From<Task> for TaskResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
     #[schema(example = "Complete the feature")]
-    pub content: String,
+    pub title: String,
+    pub description: Option<String>,
     pub parent_id: Option<String>,
-    #[schema(example = "backlog")]
-    pub status: Option<String>,
     pub priority: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTaskRequest {
-    #[schema(example = "Updated content")]
-    pub content: String,
+    #[schema(example = "Updated title")]
+    pub title: String,
+    pub description: Option<String>,
     #[schema(example = "done")]
     pub status: Option<String>,
     pub priority: Option<i32>,
@@ -90,9 +94,11 @@ pub struct UpdateTaskRequest {
 /// Patch task request DTO (partial update)
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct PatchTaskRequest {
-    /// Task content/description
-    #[schema(example = "Updated content")]
-    pub content: Option<String>,
+    /// Task title
+    #[schema(example = "Updated title")]
+    pub title: Option<String>,
+    /// Task description
+    pub description: Option<String>,
     /// Task status (auto-manages started_at and completed_at timestamps)
     #[schema(example = "done")]
     pub status: Option<String>,
@@ -103,12 +109,18 @@ pub struct PatchTaskRequest {
     /// Tags for categorization
     #[schema(example = json!(["urgent", "bug-fix"]))]
     pub tags: Option<Vec<String>>,
+    /// Move task to different list
+    #[schema(example = "abc123de")]
+    pub list_id: Option<String>,
 }
 
 impl PatchTaskRequest {
     fn merge_into(self, target: &mut Task) {
-        if let Some(content) = self.content {
-            target.content = content;
+        if let Some(title) = self.title {
+            target.title = title;
+        }
+        if let Some(description) = self.description {
+            target.description = Some(description);
         }
         if let Some(status_str) = self.status
             && let Ok(status) = status_str.parse()
@@ -123,6 +135,9 @@ impl PatchTaskRequest {
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
+        }
+        if let Some(list_id) = self.list_id {
+            target.list_id = list_id;
         }
     }
 }
@@ -147,6 +162,11 @@ pub struct ListTasksQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Filter by task type: "task" (top-level only) or "subtask" (only subtasks)
+    /// Omit to return both tasks and subtasks (default)
+    #[param(example = "task")]
+    #[serde(rename = "type")]
+    pub task_type: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -163,7 +183,7 @@ pub struct PaginatedTasks {
 
 #[utoipa::path(
     get,
-    path = "/v1/task-lists/{list_id}/tasks",
+    path = "/api/v1/task-lists/{list_id}/tasks",
     tag = "tasks",
     params(
         ("list_id" = String, Path, description = "TaskList ID"),
@@ -196,6 +216,7 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
         parent_id: query.parent_id.clone(),
         status: query.status.clone(),
         tags: None,
+        task_type: query.task_type.clone(),
     };
 
     let result = state
@@ -224,7 +245,7 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     get,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     responses(
@@ -258,7 +279,7 @@ pub async fn get_task<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     post,
-    path = "/v1/task-lists/{list_id}/tasks",
+    path = "/api/v1/task-lists/{list_id}/tasks",
     tag = "tasks",
     params(("list_id" = String, Path, description = "TaskList ID")),
     request_body = CreateTaskRequest,
@@ -273,30 +294,19 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
     Path(list_id): Path<String>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let status = req
-        .status
-        .as_deref()
-        .map(parse_status)
-        .unwrap_or(TaskStatus::Backlog);
-
-    let started_at = if matches!(status, TaskStatus::InProgress) {
-        Some(current_timestamp())
-    } else {
-        None
-    };
-
-    // Create task with placeholder values - repository will generate ID and timestamp
     let task = Task {
         id: String::new(), // Repository will generate this
         list_id,
         parent_id: req.parent_id,
-        content: req.content,
-        status,
+        title: req.title,
+        description: req.description,
+        status: TaskStatus::Backlog,
         priority: req.priority,
         tags: vec![],
-        created_at: String::new(), // Repository will generate this
-        started_at,
+        created_at: None, // Repository will generate this
+        started_at: None,
         completed_at: None,
+        updated_at: None, // Repository will generate this
     };
 
     let created_task = state.db().tasks().create(&task).await.map_err(|e| {
@@ -313,7 +323,7 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     put,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     request_body = UpdateTaskRequest,
@@ -344,7 +354,8 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
         ),
     })?;
 
-    task.content = req.content;
+    task.title = req.title;
+    task.description = req.description;
     task.priority = req.priority;
     task.tags = req.tags;
 
@@ -382,7 +393,7 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
 /// Auto-manages started_at and completed_at timestamps based on status transitions.
 #[utoipa::path(
     patch,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     request_body = PatchTaskRequest,
@@ -442,7 +453,7 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     delete,
-    path = "/v1/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "Task ID")),
     responses(

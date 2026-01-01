@@ -52,7 +52,7 @@ async fn list_task_lists_initially_empty() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -76,11 +76,11 @@ async fn list_task_lists_with_pagination() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/task-lists")
+                    .uri("/api/v1/task-lists")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(
-                            &json!({"name": format!("List {}", i), "project_id": "test0000"}),
+                            &json!({"title": format!("List {}", i), "project_id": "test0000"}),
                         )
                         .unwrap(),
                     ))
@@ -95,7 +95,7 @@ async fn list_task_lists_with_pagination() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists?limit=2&offset=0")
+                .uri("/api/v1/task-lists?limit=2&offset=0")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -112,7 +112,7 @@ async fn list_task_lists_with_pagination() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists?limit=2&offset=4")
+                .uri("/api/v1/task-lists?limit=2&offset=4")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -132,11 +132,11 @@ async fn list_task_lists_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Work Tasks",
+                        "title": "Work Tasks",
                         "tags": ["work", "urgent"],
                         "project_id": "test0000"
                     }))
@@ -151,11 +151,11 @@ async fn list_task_lists_with_tag_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Personal Tasks",
+                        "title": "Personal Tasks",
                         "tags": ["personal"],
                         "project_id": "test0000"
                     }))
@@ -170,7 +170,7 @@ async fn list_task_lists_with_tag_filter() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists?tags=work")
+                .uri("/api/v1/task-lists?tags=work")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -179,7 +179,7 @@ async fn list_task_lists_with_tag_filter() {
 
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
-    assert_eq!(body["items"][0]["name"], "Work Tasks");
+    assert_eq!(body["items"][0]["title"], "Work Tasks");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -192,10 +192,10 @@ async fn list_task_lists_with_ordering() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/task-lists")
+                    .uri("/api/v1/task-lists")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::to_vec(&json!({"name": name, "project_id": "test0000"}))
+                        serde_json::to_vec(&json!({"title": name, "project_id": "test0000"}))
                             .unwrap(),
                     ))
                     .unwrap(),
@@ -204,12 +204,12 @@ async fn list_task_lists_with_ordering() {
             .unwrap();
     }
 
-    // Sort by name ascending
+    // Sort by title ascending
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists?sort=name&order=asc")
+                .uri("/api/v1/task-lists?sort=title&order=asc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -218,15 +218,15 @@ async fn list_task_lists_with_ordering() {
 
     let body = json_body(response).await;
     let items = body["items"].as_array().unwrap();
-    assert_eq!(items[0]["name"], "Apple");
-    assert_eq!(items[1]["name"], "Mango");
-    assert_eq!(items[2]["name"], "Zebra");
+    assert_eq!(items[0]["title"], "Apple");
+    assert_eq!(items[1]["title"], "Mango");
+    assert_eq!(items[2]["title"], "Zebra");
 
-    // Sort by name descending
+    // Sort by title descending
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists?sort=name&order=desc")
+                .uri("/api/v1/task-lists?sort=title&order=desc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -235,7 +235,7 @@ async fn list_task_lists_with_ordering() {
 
     let body = json_body(response).await;
     let items = body["items"].as_array().unwrap();
-    assert_eq!(items[0]["name"], "Zebra");
+    assert_eq!(items[0]["title"], "Zebra");
 }
 
 // =============================================================================
@@ -250,11 +250,11 @@ async fn create_task_list_returns_created() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Sprint 1",
+                        "title": "Sprint 1",
                         "description": "First sprint tasks",
                         "tags": ["work", "urgent"],
                         "external_ref": "JIRA-123",
@@ -270,7 +270,7 @@ async fn create_task_list_returns_created() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["name"], "Sprint 1");
+    assert_eq!(body["title"], "Sprint 1");
     assert_eq!(body["description"], "First sprint tasks");
     assert_eq!(body["tags"], json!(["work", "urgent"]));
     assert_eq!(body["external_ref"], "JIRA-123");
@@ -286,10 +286,10 @@ async fn create_task_list_minimal() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Quick List", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "Quick List", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -300,7 +300,7 @@ async fn create_task_list_minimal() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = json_body(response).await;
-    assert_eq!(body["name"], "Quick List");
+    assert_eq!(body["title"], "Quick List");
     assert!(body["description"].is_null());
     assert_eq!(body["tags"], json!([]));
 }
@@ -319,10 +319,10 @@ async fn get_task_list_returns_task_list() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Test List", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "Test List", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -337,7 +337,7 @@ async fn get_task_list_returns_task_list() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}", id))
+                .uri(format!("/api/v1/task-lists/{}", id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -347,7 +347,7 @@ async fn get_task_list_returns_task_list() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
     assert_eq!(body["id"], id);
-    assert_eq!(body["name"], "Test List");
+    assert_eq!(body["title"], "Test List");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -357,7 +357,7 @@ async fn get_task_list_not_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/v1/task-lists/nonexist")
+                .uri("/api/v1/task-lists/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -377,7 +377,7 @@ async fn get_task_list_loads_relationships() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -399,11 +399,11 @@ async fn get_task_list_loads_relationships() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Test List with Relationships",
+                        "title": "Test List with Relationships",
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -422,11 +422,11 @@ async fn get_task_list_loads_relationships() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/task-lists/{}", list_id))
+                .uri(format!("/api/v1/task-lists/{}", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Test List with Relationships",
+                        "title": "Test List with Relationships",
                         "repo_ids": [repo_id],
                         "project_id": "test0000"
                     }))
@@ -443,7 +443,7 @@ async fn get_task_list_loads_relationships() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}", list_id))
+                .uri(format!("/api/v1/task-lists/{}", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -476,10 +476,10 @@ async fn update_task_list_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Original", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "Original", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -495,11 +495,11 @@ async fn update_task_list_returns_updated() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/task-lists/{}", id))
+                .uri(format!("/api/v1/task-lists/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Updated",
+                        "title": "Updated",
                         "description": "Now with description",
                         "status": "archived"
                     }))
@@ -512,7 +512,7 @@ async fn update_task_list_returns_updated() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(body["name"], "Updated");
+    assert_eq!(body["title"], "Updated");
     assert_eq!(body["description"], "Now with description");
     assert_eq!(body["status"], "archived");
 }
@@ -525,10 +525,10 @@ async fn update_task_list_not_found() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/v1/task-lists/nonexist")
+                .uri("/api/v1/task-lists/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "Wont Work", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "Wont Work", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -553,10 +553,10 @@ async fn delete_task_list_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"name": "To Delete", "project_id": "test0000"}))
+                    serde_json::to_vec(&json!({"title": "To Delete", "project_id": "test0000"}))
                         .unwrap(),
                 ))
                 .unwrap(),
@@ -573,7 +573,7 @@ async fn delete_task_list_returns_no_content() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/task-lists/{}", id))
+                .uri(format!("/api/v1/task-lists/{}", id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -586,7 +586,7 @@ async fn delete_task_list_returns_no_content() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/v1/task-lists/{}", id))
+                .uri(format!("/api/v1/task-lists/{}", id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -604,7 +604,7 @@ async fn delete_task_list_not_found() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/v1/task-lists/nonexist")
+                .uri("/api/v1/task-lists/nonexist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -624,7 +624,7 @@ async fn update_task_list_handles_relationships() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -645,7 +645,7 @@ async fn update_task_list_handles_relationships() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -667,11 +667,11 @@ async fn update_task_list_handles_relationships() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "name": "Personal Tasks",
+                        "title": "Personal Tasks",
                         "tags": ["personal"],
                         "project_id": "test0000"
                     })
@@ -689,11 +689,11 @@ async fn update_task_list_handles_relationships() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/v1/task-lists/{}", task_list_id))
+                .uri(format!("/api/v1/task-lists/{}", task_list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "name": "Updated TaskList with Relationships",
+                        "title": "Updated TaskList with Relationships",
                         "description": "Testing relationship updates",
                         "repo_ids": [repo_id],
                         "project_id": project_id
@@ -709,7 +709,7 @@ async fn update_task_list_handles_relationships() {
     let body = json_body(response).await;
 
     // Verify the task list was updated
-    assert_eq!(body["name"], "Updated TaskList with Relationships");
+    assert_eq!(body["title"], "Updated TaskList with Relationships");
     assert_eq!(body["description"], "Testing relationship updates");
 
     // Verify relationships are included and correct
@@ -737,11 +737,11 @@ async fn patch_task_list_partial_name_update() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Original Name",
+                        "title": "Original Name",
                         "description": "Original Description",
                         "tags": ["original", "tag"],
                         "project_id": "test0000"
@@ -761,11 +761,11 @@ async fn patch_task_list_partial_name_update() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/task-lists/{}", id))
+                .uri(format!("/api/v1/task-lists/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Updated Name"
+                        "title": "Updated Name"
                     }))
                     .unwrap(),
                 ))
@@ -778,7 +778,7 @@ async fn patch_task_list_partial_name_update() {
     let body = json_body(response).await;
 
     // Name should be updated
-    assert_eq!(body["name"], "Updated Name");
+    assert_eq!(body["title"], "Updated Name");
 
     // Other fields should remain unchanged
     assert_eq!(body["description"], "Original Description");
@@ -795,11 +795,11 @@ async fn patch_task_list_status_to_archived_sets_archived_at() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Active List",
+                        "title": "Active List",
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -821,7 +821,7 @@ async fn patch_task_list_status_to_archived_sets_archived_at() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/task-lists/{}", id))
+                .uri(format!("/api/v1/task-lists/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -853,11 +853,11 @@ async fn patch_task_list_not_found() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri("/v1/task-lists/nonexist")
+                .uri("/api/v1/task-lists/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Won't Work"
+                        "title": "Won't Work"
                     }))
                     .unwrap(),
                 ))
@@ -867,6 +867,284 @@ async fn patch_task_list_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// =============================================================================
+// GET /v1/task-lists?project_id=X - Filter by Project
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_task_lists_filtered_by_project_id() {
+    let app = test_app().await;
+
+    // Create two projects
+    let project_a_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A",
+                        "description": "First project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_a_body = json_body(project_a_response).await;
+    let project_a_id = project_a_body["id"].as_str().unwrap();
+
+    let project_b_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B",
+                        "description": "Second project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_b_body = json_body(project_b_response).await;
+    let project_b_id = project_b_body["id"].as_str().unwrap();
+
+    // Create task lists: 2 for project A, 1 for project B
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A - Sprint 1",
+                        "project_id": project_a_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project A - Sprint 2",
+                        "project_id": project_a_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B - Sprint 1",
+                        "project_id": project_b_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id for Project A
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/task-lists?project_id={}", project_a_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned items belong to Project A
+    for item in body["items"].as_array().unwrap() {
+        assert_eq!(item["project_id"], project_a_id);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_task_lists_filtered_by_nonexistent_project() {
+    let app = test_app().await;
+
+    // Create a task list with the default project
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Some Task List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by a non-existent project_id
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?project_id=nonexist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 0);
+    assert!(body["items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_task_lists_filtered_by_project_id_and_tags() {
+    let app = test_app().await;
+
+    // Create a project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let project_body = json_body(project_response).await;
+    let project_id = project_body["id"].as_str().unwrap();
+
+    // Create task lists with various tag combinations
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Work List",
+                        "tags": ["work", "urgent"],
+                        "project_id": project_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Personal List",
+                        "tags": ["personal"],
+                        "project_id": project_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Different Project Work",
+                        "tags": ["work"],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Filter by project_id AND tags=work
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists?project_id={}&tags=work",
+                    project_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Work List");
+    assert_eq!(body["items"][0]["project_id"], project_id);
 }
 
 // =============================================================================
@@ -883,7 +1161,7 @@ async fn patch_task_list_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/projects")
+                .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -905,7 +1183,7 @@ async fn patch_task_list_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/repos")
+                .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -927,11 +1205,11 @@ async fn patch_task_list_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/task-lists")
+                .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Test List",
+                        "title": "Test List",
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -953,7 +1231,7 @@ async fn patch_task_list_link_to_project_and_repo() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/task-lists/{}", list_id))
+                .uri(format!("/api/v1/task-lists/{}", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -974,4 +1252,116 @@ async fn patch_task_list_link_to_project_and_repo() {
     assert_eq!(body["project_id"], project_id);
     assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["repo_ids"][0], repo_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_task_list_stats_returns_counts_by_status() {
+    let app = test_app().await;
+
+    // Create task list
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Stats Test List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let list_body = json_body(create_response).await;
+    let list_id = list_body["id"].as_str().unwrap();
+
+    // Create tasks with different statuses
+    for (i, status) in [
+        "backlog",
+        "todo",
+        "todo",
+        "in_progress",
+        "done",
+        "done",
+        "done",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let create_task_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "title": format!("Task {}", i)
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            create_task_response.status(),
+            StatusCode::CREATED,
+            "Failed to create task {}",
+            i
+        );
+
+        let task_body = json_body(create_task_response).await;
+        let task_id = task_body["id"].as_str().unwrap();
+
+        // Update to desired status (skip backlog as it's default)
+        if *status != "backlog" {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PATCH")
+                        .uri(format!("/api/v1/tasks/{}", task_id))
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::to_vec(&json!({"status": status})).unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+    }
+
+    // Get stats
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/task-lists/{}/stats", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+
+    assert_eq!(body["list_id"], list_id);
+    assert_eq!(body["total"], 7);
+    assert_eq!(body["backlog"], 1);
+    assert_eq!(body["todo"], 2);
+    assert_eq!(body["in_progress"], 1);
+    assert_eq!(body["review"], 0);
+    assert_eq!(body["done"], 3);
+    assert_eq!(body["cancelled"], 0);
 }

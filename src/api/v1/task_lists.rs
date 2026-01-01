@@ -14,7 +14,7 @@ use crate::api::AppState;
 use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
-    TaskListStatus,
+    TaskListStatus, TaskRepository, TaskStats,
 };
 
 use super::ErrorResponse;
@@ -28,7 +28,7 @@ pub struct TaskListResponse {
     #[schema(example = "a1b2c3d4")]
     pub id: String,
     #[schema(example = "Sprint 1")]
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
@@ -48,7 +48,7 @@ impl From<TaskList> for TaskListResponse {
     fn from(t: TaskList) -> Self {
         Self {
             id: t.id,
-            name: t.name,
+            title: t.title,
             description: t.description,
             notes: t.notes,
             tags: t.tags,
@@ -69,7 +69,7 @@ impl From<TaskList> for TaskListResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTaskListRequest {
     #[schema(example = "Sprint 1")]
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     #[serde(default)]
@@ -82,7 +82,7 @@ pub struct CreateTaskListRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTaskListRequest {
     #[schema(example = "Sprint 1")]
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     #[serde(default)]
@@ -100,7 +100,7 @@ pub struct UpdateTaskListRequest {
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct PatchTaskListRequest {
     #[schema(example = "Sprint 1")]
-    pub name: Option<String>,
+    pub title: Option<String>,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -115,8 +115,8 @@ pub struct PatchTaskListRequest {
 
 impl PatchTaskListRequest {
     fn merge_into(self, target: &mut TaskList) {
-        if let Some(name) = self.name {
-            target.name = name;
+        if let Some(title) = self.title {
+            target.title = title;
         }
         if let Some(description) = self.description {
             target.description = Some(description);
@@ -152,6 +152,9 @@ pub struct ListTaskListsQuery {
     /// Filter by status (active, archived)
     #[param(example = "active")]
     pub status: Option<String>,
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -164,6 +167,41 @@ pub struct ListTaskListsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TaskStatsResponse {
+    #[schema(example = "a1b2c3d4")]
+    pub list_id: String,
+    #[schema(example = 15)]
+    pub total: usize,
+    #[schema(example = 3)]
+    pub backlog: usize,
+    #[schema(example = 5)]
+    pub todo: usize,
+    #[schema(example = 4)]
+    pub in_progress: usize,
+    #[schema(example = 1)]
+    pub review: usize,
+    #[schema(example = 2)]
+    pub done: usize,
+    #[schema(example = 0)]
+    pub cancelled: usize,
+}
+
+impl From<TaskStats> for TaskStatsResponse {
+    fn from(stats: TaskStats) -> Self {
+        Self {
+            list_id: stats.list_id,
+            total: stats.total,
+            backlog: stats.backlog,
+            todo: stats.todo,
+            in_progress: stats.in_progress,
+            review: stats.review,
+            done: stats.done,
+            cancelled: stats.cancelled,
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -180,7 +218,7 @@ pub struct PaginatedTaskLists {
 
 #[utoipa::path(
     get,
-    path = "/v1/task-lists",
+    path = "/api/v1/task-lists",
     tag = "task-lists",
     params(ListTaskListsQuery),
     responses(
@@ -214,6 +252,7 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
         },
         status: query.status.clone(),
         tags,
+        project_id: query.project_id.clone(),
     };
 
     let result = state
@@ -246,7 +285,7 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     get,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(
@@ -285,7 +324,7 @@ pub async fn get_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     post,
-    path = "/v1/task-lists",
+    path = "/api/v1/task-lists",
     tag = "task-lists",
     request_body = CreateTaskListRequest,
     responses(
@@ -301,7 +340,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
     // Create task list with placeholder values - repository will generate ID and timestamps
     let list = TaskList {
         id: String::new(), // Repository will generate this
-        name: req.name,
+        title: req.title,
         description: req.description,
         notes: req.notes,
         tags: req.tags,
@@ -331,7 +370,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     put,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     request_body = UpdateTaskListRequest,
@@ -367,7 +406,7 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
             ),
         })?;
 
-    list.name = req.name;
+    list.title = req.title;
     list.description = req.description;
     list.notes = req.notes;
     list.tags = req.tags;
@@ -401,7 +440,7 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     patch,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     request_body = PatchTaskListRequest,
@@ -466,7 +505,7 @@ pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync>(
 
 #[utoipa::path(
     delete,
-    path = "/v1/task-lists/{id}",
+    path = "/api/v1/task-lists/{id}",
     tag = "task-lists",
     params(("id" = String, Path, description = "TaskList ID")),
     responses(
@@ -501,6 +540,44 @@ pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
         })?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Get task statistics for a task list
+#[utoipa::path(
+    get,
+    path = "/api/v1/task-lists/{id}/stats",
+    tag = "task-lists",
+    params(("id" = String, Path, description = "TaskList ID")),
+    responses(
+        (status = 200, description = "Task statistics retrieved", body = TaskStatsResponse),
+        (status = 404, description = "TaskList not found", body = ErrorResponse),
+        (status = 500, description = "Server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn get_task_list_stats<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskStatsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+    let tasks = db.tasks();
+
+    let stats: TaskStats = tasks.get_stats_for_list(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("TaskList '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    Ok(Json(stats.into()))
 }
 
 // =============================================================================

@@ -8,6 +8,7 @@ mod helpers;
 mod note;
 mod project;
 mod repo;
+mod sync;
 mod task;
 mod task_list;
 
@@ -22,11 +23,14 @@ mod project_test;
 #[cfg(test)]
 mod repo_test;
 #[cfg(test)]
+mod sync_test;
+#[cfg(test)]
 mod task_test;
 
 pub use connection::SqliteDatabase;
 pub use note::SqliteNoteRepository;
 pub use project::SqliteProjectRepository;
 pub use repo::SqliteRepoRepository;
+pub use sync::SqliteSyncRepository;
 pub use task::SqliteTaskRepository;
 pub use task_list::SqliteTaskListRepository;

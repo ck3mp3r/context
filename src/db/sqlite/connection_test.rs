@@ -52,18 +52,21 @@ async fn migrate_creates_all_tables() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn migrate_creates_default_project() {
+async fn migrate_creates_tables() {
     let db = SqliteDatabase::in_memory()
         .await
         .expect("Failed to create in-memory database");
     db.migrate().expect("Migration should succeed");
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project WHERE title = 'Default'")
-        .fetch_one(db.pool())
-        .await
-        .expect("Query should succeed");
+    // Verify core tables exist
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('project', 'task', 'task_list', 'note', 'repo')"
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("Query should succeed");
 
-    assert_eq!(count, 1, "Default project should exist after migration");
+    assert_eq!(tables.len(), 5, "Should have 5 core tables");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -76,13 +79,15 @@ async fn migrate_is_idempotent() {
     db.migrate().expect("First migration should succeed");
     db.migrate().expect("Second migration should succeed");
 
-    // Should still have exactly one Default project
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project WHERE title = 'Default'")
-        .fetch_one(db.pool())
-        .await
-        .expect("Query should succeed");
+    // Verify tables still exist
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='project'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("Query should succeed");
 
-    assert_eq!(count, 1, "Should have exactly one Default project");
+    assert_eq!(count, 1, "Project table should exist exactly once");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -18,7 +18,7 @@ struct ListTaskListsResponse {
 
 #[derive(Debug, Serialize)]
 struct CreateTaskListRequest {
-    name: String,
+    title: String,
     project_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
@@ -30,7 +30,7 @@ struct CreateTaskListRequest {
 
 #[derive(Debug, Serialize)]
 struct UpdateTaskListRequest {
-    name: String, // Name is required for update API
+    title: String, // Title is required for update API
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +42,7 @@ struct UpdateTaskListRequest {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskList {
     pub id: String,
-    pub name: String,
+    pub title: String,
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -59,8 +59,8 @@ pub struct TaskList {
 struct TaskListDisplay {
     #[tabled(rename = "ID")]
     id: String,
-    #[tabled(rename = "Name")]
-    name: String,
+    #[tabled(rename = "Title")]
+    title: String,
     #[tabled(rename = "Project")]
     project_id: String,
     #[tabled(rename = "Status")]
@@ -73,7 +73,7 @@ impl From<&TaskList> for TaskListDisplay {
     fn from(task_list: &TaskList) -> Self {
         Self {
             id: task_list.id.clone(),
-            name: truncate_with_ellipsis(&task_list.name, 40),
+            title: truncate_with_ellipsis(&task_list.title, 40),
             project_id: task_list.project_id.clone(),
             status: task_list.status.clone(),
             tags: format_tags(task_list.tags.as_ref()),
@@ -95,14 +95,18 @@ fn format_table(task_lists: &[TaskList]) -> String {
 /// List task lists with optional filtering
 pub async fn list_task_lists(
     api_client: &ApiClient,
+    project_id: Option<&str>,
     status: Option<&str>,
     tags: Option<&str>,
     limit: Option<u32>,
     offset: Option<u32>,
     format: &str,
 ) -> CliResult<String> {
-    let mut request = api_client.get("/v1/task-lists");
+    let mut request = api_client.get("/api/v1/task-lists");
 
+    if let Some(p) = project_id {
+        request = request.query(&[("project_id", p)]);
+    }
     if let Some(s) = status {
         request = request.query(&[("status", s)]);
     }
@@ -127,7 +131,7 @@ pub async fn list_task_lists(
 /// Get a single task list by ID
 pub async fn get_task_list(api_client: &ApiClient, id: &str, format: &str) -> CliResult<String> {
     let response = api_client
-        .get(&format!("/v1/task-lists/{}", id))
+        .get(&format!("/api/v1/task-lists/{}", id))
         .send()
         .await?;
 
@@ -141,7 +145,7 @@ pub async fn get_task_list(api_client: &ApiClient, id: &str, format: &str) -> Cl
             let mut builder = Builder::default();
             builder.push_record(["Field", "Value"]);
             builder.push_record(["ID", &task_list.id]);
-            builder.push_record(["Name", &task_list.name]);
+            builder.push_record(["Title", &task_list.title]);
             builder.push_record([
                 "Description",
                 task_list.description.as_deref().unwrap_or("-"),
@@ -166,14 +170,14 @@ pub async fn get_task_list(api_client: &ApiClient, id: &str, format: &str) -> Cl
 /// Create a new task list
 pub async fn create_task_list(
     api_client: &ApiClient,
-    name: &str,
+    title: &str,
     project_id: &str,
     description: Option<&str>,
     tags: Option<&str>,
     repo_ids: Option<&str>,
 ) -> CliResult<String> {
     let request_body = CreateTaskListRequest {
-        name: name.to_string(),
+        title: title.to_string(),
         project_id: project_id.to_string(),
         description: description.map(|s| s.to_string()),
         tags: parse_tags(tags),
@@ -185,7 +189,7 @@ pub async fn create_task_list(
     };
 
     let response = api_client
-        .post("/v1/task-lists")
+        .post("/api/v1/task-lists")
         .json(&request_body)
         .send()
         .await?;
@@ -193,7 +197,7 @@ pub async fn create_task_list(
     let task_list: TaskList = ApiClient::handle_response(response).await?;
     Ok(format!(
         "✓ Created task list: {} ({})",
-        task_list.name, task_list.id
+        task_list.title, task_list.id
     ))
 }
 
@@ -201,32 +205,32 @@ pub async fn create_task_list(
 pub async fn update_task_list(
     api_client: &ApiClient,
     id: &str,
-    name: Option<&str>,
+    title: Option<&str>,
     description: Option<&str>,
     status: Option<&str>,
     tags: Option<&str>,
 ) -> CliResult<String> {
-    // For update, we need to get the current name if not provided (API requires name field)
-    let current_name = if name.is_none() {
+    // For update, we need to get the current title if not provided (API requires title field)
+    let current_title = if let Some(t) = title {
+        t.to_string()
+    } else {
         let response = api_client
-            .get(&format!("/v1/task-lists/{}", id))
+            .get(&format!("/api/v1/task-lists/{}", id))
             .send()
             .await?;
         let task_list: TaskList = ApiClient::handle_response(response).await?;
-        task_list.name
-    } else {
-        name.unwrap().to_string()
+        task_list.title
     };
 
     let request_body = UpdateTaskListRequest {
-        name: current_name,
+        title: current_title,
         description: description.map(|s| s.to_string()),
         status: status.map(|s| s.to_string()),
         tags: parse_tags(tags),
     };
 
     let response = api_client
-        .patch(&format!("/v1/task-lists/{}", id))
+        .patch(&format!("/api/v1/task-lists/{}", id))
         .json(&request_body)
         .send()
         .await?;
@@ -234,7 +238,7 @@ pub async fn update_task_list(
     let task_list: TaskList = ApiClient::handle_response(response).await?;
     Ok(format!(
         "✓ Updated task list: {} ({})",
-        task_list.name, task_list.id
+        task_list.title, task_list.id
     ))
 }
 
@@ -248,7 +252,7 @@ pub async fn delete_task_list(api_client: &ApiClient, id: &str, force: bool) -> 
     }
 
     let response = api_client
-        .delete(&format!("/v1/task-lists/{}", id))
+        .delete(&format!("/api/v1/task-lists/{}", id))
         .send()
         .await?;
 
@@ -292,7 +296,7 @@ mod tests {
     fn test_task_list_display_from() {
         let task_list = TaskList {
             id: "abc12345".to_string(),
-            name: "Test Task List".to_string(),
+            title: "Test Task List".to_string(),
             description: Some("Description".to_string()),
             notes: None,
             tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
@@ -307,7 +311,7 @@ mod tests {
 
         let display = TaskListDisplay::from(&task_list);
         assert_eq!(display.id, "abc12345");
-        assert_eq!(display.name, "Test Task List");
+        assert_eq!(display.title, "Test Task List");
         assert_eq!(display.project_id, "proj1234");
         assert_eq!(display.status, "active");
         assert_eq!(display.tags, "tag1, tag2");
@@ -323,7 +327,7 @@ mod tests {
     fn test_format_table_with_data() {
         let task_lists = vec![TaskList {
             id: "abc12345".to_string(),
-            name: "Test".to_string(),
+            title: "Test".to_string(),
             description: None,
             notes: None,
             tags: None,
@@ -346,7 +350,7 @@ mod tests {
     #[test]
     fn test_list_task_lists_builds_correct_url() {
         let client = ApiClient::new(None);
-        let builder = client.get("/v1/task-lists");
+        let builder = client.get("/api/v1/task-lists");
         let _request = builder;
     }
 
@@ -354,14 +358,14 @@ mod tests {
     fn test_get_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.get(&format!("/v1/task-lists/{}", id));
+        let builder = client.get(&format!("/api/v1/task-lists/{}", id));
         let _request = builder;
     }
 
     #[test]
     fn test_create_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
-        let builder = client.post("/v1/task-lists");
+        let builder = client.post("/api/v1/task-lists");
         let _request = builder;
     }
 
@@ -369,7 +373,7 @@ mod tests {
     fn test_update_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.patch(&format!("/v1/task-lists/{}", id));
+        let builder = client.patch(&format!("/api/v1/task-lists/{}", id));
         let _request = builder;
     }
 
@@ -377,14 +381,14 @@ mod tests {
     fn test_delete_task_list_builds_correct_url() {
         let client = ApiClient::new(None);
         let id = "abc12345";
-        let builder = client.delete(&format!("/v1/task-lists/{}", id));
+        let builder = client.delete(&format!("/api/v1/task-lists/{}", id));
         let _request = builder;
     }
 
     #[test]
     fn test_create_request_serialization() {
         let req = CreateTaskListRequest {
-            name: "Test".to_string(),
+            title: "Test".to_string(),
             project_id: "proj1234".to_string(),
             description: Some("Desc".to_string()),
             tags: Some(vec!["tag1".to_string()]),
@@ -399,7 +403,7 @@ mod tests {
     #[test]
     fn test_update_request_serialization() {
         let req = UpdateTaskListRequest {
-            name: "Updated".to_string(),
+            title: "Updated".to_string(),
             description: Some("New desc".to_string()),
             status: Some("archived".to_string()),
             tags: Some(vec!["tag2".to_string()]),

@@ -208,6 +208,14 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_list_tools.delete_task_list(params).await
     }
 
+    #[tool(description = "Get task statistics for a task list")]
+    pub async fn get_task_list_stats(
+        &self,
+        params: Parameters<GetTaskListStatsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_list_tools.get_task_list_stats(params).await
+    }
+
     // =========================================================================
     // Task Tools
     // =========================================================================
@@ -244,12 +252,12 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_tools.update_task(params).await
     }
 
-    #[tool(description = "Mark a task as complete")]
-    pub async fn complete_task(
+    #[tool(description = "Transition task between statuses with validation")]
+    pub async fn transition_task(
         &self,
-        params: Parameters<CompleteTaskParams>,
+        params: Parameters<TransitionTaskParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.task_tools.complete_task(params).await
+        self.task_tools.transition_task(params).await
     }
 
     #[tool(description = "Delete a task")]

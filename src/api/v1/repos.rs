@@ -68,6 +68,10 @@ pub struct CreateRepoRequest {
     #[schema(example = json!(["work", "active"]))]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Linked project IDs (M:N relationship via project_repo)
+    #[schema(example = json!(["proj123a", "proj456b"]))]
+    #[serde(default)]
+    pub project_ids: Vec<String>,
 }
 
 /// Update repo request DTO
@@ -125,6 +129,9 @@ impl PatchRepoRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReposQuery {
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -159,7 +166,7 @@ pub struct PaginatedRepos {
 /// Returns a paginated list of repositories with optional sorting
 #[utoipa::path(
     get,
-    path = "/v1/repos",
+    path = "/api/v1/repos",
     tag = "repos",
     params(ListReposQuery),
     responses(
@@ -191,6 +198,7 @@ pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
             },
         },
         tags,
+        project_id: query.project_id.clone(),
     };
 
     let result = state
@@ -222,7 +230,7 @@ pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
 /// Returns a single repository by its ID
 #[utoipa::path(
     get,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -261,7 +269,7 @@ pub async fn get_repo<D: Database, G: GitOps + Send + Sync>(
 /// Registers a new repository and returns it
 #[utoipa::path(
     post,
-    path = "/v1/repos",
+    path = "/api/v1/repos",
     tag = "repos",
     request_body = CreateRepoRequest,
     responses(
@@ -280,7 +288,7 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         remote: req.remote,
         path: req.path,
         tags: req.tags,
-        project_ids: vec![], // Empty by default - relationships managed separately
+        project_ids: req.project_ids,
         created_at: String::new(), // Repository will generate this
     };
 
@@ -301,7 +309,7 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
 /// Updates an existing repository
 #[utoipa::path(
     put,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -358,7 +366,7 @@ pub async fn update_repo<D: Database, G: GitOps + Send + Sync>(
 /// Updates only the fields provided in the request (PATCH semantics)
 #[utoipa::path(
     patch,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")
@@ -413,7 +421,7 @@ pub async fn patch_repo<D: Database, G: GitOps + Send + Sync>(
 /// Deletes a repository by its ID
 #[utoipa::path(
     delete,
-    path = "/v1/repos/{id}",
+    path = "/api/v1/repos/{id}",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)")

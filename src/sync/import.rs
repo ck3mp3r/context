@@ -47,29 +47,20 @@ pub async fn import_all<D: Database>(
     db: &D,
     input_dir: &Path,
 ) -> Result<ImportSummary, ImportError> {
+    tracing::debug!("Importing all entities from {:?}", input_dir);
     let mut summary = ImportSummary::default();
 
-    // Import repos (upsert: update if exists, create if not)
-    let repos_file = input_dir.join("repos.jsonl");
-    if repos_file.exists() {
-        let repos: Vec<Repo> = read_jsonl(&repos_file)?;
-        for repo in repos {
-            // Try to get existing, if found update, otherwise create
-            match db.repos().get(&repo.id).await {
-                Ok(_existing) => {
-                    db.repos().update(&repo).await?;
-                }
-                Err(_) => {
-                    db.repos().create(&repo).await?;
-                }
-            }
-            summary.repos += 1;
-        }
-    }
+    // Import order respects foreign key dependencies:
+    // 1. Projects (no FK dependencies)
+    // 2. Repos (can reference projects)
+    // 3. Task Lists (references projects)
+    // 4. Tasks (references task_lists)
+    // 5. Notes (can reference projects and repos)
 
-    // Import projects
+    // Import projects FIRST (no dependencies)
     let projects_file = input_dir.join("projects.jsonl");
     if projects_file.exists() {
+        tracing::debug!("Importing projects");
         let projects: Vec<Project> = read_jsonl(&projects_file)?;
         for project in projects {
             match db.projects().get(&project.id).await {
@@ -82,11 +73,32 @@ pub async fn import_all<D: Database>(
             }
             summary.projects += 1;
         }
+        tracing::debug!(count = summary.projects, "Imported projects");
+    }
+
+    // Import repos SECOND (can reference projects)
+    let repos_file = input_dir.join("repos.jsonl");
+    if repos_file.exists() {
+        tracing::debug!("Importing repos");
+        let repos: Vec<Repo> = read_jsonl(&repos_file)?;
+        for repo in repos {
+            match db.repos().get(&repo.id).await {
+                Ok(_existing) => {
+                    db.repos().update(&repo).await?;
+                }
+                Err(_) => {
+                    db.repos().create(&repo).await?;
+                }
+            }
+            summary.repos += 1;
+        }
+        tracing::debug!(count = summary.repos, "Imported repos");
     }
 
     // Import task lists
     let lists_file = input_dir.join("lists.jsonl");
     if lists_file.exists() {
+        tracing::debug!("Importing task lists");
         let task_lists: Vec<TaskList> = read_jsonl(&lists_file)?;
         for task_list in task_lists {
             match db.task_lists().get(&task_list.id).await {
@@ -99,11 +111,13 @@ pub async fn import_all<D: Database>(
             }
             summary.task_lists += 1;
         }
+        tracing::debug!(count = summary.task_lists, "Imported task lists");
     }
 
     // Import tasks
     let tasks_file = input_dir.join("tasks.jsonl");
     if tasks_file.exists() {
+        tracing::debug!("Importing tasks");
         let tasks: Vec<Task> = read_jsonl(&tasks_file)?;
         for task in tasks {
             match db.tasks().get(&task.id).await {
@@ -116,11 +130,13 @@ pub async fn import_all<D: Database>(
             }
             summary.tasks += 1;
         }
+        tracing::debug!(count = summary.tasks, "Imported tasks");
     }
 
     // Import notes
     let notes_file = input_dir.join("notes.jsonl");
     if notes_file.exists() {
+        tracing::debug!("Importing notes");
         let notes: Vec<Note> = read_jsonl(&notes_file)?;
         for note in notes {
             match db.notes().get(&note.id).await {
@@ -133,8 +149,10 @@ pub async fn import_all<D: Database>(
             }
             summary.notes += 1;
         }
+        tracing::debug!(count = summary.notes, "Imported notes");
     }
 
+    tracing::info!(total = summary.total(), "Import all complete");
     Ok(summary)
 }
 
@@ -233,12 +251,12 @@ mod tests {
         // Export from db1
         let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
         assert_eq!(export_summary.repos, 1);
-        assert_eq!(export_summary.projects, 2); // 1 default + 1 test
+        assert_eq!(export_summary.projects, 1); // Just test project
 
         // Import to db2
         let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
         assert_eq!(import_summary.repos, 1);
-        assert_eq!(import_summary.projects, 2); // 1 default + 1 test
+        assert_eq!(import_summary.projects, 1); // Just test project
 
         // Verify data in db2
         let repos = db2.repos().list(None).await.unwrap();
@@ -246,12 +264,11 @@ mod tests {
         assert_eq!(repos.items[0].id, "12345678");
 
         let projects = db2.projects().list(None).await.unwrap();
-        // db2 started with 1 default project, imported 2 (including the default from db1)
-        // So now has 3: original default + imported default + imported test project
-        assert_eq!(projects.items.len(), 3);
+        // db2 has just the imported project
+        assert_eq!(projects.items.len(), 1);
 
-        // Find our imported project
-        let imported_project = projects.items.iter().find(|p| p.id == "abcdef12").unwrap();
+        // Get our imported project
+        let imported_project = &projects.items[0];
         assert_eq!(imported_project.title, "Test Project");
     }
 
@@ -302,5 +319,69 @@ mod tests {
         assert_eq!(updated_repo.remote, "https://github.com/test/repo2");
         assert_eq!(updated_repo.path, Some("/test/path2".to_string()));
         assert_eq!(updated_repo.tags, vec!["v2".to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_import_preserves_relationships() {
+        use crate::db::{Note, NoteType};
+
+        let db1 = setup_test_db().await;
+        let db2 = setup_test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create entities with relationships in db1
+        let project = Project {
+            id: "proj0001".to_string(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        db1.projects().create(&project).await.unwrap();
+
+        let repo = Repo {
+            id: "repo0001".to_string(),
+            remote: "https://github.com/test/repo".to_string(),
+            path: None,
+            tags: vec![],
+            project_ids: vec!["proj0001".to_string()],
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        db1.repos().create(&repo).await.unwrap();
+
+        let note = Note {
+            id: "note0001".to_string(),
+            title: "Test Note".to_string(),
+            content: "Test content".to_string(),
+            tags: vec![],
+            note_type: NoteType::Manual,
+            repo_ids: vec!["repo0001".to_string()],
+            project_ids: vec!["proj0001".to_string()],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        db1.notes().create(&note).await.unwrap();
+
+        // Export from db1
+        export_all(&db1, temp_dir.path()).await.unwrap();
+
+        // Import to db2
+        import_all(&db2, temp_dir.path()).await.unwrap();
+
+        // Verify relationships are preserved
+        let imported_project = db2.projects().get("proj0001").await.unwrap();
+        assert_eq!(imported_project.repo_ids, vec!["repo0001"]);
+        assert_eq!(imported_project.note_ids, vec!["note0001"]);
+
+        let imported_repo = db2.repos().get("repo0001").await.unwrap();
+        assert_eq!(imported_repo.project_ids, vec!["proj0001"]);
+
+        let imported_note = db2.notes().get("note0001").await.unwrap();
+        assert_eq!(imported_note.project_ids, vec!["proj0001"]);
+        assert_eq!(imported_note.repo_ids, vec!["repo0001"]);
     }
 }

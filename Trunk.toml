@@ -1,0 +1,26 @@
+[build]
+target = "src/frontend/assets/index.html"
+release = false
+dist = "dist"
+public_url = "/"
+filehash = true
+minify = "on_release"
+
+[watch]
+watch = ["src/frontend"]
+ignore = ["target", "dist"]
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+open = true
+no_autoreload = false
+
+[[hooks]]
+stage = "pre_build"
+command = "tailwindcss"
+command_arguments = ["-c", "./src/frontend/assets/tailwind.config.js", "-i", "./src/frontend/assets/input.css", "-o", "./src/frontend/assets/style.css"]
+
+[[proxy]]
+backend = "http://localhost:3737"
+rewrite = "/dev"

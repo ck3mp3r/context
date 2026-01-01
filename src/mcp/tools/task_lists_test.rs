@@ -1,12 +1,12 @@
 //! Tests for TaskList MCP tools
 
 use crate::db::{
-    Database, Project, ProjectRepository, SqliteDatabase, TaskList, TaskListRepository,
-    TaskListStatus,
+    Database, Project, ProjectRepository, SqliteDatabase, Task, TaskList, TaskListRepository,
+    TaskListStatus, TaskRepository, TaskStatus,
 };
 use crate::mcp::tools::task_lists::{
-    CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, ListTaskListsParams,
-    TaskListTools, UpdateTaskListParams,
+    CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,
+    ListTaskListsParams, TaskListTools, UpdateTaskListParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
@@ -22,6 +22,7 @@ async fn test_list_task_lists_empty() {
     let params = ListTaskListsParams {
         tags: None,
         status: None,
+        project_id: None,
         limit: None,
         offset: None,
         sort: None,
@@ -68,7 +69,7 @@ async fn test_create_and_get_task_list() {
 
     // Create task list
     let create_params = CreateTaskListParams {
-        name: "Sprint 1".to_string(),
+        title: "Sprint 1".to_string(),
         description: Some("First sprint".to_string()),
         notes: Some("Planning notes".to_string()),
         tags: Some(vec!["work".to_string()]),
@@ -88,7 +89,7 @@ async fn test_create_and_get_task_list() {
     };
     let created: TaskList = serde_json::from_str(content_text).unwrap();
 
-    assert_eq!(created.name, "Sprint 1");
+    assert_eq!(created.title, "Sprint 1");
     assert_eq!(created.description, Some("First sprint".to_string()));
     assert_eq!(created.notes, Some("Planning notes".to_string()));
     assert_eq!(created.tags, vec!["work".to_string()]);
@@ -115,7 +116,7 @@ async fn test_create_and_get_task_list() {
     let fetched: TaskList = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.name, "Sprint 1");
+    assert_eq!(fetched.title, "Sprint 1");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -142,7 +143,7 @@ async fn test_update_task_list() {
     // Create task list
     let list = TaskList {
         id: String::new(),
-        name: "Old Name".to_string(),
+        title: "Old Name".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -159,7 +160,7 @@ async fn test_update_task_list() {
     // Update task list
     let update_params = UpdateTaskListParams {
         id: created.id.clone(),
-        name: "New Name".to_string(),
+        title: "New Name".to_string(),
         description: Some("Updated description".to_string()),
         notes: Some("Updated notes".to_string()),
         tags: Some(vec!["updated".to_string()]),
@@ -181,7 +182,7 @@ async fn test_update_task_list() {
     let updated: TaskList = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(updated.id, created.id);
-    assert_eq!(updated.name, "New Name");
+    assert_eq!(updated.title, "New Name");
     assert_eq!(updated.description, Some("Updated description".to_string()));
     assert_eq!(updated.notes, Some("Updated notes".to_string()));
     assert_eq!(updated.tags, vec!["updated".to_string()]);
@@ -214,7 +215,7 @@ async fn test_delete_task_list() {
     // Create task list
     let list = TaskList {
         id: String::new(),
-        name: "To Delete".to_string(),
+        title: "To Delete".to_string(),
         description: None,
         notes: None,
         tags: vec![],
@@ -274,7 +275,7 @@ async fn test_list_task_lists_with_filters() {
     // Create multiple task lists with different tags and statuses
     let list1 = TaskList {
         id: String::new(),
-        name: "List 1".to_string(),
+        title: "List 1".to_string(),
         description: None,
         notes: None,
         tags: vec!["work".to_string()],
@@ -290,7 +291,7 @@ async fn test_list_task_lists_with_filters() {
 
     let list2 = TaskList {
         id: String::new(),
-        name: "List 2".to_string(),
+        title: "List 2".to_string(),
         description: None,
         notes: None,
         tags: vec!["personal".to_string()],
@@ -308,6 +309,7 @@ async fn test_list_task_lists_with_filters() {
     let params = ListTaskListsParams {
         tags: None,
         status: Some("active".to_string()),
+        project_id: None,
         limit: None,
         offset: None,
         sort: None,
@@ -326,12 +328,13 @@ async fn test_list_task_lists_with_filters() {
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(json["total"], 1);
-    assert_eq!(json["items"][0]["name"], "List 1");
+    assert_eq!(json["items"][0]["title"], "List 1");
 
     // Filter by tags=personal
     let params = ListTaskListsParams {
         tags: Some("personal".to_string()),
         status: None,
+        project_id: None,
         limit: None,
         offset: None,
         sort: None,
@@ -350,7 +353,7 @@ async fn test_list_task_lists_with_filters() {
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(json["total"], 1);
-    assert_eq!(json["items"][0]["name"], "List 2");
+    assert_eq!(json["items"][0]["title"], "List 2");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -366,4 +369,95 @@ async fn test_get_nonexistent_task_list() {
 
     let result = tools.get_task_list(Parameters(params)).await;
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_list_stats() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone());
+
+    // Create project
+    let project = Project {
+        id: String::new(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let created_project = db.projects().create(&project).await.unwrap();
+
+    // Create task list
+    let list = TaskList {
+        id: String::new(),
+        title: "Stats Test".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: created_project.id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list = db.task_lists().create(&list).await.unwrap();
+
+    // Create tasks with different statuses
+    for status in [
+        TaskStatus::Backlog,
+        TaskStatus::Todo,
+        TaskStatus::Todo,
+        TaskStatus::InProgress,
+        TaskStatus::Done,
+        TaskStatus::Done,
+        TaskStatus::Done,
+    ] {
+        let task = Task {
+            id: String::new(),
+            list_id: created_list.id.clone(),
+            parent_id: None,
+            title: format!("Task with status {:?}", status),
+            description: None,
+            status,
+            priority: None,
+            tags: vec![],
+            created_at: None,
+            started_at: None,
+            completed_at: None,
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
+        };
+        db.tasks().create(&task).await.unwrap();
+    }
+
+    // Get stats
+    let params = GetTaskListStatsParams {
+        id: created_list.id.clone(),
+    };
+
+    let result = tools
+        .get_task_list_stats(Parameters(params))
+        .await
+        .expect("get_task_list_stats should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(json["list_id"], created_list.id);
+    assert_eq!(json["total"], 7);
+    assert_eq!(json["backlog"], 1);
+    assert_eq!(json["todo"], 2);
+    assert_eq!(json["in_progress"], 1);
+    assert_eq!(json["review"], 0);
+    assert_eq!(json["done"], 3);
+    assert_eq!(json["cancelled"], 0);
 }
