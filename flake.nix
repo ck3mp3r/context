@@ -19,6 +19,7 @@
       url = "github:ck3mp3r/flakes?dir=rustnix";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.fenix.follows = "fenix";
+      inputs.devenv.follows = "devenv";
     };
   };
 
@@ -45,13 +46,16 @@
 
         # Install data for pre-built releases (will be generated during release)
         installData = {
-          aarch64-darwin = if builtins.pathExists ./data/aarch64-darwin.json
+          aarch64-darwin =
+            if builtins.pathExists ./data/aarch64-darwin.json
             then builtins.fromJSON (builtins.readFile ./data/aarch64-darwin.json)
             else {};
-          aarch64-linux = if builtins.pathExists ./data/aarch64-linux.json
+          aarch64-linux =
+            if builtins.pathExists ./data/aarch64-linux.json
             then builtins.fromJSON (builtins.readFile ./data/aarch64-linux.json)
             else {};
-          x86_64-linux = if builtins.pathExists ./data/x86_64-linux.json
+          x86_64-linux =
+            if builtins.pathExists ./data/x86_64-linux.json
             then builtins.fromJSON (builtins.readFile ./data/x86_64-linux.json)
             else {};
         };
@@ -72,6 +76,15 @@
           src = ./.;
           packageName = "context";
           archiveAndHash = false;
+          # Build-time dependencies for build.rs (Trunk for frontend compilation)
+          nativeBuildInputs = with pkgs; [
+            trunk
+            wasm-bindgen-cli
+            nodejs
+            nodePackages.tailwindcss
+          ];
+          # Additional Rust targets needed for WASM frontend
+          extraRustTargets = ["wasm32-unknown-unknown"];
         };
 
         # Build archive packages (creates archive with system name)
@@ -90,6 +103,15 @@
           src = ./.;
           packageName = "archive";
           archiveAndHash = true;
+          # Build-time dependencies for build.rs (Trunk for frontend compilation)
+          nativeBuildInputs = with pkgs; [
+            trunk
+            wasm-bindgen-cli
+            nodejs
+            nodePackages.tailwindcss
+          ];
+          # Additional Rust targets needed for WASM frontend
+          extraRustTargets = ["wasm32-unknown-unknown"];
         };
       in {
         apps = {
@@ -99,7 +121,9 @@
           };
           api = {
             type = "app";
-            program = "${config.packages.default}/bin/c5t-api";
+            program = "${pkgs.writeShellScript "c5t-api" ''
+              ${config.packages.default}/bin/c5t api "$@"
+            ''}";
           };
         };
 
