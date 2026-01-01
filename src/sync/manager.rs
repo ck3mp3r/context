@@ -19,6 +19,15 @@ use super::{
     read_jsonl,
 };
 
+/// Result of sync initialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitResult {
+    /// Sync was newly created
+    Created,
+    /// Sync was already initialized (idempotent operation)
+    AlreadyInitialized,
+}
+
 /// Errors that can occur during sync operations.
 #[derive(Error, Diagnostic, Debug)]
 pub enum SyncError {
@@ -95,8 +104,12 @@ impl<G: GitOps> SyncManager<G> {
     ///
     /// Creates the sync directory, initializes git, and optionally adds a remote.
     /// Idempotent: safe to call multiple times, won't reinitialize existing repos.
-    pub async fn init(&self, remote_url: Option<String>) -> Result<(), SyncError> {
+    ///
+    /// Returns InitResult::Created if newly initialized, InitResult::AlreadyInitialized if already set up.
+    pub async fn init(&self, remote_url: Option<String>) -> Result<InitResult, SyncError> {
         tracing::info!("Initializing sync repository at {:?}", self.sync_dir);
+
+        let was_initialized = self.is_initialized();
 
         // Create sync directory if it doesn't exist
         if !self.sync_dir.exists() {
@@ -105,7 +118,7 @@ impl<G: GitOps> SyncManager<G> {
         }
 
         // Initialize git repository only if not already initialized
-        if self.is_initialized() {
+        if was_initialized {
             tracing::info!("Git repository already initialized, skipping git init");
         } else {
             tracing::debug!("Initializing git repository");
@@ -136,8 +149,14 @@ impl<G: GitOps> SyncManager<G> {
             }
         }
 
-        tracing::info!("Sync initialization complete");
-        Ok(())
+        let result = if was_initialized {
+            InitResult::AlreadyInitialized
+        } else {
+            InitResult::Created
+        };
+
+        tracing::info!(result = ?result, "Sync initialization complete");
+        Ok(result)
     }
 
     /// Export database to JSONL and push to remote.

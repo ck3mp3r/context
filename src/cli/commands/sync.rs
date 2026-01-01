@@ -53,7 +53,10 @@ pub async fn init(api_client: &ApiClient, remote_url: Option<String>) -> CliResu
             })?;
 
     let mut output = String::new();
-    output.push_str(&format!("✓ {}\n\n", sync_response.message));
+
+    // Check if this was a new creation (201) or already initialized (200)
+    let icon = if status_code == 201 { "✓" } else { "ℹ" };
+    output.push_str(&format!("{} {}\n\n", icon, sync_response.message));
 
     if let Some(data) = &sync_response.data {
         if let Some(sync_dir) = data.get("sync_dir").and_then(|v| v.as_str()) {
