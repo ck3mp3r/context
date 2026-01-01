@@ -241,7 +241,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Create a new task (always status='backlog'). WORKFLOW: 1) create_task (backlog), 2) update_task status='in_progress' (sets started_at), 3) complete_task (sets completed_at). NEVER create and immediately complete - this loses the started_at timestamp. For subtasks use parent_id (max ONE level deep)."
+        description = "Create a new task (always status='backlog'). WORKFLOW: 1) create_task (backlog), 2) transition_task to 'in_progress' (sets started_at), 3) transition_task to 'done' (sets completed_at). Use transition_task for ALL status changes. For subtasks use parent_id (max ONE level deep)."
     )]
     pub async fn create_task(
         &self,
