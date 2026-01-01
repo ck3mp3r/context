@@ -144,8 +144,18 @@ fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
             TaskStatus::Done,
             TaskStatus::Cancelled,
         ],
-        TaskStatus::Done => vec![],      // Final state
-        TaskStatus::Cancelled => vec![], // Final state
+        TaskStatus::Done => vec![
+            TaskStatus::Backlog,
+            TaskStatus::Todo,
+            TaskStatus::InProgress,
+            TaskStatus::Review,
+        ],
+        TaskStatus::Cancelled => vec![
+            TaskStatus::Backlog,
+            TaskStatus::Todo,
+            TaskStatus::InProgress,
+            TaskStatus::Review,
+        ],
     }
 }
 
@@ -270,7 +280,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses with validation. Enforces workflow rules and sets timestamps. Valid transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled]. done and cancelled are final states. Sets started_at when transitioning to in_progress, completed_at when transitioning to done."
+        description = "Transition task between statuses with validation. Enforces workflow rules and sets timestamps. Valid transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done→[backlog,todo,in_progress,review], cancelled→[backlog,todo,in_progress,review]. Both done and cancelled can be reopened. Sets started_at when transitioning to in_progress, completed_at when transitioning to done, clears completed_at when transitioning from done."
     )]
     pub async fn transition_task(
         &self,
@@ -328,8 +338,13 @@ impl<D: Database + 'static> TaskTools<D> {
         }
 
         // Perform transition
-        let mut updated_task = task;
+        let mut updated_task = task.clone();
         updated_task.status = target_status.clone();
+
+        // Clear completed_at when transitioning FROM done to any other status
+        if task.status == TaskStatus::Done && target_status != TaskStatus::Done {
+            updated_task.completed_at = None;
+        }
 
         // Set timestamps based on target status
         match target_status {
