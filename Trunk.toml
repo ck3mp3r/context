@@ -6,6 +6,8 @@ filehash = true
 minify = "on_release"
 # Disable wasm-opt for faster builds - cargo already optimizes WASM
 wasm_opt = false
+# Use separate target directory to avoid lock contention with outer cargo build
+target_dir = "target/trunk"
 
 [watch]
 watch = ["src/frontend"]
