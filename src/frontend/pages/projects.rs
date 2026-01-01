@@ -54,17 +54,19 @@ pub fn Projects() -> impl IntoView {
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         view! {
-                                            <div class="relative bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
-                                                <div class="absolute top-2 right-2">
-                                                    <CopyableId id=project_id.clone()/>
-                                                </div>
+                                            <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
                                                     href=format!("/projects/{}", project_id)
                                                     class="flex flex-col h-full"
                                                 >
-                                                    <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">
-                                                        {project_title}
-                                                    </h3>
+                                                    <div class="flex items-start gap-2 mb-2">
+                                                        <div class="flex-shrink-0">
+                                                            <CopyableId id=project_id.clone()/>
+                                                        </div>
+                                                        <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">
+                                                            {project_title}
+                                                        </h3>
+                                                    </div>
                                                 {project_description
                                                     .as_ref()
                                                     .map(|desc| {

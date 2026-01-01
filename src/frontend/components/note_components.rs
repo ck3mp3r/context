@@ -33,10 +33,7 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     };
 
     view! {
-        <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]">
-            <div class="absolute top-2 right-2">
-                <CopyableId id=note.id.clone()/>
-            </div>
+        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]">
             <a
                 href=href
                 on:click=move |ev| {
@@ -48,7 +45,12 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
 
                 class="flex flex-col h-full"
             >
-                <h3 class="text-xl font-semibold text-ctp-text mb-2 pr-20">{note.title.clone()}</h3>
+                <div class="flex items-start gap-2 mb-2">
+                    <div class="flex-shrink-0">
+                        <CopyableId id=note.id.clone()/>
+                    </div>
+                    <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{note.title.clone()}</h3>
+                </div>
 
             <div class="relative flex-grow mb-4">
                 <div class="text-ctp-subtext0 text-sm leading-relaxed note-preview overflow-hidden" style="max-height: 8rem;" inner_html=html_output></div>
