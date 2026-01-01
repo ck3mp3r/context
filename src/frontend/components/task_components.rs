@@ -480,11 +480,13 @@ pub fn TaskCard(
                     }
                 })}
 
-                <div class="text-sm text-ctp-text break-words mb-2">
-                    <div class="float-left mr-1">
-                        <CopyableId id=task.id.clone()/>
+                <div class="text-sm text-ctp-text mb-2">
+                    <div class="font-medium break-words">
+                        <span class="inline-block align-top mr-1">
+                            <CopyableId id=task.id.clone()/>
+                        </span>
+                        {task.title.clone()}
                     </div>
-                    <div class="font-medium">{task.title.clone()}</div>
                     {task.description.as_ref().map(|desc| {
                         // Truncate markdown before rendering to HTML
                         let preview_content = if desc.chars().count() > 100 {

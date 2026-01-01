@@ -34,9 +34,9 @@ pub fn CopyableId(id: String) -> impl IntoView {
         <Tooltip content=id>
             <button
                 on:click=do_copy
-                class="inline-flex items-center justify-center w-5 h-5 bg-ctp-surface0/50 border border-ctp-surface1/50 rounded hover:border-ctp-blue hover:bg-ctp-surface0 transition-colors cursor-pointer"
+                class="inline-flex items-center justify-center w-4 h-4 bg-ctp-surface0/50 border border-ctp-surface1/50 rounded hover:border-ctp-blue hover:bg-ctp-surface0 transition-colors cursor-pointer align-text-top"
             >
-                <span class="text-xs text-ctp-overlay0">
+                <span class="text-[10px] text-ctp-overlay0 leading-none">
                     {move || {
                         if copied.get() {
                             "✓"
