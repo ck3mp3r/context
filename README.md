@@ -10,11 +10,24 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 - **Git Sync** - JSONL-based sync via git for cross-machine collaboration
 - **MCP Server** - Model Context Protocol integration for AI agents
 - **REST API** - HTTP API with OpenAPI documentation
+- **Web UI** - Leptos-based WASM frontend embedded in single binary
 - **SQLite Storage** - Local-first with optional sync
 
-## Quick Start: Git Sync
+## Quick Start
 
-Sync your data across machines using a private git repository:
+**Run the API server (includes Web UI, REST API, and MCP server):**
+
+```sh
+c5t api --port 3737
+```
+
+Then access:
+- **Web UI**: http://localhost:3737/
+- **REST API**: http://localhost:3737/api/v1/*
+- **OpenAPI Docs**: http://localhost:3737/docs
+- **MCP Server**: http://localhost:3737/mcp
+
+**Git Sync** - Sync your data across machines using a private git repository:
 
 ```sh
 # 1. Create private git repo (GitHub example)
@@ -54,27 +67,36 @@ See [Sync Guide](docs/sync.md) for SSH setup, conflict resolution, and troublesh
 - [Development Guide](docs/development.md) - Setup, building, testing
 - [API Reference](docs/api.md) - REST API endpoints
 - [MCP Tools](docs/mcp.md) - Model Context Protocol tools
+- [Frontend Architecture](docs/frontend.md) - Leptos WASM UI & build process
 - [Database Schema](docs/schema.md) - SQLite schema and migrations
 - [Sync Guide](docs/sync.md) - Git-based cross-machine synchronization
 
 ## Architecture
+
+**Single unified binary** (`c5t`) with embedded WASM frontend:
 
 ```
 context/
 ├── src/
 │   ├── lib.rs              # Shared library
 │   ├── bin/
-│   │   ├── cli.rs          # CLI binary
-│   │   └── api.rs          # API server
-│   ├── api/                # REST API (Axum)
-│   ├── cli/                # CLI commands
+│   │   └── cli.rs          # Unified CLI binary
+│   ├── api/                # REST API (Axum) + embedded assets
+│   ├── cli/                # CLI commands (api, sync, task, etc.)
 │   ├── db/                 # Database layer (SQLite)
 │   ├── mcp/                # MCP server & tools
-│   └── sync/               # Git-based sync
+│   ├── sync/               # Git-based sync
+│   └── frontend/           # Leptos WASM UI (embedded via rust-embed)
 ├── docs/                   # Documentation
 ├── scripts/                # Migration & utility scripts
 └── data/sql/sqlite/        # Database migrations
 ```
+
+The `c5t api` command serves:
+- **Web UI** at `/` (Leptos WASM SPA, embedded in binary)
+- **REST API** at `/api/v1/*` (Axum handlers)
+- **MCP Server** at `/mcp` (Model Context Protocol)
+- **OpenAPI Docs** at `/docs` (Swagger UI)
 
 ## License
 
