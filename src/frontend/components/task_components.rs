@@ -471,8 +471,11 @@ pub fn TaskCard(
                 }
                 on:click=handle_card_click
             >
-                // Show orphaned subtask indicator if this task has a parent
-                {task.parent_id.as_ref().map(|parent_id| {
+                // Show orphaned subtask indicator ONLY for orphaned subtasks (not inline nested ones)
+                // show_subtasks_inline=true → kanban view (show label for orphaned subtasks)
+                // show_subtasks_inline=false → SubtaskList (don't show label, already nested under parent)
+                {(task.parent_id.is_some() && show_subtasks_inline).then(|| {
+                    let parent_id = task.parent_id.as_ref().unwrap();
                     view! {
                         <div class="flex items-center gap-1 mb-2 text-xs text-ctp-overlay1">
                             <span>"↳ Subtask of:"</span>
