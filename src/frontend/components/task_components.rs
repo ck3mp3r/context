@@ -456,19 +456,13 @@ pub fn TaskCard(
             <div
                 class=move || {
                     format!(
-                        "relative bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
+                        "bg-ctp-base border-l-4 {} rounded p-3 hover:shadow-lg transition-shadow cursor-pointer {}",
                         priority_color,
                         if subtask_count.get() > 0 { "task-card-parent" } else { "" },
                     )
                 }
                 on:click=handle_card_click
             >
-                // CopyableId badge - top right corner
-                <div class="absolute top-1 right-1" on:click=|ev: ev::MouseEvent| {
-                    ev.stop_propagation();
-                }>
-                    <CopyableId id=task.id.clone()/>
-                </div>
                 // Show orphaned subtask indicator ONLY for orphaned subtasks (not inline nested ones)
                 // show_subtasks_inline=true → kanban view (show label for orphaned subtasks)
                 // show_subtasks_inline=false → SubtaskList (don't show label, already nested under parent)
