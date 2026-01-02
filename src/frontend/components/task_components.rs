@@ -426,7 +426,7 @@ pub fn TaskCard(
 
     // Fetch subtask count
     let (subtask_count, set_subtask_count) = signal(0usize);
-    let (subtasks_expanded, set_subtasks_expanded) = signal(false);
+    let (subtasks_expanded, set_subtasks_expanded) = signal(true);
     let task_id = task.id.clone();
     let list_id = task.list_id.clone();
 

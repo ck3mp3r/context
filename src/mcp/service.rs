@@ -31,11 +31,13 @@ use super::server::McpServer;
 /// use tokio_util::sync::CancellationToken;
 /// # use context::db::SqliteDatabase;
 /// # use context::mcp::create_mcp_service;
+/// # use context::api::notifier::ChangeNotifier;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let db = SqliteDatabase::in_memory().await?;
 ///
 /// let ct = CancellationToken::new();
-/// let mcp_service = create_mcp_service(db, ct);
+/// let notifier = ChangeNotifier::new();
+/// let mcp_service = create_mcp_service(db, notifier, ct);
 ///
 /// let app: Router = Router::new()
 ///     .nest_service("/mcp", mcp_service);
