@@ -205,6 +205,105 @@ async fn create_task_without_priority_defaults_to_p5() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_priority_zero_fails() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task with invalid priority",
+                        "priority": 0
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response).await;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("Priority must be between 1 and 5")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_priority_too_high_fails() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task with invalid priority",
+                        "priority": 6
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response).await;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("Priority must be between 1 and 5")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_negative_priority_fails() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task with invalid priority",
+                        "priority": -1
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response).await;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("Priority must be between 1 and 5")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn get_task_returns_task() {
     let app = test_app().await;
     let list_id = create_task_list(&app).await;

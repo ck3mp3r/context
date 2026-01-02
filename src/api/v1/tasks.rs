@@ -20,6 +20,20 @@ use crate::db::{
 use super::ErrorResponse;
 
 // =============================================================================
+// Validation Helpers
+// =============================================================================
+
+/// Validates that priority is within the valid range (1-5).
+fn validate_priority(priority: Option<i32>) -> Result<(), String> {
+    if let Some(p) = priority {
+        if p < 1 || p > 5 {
+            return Err("Priority must be between 1 and 5".to_string());
+        }
+    }
+    Ok(())
+}
+
+// =============================================================================
 // DTOs
 // =============================================================================
 
@@ -297,6 +311,10 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
     Path(list_id): Path<String>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
+    // Validate priority before applying default
+    validate_priority(req.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
     let task = Task {
         id: String::new(), // Repository will generate this
         list_id: list_id.clone(),
@@ -347,6 +365,10 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Validate priority if provided
+    validate_priority(req.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
     let mut task = state.db().tasks().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (
             StatusCode::NOT_FOUND,
@@ -422,6 +444,10 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
     Path(id): Path<String>,
     Json(req): Json<PatchTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Validate priority if provided
+    validate_priority(req.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
     // Fetch existing task
     let mut task = state.db().tasks().get(&id).await.map_err(|e| match e {
         DbError::NotFound { .. } => (

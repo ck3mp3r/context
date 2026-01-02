@@ -1113,6 +1113,76 @@ async fn test_transition_todo_to_backlog() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_invalid_priority_fails() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create a task list first
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id: create_test_project(&db).await,
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Try to create task with priority 0
+    let create_params = CreateTaskParams {
+        list_id: created_list.id.clone(),
+        title: "Invalid priority task".to_string(),
+        description: None,
+        priority: Some(0),
+        parent_id: None,
+        tags: None,
+    };
+
+    let result = tools.create_task(Parameters(create_params)).await;
+    assert!(result.is_err(), "Should fail with invalid priority");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("Priority must be between 1 and 5"));
+
+    // Try priority 6
+    let create_params = CreateTaskParams {
+        list_id: created_list.id.clone(),
+        title: "Invalid priority task".to_string(),
+        description: None,
+        priority: Some(6),
+        parent_id: None,
+        tags: None,
+    };
+
+    let result = tools.create_task(Parameters(create_params)).await;
+    assert!(result.is_err(), "Should fail with priority 6");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("Priority must be between 1 and 5"));
+
+    // Try negative priority
+    let create_params = CreateTaskParams {
+        list_id: created_list.id,
+        title: "Invalid priority task".to_string(),
+        description: None,
+        priority: Some(-1),
+        parent_id: None,
+        tags: None,
+    };
+
+    let result = tools.create_task(Parameters(create_params)).await;
+    assert!(result.is_err(), "Should fail with negative priority");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("Priority must be between 1 and 5"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_create_task_without_priority_defaults_to_p5() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
