@@ -263,8 +263,9 @@ Use c5t MCP tools to create **persistent, autonomous workflows** that survive co
 - **ALWAYS** tag session notes with `session`
 - **ALWAYS** link session notes to their project(s) via `project_ids`
 - **ALWAYS** re-read session notes after context compaction to restore state
+- **NEVER** use markdown task lists (`- [ ]`) in notes - defeats the purpose of actual tasks!
 - **KEEP UPDATED** - Update session note throughout the workflow with:
-  - Current progress
+  - Current progress (reference task IDs, not duplicate task lists)
   - Decisions made
   - Blockers encountered
   - Next steps
@@ -279,10 +280,9 @@ create_note({
 ## Goal
 Implement JWT-based authentication system for API
 
-## Progress
-- [ ] Research complete
-- [ ] Tests written
-- [ ] Implementation in progress
+## Current Status
+Working on task_2: Writing auth middleware tests
+Last completed: task_1 (Research)
 
 ## Decisions
 - Chose Passport.js for middleware (supports JWT + OAuth)
@@ -357,10 +357,9 @@ update_note({
 ## Goal
 Implement JWT-based authentication system for API
 
-## Progress
-- [x] Research complete ✅
-- [ ] Tests written
-- [ ] Implementation in progress
+## Current Status
+Completed task_1 (Research) ✅
+Next: task_2 - Write auth middleware tests
 
 ## Decisions
 - Chose Passport.js for middleware (supports JWT + OAuth)
@@ -444,7 +443,7 @@ list_task_lists({
 **Session Note Management:**
 - **One session note per workflow** - Keep focused
 - **Update frequently** - After each major step or decision
-- **Use checkboxes** - `- [ ]` and `- [x]` for visual progress
+- **Reference tasks by ID** - Don't duplicate task lists in markdown (use actual tasks!)
 - **Document decisions** - Record WHY, not just WHAT
 - **Note blockers** - Capture what's preventing progress
 - **Keep under 10k chars** - Create continuation note with `parent:NOTE_ID` if needed
