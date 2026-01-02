@@ -7,6 +7,7 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 - **Projects & Task Lists** - Organize work hierarchically with M:N relationships
 - **Tasks** - Track work with status, priority, subtasks, and timestamps
 - **Notes** - Full-text searchable knowledge base with tags and project links
+- **Real-time Updates** - WebSocket-based live sync between CLI/MCP and Web UI
 - **Git Sync** - JSONL-based sync via git for cross-machine collaboration
 - **MCP Server** - Model Context Protocol integration for AI agents
 - **REST API** - HTTP API with OpenAPI documentation
@@ -22,10 +23,13 @@ c5t api --port 3737
 ```
 
 Then access:
-- **Web UI**: http://localhost:3737/
+- **Web UI**: http://localhost:3737/ (real-time updates via WebSocket)
 - **REST API**: http://localhost:3737/api/v1/*
 - **OpenAPI Docs**: http://localhost:3737/docs
 - **MCP Server**: http://localhost:3737/mcp
+- **WebSocket**: ws://localhost:3737/ws (automatic connection from Web UI)
+
+**Real-time Updates**: Changes made via CLI, REST API, or MCP tools instantly appear in the Web UI without refresh. The connection status indicator (left edge of header) shows WebSocket state.
 
 **Git Sync** - Sync your data across machines using a private git repository:
 
@@ -95,6 +99,7 @@ context/
 The `c5t api` command serves:
 - **Web UI** at `/` (Leptos WASM SPA, embedded in binary)
 - **REST API** at `/api/v1/*` (Axum handlers)
+- **WebSocket** at `/ws` (real-time updates)
 - **MCP Server** at `/mcp` (Model Context Protocol)
 - **OpenAPI Docs** at `/docs` (Swagger UI)
 

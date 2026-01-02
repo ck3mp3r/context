@@ -18,6 +18,7 @@ The c5t frontend is a **single-page application (SPA)** built with Leptos and Th
 ### Browser APIs
 - **Web Storage API** - localStorage for client-side persistence
 - **Fetch API** - HTTP requests to backend REST API
+- **WebSocket API** - Real-time bidirectional communication
 - **History API** - Client-side routing (SPA navigation)
 
 ## Project Structure
