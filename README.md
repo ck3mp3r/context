@@ -1,5 +1,7 @@
 # context (c5t)
 
+> **⚠️ EXPERIMENTAL**: This project is under active development and subject to breaking changes. Database schema, API endpoints, and CLI commands may change without notice. Use at your own risk.
+
 Task management and knowledge tracking system with git-based sync, built for AI-assisted workflows.
 
 ## Features
