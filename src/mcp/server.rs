@@ -43,6 +43,7 @@ use super::tools::{
 pub struct McpServer<D: Database> {
     #[allow(dead_code)] // Will be used when Task/Note tools are implemented
     db: Arc<D>,
+    #[allow(dead_code)] // Used by tool implementations
     notifier: ChangeNotifier,
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,

@@ -36,17 +36,15 @@ fn NotesList() -> impl IntoView {
 
     // Watch for WebSocket updates and trigger refetch when notes change
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            match update {
-                UpdateMessage::NoteCreated { .. }
-                | UpdateMessage::NoteUpdated { .. }
-                | UpdateMessage::NoteDeleted { .. } => {
-                    web_sys::console::log_1(&"Note updated via WebSocket, refetching...".into());
-                    // Trigger refetch by incrementing counter
-                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                }
-                _ => {} // Ignore non-note updates
-            }
+        if let Some(
+            UpdateMessage::NoteCreated { .. }
+            | UpdateMessage::NoteUpdated { .. }
+            | UpdateMessage::NoteDeleted { .. },
+        ) = ws_updates.get()
+        {
+            web_sys::console::log_1(&"Note updated via WebSocket, refetching...".into());
+            // Trigger refetch by incrementing counter
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 

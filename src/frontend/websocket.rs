@@ -52,7 +52,7 @@ pub fn WebSocketProvider(children: Children) -> impl IntoView {
         open: _,
         close: _,
         ..
-    } = use_websocket::<String, String, FromToStringCodec>(&url);
+    } = use_websocket::<String, String, FromToStringCodec>(url);
 
     // Parse and store the latest update message
     let last_message = Signal::derive(move || {

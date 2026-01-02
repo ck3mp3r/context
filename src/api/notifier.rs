@@ -39,6 +39,12 @@ pub struct ChangeNotifier {
     tx: broadcast::Sender<UpdateMessage>,
 }
 
+impl Default for ChangeNotifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChangeNotifier {
     /// Create a new ChangeNotifier with a buffer of 100 messages.
     pub fn new() -> Self {
