@@ -123,6 +123,7 @@ impl<D: Database + 'static> RepoTools<D> {
             },
             tags: None,
             project_id: params.0.project_id,
+            search_query: None, // TODO: Add search query support to MCP tool
         };
 
         let result = self

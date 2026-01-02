@@ -66,6 +66,8 @@ pub struct RepoQuery {
     pub tags: Option<Vec<String>>,
     /// Filter by project ID (repos with project_id in project_ids array).
     pub project_id: Option<String>,
+    /// Search query for filtering by remote URL or tags (case-insensitive partial match).
+    pub search_query: Option<String>,
 }
 
 /// Query for TaskLists - pagination + status/tags/project filters.

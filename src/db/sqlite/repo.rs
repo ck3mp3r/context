@@ -104,6 +104,10 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
         let needs_project_join = query.project_id.is_some();
+        let has_search = query
+            .search_query
+            .as_ref()
+            .is_some_and(|q| !q.trim().is_empty());
 
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
@@ -129,6 +133,16 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 bind_values.extend(tags.clone());
             }
 
+            // Add search condition if present
+            if has_search {
+                let search_term = format!("%{}%", query.search_query.as_ref().unwrap());
+                where_conditions.push(
+                    "(LOWER(r.remote) LIKE LOWER(?) OR EXISTS (SELECT 1 FROM json_each(r.tags) WHERE LOWER(json_each.value) LIKE LOWER(?)))".to_string()
+                );
+                bind_values.push(search_term.clone());
+                bind_values.push(search_term);
+            }
+
             (
                 "DISTINCT r.id, r.remote, r.path, r.tags, r.created_at",
                 from,
@@ -136,6 +150,16 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             )
         } else {
             // No joins, simple query
+            // Add search condition if present (no alias needed)
+            if has_search {
+                let search_term = format!("%{}%", query.search_query.as_ref().unwrap());
+                where_conditions.push(
+                    "(LOWER(remote) LIKE LOWER(?) OR EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) LIKE LOWER(?)))".to_string()
+                );
+                bind_values.push(search_term.clone());
+                bind_values.push(search_term);
+            }
+
             (
                 "id, remote, path, tags, created_at",
                 "FROM repo".to_string(),
@@ -179,6 +203,9 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 "SELECT COUNT(DISTINCT r.id) {} {}",
                 from_clause, where_clause
             )
+        } else if !where_clause.is_empty() {
+            // Simple query but with WHERE clause (e.g., search only)
+            format!("SELECT COUNT(*) FROM repo {}", where_clause)
         } else {
             "SELECT COUNT(*) FROM repo".to_string()
         };
