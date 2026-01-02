@@ -159,7 +159,7 @@
           '';
 
           config = {
-            Cmd = ["/bin/c5t" "api" "--home=/data"];
+            Cmd = ["/bin/c5t" "api" "--home" "/data"];
             ExposedPorts = {"3737/tcp" = {};};
             Env = [
               "PORT=3737"
