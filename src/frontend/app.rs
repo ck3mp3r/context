@@ -33,25 +33,24 @@ fn AppContent() -> impl IntoView {
                 <main class="min-h-screen bg-ctp-base">
                 <nav class="bg-ctp-surface0 border-b border-ctp-surface1 px-6 py-4">
                     <div class="container mx-auto flex justify-between items-center">
-                        <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
+                        <div class="flex flex-col">
+                            <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
+                            // WebSocket connection status indicator
+                            <span class="text-xs text-ctp-subtext0">
+                                {move || {
+                                    match ws_state.get() {
+                                        ConnectionReadyState::Open => "🟢 Connected",
+                                        ConnectionReadyState::Connecting => "🟡 Connecting...",
+                                        ConnectionReadyState::Closing => "🟡 Closing...",
+                                        ConnectionReadyState::Closed => "🔴 Disconnected",
+                                    }
+                                }}
+                            </span>
+                        </div>
                         <div class="flex gap-4 items-center">
                             <a href="/" class="text-ctp-blue hover:text-ctp-lavender">"Projects"</a>
                             <a href="/notes" class="text-ctp-blue hover:text-ctp-lavender">"Notes"</a>
                             <a href="/repos" class="text-ctp-blue hover:text-ctp-lavender">"Repos"</a>
-
-                            // WebSocket connection status indicator
-                            <div class="ml-4 flex items-center gap-2 text-sm">
-                                <span class="text-xs">
-                                    {move || {
-                                        match ws_state.get() {
-                                            ConnectionReadyState::Open => "🟢 Connected",
-                                            ConnectionReadyState::Connecting => "🟡 Connecting...",
-                                            ConnectionReadyState::Closing => "🟡 Closing...",
-                                            ConnectionReadyState::Closed => "🔴 Disconnected",
-                                        }
-                                    }}
-                                </span>
-                            </div>
                         </div>
                     </div>
                 </nav>
