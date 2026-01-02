@@ -3,7 +3,7 @@
 use codee::string::FromToStringCodec;
 use leptos::prelude::*;
 use leptos_use::core::ConnectionReadyState;
-use leptos_use::{UseWebSocketReturn, use_websocket};
+use leptos_use::{UseWebSocketOptions, UseWebSocketReturn, use_websocket_with_options};
 
 // Development: Trunk proxy at /dev/ws forwards to backend ws://localhost:3737/ws
 #[cfg(debug_assertions)]
@@ -47,7 +47,16 @@ pub fn use_websocket_connection() -> Signal<ConnectionReadyState> {
         open: _,
         close: _,
         ..
-    } = use_websocket::<String, String, FromToStringCodec>(&url);
+    } = use_websocket_with_options::<String, String, FromToStringCodec>(
+        &url,
+        UseWebSocketOptions::default()
+            .immediate(true) // Connect immediately on mount
+            .reconnect_limit(leptos_use::ReconnectLimit::Limited(5)) // Retry up to 5 times
+            .reconnect_interval(3000) // 3 seconds between retries
+            .on_error(|error| {
+                web_sys::console::error_1(&format!("WebSocket error: {:?}", error).into());
+            }),
+    );
 
     // For now, just return the ready state
     // Later we'll expand this to handle actual messages
