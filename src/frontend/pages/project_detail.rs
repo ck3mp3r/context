@@ -49,10 +49,11 @@ pub fn ProjectDetail() -> impl IntoView {
     // WebSocket updates
     let ws_updates = use_websocket_updates();
 
-    // Trigger to force refetch notes
+    // Triggers to force refetch
     let (note_refetch_trigger, set_note_refetch_trigger) = signal(0u32);
+    let (task_list_refetch_trigger, set_task_list_refetch_trigger) = signal(0u32);
 
-    // Watch for WebSocket updates and trigger refetch when notes change
+    // Watch for WebSocket updates and trigger refetch when notes or task lists change
     Effect::new(move || {
         if let Some(update) = ws_updates.get() {
             match update {
@@ -64,7 +65,15 @@ pub fn ProjectDetail() -> impl IntoView {
                     );
                     set_note_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                _ => {} // Ignore non-note updates
+                UpdateMessage::TaskListCreated { .. }
+                | UpdateMessage::TaskListUpdated { .. }
+                | UpdateMessage::TaskListDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"TaskList updated via WebSocket, refetching project task lists...".into(),
+                    );
+                    set_task_list_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore other updates
             }
         }
     });
@@ -115,6 +124,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         let show_archived = show_archived_task_lists.get();
         let current_page = task_list_page.get();
+        let _ = task_list_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let status = if show_archived { None } else { Some("active") };
