@@ -9,6 +9,8 @@ mod notifier_test;
 pub(crate) mod routes;
 mod state;
 pub mod static_assets;
+#[cfg(test)]
+mod static_assets_test;
 pub mod v1;
 mod websocket;
 #[cfg(test)]
