@@ -27,3 +27,8 @@ command_arguments = ["-c", "./src/frontend/assets/tailwind.config.js", "-i", "./
 [[proxy]]
 backend = "http://localhost:3737"
 rewrite = "/dev"
+
+[[proxy]]
+backend = "ws://localhost:3737/ws"
+rewrite = "/dev/ws"
+ws = true
