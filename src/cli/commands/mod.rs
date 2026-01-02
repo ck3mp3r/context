@@ -17,3 +17,7 @@ mod project_test;
 #[cfg(test)]
 #[path = "task_list_test.rs"]
 mod task_list_test;
+
+#[cfg(test)]
+#[path = "task_test.rs"]
+mod task_test;
