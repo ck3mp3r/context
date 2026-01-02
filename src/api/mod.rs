@@ -3,6 +3,9 @@
 //! Provides REST API endpoints for managing context data.
 
 mod handlers;
+mod notifier;
+#[cfg(test)]
+mod notifier_test;
 pub(crate) mod routes;
 mod state;
 pub mod static_assets;
