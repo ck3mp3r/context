@@ -8,6 +8,8 @@ mod git;
 mod import;
 mod jsonl;
 mod manager;
+#[cfg(test)]
+mod manager_test;
 mod paths;
 
 pub use export::{ExportError, ExportSummary, export_all};
