@@ -49,6 +49,8 @@ frontend = [
     "dep:leptos",
     "dep:leptos_router",
     "dep:leptos_meta",
+    "dep:leptos-use",
+    "dep:codee",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
     "dep:gloo-net",
@@ -233,6 +235,11 @@ features = [
     "Window",
     "Document",
     "HtmlElement",
+    "Location",
+    "WebSocket",
+    "MessageEvent",
+    "CloseEvent",
+    "ErrorEvent",
 ]
 optional = true
 
@@ -243,6 +250,16 @@ optional = true
 [dependencies.thaw]
 version = "0.5.0-beta"
 features = ["csr"]
+optional = true
+
+[dependencies.leptos-use]
+version = "0.16"
+features = ["use_websocket"]
+optional = true
+
+[dependencies.codee]
+version = "0.3"
+features = ["json_serde"]
 optional = true
 
 [dev-dependencies]

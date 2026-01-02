@@ -7,6 +7,7 @@ mod app;
 mod components;
 mod models;
 mod pages;
+mod websocket;
 
 #[wasm_bindgen(start)]
 pub fn start() {
