@@ -76,6 +76,8 @@ pub struct CreateTaskRequest {
     pub title: String,
     pub description: Option<String>,
     pub parent_id: Option<String>,
+    /// Priority: 1 (highest) to 5 (lowest). Defaults to 5 (P5) if not provided.
+    #[schema(example = 2)]
     pub priority: Option<i32>,
 }
 

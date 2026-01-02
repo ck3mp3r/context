@@ -67,7 +67,9 @@ pub struct CreateTaskParams {
     pub title: String,
     #[schemars(description = "Task description (detailed info, optional)")]
     pub description: Option<String>,
-    #[schemars(description = "Priority: 1 (highest/urgent) to 5 (lowest/nice-to-have). Optional.")]
+    #[schemars(
+        description = "Priority: 1 (highest/urgent) to 5 (lowest/nice-to-have). Optional, defaults to 5 (P5) if not provided."
+    )]
     pub priority: Option<i32>,
     #[schemars(
         description = "Parent task ID for subtasks. BEST PRACTICE: Only ONE level deep (subtasks should not have subtasks). Optional."
