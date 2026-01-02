@@ -11,6 +11,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::{Database, DbError, PageSort, Repo, RepoQuery, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -301,6 +302,11 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoCreated {
+        repo_id: created_repo.id.clone(),
+    });
+
     Ok((StatusCode::CREATED, Json(RepoResponse::from(created_repo))))
 }
 
@@ -358,6 +364,11 @@ pub async fn update_repo<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoUpdated {
+        repo_id: id.clone(),
+    });
+
     Ok(Json(RepoResponse::from(repo)))
 }
 
@@ -413,6 +424,11 @@ pub async fn patch_repo<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoUpdated {
+        repo_id: id.clone(),
+    });
+
     Ok(Json(RepoResponse::from(repo)))
 }
 
@@ -451,6 +467,11 @@ pub async fn delete_repo<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoDeleted {
+        repo_id: id.clone(),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

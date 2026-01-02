@@ -710,3 +710,168 @@ async fn patch_repo_link_to_project() {
     assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
     assert_eq!(body["project_ids"][0], project_id);
 }
+
+// =============================================================================
+// WebSocket Broadcast Tests
+// =============================================================================
+
+/// Helper to create test app with access to notifier for broadcast testing
+async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let notifier = crate::api::notifier::ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_repo_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+    let mut subscriber = notifier.subscribe();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "github:user/test-repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created = json_body(response).await;
+    let repo_id = created["id"].as_str().unwrap();
+
+    // Should receive RepoCreated broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::RepoCreated { repo_id: id } => {
+            assert_eq!(id, repo_id);
+        }
+        _ => panic!("Expected RepoCreated message, got {:?}", msg),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_repo_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create a repo first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "github:user/original-repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let repo_id = created["id"].as_str().unwrap().to_string();
+
+    // Subscribe AFTER creation to avoid receiving create notification
+    let mut subscriber = notifier.subscribe();
+
+    // Update the repo
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/repos/{}", repo_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "github:user/updated-repo"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Should receive RepoUpdated broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::RepoUpdated { repo_id: id } => {
+            assert_eq!(id, repo_id);
+        }
+        _ => panic!("Expected RepoUpdated message, got {:?}", msg),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_repo_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create a repo first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "github:user/repo-to-delete"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let repo_id = created["id"].as_str().unwrap().to_string();
+
+    // Subscribe AFTER creation
+    let mut subscriber = notifier.subscribe();
+
+    // Delete the repo
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/repos/{}", repo_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Should receive RepoDeleted broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::RepoDeleted { repo_id: id } => {
+            assert_eq!(id, repo_id);
+        }
+        _ => panic!("Expected RepoDeleted message, got {:?}", msg),
+    }
+}
