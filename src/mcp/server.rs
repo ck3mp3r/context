@@ -39,7 +39,12 @@ use super::tools::{
 /// - TaskListTools: Task list operations
 /// - TaskTools: Task operations
 /// - NoteTools: Note operations
+#[derive(Clone)]
 pub struct McpServer<D: Database> {
+    #[allow(dead_code)] // Will be used when Task/Note tools are implemented
+    db: Arc<D>,
+    #[allow(dead_code)] // Used by tool implementations
+    notifier: ChangeNotifier,
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
     task_list_tools: TaskListTools<D>,
@@ -69,7 +74,9 @@ impl<D: Database + 'static> McpServer<D> {
             task_list_tools: TaskListTools::new(Arc::clone(&db), notifier.clone()),
             task_tools: TaskTools::new(Arc::clone(&db), notifier.clone()),
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
-            sync_tools: SyncTools::with_real_git(db),
+            sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
+            db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }
