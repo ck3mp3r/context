@@ -13,3 +13,7 @@ mod repo_test;
 #[cfg(test)]
 #[path = "project_test.rs"]
 mod project_test;
+
+#[cfg(test)]
+#[path = "task_list_test.rs"]
+mod task_list_test;
