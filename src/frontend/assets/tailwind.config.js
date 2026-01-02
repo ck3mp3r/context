@@ -9,6 +9,19 @@ module.exports = {
     "./src/frontend/main.rs",
     "./src/frontend/assets/index.html",
   ],
+  safelist: [
+    // Connection indicator colors
+    'bg-ctp-green',
+    'bg-ctp-yellow',
+    'bg-ctp-red',
+    // Tab active/hover states
+    'bg-ctp-surface2',
+    'bg-ctp-surface1',
+    'text-ctp-text',
+    'text-ctp-subtext1',
+    'hover:bg-ctp-surface1',
+    'hover:text-ctp-text',
+  ],
   theme: {
     extend: {
       colors: {

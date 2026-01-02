@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
+    hooks::use_location,
     path,
 };
 use leptos_use::core::ConnectionReadyState;
@@ -25,44 +26,90 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn AppContent() -> impl IntoView {
+    view! {
+        <Router>
+            <NavAndContent/>
+        </Router>
+    }
+}
+
+#[component]
+fn NavAndContent() -> impl IntoView {
     // WebSocket connection status (from context)
     let ws_state = use_websocket_connection();
+    let location = use_location();
+
+    // Determine active tab based on current path
+    let is_active = move |path: &str| {
+        let current = location.pathname.get();
+        if path == "/" {
+            current == "/" || current.starts_with("/projects")
+        } else {
+            current.starts_with(path)
+        }
+    };
 
     view! {
-            <Router>
-                <main class="min-h-screen bg-ctp-base">
-                <nav class="bg-ctp-surface0 border-b border-ctp-surface1 px-6 py-5">
-                    <div class="container mx-auto flex justify-between items-center">
-                        <div class="flex flex-col gap-1">
-                            <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
-                            // WebSocket connection status indicator
-                            <span class="text-xs text-ctp-subtext0">
-                                {move || {
-                                    match ws_state.get() {
-                                        ConnectionReadyState::Open => "🟢 Connected",
-                                        ConnectionReadyState::Connecting => "🟡 Connecting...",
-                                        ConnectionReadyState::Closing => "🟡 Closing...",
-                                        ConnectionReadyState::Closed => "🔴 Disconnected",
-                                    }
-                                }}
-                            </span>
-                        </div>
-                        <div class="flex gap-4 items-center">
-                            <a href="/" class="text-ctp-blue hover:text-ctp-lavender">"Projects"</a>
-                            <a href="/notes" class="text-ctp-blue hover:text-ctp-lavender">"Notes"</a>
-                            <a href="/repos" class="text-ctp-blue hover:text-ctp-lavender">"Repos"</a>
-                        </div>
+        <main class="min-h-screen bg-ctp-base">
+            <nav class="bg-ctp-surface0 border-b border-ctp-surface1 relative">
+                // WebSocket connection status bar (left edge)
+                <Tooltip content=move || {
+                    match ws_state.get() {
+                        ConnectionReadyState::Open => "Connected",
+                        ConnectionReadyState::Connecting => "Connecting...",
+                        ConnectionReadyState::Closing => "Closing...",
+                        ConnectionReadyState::Closed => "Disconnected",
+                    }
+                }>
+                    <div class="absolute left-0 top-0 bottom-0 w-2 cursor-help"
+                        class:bg-ctp-green=move || matches!(ws_state.get(), ConnectionReadyState::Open)
+                        class:bg-ctp-yellow=move || matches!(ws_state.get(), ConnectionReadyState::Connecting | ConnectionReadyState::Closing)
+                        class:bg-ctp-red=move || matches!(ws_state.get(), ConnectionReadyState::Closed)>
                     </div>
-                </nav>
+                </Tooltip>
+                <div class="container mx-auto flex justify-between items-center px-6 py-4">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-ctp-mauve to-ctp-blue bg-clip-text text-transparent">
+                        "c5t"
+                    </h1>
+                    <div class="flex gap-2 items-center">
+                        <a href="/"
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            class:bg-ctp-surface2=move || is_active("/")
+                            class:text-ctp-text=move || is_active("/")
+                            class:text-ctp-subtext1=move || !is_active("/")
+                            class:hover:bg-ctp-surface1=move || !is_active("/")
+                            class:hover:text-ctp-text=move || !is_active("/")>
+                            "Projects"
+                        </a>
+                        <a href="/notes"
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            class:bg-ctp-surface2=move || is_active("/notes")
+                            class:text-ctp-text=move || is_active("/notes")
+                            class:text-ctp-subtext1=move || !is_active("/notes")
+                            class:hover:bg-ctp-surface1=move || !is_active("/notes")
+                            class:hover:text-ctp-text=move || !is_active("/notes")>
+                            "Notes"
+                        </a>
+                        <a href="/repos"
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            class:bg-ctp-surface2=move || is_active("/repos")
+                            class:text-ctp-text=move || is_active("/repos")
+                            class:text-ctp-subtext1=move || !is_active("/repos")
+                            class:hover:bg-ctp-surface1=move || !is_active("/repos")
+                            class:hover:text-ctp-text=move || !is_active("/repos")>
+                            "Repos"
+                        </a>
+                    </div>
+                </div>
+            </nav>
 
-                <Routes fallback=|| view! { <p>"Page not found"</p> }>
-                    <Route path=path!("/") view=Projects/>
-                    <Route path=path!("/projects/:id") view=ProjectDetail/>
-                    <Route path=path!("/notes") view=Notes/>
-                    <Route path=path!("/notes/:id") view=Notes/>
-                    <Route path=path!("/repos") view=Repos/>
-                </Routes>
-            </main>
-        </Router>
+            <Routes fallback=|| view! { <p>"Page not found"</p> }>
+                <Route path=path!("/") view=Projects/>
+                <Route path=path!("/projects/:id") view=ProjectDetail/>
+                <Route path=path!("/notes") view=Notes/>
+                <Route path=path!("/notes/:id") view=Notes/>
+                <Route path=path!("/repos") view=Repos/>
+            </Routes>
+        </main>
     }
 }

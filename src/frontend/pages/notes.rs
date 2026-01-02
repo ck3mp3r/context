@@ -48,40 +48,54 @@ fn NotesList() -> impl IntoView {
         }
     });
 
-    // Debounce search input - only trigger API call after 300ms of no typing
-    Effect::new(move || {
-        let input = search_input.get();
+    // Store the timeout ID so we can cancel it
+    let debounce_timeout = RwSignal::new(None::<i32>);
+
+    // Handle search input change with proper debouncing
+    let on_search = move |ev: web_sys::Event| {
+        let value = event_target_value(&ev);
+        set_search_input.set(value.clone());
 
         use wasm_bindgen::JsCast;
         use wasm_bindgen::prelude::*;
 
+        // Cancel the previous timeout if it exists
+        if let Some(timeout_id) = debounce_timeout.get() {
+            web_sys::window()
+                .unwrap()
+                .clear_timeout_with_handle(timeout_id);
+        }
+
+        // Set new timeout
         let callback = Closure::once(move || {
-            set_search_query.set(input.clone());
+            set_search_query.set(value.clone());
             set_page.set(0); // Reset to first page on new search
+            debounce_timeout.set(None); // Clear timeout ID after it fires
         });
 
-        web_sys::window()
+        let timeout_id = web_sys::window()
             .unwrap()
             .set_timeout_with_callback_and_timeout_and_arguments_0(
                 callback.as_ref().unchecked_ref(),
-                300,
+                500,
             )
             .unwrap();
 
+        debounce_timeout.set(Some(timeout_id));
         callback.forget();
-    });
+    };
 
     // Use Effect to fetch when dependencies change (including WebSocket updates)
     Effect::new(move || {
         let current_page = page.get();
         let current_query = search_query.get();
-        let _ = refetch_trigger.get(); // Track refetch trigger
+        let trigger = refetch_trigger.get();
 
-        // Log for debugging
+        // Log for debugging with all dependency values
         web_sys::console::log_1(
             &format!(
-                "Fetching page {} with query '{}'",
-                current_page, current_query
+                "FETCH TRIGGERED: page={}, query='{}', trigger={}",
+                current_page, current_query, trigger
             )
             .into(),
         );
@@ -113,12 +127,6 @@ fn NotesList() -> impl IntoView {
             set_notes_data.set(Some(result));
         });
     });
-
-    // Handle search input change (just update the input, debouncing handles the rest)
-    let on_search = move |ev: web_sys::Event| {
-        let value = event_target_value(&ev);
-        set_search_input.set(value);
-    };
 
     // Pagination handlers
     let go_to_page = move |new_page: usize| {
