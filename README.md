@@ -1,8 +1,6 @@
-# Context
+# context (c5t)
 
 Task management and knowledge tracking system with git-based sync, built for AI-assisted workflows.
-
-**CLI Command:** `c5t` (short for "context")
 
 ## Features
 
@@ -33,10 +31,10 @@ Then access:
 
 ```sh
 # 1. Create private git repo (GitHub example)
-gh repo create context-sync --private
+gh repo create c5t-sync --private
 
 # 2. Initialize sync
-c5t sync init git@github.com:username/context-sync.git
+c5t sync init git@github.com:username/c5t-sync.git
 
 # 3. Export your data (run daily or when done working)
 c5t sync export -m "End of day sync"
