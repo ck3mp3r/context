@@ -1,7 +1,7 @@
 //! API route configuration.
 
 use axum::Router;
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{any, delete, get, patch, post, put};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
@@ -140,7 +140,9 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
     > = crate::mcp::create_mcp_service(state.db_arc(), ct);
 
     // System routes (non-generic, not versioned)
-    let system_routes = Router::new().route("/health", get(handlers::health));
+    let system_routes = Router::new()
+        .route("/health", get(handlers::health))
+        .route("/ws", any(super::websocket::ws_handler::<D, G>));
 
     // V1 API routes (generic over Database and GitOps)
     let v1_routes = routes!(D, G => {

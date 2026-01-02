@@ -25,6 +25,7 @@ backend = [
     "dep:axum",
     "dep:chrono",
     "dep:clap",
+    "dep:futures-util",
     "dep:miette",
     "dep:mime_guess",
     "dep:reqwest",
@@ -67,6 +68,7 @@ features = ["derive"]
 
 [dependencies.axum]
 version = "0.8.8"
+features = ["ws"]
 optional = true
 
 [dependencies.chrono]
@@ -155,6 +157,10 @@ optional = true
 
 [dependencies.tokio-util]
 version = "0.7.17"
+optional = true
+
+[dependencies.futures-util]
+version = "0.3"
 optional = true
 
 [dependencies.tower-http]
