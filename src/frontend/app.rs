@@ -31,9 +31,9 @@ fn AppContent() -> impl IntoView {
     view! {
             <Router>
                 <main class="min-h-screen bg-ctp-base">
-                <nav class="bg-ctp-surface0 border-b border-ctp-surface1 px-6 py-4">
+                <nav class="bg-ctp-surface0 border-b border-ctp-surface1 px-6 py-5">
                     <div class="container mx-auto flex justify-between items-center">
-                        <div class="flex flex-col">
+                        <div class="flex flex-col gap-1">
                             <h1 class="text-2xl font-bold text-ctp-text">"c5t"</h1>
                             // WebSocket connection status indicator
                             <span class="text-xs text-ctp-subtext0">
