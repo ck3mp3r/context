@@ -74,9 +74,13 @@ pub struct CreateNoteParams {
         description = "Note type: 'manual' (default, user notes) or 'archived_todo' (system-generated from completed tasks)"
     )]
     pub note_type: Option<String>,
-    #[schemars(description = "Repository IDs to link (optional)")]
+    #[schemars(
+        description = "Repository IDs to link (optional). Associate with relevant repos for context."
+    )]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(description = "Project IDs to link (optional)")]
+    #[schemars(
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability."
+    )]
     pub project_ids: Option<Vec<String>>,
 }
 
@@ -94,9 +98,13 @@ pub struct UpdateNoteParams {
         description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
     )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Repository IDs to link (optional)")]
+    #[schemars(
+        description = "Repository IDs to link (optional). Associate with relevant repos for context."
+    )]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(description = "Project IDs to link (optional)")]
+    #[schemars(
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability."
+    )]
     pub project_ids: Option<Vec<String>>,
 }
 

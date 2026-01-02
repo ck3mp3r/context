@@ -89,9 +89,13 @@ pub struct UpdateTaskListParams {
     pub external_ref: Option<String>,
     #[schemars(description = "Status (active, archived) (optional)")]
     pub status: Option<String>,
-    #[schemars(description = "Repository IDs to link (optional)")]
+    #[schemars(
+        description = "Repository IDs to link (optional). Associate with relevant repos for context."
+    )]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(description = "Project ID this task list belongs to (optional)")]
+    #[schemars(
+        description = "Project ID this task list belongs to (optional). Use sparingly - task lists should stay in their original project."
+    )]
     pub project_id: Option<String>,
 }
 
