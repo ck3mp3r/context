@@ -4,7 +4,8 @@ use thaw::*;
 
 use crate::api::notes;
 use crate::components::CopyableId;
-use crate::models::Note;
+use crate::models::{Note, UpdateMessage};
+use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>) -> impl IntoView {
@@ -105,8 +106,44 @@ pub fn MarkdownContent(content: String) -> impl IntoView {
 
 #[component]
 pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> impl IntoView {
+    // WebSocket updates
+    let ws_updates = use_websocket_updates();
+
+    // Trigger to force refetch when this specific note is updated
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+
+    // Watch for WebSocket updates for THIS note
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            let current_note_id = note_id.get();
+            if !current_note_id.is_empty() {
+                match update {
+                    UpdateMessage::NoteUpdated {
+                        note_id: updated_id,
+                    }
+                    | UpdateMessage::NoteDeleted {
+                        note_id: updated_id,
+                    } => {
+                        if updated_id == current_note_id {
+                            web_sys::console::log_1(
+                                &format!(
+                                    "Note {} updated via WebSocket, refetching detail...",
+                                    updated_id
+                                )
+                                .into(),
+                            );
+                            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
     let note_resource = LocalResource::new(move || {
         let id = note_id.get();
+        let _ = refetch_trigger.get(); // Track refetch trigger
         async move {
             if id.is_empty() {
                 Err(crate::api::ApiClientError::Network(
