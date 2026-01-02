@@ -4,11 +4,23 @@
 //! and sync them via Git to enable multi-machine synchronization.
 
 mod export;
+#[cfg(test)]
+mod export_test;
 mod git;
+#[cfg(test)]
+mod git_test;
 mod import;
+#[cfg(test)]
+mod import_test;
 mod jsonl;
+#[cfg(test)]
+mod jsonl_test;
 mod manager;
+#[cfg(test)]
+mod manager_test;
 mod paths;
+#[cfg(test)]
+mod paths_test;
 
 pub use export::{ExportError, ExportSummary, export_all};
 #[cfg(test)]

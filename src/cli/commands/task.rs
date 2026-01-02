@@ -20,40 +20,40 @@ pub struct Task {
 }
 
 #[derive(Debug, Serialize)]
-struct CreateTaskRequest {
-    title: String,
+pub(crate) struct CreateTaskRequest {
+    pub(crate) title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub(crate) description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<i32>,
+    pub(crate) priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
+    pub(crate) tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
-struct UpdateTaskRequest {
+pub(crate) struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    pub(crate) title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub(crate) description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<String>,
+    pub(crate) status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<i32>,
+    pub(crate) priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
+    pub(crate) tags: Option<Vec<String>>,
 }
 
 #[derive(Tabled)]
-struct TaskDisplay {
+pub(crate) struct TaskDisplay {
     #[tabled(rename = "ID")]
-    id: String,
+    pub(crate) id: String,
     #[tabled(rename = "Title")]
-    title: String,
+    pub(crate) title: String,
     #[tabled(rename = "Status")]
-    status: String,
+    pub(crate) status: String,
     #[tabled(rename = "Priority")]
-    priority: String,
+    pub(crate) priority: String,
 }
 
 impl From<&Task> for TaskDisplay {
@@ -120,7 +120,7 @@ pub async fn list_tasks(
     }
 }
 
-fn format_table(tasks: &[Task]) -> String {
+pub(crate) fn format_table(tasks: &[Task]) -> String {
     if tasks.is_empty() {
         return "No tasks found.".to_string();
     }
@@ -276,235 +276,5 @@ pub async fn delete_task(api_client: &ApiClient, id: &str, force: bool) -> CliRe
             status,
             message: error_text,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_list_tasks_json_format() {
-        // This is an integration test that requires a running API
-        // For now, we'll test the formatter functions
-        let tasks = vec![Task {
-            id: "12345678".to_string(),
-            list_id: "list1234".to_string(),
-            parent_id: None,
-            title: "Test task 1".to_string(),
-            description: None,
-            status: "todo".to_string(),
-            priority: Some(1),
-            tags: None,
-            created_at: "2025-12-28T10:00:00Z".to_string(),
-            started_at: None,
-            completed_at: None,
-        }];
-
-        let json = serde_json::to_string_pretty(&tasks).unwrap();
-        assert!(json.contains("Test task 1"));
-        assert!(json.contains("todo"));
-    }
-
-    #[test]
-    fn test_format_table_with_tasks() {
-        let tasks = vec![
-            Task {
-                id: "12345678abcd".to_string(),
-                list_id: "list1234".to_string(),
-                parent_id: None,
-                title: "Test task 1".to_string(),
-                description: None,
-                status: "todo".to_string(),
-                priority: Some(1),
-                tags: None,
-                created_at: "2025-12-28T10:00:00Z".to_string(),
-                started_at: None,
-                completed_at: None,
-            },
-            Task {
-                id: "87654321efgh".to_string(),
-                list_id: "list1234".to_string(),
-                parent_id: None,
-                title: "Test task 2 with a very long title that should be truncated".to_string(),
-                description: None,
-                status: "done".to_string(),
-                priority: None,
-                tags: None,
-                created_at: "2025-12-28T11:00:00Z".to_string(),
-                started_at: None,
-                completed_at: None,
-            },
-        ];
-
-        let output = format_table(&tasks);
-        println!("Output:\n{}", output);
-
-        // Test that table contains the data
-        assert!(output.contains("12345678"));
-        assert!(output.contains("Test task 1"));
-        assert!(output.contains("todo"));
-        assert!(output.contains(" 1 ")); // Priority with spaces
-        assert!(output.contains("87654321"));
-        assert!(output.contains("...")); // Truncation marker
-        assert!(output.contains("done"));
-        assert!(output.contains(" - ")); // None priority rendered as dash
-
-        // Test that table has rounded style characters
-        assert!(output.contains("╭") || output.contains("─")); // Table borders
-    }
-
-    #[test]
-    fn test_format_table_empty() {
-        let tasks: Vec<Task> = vec![];
-        let output = format_table(&tasks);
-        assert_eq!(output, "No tasks found.");
-    }
-
-    #[test]
-    fn test_task_display_conversion() {
-        let task = Task {
-            id: "12345678".to_string(), // IDs are always 8 chars
-            list_id: "list1234".to_string(),
-            parent_id: None,
-            title: "short".to_string(),
-            description: None,
-            status: "todo".to_string(),
-            priority: Some(5),
-            tags: None,
-            created_at: "2025-12-28T10:00:00Z".to_string(),
-            started_at: None,
-            completed_at: None,
-        };
-
-        let display: TaskDisplay = (&task).into();
-        assert_eq!(display.id, "12345678");
-        assert_eq!(display.title, "short");
-        assert_eq!(display.priority, "5");
-
-        let task_none = Task {
-            id: "abc12345".to_string(), // IDs are always 8 chars
-            list_id: "list1234".to_string(),
-            parent_id: None,
-            title: "x".repeat(60),
-            description: None,
-            status: "done".to_string(),
-            priority: None,
-            tags: None,
-            created_at: "2025-12-28T10:00:00Z".to_string(),
-            started_at: None,
-            completed_at: None,
-        };
-
-        let display_none: TaskDisplay = (&task_none).into();
-        assert_eq!(display_none.id, "abc12345");
-        assert!(display_none.title.ends_with("..."));
-        assert_eq!(display_none.priority, "-");
-    }
-
-    #[test]
-    fn test_complete_task_success_message() {
-        // We can't test the actual API call without a running server,
-        // but we can test the success message format
-        let task_id = "12345678";
-        let expected = format!("✓ Task {} marked as complete", task_id);
-        assert!(expected.contains("12345678"));
-        assert!(expected.contains("complete"));
-        assert!(expected.contains("✓"));
-    }
-
-    // Tests for new CRUD operations
-
-    #[test]
-    fn test_get_task_builds_correct_url() {
-        let client = ApiClient::new(None);
-        let id = "abc12345";
-        let builder = client.get(&format!("/api/v1/tasks/{}", id));
-        let _request = builder;
-    }
-
-    #[test]
-    fn test_create_task_builds_correct_url() {
-        let client = ApiClient::new(None);
-        let list_id = "list1234";
-        let builder = client.post(&format!("/api/v1/task-lists/{}/tasks", list_id));
-        let _request = builder;
-    }
-
-    #[test]
-    fn test_update_task_builds_correct_url() {
-        let client = ApiClient::new(None);
-        let id = "abc12345";
-        let builder = client.patch(&format!("/api/v1/tasks/{}", id));
-        let _request = builder;
-    }
-
-    #[test]
-    fn test_delete_task_builds_correct_url() {
-        let client = ApiClient::new(None);
-        let id = "abc12345";
-        let builder = client.delete(&format!("/api/v1/tasks/{}", id));
-        let _request = builder;
-    }
-
-    #[test]
-    fn test_create_request_serialization() {
-        let req = CreateTaskRequest {
-            title: "Test task".to_string(),
-            description: Some("Test description".to_string()),
-            priority: Some(3),
-            tags: Some(vec!["urgent".to_string()]),
-        };
-
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("Test task"));
-        assert!(json.contains("Test description"));
-        assert!(json.contains("3"));
-        assert!(json.contains("urgent"));
-    }
-
-    #[test]
-    fn test_update_request_serialization() {
-        let req = UpdateTaskRequest {
-            title: Some("Updated title".to_string()),
-            description: Some("Updated description".to_string()),
-            status: Some("in_progress".to_string()),
-            priority: Some(2),
-            tags: Some(vec!["important".to_string()]),
-        };
-
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("Updated title"));
-        assert!(json.contains("Updated description"));
-        assert!(json.contains("in_progress"));
-        assert!(json.contains("2"));
-        assert!(json.contains("important"));
-    }
-
-    #[test]
-    fn test_task_with_all_fields() {
-        let task = Task {
-            id: "abc12345".to_string(),
-            list_id: "list1234".to_string(),
-            parent_id: Some("parent12".to_string()),
-            title: "Full task".to_string(),
-            description: Some("Full description".to_string()),
-            status: "in_progress".to_string(),
-            priority: Some(1),
-            tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
-            created_at: "2025-12-28T10:00:00Z".to_string(),
-            started_at: Some("2025-12-28T11:00:00Z".to_string()),
-            completed_at: None,
-        };
-
-        assert_eq!(task.id, "abc12345");
-        assert_eq!(task.list_id, "list1234");
-        assert_eq!(task.title, "Full task");
-        assert_eq!(task.description, Some("Full description".to_string()));
-        assert_eq!(task.priority, Some(1));
-        assert_eq!(
-            task.tags,
-            Some(vec!["tag1".to_string(), "tag2".to_string()])
-        );
     }
 }

@@ -3,6 +3,14 @@ mod commands;
 pub mod error;
 pub mod utils;
 
+#[cfg(test)]
+#[path = "utils_test.rs"]
+mod utils_test;
+
+#[cfg(test)]
+#[path = "api_client_test.rs"]
+mod api_client_test;
+
 use clap::{Parser, Subcommand};
 use miette::Result;
 
