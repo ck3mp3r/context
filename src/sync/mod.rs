@@ -11,6 +11,8 @@ mod import;
 #[cfg(test)]
 mod import_test;
 mod jsonl;
+#[cfg(test)]
+mod jsonl_test;
 mod manager;
 #[cfg(test)]
 mod manager_test;
