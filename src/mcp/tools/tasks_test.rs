@@ -1113,6 +1113,57 @@ async fn test_transition_todo_to_backlog() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_without_priority_defaults_to_p5() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create a task list first
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        status: crate::db::TaskListStatus::Active,
+        external_ref: None,
+        project_id: create_test_project(&db).await,
+        repo_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let created_list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create task WITHOUT priority
+    let create_params = CreateTaskParams {
+        list_id: created_list.id.clone(),
+        title: "Task without priority".to_string(),
+        description: None,
+        priority: None, // No priority specified
+        parent_id: None,
+        tags: None,
+    };
+
+    let result = tools
+        .create_task(Parameters(create_params))
+        .await
+        .expect("create should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let created: Task = serde_json::from_str(content_text).unwrap();
+
+    // Should default to P5 (lowest priority)
+    assert_eq!(created.priority, Some(5));
+    assert_eq!(created.title, "Task without priority");
+    assert_eq!(created.status, TaskStatus::Backlog);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_transition_todo_to_in_progress() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();

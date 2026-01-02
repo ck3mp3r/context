@@ -267,7 +267,7 @@ impl<D: Database + 'static> TaskTools<D> {
             title: params.0.title.clone(),
             description: params.0.description.clone(),
             status: TaskStatus::Backlog, // Always create as backlog
-            priority: params.0.priority,
+            priority: params.0.priority.or(Some(5)), // Default to P5 (lowest priority)
             tags: params.0.tags.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
             started_at: None,

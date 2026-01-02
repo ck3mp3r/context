@@ -297,12 +297,12 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
     let task = Task {
         id: String::new(), // Repository will generate this
-        list_id,
+        list_id: list_id.clone(),
         parent_id: req.parent_id,
         title: req.title,
         description: req.description,
         status: TaskStatus::Backlog,
-        priority: req.priority,
+        priority: req.priority.or(Some(5)), // Default to P5 (lowest priority)
         tags: vec![],
         created_at: None, // Repository will generate this
         started_at: None,

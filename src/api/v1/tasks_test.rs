@@ -173,7 +173,35 @@ async fn create_task_minimal() {
     let body = json_body(response).await;
     assert_eq!(body["title"], "Quick task");
     assert_eq!(body["status"], "backlog");
-    assert!(body["priority"].is_null());
+    assert_eq!(body["priority"], 5); // Should default to P5 (lowest priority)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_without_priority_defaults_to_p5() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task without priority"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response).await;
+    assert_eq!(body["priority"], 5); // Should default to P5 (lowest priority)
+    assert_eq!(body["title"], "Task without priority");
 }
 
 #[tokio::test(flavor = "multi_thread")]
