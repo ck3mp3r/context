@@ -11,6 +11,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
@@ -318,6 +319,11 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast TaskCreated notification
+    state.notifier().notify(UpdateMessage::TaskCreated {
+        task_id: created_task.id.clone(),
+    });
+
     Ok((StatusCode::CREATED, Json(TaskResponse::from(created_task))))
 }
 
@@ -384,6 +390,11 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast TaskUpdated notification
+    state.notifier().notify(UpdateMessage::TaskUpdated {
+        task_id: id.clone(),
+    });
+
     Ok(Json(TaskResponse::from(task)))
 }
 
@@ -448,6 +459,11 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast TaskUpdated notification
+    state.notifier().notify(UpdateMessage::TaskUpdated {
+        task_id: id.clone(),
+    });
+
     Ok(Json(TaskResponse::from(updated)))
 }
 
@@ -481,6 +497,11 @@ pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
+
+    // Broadcast TaskDeleted notification
+    state.notifier().notify(UpdateMessage::TaskDeleted {
+        task_id: id.clone(),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }
