@@ -20,18 +20,40 @@ All entities (projects, repos, task lists, tasks, notes) use **8-character lower
 
 ## Configuration
 
-Add to MCP settings (e.g., Claude Desktop config):
+The MCP server runs as part of the unified API server using **HTTP/SSE transport**.
 
+**Start the server:**
+```bash
+c5t api
+```
+
+This starts (default port 3737):
+- REST API at `http://localhost:3737/api/v1/*`
+- **MCP Server** at `http://localhost:3737/mcp` (HTTP/SSE transport)
+- Web UI at `http://localhost:3737/`
+- WebSocket at `ws://localhost:3737/ws`
+
+**MCP Client Configuration:**
+
+The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as a **remote MCP server** in your client.
+
+**OpenCode example** (`~/.config/opencode/opencode.json`):
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "c5t": {
-      "command": "/path/to/c5t",
-      "args": ["mcp"]
+      "enabled": true,
+      "type": "remote",
+      "url": "http://localhost:3737/mcp"
     }
   }
 }
 ```
+
+**Notes:**
+- Use `http://0.0.0.0:3737/mcp` if accessing from a different machine
+- The server must be running (`c5t api`) before connecting
+- HTTP/SSE transport is supported by MCP clients that support remote servers (like OpenCode)
 
 ## Tools
 
