@@ -6,6 +6,8 @@
 mod export;
 mod git;
 mod import;
+#[cfg(test)]
+mod import_test;
 mod jsonl;
 mod manager;
 #[cfg(test)]
