@@ -69,7 +69,7 @@ fn NavAndContent() -> impl IntoView {
                 </Tooltip>
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
                     <h1 class="text-3xl font-bold bg-gradient-to-r from-ctp-mauve to-ctp-blue bg-clip-text text-transparent">
-                        "c5t"
+                        "context"
                     </h1>
                     <div class="flex gap-2 items-center">
                         <a href="/"
