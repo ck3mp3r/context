@@ -149,7 +149,7 @@
           contents = [
             regularPackages.default # c5t binary with embedded frontend
             pkgs.cacert # CA certificates for HTTPS/git sync
-            pkgs.bash # Shell for debugging
+            pkgs.dash # Lightweight shell for debugging (4 MB vs bash's 60 MB)
           ];
 
           # Setup /data directory before packaging
