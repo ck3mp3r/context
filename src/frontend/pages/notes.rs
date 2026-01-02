@@ -4,7 +4,8 @@ use leptos::task::spawn_local;
 use crate::api::ApiClientError;
 use crate::api::notes;
 use crate::components::{NoteCard, NoteDetailModal, Pagination};
-use crate::models::{Note, Paginated};
+use crate::models::{Note, Paginated, UpdateMessage};
+use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn Notes() -> impl IntoView {
@@ -26,6 +27,28 @@ fn NotesList() -> impl IntoView {
     // Note detail modal state
     let note_modal_open = RwSignal::new(false);
     let selected_note_id = RwSignal::new(String::new());
+
+    // WebSocket updates
+    let ws_updates = use_websocket_updates();
+
+    // Trigger to force refetch (increments when we need to refresh)
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+
+    // Watch for WebSocket updates and trigger refetch when notes change
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            match update {
+                UpdateMessage::NoteCreated { .. }
+                | UpdateMessage::NoteUpdated { .. }
+                | UpdateMessage::NoteDeleted { .. } => {
+                    web_sys::console::log_1(&"Note updated via WebSocket, refetching...".into());
+                    // Trigger refetch by incrementing counter
+                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore non-note updates
+            }
+        }
+    });
 
     // Debounce search input - only trigger API call after 300ms of no typing
     Effect::new(move || {
@@ -50,10 +73,11 @@ fn NotesList() -> impl IntoView {
         callback.forget();
     });
 
-    // Use Effect to fetch when dependencies change
+    // Use Effect to fetch when dependencies change (including WebSocket updates)
     Effect::new(move || {
         let current_page = page.get();
         let current_query = search_query.get();
+        let _ = refetch_trigger.get(); // Track refetch trigger
 
         // Log for debugging
         web_sys::console::log_1(
