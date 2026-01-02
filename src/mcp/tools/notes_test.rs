@@ -1,5 +1,6 @@
 //! Tests for Note MCP tools
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Note, NoteRepository, NoteType, SqliteDatabase};
 use crate::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools,
@@ -14,7 +15,7 @@ async fn test_list_notes_empty() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     let params = ListNotesParams {
         tags: None,
@@ -49,7 +50,7 @@ async fn test_create_and_get_note() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Create note
     let create_params = CreateNoteParams {
@@ -108,7 +109,7 @@ async fn test_get_note_not_found() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     let params = GetNoteParams {
         note_id: "nonexist".to_string(),
@@ -151,7 +152,7 @@ async fn test_list_notes_with_tag_filter() {
     db.notes().create(&note1).await.unwrap();
     db.notes().create(&note2).await.unwrap();
 
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // List only "work" notes
     let params = ListNotesParams {
@@ -201,7 +202,7 @@ async fn test_update_note() {
     };
     let created = db.notes().create(&note).await.unwrap();
 
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Update note
     let update_params = UpdateNoteParams {
@@ -250,7 +251,7 @@ async fn test_delete_note() {
     };
     let created = db.notes().create(&note).await.unwrap();
 
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Delete note
     let delete_params = DeleteNoteParams {
@@ -306,7 +307,7 @@ async fn test_search_notes() {
     db.notes().create(&note1).await.unwrap();
     db.notes().create(&note2).await.unwrap();
 
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Search for "Rust"
     let params = SearchNotesParams {
@@ -367,7 +368,7 @@ async fn test_search_notes_with_tag_filter() {
     db.notes().create(&note1).await.unwrap();
     db.notes().create(&note2).await.unwrap();
 
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Search for "Rust" with "async" tag filter
     let params = SearchNotesParams {
@@ -443,7 +444,7 @@ async fn test_list_notes_with_sort_and_order() {
     db.notes().create(&note2).await.unwrap();
     db.notes().create(&note3).await.unwrap();
 
-    let tools = NoteTools::new(db.clone());
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Test sorting by updated_at DESC
     let params = ListNotesParams {

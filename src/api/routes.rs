@@ -137,7 +137,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
     let ct = tokio_util::sync::CancellationToken::new();
     let mcp_service: rmcp::transport::streamable_http_server::StreamableHttpService<
         crate::mcp::McpServer<D>,
-    > = crate::mcp::create_mcp_service(state.db_arc(), ct);
+    > = crate::mcp::create_mcp_service(state.db_arc(), state.notifier().clone(), ct);
 
     // System routes (non-generic, not versioned)
     let system_routes = Router::new()

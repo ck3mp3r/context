@@ -44,6 +44,7 @@ use super::server::McpServer;
 /// ```
 pub fn create_mcp_service<D: Database + 'static>(
     db: impl Into<Arc<D>>,
+    notifier: crate::api::notifier::ChangeNotifier,
     cancellation_token: CancellationToken,
 ) -> StreamableHttpService<McpServer<D>> {
     let db = db.into();
@@ -51,7 +52,7 @@ pub fn create_mcp_service<D: Database + 'static>(
     // Service factory: creates new McpServer instance per session
     // Note: Returns io::Error to match rmcp's expected signature
     let service_factory = move || -> Result<McpServer<D>, std::io::Error> {
-        let server = McpServer::new(Arc::clone(&db));
+        let server = McpServer::new(Arc::clone(&db), notifier.clone());
         Ok(server)
     };
 

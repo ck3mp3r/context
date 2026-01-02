@@ -12,6 +12,7 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::Database;
 use crate::sync::RealGit;
 
@@ -42,6 +43,7 @@ use super::tools::{
 pub struct McpServer<D: Database> {
     #[allow(dead_code)] // Will be used when Task/Note tools are implemented
     db: Arc<D>,
+    notifier: ChangeNotifier,
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
     task_list_tools: TaskListTools<D>,
@@ -54,14 +56,15 @@ pub struct McpServer<D: Database> {
 
 #[tool_router]
 impl<D: Database + 'static> McpServer<D> {
-    /// Create a new MCP server with the given database
+    /// Create a new MCP server with the given database and notifier
     ///
     /// # Arguments
     /// * `db` - Database instance (can be Arc<D> or D)
+    /// * `notifier` - ChangeNotifier for broadcasting updates
     ///
     /// # Returns
     /// A new McpServer instance with all tool handlers initialized
-    pub fn new(db: impl Into<Arc<D>>) -> Self {
+    pub fn new(db: impl Into<Arc<D>>, notifier: ChangeNotifier) -> Self {
         let db = db.into();
 
         Self {
@@ -69,9 +72,10 @@ impl<D: Database + 'static> McpServer<D> {
             repo_tools: RepoTools::new(Arc::clone(&db)),
             task_list_tools: TaskListTools::new(Arc::clone(&db)),
             task_tools: TaskTools::new(Arc::clone(&db)),
-            note_tools: NoteTools::new(Arc::clone(&db)),
+            note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
             db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }

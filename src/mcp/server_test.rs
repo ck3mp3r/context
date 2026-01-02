@@ -2,6 +2,7 @@
 //!
 //! Following TDD: These tests are written FIRST (RED), then we implement to make them pass (GREEN).
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
 
 /// Test that we can create an MCP server with a database
@@ -20,7 +21,7 @@ async fn test_create_mcp_server() {
 
     // Act: Create MCP server with the database
     // This should compile and run without errors
-    let _server = super::server::McpServer::new(db);
+    let _server = super::server::McpServer::new(db, ChangeNotifier::new());
 
     // Assert: If we got here, server was created successfully
     // More detailed assertions will come as we implement tools
@@ -41,7 +42,7 @@ async fn test_server_info() {
         .expect("Failed to create in-memory database");
     db.migrate_async().await.expect("Failed to run migrations");
 
-    let server = super::server::McpServer::new(db);
+    let server = super::server::McpServer::new(db, ChangeNotifier::new());
 
     // Act
     let info = server.get_info();
