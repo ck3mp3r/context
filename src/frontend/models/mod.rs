@@ -110,3 +110,33 @@ pub struct ApiError {
     pub error: String,
     pub details: Option<String>,
 }
+
+/// WebSocket update messages from backend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "data")]
+pub enum UpdateMessage {
+    // Notes
+    NoteCreated { note_id: String },
+    NoteUpdated { note_id: String },
+    NoteDeleted { note_id: String },
+
+    // Projects
+    ProjectCreated { project_id: String },
+    ProjectUpdated { project_id: String },
+    ProjectDeleted { project_id: String },
+
+    // Repos
+    RepoCreated { repo_id: String },
+    RepoUpdated { repo_id: String },
+    RepoDeleted { repo_id: String },
+
+    // TaskLists
+    TaskListCreated { task_list_id: String },
+    TaskListUpdated { task_list_id: String },
+    TaskListDeleted { task_list_id: String },
+
+    // Tasks
+    TaskCreated { task_id: String },
+    TaskUpdated { task_id: String },
+    TaskDeleted { task_id: String },
+}

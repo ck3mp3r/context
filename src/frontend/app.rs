@@ -7,18 +7,28 @@ use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
 use crate::pages::{Notes, ProjectDetail, Projects, Repos};
-use crate::websocket::use_websocket_connection;
+use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
 #[component]
 pub fn App() -> impl IntoView {
     // Set dark theme for Thaw UI components
     let theme = RwSignal::new(Theme::dark());
 
-    // WebSocket connection status
+    view! {
+        <ConfigProvider theme>
+            <WebSocketProvider>
+            <AppContent/>
+            </WebSocketProvider>
+        </ConfigProvider>
+    }
+}
+
+#[component]
+fn AppContent() -> impl IntoView {
+    // WebSocket connection status (from context)
     let ws_state = use_websocket_connection();
 
     view! {
-        <ConfigProvider theme>
             <Router>
                 <main class="min-h-screen bg-ctp-base">
                 <nav class="bg-ctp-surface0 border-b border-ctp-surface1 px-6 py-4">
@@ -55,6 +65,5 @@ pub fn App() -> impl IntoView {
                 </Routes>
             </main>
         </Router>
-        </ConfigProvider>
     }
 }
