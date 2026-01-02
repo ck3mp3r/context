@@ -32,6 +32,7 @@ async fn test_app() -> axum::Router {
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
     );
     routes::create_router(state, false)
 }
@@ -1364,4 +1365,185 @@ async fn get_task_list_stats_returns_counts_by_status() {
     assert_eq!(body["review"], 0);
     assert_eq!(body["done"], 3);
     assert_eq!(body["cancelled"], 0);
+}
+
+// =============================================================================
+// WebSocket Broadcast Tests
+// =============================================================================
+
+async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create a test project with known ID for API tests
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
+    let notifier = crate::api::notifier::ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_list_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+    let mut subscriber = notifier.subscribe();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "New Task List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created = json_body(response).await;
+    let task_list_id = created["id"].as_str().unwrap();
+
+    // Should receive TaskListCreated broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::TaskListCreated { task_list_id: id } => {
+            assert_eq!(id, task_list_id);
+        }
+        _ => panic!("Expected TaskListCreated message, got {:?}", msg),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_list_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create a task list first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Original Task List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let task_list_id = created["id"].as_str().unwrap().to_string();
+
+    // Subscribe AFTER creation to avoid receiving create notification
+    let mut subscriber = notifier.subscribe();
+
+    // Update the task list
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/task-lists/{}", task_list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Updated Task List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Should receive TaskListUpdated broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::TaskListUpdated { task_list_id: id } => {
+            assert_eq!(id, task_list_id);
+        }
+        _ => panic!("Expected TaskListUpdated message, got {:?}", msg),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_task_list_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create a task list first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Task List to Delete",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let task_list_id = created["id"].as_str().unwrap().to_string();
+
+    // Subscribe AFTER creation
+    let mut subscriber = notifier.subscribe();
+
+    // Delete the task list
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/task-lists/{}", task_list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Should receive TaskListDeleted broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::TaskListDeleted { task_list_id: id } => {
+            assert_eq!(id, task_list_id);
+        }
+        _ => panic!("Expected TaskListDeleted message, got {:?}", msg),
+    }
 }

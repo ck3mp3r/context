@@ -8,6 +8,7 @@ use axum::{
 };
 use tower::ServiceExt;
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
 
 /// Test that we can create a Streamable HTTP service
@@ -29,7 +30,7 @@ async fn test_create_mcp_service() {
     let ct = CancellationToken::new();
 
     // Act: Create MCP service
-    let service = super::create_mcp_service(db, ct);
+    let service = super::create_mcp_service(db, ChangeNotifier::new(), ct);
 
     // Assert: Service should be created successfully
     // We'll test actual requests in integration tests
@@ -49,7 +50,7 @@ async fn test_mcp_service_with_router() {
     db.migrate_async().await.expect("Failed to run migrations");
 
     let ct = CancellationToken::new();
-    let service = super::create_mcp_service(db, ct);
+    let service = super::create_mcp_service(db, ChangeNotifier::new(), ct);
 
     // Act: Nest service into router
     let app = Router::new().nest_service("/mcp", service);
@@ -81,7 +82,7 @@ async fn test_mcp_session_management_configured() {
     db.migrate_async().await.expect("Failed to run migrations");
 
     let ct = CancellationToken::new();
-    let service = super::create_mcp_service(db, ct);
+    let service = super::create_mcp_service(db, ChangeNotifier::new(), ct);
     let app = Router::new().nest_service("/mcp", service);
 
     // Act & Assert: Service should be created with stateful_mode = true

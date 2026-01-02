@@ -6,7 +6,8 @@ use crate::api::{ApiClientError, notes, projects, repos, task_lists};
 use crate::components::{
     CopyableId, NoteCard, NoteDetailModal, Pagination, TaskListCard, TaskListDetailModal,
 };
-use crate::models::{Note, Paginated, Project, Repo, TaskList};
+use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
+use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn ProjectDetail() -> impl IntoView {
@@ -44,6 +45,38 @@ pub fn ProjectDetail() -> impl IntoView {
     // Task list detail modal state
     let task_list_modal_open = RwSignal::new(false);
     let selected_task_list = RwSignal::new(None::<TaskList>);
+
+    // WebSocket updates
+    let ws_updates = use_websocket_updates();
+
+    // Triggers to force refetch
+    let (note_refetch_trigger, set_note_refetch_trigger) = signal(0u32);
+    let (task_list_refetch_trigger, set_task_list_refetch_trigger) = signal(0u32);
+
+    // Watch for WebSocket updates and trigger refetch when notes or task lists change
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            match update {
+                UpdateMessage::NoteCreated { .. }
+                | UpdateMessage::NoteUpdated { .. }
+                | UpdateMessage::NoteDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"Note updated via WebSocket, refetching project notes...".into(),
+                    );
+                    set_note_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                UpdateMessage::TaskListCreated { .. }
+                | UpdateMessage::TaskListUpdated { .. }
+                | UpdateMessage::TaskListDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"TaskList updated via WebSocket, refetching project task lists...".into(),
+                    );
+                    set_task_list_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore other updates
+            }
+        }
+    });
 
     // Fetch project details
     Effect::new(move || {
@@ -91,6 +124,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         let show_archived = show_archived_task_lists.get();
         let current_page = task_list_page.get();
+        let _ = task_list_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let status = if show_archived { None } else { Some("active") };
@@ -108,6 +142,7 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         let search = note_filter.get();
         let current_page = note_page.get();
+        let _ = note_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let search_query = if search.trim().is_empty() {

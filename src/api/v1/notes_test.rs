@@ -8,6 +8,7 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 
@@ -19,8 +20,23 @@ async fn test_app() -> axum::Router {
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        ChangeNotifier::new(),
     );
     routes::create_router(state, false)
+}
+
+async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
+    db.migrate().expect("Failed to run migrations");
+    let notifier = ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
 }
 
 async fn json_body(response: axum::response::Response) -> Value {
@@ -1431,5 +1447,154 @@ async fn fts5_search_boolean_operators_with_tags_via_api() {
         body["items"].as_array().unwrap().len(),
         2,
         "Should find notes with 'python' OR 'cli' tags"
+    );
+}
+
+// =============================================================================
+// WebSocket Broadcast Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_note_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+    let mut rx = notifier.subscribe();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "title": "Broadcast Test",
+                        "content": "Testing broadcast",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response).await;
+    let note_id = body["id"].as_str().unwrap().to_string();
+
+    // Should receive broadcast
+    let msg = rx.try_recv().expect("Should receive broadcast");
+    assert_eq!(msg, UpdateMessage::NoteCreated { note_id });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_note_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create note first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "title": "Original",
+                        "content": "Content",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let note = json_body(create_response).await;
+    let note_id = note["id"].as_str().unwrap();
+
+    // Subscribe after create to only get update notification
+    let mut rx = notifier.subscribe();
+
+    // Update the note
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .method("PUT")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "title": "Updated",
+                        "content": "Updated content",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Should receive broadcast
+    let msg = rx.try_recv().expect("Should receive broadcast");
+    assert_eq!(
+        msg,
+        UpdateMessage::NoteUpdated {
+            note_id: note_id.to_string()
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_note_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create note first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "title": "To Delete",
+                        "content": "Content",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let note = json_body(create_response).await;
+    let note_id = note["id"].as_str().unwrap();
+
+    // Subscribe after create
+    let mut rx = notifier.subscribe();
+
+    // Delete the note
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .method("DELETE")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Should receive broadcast
+    let msg = rx.try_recv().expect("Should receive broadcast");
+    assert_eq!(
+        msg,
+        UpdateMessage::NoteDeleted {
+            note_id: note_id.to_string()
+        }
     );
 }

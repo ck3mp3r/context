@@ -4,7 +4,8 @@ use leptos::task::spawn_local;
 use crate::api::ApiClientError;
 use crate::api::notes;
 use crate::components::{NoteCard, NoteDetailModal, Pagination};
-use crate::models::{Note, Paginated};
+use crate::models::{Note, Paginated, UpdateMessage};
+use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn Notes() -> impl IntoView {
@@ -27,39 +28,74 @@ fn NotesList() -> impl IntoView {
     let note_modal_open = RwSignal::new(false);
     let selected_note_id = RwSignal::new(String::new());
 
-    // Debounce search input - only trigger API call after 300ms of no typing
+    // WebSocket updates
+    let ws_updates = use_websocket_updates();
+
+    // Trigger to force refetch (increments when we need to refresh)
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+
+    // Watch for WebSocket updates and trigger refetch when notes change
     Effect::new(move || {
-        let input = search_input.get();
+        if let Some(
+            UpdateMessage::NoteCreated { .. }
+            | UpdateMessage::NoteUpdated { .. }
+            | UpdateMessage::NoteDeleted { .. },
+        ) = ws_updates.get()
+        {
+            web_sys::console::log_1(&"Note updated via WebSocket, refetching...".into());
+            // Trigger refetch by incrementing counter
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+        }
+    });
+
+    // Store the timeout ID so we can cancel it
+    let debounce_timeout = RwSignal::new(None::<i32>);
+
+    // Handle search input change with proper debouncing
+    let on_search = move |ev: web_sys::Event| {
+        let value = event_target_value(&ev);
+        set_search_input.set(value.clone());
 
         use wasm_bindgen::JsCast;
         use wasm_bindgen::prelude::*;
 
+        // Cancel the previous timeout if it exists
+        if let Some(timeout_id) = debounce_timeout.get() {
+            web_sys::window()
+                .unwrap()
+                .clear_timeout_with_handle(timeout_id);
+        }
+
+        // Set new timeout
         let callback = Closure::once(move || {
-            set_search_query.set(input.clone());
+            set_search_query.set(value.clone());
             set_page.set(0); // Reset to first page on new search
+            debounce_timeout.set(None); // Clear timeout ID after it fires
         });
 
-        web_sys::window()
+        let timeout_id = web_sys::window()
             .unwrap()
             .set_timeout_with_callback_and_timeout_and_arguments_0(
                 callback.as_ref().unchecked_ref(),
-                300,
+                500,
             )
             .unwrap();
 
+        debounce_timeout.set(Some(timeout_id));
         callback.forget();
-    });
+    };
 
-    // Use Effect to fetch when dependencies change
+    // Use Effect to fetch when dependencies change (including WebSocket updates)
     Effect::new(move || {
         let current_page = page.get();
         let current_query = search_query.get();
+        let trigger = refetch_trigger.get();
 
-        // Log for debugging
+        // Log for debugging with all dependency values
         web_sys::console::log_1(
             &format!(
-                "Fetching page {} with query '{}'",
-                current_page, current_query
+                "FETCH TRIGGERED: page={}, query='{}', trigger={}",
+                current_page, current_query, trigger
             )
             .into(),
         );
@@ -91,12 +127,6 @@ fn NotesList() -> impl IntoView {
             set_notes_data.set(Some(result));
         });
     });
-
-    // Handle search input change (just update the input, debouncing handles the rest)
-    let on_search = move |ev: web_sys::Event| {
-        let value = event_target_value(&ev);
-        set_search_input.set(value);
-    };
 
     // Pagination handlers
     let go_to_page = move |new_page: usize| {

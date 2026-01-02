@@ -281,3 +281,82 @@ async fn repo_get_loads_project_relationships() {
     assert!(retrieved.project_ids.contains(&"proj0001".to_string()));
     assert!(retrieved.project_ids.contains(&"proj0002".to_string()));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_list_with_search_query() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos with different remote URLs and tags
+    repos
+        .create(&Repo {
+            id: "search01".to_string(),
+            remote: "github:acme/widget-api".to_string(),
+            path: None,
+            tags: vec!["backend".to_string(), "production".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "search02".to_string(),
+            remote: "github:acme/widget-frontend".to_string(),
+            path: None,
+            tags: vec!["frontend".to_string(), "production".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "search03".to_string(),
+            remote: "gitlab:company/internal-tool".to_string(),
+            path: None,
+            tags: vec!["internal".to_string(), "backend".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:02".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Search by partial remote match - should find widget-api and widget-frontend
+    let query = RepoQuery {
+        search_query: Some("widget".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    // Search by tag - should find repos with "backend" tag
+    let query = RepoQuery {
+        search_query: Some("backend".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    // Search by gitlab - should find gitlab:company/internal-tool
+    let query = RepoQuery {
+        search_query: Some("gitlab".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].remote, "gitlab:company/internal-tool");
+
+    // Search with no results
+    let query = RepoQuery {
+        search_query: Some("nonexistent".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 0);
+    assert_eq!(result.total, 0);
+}

@@ -244,7 +244,11 @@ mod tests {
             .await
             .expect("Failed to create test database");
         db.migrate().expect("Failed to run migrations");
-        let state = AppState::new(db, crate::sync::SyncManager::new(MockGitOps::new()));
+        let state = AppState::new(
+            db,
+            crate::sync::SyncManager::new(MockGitOps::new()),
+            crate::api::notifier::ChangeNotifier::new(),
+        );
         let app = routes::create_router(state, false);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

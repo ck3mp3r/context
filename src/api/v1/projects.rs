@@ -11,6 +11,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
 
 // =============================================================================
@@ -312,6 +313,11 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::ProjectCreated {
+        project_id: created_project.id.clone(),
+    });
+
     Ok((
         StatusCode::CREATED,
         Json(ProjectResponse::from(created_project)),
@@ -370,6 +376,11 @@ pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
             }),
         )
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::ProjectUpdated {
+        project_id: id.clone(),
+    });
 
     // Re-fetch to get updated timestamp
     let updated = state.db().projects().get(&id).await.map_err(|e| {
@@ -436,6 +447,11 @@ pub async fn patch_project<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::ProjectUpdated {
+        project_id: id.clone(),
+    });
+
     // Re-fetch to get updated timestamp
     let updated = state.db().projects().get(&id).await.map_err(|e| {
         (
@@ -489,6 +505,11 @@ pub async fn delete_project<D: Database, G: GitOps + Send + Sync>(
                 }),
             ),
         })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::ProjectDeleted {
+        project_id: id.clone(),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

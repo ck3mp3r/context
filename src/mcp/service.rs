@@ -31,11 +31,13 @@ use super::server::McpServer;
 /// use tokio_util::sync::CancellationToken;
 /// # use context::db::SqliteDatabase;
 /// # use context::mcp::create_mcp_service;
+/// # use context::api::notifier::ChangeNotifier;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let db = SqliteDatabase::in_memory().await?;
 ///
 /// let ct = CancellationToken::new();
-/// let mcp_service = create_mcp_service(db, ct);
+/// let notifier = ChangeNotifier::new();
+/// let mcp_service = create_mcp_service(db, notifier, ct);
 ///
 /// let app: Router = Router::new()
 ///     .nest_service("/mcp", mcp_service);
@@ -44,6 +46,7 @@ use super::server::McpServer;
 /// ```
 pub fn create_mcp_service<D: Database + 'static>(
     db: impl Into<Arc<D>>,
+    notifier: crate::api::notifier::ChangeNotifier,
     cancellation_token: CancellationToken,
 ) -> StreamableHttpService<McpServer<D>> {
     let db = db.into();
@@ -51,7 +54,7 @@ pub fn create_mcp_service<D: Database + 'static>(
     // Service factory: creates new McpServer instance per session
     // Note: Returns io::Error to match rmcp's expected signature
     let service_factory = move || -> Result<McpServer<D>, std::io::Error> {
-        let server = McpServer::new(Arc::clone(&db));
+        let server = McpServer::new(Arc::clone(&db), notifier.clone());
         Ok(server)
     };
 

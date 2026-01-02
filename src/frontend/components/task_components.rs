@@ -81,16 +81,45 @@ pub fn KanbanColumn(
     // Store list_id in a signal so it can be shared across closures
     let list_id_signal = StoredValue::new(list_id.clone());
 
+    // WebSocket updates - refetch trigger
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let ws_updates = crate::websocket::use_websocket_updates();
+
+    // Watch for WebSocket task updates and trigger refetch
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            use crate::models::UpdateMessage;
+            match update {
+                UpdateMessage::TaskCreated { .. }
+                | UpdateMessage::TaskUpdated { .. }
+                | UpdateMessage::TaskDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &format!(
+                            "Task updated via WebSocket for status {}, refetching...",
+                            status
+                        )
+                        .into(),
+                    );
+                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore non-task updates
+            }
+        }
+    });
+
     // Determine sort order based on status
     let (sort_field, sort_order) = match status {
         "backlog" | "todo" => ("priority", "asc"), // Priority 1-5, nulls last
-        "done" | "cancelled" => ("updated_at", "desc"), // Most recently updated first (completed_at is set on completion → updated_at cascades)
+        "done" => ("completed_at", "desc"),        // Most recently completed first
+        "cancelled" => ("updated_at", "desc"),     // Most recently updated first
         _ => ("updated_at", "desc"), // In progress, review: most recently updated first (parent updated_at cascades when subtask changes)
     };
 
-    // Initial fetch
+    // Initial fetch + refetch on WebSocket updates
     Effect::new(move |_| {
+        let _ = refetch_trigger.get(); // Track WebSocket refetch trigger
         let list_id = list_id_signal.get_value();
+        set_offset.set(0); // Reset offset on refetch
         spawn_local(async move {
             let result = tasks::list_for_task_list(
                 &list_id,
@@ -398,7 +427,7 @@ pub fn TaskCard(
 
     // Fetch subtask count
     let (subtask_count, set_subtask_count) = signal(0usize);
-    let (subtasks_expanded, set_subtasks_expanded) = signal(false);
+    let (subtasks_expanded, set_subtasks_expanded) = signal(true);
     let task_id = task.id.clone();
     let list_id = task.list_id.clone();
 
@@ -557,7 +586,7 @@ pub fn TaskCard(
                                     >
                                         <span>{if subtasks_expanded.get() { "▼" } else { "▶" }}</span>
                                         <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
-                                            "📁 " {subtask_count.get()} " subtask" {if subtask_count.get() > 1 { "s" } else { "" }}
+                                            "📁 " {move || subtask_count.get()} " subtask" {move || if subtask_count.get() > 1 { "s" } else { "" }}
                                         </Badge>
                                     </button>
                                 }
@@ -1080,10 +1109,33 @@ pub fn TaskListDetailModal(
 ) -> impl IntoView {
     let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
-    // Fetch stats when modal opens or task list changes
+    // WebSocket updates - refetch trigger for stats
+    let (stats_refetch_trigger, set_stats_refetch_trigger) = signal(0u32);
+    let ws_updates = crate::websocket::use_websocket_updates();
+
+    // Watch for WebSocket task updates and trigger stats refetch
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            use crate::models::UpdateMessage;
+            match update {
+                UpdateMessage::TaskCreated { .. }
+                | UpdateMessage::TaskUpdated { .. }
+                | UpdateMessage::TaskDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"Task updated via WebSocket, refetching stats...".into(),
+                    );
+                    set_stats_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore non-task updates
+            }
+        }
+    });
+
+    // Fetch stats when modal opens or task list changes or WebSocket updates
     Effect::new(move || {
         let list = task_list.get();
         let is_open = open.get();
+        let _ = stats_refetch_trigger.get(); // Track WebSocket refetch trigger
 
         if let Some(tl) = list
             && is_open

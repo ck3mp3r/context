@@ -3,10 +3,16 @@
 //! Provides REST API endpoints for managing context data.
 
 mod handlers;
+pub mod notifier;
+#[cfg(test)]
+mod notifier_test;
 pub(crate) mod routes;
 mod state;
 pub mod static_assets;
 pub mod v1;
+mod websocket;
+#[cfg(test)]
+mod websocket_test;
 
 use std::net::IpAddr;
 
@@ -86,8 +92,11 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     // Create sync manager (uses RealGit for production)
     let sync_manager = crate::sync::SyncManager::new(crate::sync::RealGit::new());
 
+    // Create change notifier for WebSocket pub/sub
+    let notifier = notifier::ChangeNotifier::new();
+
     // Create application state
-    let state = AppState::new(db, sync_manager);
+    let state = AppState::new(db, sync_manager, notifier);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

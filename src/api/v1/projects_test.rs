@@ -13,13 +13,12 @@ use crate::db::{Database, SqliteDatabase};
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory()
-        .await
-        .expect("Failed to create test database");
-    db.migrate().expect("Failed to run migrations");
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
     );
     routes::create_router(state, false)
 }
@@ -750,4 +749,171 @@ async fn patch_project_empty_body_preserves_all() {
     assert_eq!(patched["title"], "Original");
     assert_eq!(patched["description"], "Desc");
     assert_eq!(patched["tags"].as_array().unwrap().len(), 1);
+}
+
+// =============================================================================
+// WebSocket Broadcast Tests
+// =============================================================================
+
+/// Helper to create test app with access to notifier for broadcast testing
+async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let notifier = crate::api::notifier::ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_project_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+    let mut subscriber = notifier.subscribe();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "New Project",
+                        "description": "Test project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created = json_body(response).await;
+    let project_id = created["id"].as_str().unwrap();
+
+    // Should receive ProjectCreated broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::ProjectCreated { project_id: id } => {
+            assert_eq!(id, project_id);
+        }
+        _ => panic!("Expected ProjectCreated message, got {:?}", msg),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_project_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create a project first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Original Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap().to_string();
+
+    // Subscribe AFTER creation to avoid receiving create notification
+    let mut subscriber = notifier.subscribe();
+
+    // Update the project
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Updated Project",
+                        "description": "Updated description"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Should receive ProjectUpdated broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::ProjectUpdated { project_id: id } => {
+            assert_eq!(id, project_id);
+        }
+        _ => panic!("Expected ProjectUpdated message, got {:?}", msg),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_project_broadcasts_notification() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Create a project first
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Project to Delete"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap().to_string();
+
+    // Subscribe AFTER creation
+    let mut subscriber = notifier.subscribe();
+
+    // Delete the project
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Should receive ProjectDeleted broadcast
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::ProjectDeleted { project_id: id } => {
+            assert_eq!(id, project_id);
+        }
+        _ => panic!("Expected ProjectDeleted message, got {:?}", msg),
+    }
 }

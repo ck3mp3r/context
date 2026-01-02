@@ -11,6 +11,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::{
     Database, DbError, Note, NoteQuery, NoteRepository, NoteType, PageSort, SortOrder,
 };
@@ -343,6 +344,11 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::NoteCreated {
+        note_id: created_note.id.clone(),
+    });
+
     Ok((StatusCode::CREATED, Json(NoteResponse::from(created_note))))
 }
 
@@ -398,6 +404,11 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::NoteUpdated {
+        note_id: note.id.clone(),
+    });
+
     Ok(Json(NoteResponse::from(note)))
 }
 
@@ -448,6 +459,11 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::NoteUpdated {
+        note_id: note.id.clone(),
+    });
+
     Ok(Json(NoteResponse::from(note)))
 }
 
@@ -481,6 +497,11 @@ pub async fn delete_note<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::NoteDeleted {
+        note_id: id.clone(),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

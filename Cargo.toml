@@ -11,7 +11,7 @@ test = false
 
 [package]
 name = "context"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 authors = ["Christian Kemper"]
@@ -25,6 +25,7 @@ backend = [
     "dep:axum",
     "dep:chrono",
     "dep:clap",
+    "dep:futures-util",
     "dep:miette",
     "dep:mime_guess",
     "dep:reqwest",
@@ -48,6 +49,8 @@ frontend = [
     "dep:leptos",
     "dep:leptos_router",
     "dep:leptos_meta",
+    "dep:leptos-use",
+    "dep:codee",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
     "dep:gloo-net",
@@ -67,6 +70,7 @@ features = ["derive"]
 
 [dependencies.axum]
 version = "0.8.8"
+features = ["ws"]
 optional = true
 
 [dependencies.chrono]
@@ -157,6 +161,10 @@ optional = true
 version = "0.7.17"
 optional = true
 
+[dependencies.futures-util]
+version = "0.3"
+optional = true
+
 [dependencies.tower-http]
 version = "0.6.8"
 features = [
@@ -227,6 +235,11 @@ features = [
     "Window",
     "Document",
     "HtmlElement",
+    "Location",
+    "WebSocket",
+    "MessageEvent",
+    "CloseEvent",
+    "ErrorEvent",
 ]
 optional = true
 
@@ -237,6 +250,16 @@ optional = true
 [dependencies.thaw]
 version = "0.5.0-beta"
 features = ["csr"]
+optional = true
+
+[dependencies.leptos-use]
+version = "0.17"
+features = ["use_websocket"]
+optional = true
+
+[dependencies.codee]
+version = "0.3"
+features = ["json_serde"]
 optional = true
 
 [dev-dependencies]

@@ -113,13 +113,21 @@ pub mod repos {
     pub async fn list(
         limit: Option<usize>,
         offset: Option<usize>,
-        project_id: Option<String>,
+        search_query: Option<String>,
     ) -> Result<Paginated<Repo>> {
         let mut url = format!("{}/repos", API_BASE);
         let mut query_params = vec![];
 
-        if let Some(proj_id) = project_id {
-            query_params.push(format!("project_id={}", proj_id));
+        if let Some(q) = search_query
+            && !q.trim().is_empty()
+        {
+            // Simple URL encoding for search query
+            let encoded = q
+                .replace(' ', "+")
+                .replace('&', "%26")
+                .replace('=', "%3D")
+                .replace('#', "%23");
+            query_params.push(format!("q={}", encoded));
         }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, PageSort};
 use crate::mcp::tools::{apply_limit, map_db_error};
 
@@ -66,16 +67,20 @@ pub struct CreateNoteParams {
     )]
     pub content: String,
     #[schemars(
-        description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes."
+        description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes. CRITICAL: Session notes MUST be re-read after context compaction to restore state."
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(
         description = "Note type: 'manual' (default, user notes) or 'archived_todo' (system-generated from completed tasks)"
     )]
     pub note_type: Option<String>,
-    #[schemars(description = "Repository IDs to link (optional)")]
+    #[schemars(
+        description = "Repository IDs to link (optional). Associate with relevant repos for context."
+    )]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(description = "Project IDs to link (optional)")]
+    #[schemars(
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
+    )]
     pub project_ids: Option<Vec<String>>,
 }
 
@@ -93,9 +98,13 @@ pub struct UpdateNoteParams {
         description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
     )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Repository IDs to link (optional)")]
+    #[schemars(
+        description = "Repository IDs to link (optional). Associate with relevant repos for context."
+    )]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(description = "Project IDs to link (optional)")]
+    #[schemars(
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
+    )]
     pub project_ids: Option<Vec<String>>,
 }
 
@@ -136,14 +145,16 @@ pub struct SearchNotesParams {
 #[derive(Clone)]
 pub struct NoteTools<D: Database> {
     db: Arc<D>,
+    notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: Database + 'static> NoteTools<D> {
-    pub fn new(db: Arc<D>) -> Self {
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }
@@ -269,6 +280,11 @@ impl<D: Database + 'static> NoteTools<D> {
 
         let created = self.db.notes().create(&note).await.map_err(map_db_error)?;
 
+        // Broadcast NoteCreated notification
+        self.notifier.notify(UpdateMessage::NoteCreated {
+            note_id: created.id.clone(),
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
         )]))
@@ -316,6 +332,11 @@ impl<D: Database + 'static> NoteTools<D> {
             )
         })?;
 
+        // Broadcast NoteUpdated notification
+        self.notifier.notify(UpdateMessage::NoteUpdated {
+            note_id: params.0.note_id.clone(),
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&updated).unwrap(),
         )]))
@@ -333,6 +354,11 @@ impl<D: Database + 'static> NoteTools<D> {
             .delete(&params.0.note_id)
             .await
             .map_err(map_db_error)?;
+
+        // Broadcast NoteDeleted notification
+        self.notifier.notify(UpdateMessage::NoteDeleted {
+            note_id: params.0.note_id.clone(),
+        });
 
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Note {} deleted successfully",

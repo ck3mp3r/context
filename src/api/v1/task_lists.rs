@@ -11,6 +11,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
@@ -362,6 +363,11 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::TaskListCreated {
+        task_list_id: created_list.id.clone(),
+    });
+
     Ok((
         StatusCode::CREATED,
         Json(TaskListResponse::from(created_list)),
@@ -435,6 +441,11 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::TaskListUpdated {
+        task_list_id: id.clone(),
+    });
+
     Ok(Json(TaskListResponse::from(list)))
 }
 
@@ -490,6 +501,11 @@ pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::TaskListUpdated {
+        task_list_id: id.clone(),
+    });
+
     // Re-fetch to get updated timestamps
     let updated = state.db().task_lists().get(&id).await.map_err(|e| {
         (
@@ -538,6 +554,11 @@ pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
                 }),
             ),
         })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::TaskListDeleted {
+        task_list_id: id.clone(),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

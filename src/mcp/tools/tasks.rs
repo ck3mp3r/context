@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{Database, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus};
 use crate::mcp::tools::{apply_limit, map_db_error};
 
@@ -166,14 +167,16 @@ fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
 #[derive(Clone)]
 pub struct TaskTools<D: Database> {
     db: Arc<D>,
+    notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: Database + 'static> TaskTools<D> {
-    pub fn new(db: Arc<D>) -> Self {
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }
@@ -273,6 +276,10 @@ impl<D: Database + 'static> TaskTools<D> {
         };
 
         let created = self.db.tasks().create(&task).await.map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::TaskCreated {
+            task_id: created.id.clone(),
+        });
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
@@ -376,6 +383,10 @@ impl<D: Database + 'static> TaskTools<D> {
             .await
             .map_err(map_db_error)?;
 
+        self.notifier.notify(UpdateMessage::TaskUpdated {
+            task_id: params.0.task_id.clone(),
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&result_task).unwrap(),
         )]))
@@ -431,6 +442,10 @@ impl<D: Database + 'static> TaskTools<D> {
             .await
             .map_err(map_db_error)?;
 
+        self.notifier.notify(UpdateMessage::TaskUpdated {
+            task_id: params.0.task_id.clone(),
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&updated).unwrap(),
         )]))
@@ -453,6 +468,10 @@ impl<D: Database + 'static> TaskTools<D> {
                     Some(serde_json::json!({"error": e.to_string()})),
                 )
             })?;
+
+        self.notifier.notify(UpdateMessage::TaskDeleted {
+            task_id: params.0.task_id.clone(),
+        });
 
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Task {} deleted successfully",

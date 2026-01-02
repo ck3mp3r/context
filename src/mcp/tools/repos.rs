@@ -3,6 +3,7 @@
 //! Handles all MCP tools for repository management operations.
 //! Follows Single Responsibility Principle (SRP).
 
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{Database, PageSort, Repo, RepoQuery, RepoRepository};
 use crate::mcp::tools::{apply_limit, map_db_error};
 use rmcp::{
@@ -79,15 +80,17 @@ pub struct DeleteRepoParams {
 #[derive(Clone)]
 pub struct RepoTools<D: Database> {
     db: Arc<D>,
+    notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: Database + 'static> RepoTools<D> {
     /// Create new RepoTools with database
-    pub fn new(db: Arc<D>) -> Self {
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }
@@ -120,6 +123,7 @@ impl<D: Database + 'static> RepoTools<D> {
             },
             tags: None,
             project_id: params.0.project_id,
+            search_query: None, // TODO: Add search query support to MCP tool
         };
 
         let result = self
@@ -179,6 +183,10 @@ impl<D: Database + 'static> RepoTools<D> {
 
         let created = self.db.repos().create(&repo).await.map_err(map_db_error)?;
 
+        self.notifier.notify(UpdateMessage::RepoCreated {
+            repo_id: created.id.clone(),
+        });
+
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -227,6 +235,10 @@ impl<D: Database + 'static> RepoTools<D> {
             .await
             .map_err(map_db_error)?;
 
+        self.notifier.notify(UpdateMessage::RepoUpdated {
+            repo_id: params.0.id.clone(),
+        });
+
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -248,6 +260,10 @@ impl<D: Database + 'static> RepoTools<D> {
             .delete(&params.0.id)
             .await
             .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::RepoDeleted {
+            repo_id: params.0.id.clone(),
+        });
 
         let content = serde_json::json!({
             "success": true,

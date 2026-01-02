@@ -11,6 +11,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::{Database, DbError, PageSort, Repo, RepoQuery, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -147,6 +148,9 @@ pub struct ListReposQuery {
     /// Filter by tags (comma-separated)
     #[param(example = "work,active")]
     pub tags: Option<String>,
+    /// Search query for filtering by remote URL or tags (case-insensitive partial match)
+    #[param(example = "github")]
+    pub q: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -199,6 +203,7 @@ pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
         },
         tags,
         project_id: query.project_id.clone(),
+        search_query: query.q.clone(),
     };
 
     let result = state
@@ -301,6 +306,11 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoCreated {
+        repo_id: created_repo.id.clone(),
+    });
+
     Ok((StatusCode::CREATED, Json(RepoResponse::from(created_repo))))
 }
 
@@ -358,6 +368,11 @@ pub async fn update_repo<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoUpdated {
+        repo_id: id.clone(),
+    });
+
     Ok(Json(RepoResponse::from(repo)))
 }
 
@@ -413,6 +428,11 @@ pub async fn patch_repo<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoUpdated {
+        repo_id: id.clone(),
+    });
+
     Ok(Json(RepoResponse::from(repo)))
 }
 
@@ -451,6 +471,11 @@ pub async fn delete_repo<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoDeleted {
+        repo_id: id.clone(),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

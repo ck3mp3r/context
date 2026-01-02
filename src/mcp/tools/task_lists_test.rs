@@ -1,5 +1,6 @@
 //! Tests for TaskList MCP tools
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::{
     Database, Project, ProjectRepository, SqliteDatabase, Task, TaskList, TaskListRepository,
     TaskListStatus, TaskRepository, TaskStatus,
@@ -17,7 +18,7 @@ async fn test_list_task_lists_empty() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     let params = ListTaskListsParams {
         tags: None,
@@ -51,7 +52,7 @@ async fn test_create_and_get_task_list() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     // Create a project first (required for task list)
     let project = Project {
@@ -124,7 +125,7 @@ async fn test_update_task_list() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     // Create project
     let project = Project {
@@ -196,7 +197,7 @@ async fn test_delete_task_list() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     // Create project
     let project = Project {
@@ -256,7 +257,7 @@ async fn test_list_task_lists_with_filters() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     // Create project
     let project = Project {
@@ -361,7 +362,7 @@ async fn test_get_nonexistent_task_list() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     let params = GetTaskListParams {
         id: "nonexistent".to_string(),
@@ -376,7 +377,7 @@ async fn test_get_task_list_stats() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskListTools::new(db.clone());
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     // Create project
     let project = Project {
