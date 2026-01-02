@@ -7,6 +7,8 @@ mod export;
 #[cfg(test)]
 mod export_test;
 mod git;
+#[cfg(test)]
+mod git_test;
 mod import;
 #[cfg(test)]
 mod import_test;
