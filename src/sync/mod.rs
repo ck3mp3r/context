@@ -15,6 +15,8 @@ mod manager;
 #[cfg(test)]
 mod manager_test;
 mod paths;
+#[cfg(test)]
+mod paths_test;
 
 pub use export::{ExportError, ExportSummary, export_all};
 #[cfg(test)]
