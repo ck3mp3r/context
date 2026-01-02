@@ -4,14 +4,18 @@
 
 Task management and knowledge tracking system with git-based sync, built for AI-assisted workflows.
 
+**AI Agent Workflows:** Designed for autonomous AI agents to create persistent, multi-step workflows using session notes and task lists that survive context compaction and session boundaries. See [Agent-Based Workflows](docs/mcp.md#agent-based-workflows) for patterns and examples.
+
 ## Features
 
 - **Projects & Task Lists** - Organize work hierarchically with M:N relationships
 - **Tasks** - Track work with status, priority, subtasks, and timestamps
 - **Notes** - Full-text searchable knowledge base with tags and project links
+- **Session Notes** - Persistent state for AI agents that survives context compaction
+- **Agent Workflows** - Autonomous multi-step workflows with task tracking and state recovery
 - **Real-time Updates** - WebSocket-based live sync between CLI/MCP and Web UI
 - **Git Sync** - JSONL-based sync via git for cross-machine collaboration
-- **MCP Server** - Model Context Protocol integration for AI agents
+- **MCP Server** - Model Context Protocol integration for AI agents (remote HTTP/SSE)
 - **REST API** - HTTP API with OpenAPI documentation
 - **Web UI** - Leptos-based WASM frontend embedded in single binary
 - **SQLite Storage** - Local-first with optional sync
