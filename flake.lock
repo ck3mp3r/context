@@ -609,11 +609,11 @@
       },
       "locked": {
         "dir": "rustnix",
-        "lastModified": 1767293031,
-        "narHash": "sha256-hI9DVDn4+ucSpGZJh0cvQJ95hExILVmWd4bFVCHAcm8=",
+        "lastModified": 1767351334,
+        "narHash": "sha256-n7XvKjvzShYNTBTaSIVLvqvsBksmrvz+wnfFT99qCdc=",
         "owner": "ck3mp3r",
         "repo": "flakes",
-        "rev": "2012c6343228bc9c5d43c74177d7e55f96dca3a1",
+        "rev": "8df50d5bffcebfe87048d8ec69face54831dde7f",
         "type": "github"
       },
       "original": {
