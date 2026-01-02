@@ -47,7 +47,7 @@ pub fn use_websocket_connection() -> Signal<ConnectionReadyState> {
         open: _,
         close: _,
         ..
-    } = use_websocket_with_options::<String, String, FromToStringCodec>(
+    } = use_websocket_with_options::<String, String, FromToStringCodec, (), ()>(
         &url,
         UseWebSocketOptions::default()
             .immediate(true) // Connect immediately on mount
