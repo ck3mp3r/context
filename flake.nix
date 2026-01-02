@@ -138,6 +138,37 @@
           packageName = "archive";
           archiveAndHash = true;
         };
+
+        # Container image - build on Linux systems only
+        # Cross-compilation from Darwin is deferred to CI
+        containerImage = pkgs.dockerTools.buildLayeredImage {
+          name = "context";
+          tag = cargoToml.package.version;
+
+          # Closure contents - no base image, just what we need
+          contents = [
+            regularPackages.default # c5t binary with embedded frontend
+            pkgs.cacert # CA certificates for HTTPS/git sync
+            pkgs.bash # Shell for debugging
+          ];
+
+          # Setup /data directory before packaging
+          extraCommands = ''
+            mkdir -p data
+            chmod 777 data
+          '';
+
+          config = {
+            Cmd = ["/bin/c5t" "api" "--home=/data"];
+            ExposedPorts = {"3737/tcp" = {};};
+            Env = [
+              "PORT=3737"
+              "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "TZ=UTC"
+            ];
+            WorkingDir = "/data";
+          };
+        };
       in {
         apps = {
           default = {
@@ -152,7 +183,12 @@
           };
         };
 
-        packages = regularPackages // archivePackages;
+        packages =
+          regularPackages
+          // archivePackages
+          // {
+            container = containerImage;
+          };
 
         devShells = {
           default = inputs.devenv.lib.mkShell {
