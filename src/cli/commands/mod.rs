@@ -9,3 +9,7 @@ pub mod task_list;
 #[cfg(test)]
 #[path = "repo_test.rs"]
 mod repo_test;
+
+#[cfg(test)]
+#[path = "project_test.rs"]
+mod project_test;
