@@ -236,3 +236,274 @@ create_note({
 ```
 
 See parameter schemas in tool definitions for full details.
+
+## Agent-Based Workflows
+
+Use c5t MCP tools to create **persistent, autonomous workflows** that survive context compaction and session boundaries.
+
+### Pattern: Multi-Step Workflow with State Persistence
+
+**Key Components:**
+1. **Session Note** (tagged `session`) - Persistent state across context compactions
+2. **Task List** - Structured breakdown of work
+3. **Tasks** - Trackable units with status transitions
+4. **Project Link** - Organizes related work
+
+**Workflow Steps:**
+
+1. **Initialize** - Create session note and task list
+2. **Plan** - Break work into tasks
+3. **Execute** - Work through tasks, update statuses
+4. **Track** - Update session note with decisions and blockers
+5. **Resume** - After compaction, re-read session note and task list
+
+### Critical Rules for Session Notes
+
+⚠️ **REQUIRED:**
+- **ALWAYS** tag session notes with `session`
+- **ALWAYS** link session notes to their project(s) via `project_ids`
+- **ALWAYS** re-read session notes after context compaction to restore state
+- **KEEP UPDATED** - Update session note throughout the workflow with:
+  - Current progress
+  - Decisions made
+  - Blockers encountered
+  - Next steps
+
+### Example: Implementing Authentication System
+
+```javascript
+// 1. CREATE SESSION NOTE (tagged 'session', linked to project)
+create_note({
+  title: "Auth System Implementation - Session",
+  content: `
+## Goal
+Implement JWT-based authentication system for API
+
+## Progress
+- [ ] Research complete
+- [ ] Tests written
+- [ ] Implementation in progress
+
+## Decisions
+- Chose Passport.js for middleware (supports JWT + OAuth)
+- Using bcrypt for password hashing (10 rounds)
+
+## Blockers
+- None currently
+
+## Next Steps
+1. Write auth middleware tests
+2. Implement JWT token generation
+3. Add refresh token support
+  `,
+  tags: ["session", "auth", "backend"],
+  project_ids: ["proj_abc123"],  // REQUIRED for session notes
+  repo_ids: ["repo_xyz789"]
+})
+// Returns: { id: "note_session1" }
+
+// 2. CREATE TASK LIST
+create_task_list({
+  title: "Auth System Implementation",
+  description: "JWT authentication with OAuth support",
+  project_id: "proj_abc123",  // REQUIRED
+  repo_ids: ["repo_xyz789"],
+  tags: ["auth", "backend", "sprint-5"]
+})
+// Returns: { id: "list_abc" }
+
+// 3. BREAK DOWN WORK INTO TASKS
+create_task({
+  list_id: "list_abc",
+  title: "Research auth libraries and approaches",
+  description: "Evaluate Passport.js, jsonwebtoken, OAuth options",
+  priority: 1
+})
+// Returns: { id: "task_1" }
+
+create_task({
+  list_id: "list_abc",
+  title: "Write authentication middleware tests",
+  description: "TDD: Write tests before implementation",
+  priority: 1
+})
+// Returns: { id: "task_2" }
+
+create_task({
+  list_id: "list_abc",
+  title: "Implement JWT token generation",
+  priority: 2
+})
+// Returns: { id: "task_3" }
+
+create_task({
+  list_id: "list_abc",
+  title: "Add refresh token support",
+  priority: 3
+})
+// Returns: { id: "task_4" }
+
+// 4. EXECUTE & UPDATE (Task 1 - Research)
+transition_task({ task_id: "task_1", status: "in_progress" })
+
+// ... do research work ...
+
+transition_task({ task_id: "task_1", status: "done" })
+
+// Update session note with findings
+update_note({
+  note_id: "note_session1",
+  content: `
+## Goal
+Implement JWT-based authentication system for API
+
+## Progress
+- [x] Research complete ✅
+- [ ] Tests written
+- [ ] Implementation in progress
+
+## Decisions
+- Chose Passport.js for middleware (supports JWT + OAuth)
+- Using bcrypt for password hashing (10 rounds)
+- Access token: 15min expiry, Refresh token: 7 days
+
+## Research Findings
+- Passport.js: Most popular, well-maintained, excellent docs
+- Alternative considered: jsonwebtoken (lower-level, more manual)
+- OAuth 2.0 support needed for future GitHub/Google login
+
+## Next Steps
+1. Write auth middleware tests (task_2) ← NEXT
+2. Implement JWT token generation
+3. Add refresh token support
+  `
+})
+
+// 5. CONTEXT COMPACTION HAPPENS HERE
+// ========================================
+// Previous context is lost, but session note persists!
+
+// 6. RESUME AFTER COMPACTION
+// CRITICAL: Re-read session note to restore state
+get_note({ note_id: "note_session1" })
+// Returns full session note with all context
+
+// Check what tasks remain
+list_tasks({
+  list_id: "list_abc",
+  status: ["todo", "in_progress"]
+})
+// Returns: [task_2, task_3, task_4]
+
+// Continue from where we left off
+transition_task({ task_id: "task_2", status: "in_progress" })
+// ... continue work ...
+```
+
+### Finding Session Notes After Compaction
+
+If you don't have the note ID after context compaction:
+
+```javascript
+// Find session notes for a specific project
+list_notes({
+  tags: ["session"],
+  project_id: "proj_abc123",
+  include_content: true,  // Get full content
+  sort: "updated_at",
+  order: "desc"           // Most recently updated first
+})
+
+// Find session notes by topic
+search_notes({
+  query: "auth AND session",
+  tags: ["session"]
+})
+```
+
+### Finding Task Lists After Compaction
+
+```javascript
+// Find task lists for a project
+list_task_lists({
+  project_id: "proj_abc123",
+  status: "active",
+  sort: "updated_at",
+  order: "desc"
+})
+
+// Find by tags
+list_task_lists({
+  tags: "auth,backend",
+  status: "active"
+})
+```
+
+### Best Practices
+
+**Session Note Management:**
+- **One session note per workflow** - Keep focused
+- **Update frequently** - After each major step or decision
+- **Use checkboxes** - `- [ ]` and `- [x]` for visual progress
+- **Document decisions** - Record WHY, not just WHAT
+- **Note blockers** - Capture what's preventing progress
+- **Keep under 10k chars** - Create continuation note with `parent:NOTE_ID` if needed
+
+**Task Organization:**
+- **Use meaningful titles** - Clear, actionable descriptions
+- **Set priorities** - 1 (urgent) to 5 (nice-to-have)
+- **One level of subtasks** - Avoid deep nesting
+- **Status transitions** - Follow the flow: backlog → todo → in_progress → review → done
+- **Link to repos** - Associate task lists with relevant repositories
+
+**Recovery Strategy:**
+- **Before compaction**: Update session note with current state
+- **After compaction**: 
+  1. Search for session notes by project/tags
+  2. Read full session note content
+  3. List incomplete tasks
+  4. Resume work from documented next steps
+
+### Common Workflow Patterns
+
+**Pattern 1: Feature Implementation**
+```
+Session Note (session, feature-name, project)
+├─ Task List (Feature Name)
+   ├─ Research & Design
+   ├─ Write Tests (TDD)
+   ├─ Implement Core
+   ├─ Add Edge Cases
+   └─ Documentation
+```
+
+**Pattern 2: Bug Fix Investigation**
+```
+Session Note (session, bugfix, bug-number)
+├─ Task List (Bug #123 Fix)
+   ├─ Reproduce Bug
+   ├─ Investigate Root Cause
+   ├─ Write Regression Test
+   ├─ Implement Fix
+   └─ Verify in Production
+```
+
+**Pattern 3: Refactoring**
+```
+Session Note (session, refactoring, component-name)
+├─ Task List (Refactor Auth Module)
+   ├─ Document Current Design
+   ├─ Write Characterization Tests
+   ├─ Extract Functions
+   ├─ Simplify Logic
+   └─ Remove Dead Code
+```
+
+### Benefits
+
+✅ **Survives context compaction** - State persists in database  
+✅ **Visible to user** - Web UI shows real-time progress  
+✅ **Resumable** - Pick up exactly where you left off  
+✅ **Organized** - All work linked to projects  
+✅ **Auditable** - Complete history of decisions and progress  
+✅ **Collaborative** - Shared state across sessions and agents

@@ -67,7 +67,7 @@ pub struct CreateNoteParams {
     )]
     pub content: String,
     #[schemars(
-        description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes."
+        description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes. CRITICAL: Session notes MUST be re-read after context compaction to restore state."
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(
@@ -79,7 +79,7 @@ pub struct CreateNoteParams {
     )]
     pub repo_ids: Option<Vec<String>>,
     #[schemars(
-        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability."
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
     )]
     pub project_ids: Option<Vec<String>>,
 }
@@ -103,7 +103,7 @@ pub struct UpdateNoteParams {
     )]
     pub repo_ids: Option<Vec<String>>,
     #[schemars(
-        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability."
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
     )]
     pub project_ids: Option<Vec<String>>,
 }
