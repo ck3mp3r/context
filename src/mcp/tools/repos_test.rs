@@ -1,5 +1,6 @@
 //! Tests for Repository MCP tools
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Repo, RepoRepository, SqliteDatabase};
 use crate::mcp::tools::repos::*;
 use rmcp::{
@@ -14,7 +15,7 @@ async fn test_list_repos_empty() {
     db.migrate().unwrap();
     let db = Arc::new(db);
 
-    let tools = RepoTools::new(db);
+    let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
         .list_repos(Parameters(ListReposParams {
             project_id: None,
@@ -54,7 +55,7 @@ async fn test_get_repo() {
     };
     db.repos().create(&repo).await.unwrap();
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
     let result = tools
         .get_repo(Parameters(GetRepoParams {
             id: "12345678".to_string(),
@@ -81,7 +82,7 @@ async fn test_create_repo() {
     db.migrate().unwrap();
     let db = Arc::new(db);
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
     let result = tools
         .create_repo(Parameters(CreateRepoParams {
             remote: "git@github.com:user/new.git".to_string(),
@@ -126,7 +127,7 @@ async fn test_create_repo_with_project_ids() {
     };
     db.projects().create(&project).await.unwrap();
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
     let result = tools
         .create_repo(Parameters(CreateRepoParams {
             remote: "git@github.com:user/linked.git".to_string(),
@@ -170,7 +171,7 @@ async fn test_update_repo() {
     };
     db.repos().create(&repo).await.unwrap();
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
     let result = tools
         .update_repo(Parameters(UpdateRepoParams {
             id: "12345678".to_string(),
@@ -212,7 +213,7 @@ async fn test_delete_repo() {
     };
     db.repos().create(&repo).await.unwrap();
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
     let result = tools
         .delete_repo(Parameters(DeleteRepoParams {
             id: "12345678".to_string(),
@@ -260,7 +261,7 @@ async fn test_update_repo_with_project_ids() {
     };
     db.repos().create(&repo).await.unwrap();
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
     let result = tools
         .update_repo(Parameters(UpdateRepoParams {
             id: "repo5678".to_string(),
@@ -359,7 +360,7 @@ async fn test_list_repos_respects_limit() {
         db.repos().create(&repo).await.unwrap();
     }
 
-    let tools = RepoTools::new(Arc::clone(&db));
+    let tools = RepoTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     // Test 1: Without limit parameter, should return DEFAULT_LIMIT (10)
     let result = tools
@@ -458,7 +459,7 @@ async fn test_list_repos_with_sort_and_order() {
     db.repos().create(&repo2).await.unwrap();
     db.repos().create(&repo3).await.unwrap();
 
-    let tools = RepoTools::new(db);
+    let tools = RepoTools::new(db, ChangeNotifier::new());
 
     // Test sorting by remote ASC
     let result = tools

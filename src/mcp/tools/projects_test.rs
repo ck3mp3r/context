@@ -1,5 +1,6 @@
 //! Tests for Project MCP tools
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
 use crate::mcp::tools::projects::ProjectTools;
 use rmcp::model::{CallToolResult, RawContent};
@@ -12,7 +13,7 @@ async fn test_list_projects_empty() {
     db.migrate().unwrap();
     let db = Arc::new(db);
 
-    let tools = ProjectTools::new(db);
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
 
     use crate::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
@@ -62,7 +63,7 @@ async fn test_list_projects_with_data() {
 
     db.projects().create(&project).await.unwrap();
 
-    let tools = ProjectTools::new(Arc::clone(&db));
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     use crate::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
@@ -109,7 +110,7 @@ async fn test_get_project() {
     };
     db.projects().create(&project).await.unwrap();
 
-    let tools = ProjectTools::new(Arc::clone(&db));
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     // Test getting the project
     use crate::mcp::tools::projects::GetProjectParams;
@@ -140,7 +141,7 @@ async fn test_get_project_not_found() {
     db.migrate().unwrap();
     let db = Arc::new(db);
 
-    let tools = ProjectTools::new(db);
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
 
     use crate::mcp::tools::projects::GetProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
@@ -158,7 +159,7 @@ async fn test_create_project() {
     db.migrate().unwrap();
     let db = Arc::new(db);
 
-    let tools = ProjectTools::new(Arc::clone(&db));
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     use crate::mcp::tools::projects::CreateProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
@@ -205,7 +206,7 @@ async fn test_update_project() {
     };
     db.projects().create(&project).await.unwrap();
 
-    let tools = ProjectTools::new(Arc::clone(&db));
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     // Update the project
     use crate::mcp::tools::projects::UpdateProjectParams;
@@ -257,7 +258,7 @@ async fn test_delete_project() {
     };
     db.projects().create(&project).await.unwrap();
 
-    let tools = ProjectTools::new(Arc::clone(&db));
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     // Delete the project
     use crate::mcp::tools::projects::DeleteProjectParams;
@@ -299,7 +300,7 @@ async fn test_list_projects_respects_limit() {
         db.projects().create(&project).await.unwrap();
     }
 
-    let tools = ProjectTools::new(Arc::clone(&db));
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
 
     use crate::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
@@ -411,7 +412,7 @@ async fn test_list_projects_with_sort_and_order() {
     db.projects().create(&project2).await.unwrap();
     db.projects().create(&project3).await.unwrap();
 
-    let tools = ProjectTools::new(db);
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
 
     // Test sorting by title ASC
     let result = tools

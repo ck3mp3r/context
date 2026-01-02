@@ -68,10 +68,10 @@ impl<D: Database + 'static> McpServer<D> {
         let db = db.into();
 
         Self {
-            project_tools: ProjectTools::new(Arc::clone(&db)),
-            repo_tools: RepoTools::new(Arc::clone(&db)),
-            task_list_tools: TaskListTools::new(Arc::clone(&db)),
-            task_tools: TaskTools::new(Arc::clone(&db)),
+            project_tools: ProjectTools::new(Arc::clone(&db), notifier.clone()),
+            repo_tools: RepoTools::new(Arc::clone(&db), notifier.clone()),
+            task_list_tools: TaskListTools::new(Arc::clone(&db), notifier.clone()),
+            task_tools: TaskTools::new(Arc::clone(&db), notifier.clone()),
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
             db,

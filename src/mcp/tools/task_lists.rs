@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{
     Database, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
     TaskRepository,
@@ -113,14 +114,16 @@ pub struct GetTaskListStatsParams {
 #[derive(Clone)]
 pub struct TaskListTools<D: Database> {
     db: Arc<D>,
+    notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: Database + 'static> TaskListTools<D> {
-    pub fn new(db: Arc<D>) -> Self {
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }
@@ -235,6 +238,11 @@ impl<D: Database + 'static> TaskListTools<D> {
             .create(&list)
             .await
             .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::TaskListCreated {
+            task_list_id: created.id.clone(),
+        });
+
         let content = serde_json::to_string_pretty(&created).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -306,6 +314,10 @@ impl<D: Database + 'static> TaskListTools<D> {
             .await
             .map_err(map_db_error)?;
 
+        self.notifier.notify(UpdateMessage::TaskListUpdated {
+            task_list_id: params.0.id.clone(),
+        });
+
         let content = serde_json::to_string_pretty(&updated).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
@@ -332,6 +344,10 @@ impl<D: Database + 'static> TaskListTools<D> {
                     Some(serde_json::json!({"error": e.to_string()})),
                 )
             })?;
+
+        self.notifier.notify(UpdateMessage::TaskListDeleted {
+            task_list_id: params.0.id.clone(),
+        });
 
         let response = json!({
             "success": true,

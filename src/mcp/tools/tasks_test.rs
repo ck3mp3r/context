@@ -1,5 +1,6 @@
 //! Tests for Task MCP tools
 
+use crate::api::notifier::ChangeNotifier;
 use crate::db::{
     Database, ProjectRepository, SqliteDatabase, Task, TaskList, TaskListRepository,
     TaskRepository, TaskStatus,
@@ -37,7 +38,7 @@ async fn test_list_tasks_empty() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Create a task list first
     let project_id = create_test_project(&db).await;
@@ -91,7 +92,7 @@ async fn test_create_and_list_task() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Create a task list first
     let task_list = TaskList {
@@ -207,7 +208,7 @@ async fn test_get_task() {
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Get the task
     let params = GetTaskParams {
@@ -237,7 +238,7 @@ async fn test_get_task_not_found() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = GetTaskParams {
         task_id: "nonexist".to_string(),
@@ -302,7 +303,7 @@ async fn test_list_tasks_filtered_by_status() {
     db.tasks().create(&task1).await.unwrap();
     db.tasks().create(&task2).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // List only "done" tasks
     let params = ListTasksParams {
@@ -373,7 +374,7 @@ async fn test_update_task() {
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Update task (content only - no status changes)
     let update_params = UpdateTaskParams {
@@ -444,7 +445,7 @@ async fn test_delete_task() {
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Delete task
     let delete_params = DeleteTaskParams {
@@ -525,7 +526,7 @@ async fn test_list_tasks_with_parent_id_filter() {
     };
     db.tasks().create(&subtask).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // List subtasks only
     let params = ListTasksParams {
@@ -615,7 +616,7 @@ async fn test_update_task_move_to_different_list() {
     };
     let created_task = db.tasks().create(&task).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Move task to list2
     let params = UpdateTaskParams {
@@ -702,7 +703,7 @@ async fn test_update_task_parent_id() {
     };
     let created_standalone = db.tasks().create(&standalone_task).await.unwrap();
 
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Update standalone task to become a subtask of parent
     let update_params = UpdateTaskParams {
@@ -763,7 +764,7 @@ async fn test_list_tasks_with_sort_and_order() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     // Create project and task list
     let project_id = create_test_project(&db).await;
@@ -908,7 +909,7 @@ async fn test_list_tasks_with_offset() {
             .unwrap();
     }
 
-    let tools = TaskTools::new(db);
+    let tools = TaskTools::new(db, ChangeNotifier::new());
 
     // Test 1: No offset, limit 3 - should get first 3 tasks
     let params = ListTasksParams {
@@ -1041,7 +1042,7 @@ async fn test_transition_backlog_to_todo() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1067,7 +1068,7 @@ async fn test_transition_backlog_to_in_progress() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1093,7 +1094,7 @@ async fn test_transition_todo_to_backlog() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Todo, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1118,7 +1119,7 @@ async fn test_transition_todo_to_in_progress() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Todo, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1149,7 +1150,7 @@ async fn test_transition_in_progress_to_todo() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1180,7 +1181,7 @@ async fn test_transition_in_progress_to_review() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1210,7 +1211,7 @@ async fn test_transition_in_progress_to_done() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1241,7 +1242,7 @@ async fn test_transition_in_progress_to_cancelled() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1270,7 +1271,7 @@ async fn test_transition_backlog_to_review_invalid() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1304,7 +1305,7 @@ async fn test_transition_backlog_to_done_invalid() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1325,7 +1326,7 @@ async fn test_transition_todo_to_review_invalid() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Todo, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1344,7 +1345,7 @@ async fn test_transition_todo_to_done_invalid() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Todo, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1368,7 +1369,7 @@ async fn test_transition_done_to_backlog() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1399,7 +1400,7 @@ async fn test_transition_done_to_todo() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1430,7 +1431,7 @@ async fn test_transition_done_to_in_progress() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1461,7 +1462,7 @@ async fn test_transition_done_to_review() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1487,7 +1488,7 @@ async fn test_transition_cancelled_to_todo() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Cancelled, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1512,7 +1513,7 @@ async fn test_transition_cancelled_to_in_progress() {
     let db = Arc::new(db);
 
     let task = create_task_with_status(&db, TaskStatus::Cancelled, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1542,7 +1543,7 @@ async fn test_transition_review_to_backlog_invalid() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1566,7 +1567,7 @@ async fn test_transition_done_to_cancelled_invalid() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1590,7 +1591,7 @@ async fn test_transition_review_to_in_progress() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1620,7 +1621,7 @@ async fn test_transition_review_to_done() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1651,7 +1652,7 @@ async fn test_transition_review_to_cancelled() {
         Some("2026-01-01T10:00:00Z".to_string()),
     )
     .await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
@@ -1677,7 +1678,7 @@ async fn test_transition_any_status_to_cancelled() {
 
     // Test backlog → cancelled
     let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone());
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
         task_id: task.id.clone(),
