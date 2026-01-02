@@ -4,6 +4,8 @@
 //! and sync them via Git to enable multi-machine synchronization.
 
 mod export;
+#[cfg(test)]
+mod export_test;
 mod git;
 mod import;
 #[cfg(test)]
