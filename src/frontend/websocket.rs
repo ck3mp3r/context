@@ -38,11 +38,16 @@ pub struct WebSocketContext {
 #[component]
 pub fn WebSocketProvider(children: Children) -> impl IntoView {
     // Get WebSocket URL based on build mode
-    #[cfg(debug_assertions)]
-    let url = WS_URL;
-
-    #[cfg(not(debug_assertions))]
-    let url = get_ws_url();
+    let url = {
+        #[cfg(debug_assertions)]
+        {
+            WS_URL.to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            get_ws_url()
+        }
+    };
 
     // Create WebSocket connection
     let UseWebSocketReturn {
@@ -52,7 +57,7 @@ pub fn WebSocketProvider(children: Children) -> impl IntoView {
         open: _,
         close: _,
         ..
-    } = use_websocket::<String, String, FromToStringCodec>(url);
+    } = use_websocket::<String, String, FromToStringCodec>(&url);
 
     // Parse and store the latest update message
     let last_message = Signal::derive(move || {
