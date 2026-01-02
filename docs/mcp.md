@@ -2,6 +2,22 @@
 
 Model Context Protocol server for AI agent integration.
 
+## Entity IDs
+
+All entities (projects, repos, task lists, tasks, notes) use **8-character lowercase hexadecimal IDs** (e.g., `a1b2c3d4`).
+
+**Finding IDs:**
+- **Web UI**: All IDs are displayed with a clickable copy icon - click to copy to clipboard
+- **CLI**: Use `list` commands with `--format json` to see IDs
+- **API**: All responses include `id` field
+
+**Examples:**
+- Project ID: `a1b2c3d4`
+- Repo ID: `e5f6a7b8`
+- Task List ID: `2d4e6f8a`
+- Task ID: `5f8a2b1c`
+- Note ID: `9c8d7e6f`
+
 ## Configuration
 
 Add to MCP settings (e.g., Claude Desktop config):
@@ -281,8 +297,8 @@ create_note({
 Implement JWT-based authentication system for API
 
 ## Current Status
-Working on task_2: Writing auth middleware tests
-Last completed: task_1 (Research)
+Working on task 5f8a2b1c: Writing auth middleware tests
+Last completed: task 3e7d9a4f (Research)
 
 ## Decisions
 - Chose Passport.js for middleware (supports JWT + OAuth)
@@ -297,69 +313,69 @@ Last completed: task_1 (Research)
 3. Add refresh token support
   `,
   tags: ["session", "auth", "backend"],
-  project_ids: ["proj_abc123"],  // REQUIRED for session notes
-  repo_ids: ["repo_xyz789"]
+  project_ids: ["a1b2c3d4"],  // REQUIRED for session notes (8-char hex ID)
+  repo_ids: ["e5f6a7b8"]
 })
-// Returns: { id: "note_session1" }
+// Returns: { id: "9c8d7e6f" }  // All IDs are 8-character hex strings
 
 // 2. CREATE TASK LIST
 create_task_list({
   title: "Auth System Implementation",
   description: "JWT authentication with OAuth support",
-  project_id: "proj_abc123",  // REQUIRED
-  repo_ids: ["repo_xyz789"],
+  project_id: "a1b2c3d4",  // REQUIRED (8-char hex ID)
+  repo_ids: ["e5f6a7b8"],
   tags: ["auth", "backend", "sprint-5"]
 })
-// Returns: { id: "list_abc" }
+// Returns: { id: "2d4e6f8a" }
 
 // 3. BREAK DOWN WORK INTO TASKS
 create_task({
-  list_id: "list_abc",
+  list_id: "2d4e6f8a",
   title: "Research auth libraries and approaches",
   description: "Evaluate Passport.js, jsonwebtoken, OAuth options",
   priority: 1
 })
-// Returns: { id: "task_1" }
+// Returns: { id: "3e7d9a4f" }
 
 create_task({
-  list_id: "list_abc",
+  list_id: "2d4e6f8a",
   title: "Write authentication middleware tests",
   description: "TDD: Write tests before implementation",
   priority: 1
 })
-// Returns: { id: "task_2" }
+// Returns: { id: "5f8a2b1c" }
 
 create_task({
-  list_id: "list_abc",
+  list_id: "2d4e6f8a",
   title: "Implement JWT token generation",
   priority: 2
 })
-// Returns: { id: "task_3" }
+// Returns: { id: "7a9b3c4d" }
 
 create_task({
-  list_id: "list_abc",
+  list_id: "2d4e6f8a",
   title: "Add refresh token support",
   priority: 3
 })
-// Returns: { id: "task_4" }
+// Returns: { id: "8b0c4d5e" }
 
 // 4. EXECUTE & UPDATE (Task 1 - Research)
-transition_task({ task_id: "task_1", status: "in_progress" })
+transition_task({ task_id: "3e7d9a4f", status: "in_progress" })
 
 // ... do research work ...
 
-transition_task({ task_id: "task_1", status: "done" })
+transition_task({ task_id: "3e7d9a4f", status: "done" })
 
 // Update session note with findings
 update_note({
-  note_id: "note_session1",
+  note_id: "9c8d7e6f",
   content: `
 ## Goal
 Implement JWT-based authentication system for API
 
 ## Current Status
-Completed task_1 (Research) ✅
-Next: task_2 - Write auth middleware tests
+Completed task 3e7d9a4f (Research) ✅
+Next: task 5f8a2b1c - Write auth middleware tests
 
 ## Decisions
 - Chose Passport.js for middleware (supports JWT + OAuth)
@@ -372,7 +388,7 @@ Next: task_2 - Write auth middleware tests
 - OAuth 2.0 support needed for future GitHub/Google login
 
 ## Next Steps
-1. Write auth middleware tests (task_2) ← NEXT
+1. Write auth middleware tests (task 5f8a2b1c) ← NEXT
 2. Implement JWT token generation
 3. Add refresh token support
   `
@@ -384,18 +400,18 @@ Next: task_2 - Write auth middleware tests
 
 // 6. RESUME AFTER COMPACTION
 // CRITICAL: Re-read session note to restore state
-get_note({ note_id: "note_session1" })
+get_note({ note_id: "9c8d7e6f" })
 // Returns full session note with all context
 
 // Check what tasks remain
 list_tasks({
-  list_id: "list_abc",
+  list_id: "2d4e6f8a",
   status: ["todo", "in_progress"]
 })
-// Returns: [task_2, task_3, task_4]
+// Returns: [{ id: "5f8a2b1c", ... }, { id: "7a9b3c4d", ... }, { id: "8b0c4d5e", ... }]
 
 // Continue from where we left off
-transition_task({ task_id: "task_2", status: "in_progress" })
+transition_task({ task_id: "5f8a2b1c", status: "in_progress" })
 // ... continue work ...
 ```
 
@@ -407,7 +423,7 @@ If you don't have the note ID after context compaction:
 // Find session notes for a specific project
 list_notes({
   tags: ["session"],
-  project_id: "proj_abc123",
+  project_id: "a1b2c3d4",  // 8-char hex ID
   include_content: true,  // Get full content
   sort: "updated_at",
   order: "desc"           // Most recently updated first
@@ -425,7 +441,7 @@ search_notes({
 ```javascript
 // Find task lists for a project
 list_task_lists({
-  project_id: "proj_abc123",
+  project_id: "a1b2c3d4",  // 8-char hex ID
   status: "active",
   sort: "updated_at",
   order: "desc"
