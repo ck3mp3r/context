@@ -25,7 +25,7 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 **Run the API server (includes Web UI, REST API, and MCP server):**
 
 ```sh
-c5t api --port 3737
+c5t api
 ```
 
 Then access:
