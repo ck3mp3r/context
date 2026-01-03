@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  packages: write
   contents: write
   actions: read
   checks: read
@@ -53,11 +54,21 @@ jobs:
         include:
           - os: ubuntu-latest
             nix_system: x86_64-linux
+            docker_arch: amd64
           - os: macos-14
             nix_system: aarch64-darwin
+            docker_arch: na
           - os: ubuntu-24.04-arm
             nix_system: aarch64-linux
+            docker_arch: arm64
     steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout release branch
         uses: actions/checkout@v6
         with:
@@ -68,6 +79,15 @@ jobs:
 
       - name: Build archive for ${{ matrix.nix_system }}
         run: nix build .#archive --print-build-logs
+
+      - name: Build and push ${{ matrix.nix_system }} container
+        if: matrix.docker_arch != 'na' # not needed for darwin
+        run: |
+          VERSION=${{ needs.prep-release.outputs.version }}
+          nix build .#container --system ${{ matrix.nix_system }} && cat result | docker load
+
+          docker tag context:${VERSION} ghcr.io/${{ github.repository_owner }}/context:${VERSION}-${{ matrix.docker_arch }}
+          docker push ghcr.io/${{ github.repository_owner }}/context:${VERSION}-${{ matrix.docker_arch }}
 
       - name: Copy build outputs for uniqueness
         run: |
@@ -85,21 +105,10 @@ jobs:
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
 
-  build-containers:
-    needs: prep-release
-    uses: ./.github/workflows/container-build.yaml
-    with:
-      ref: release/${{ needs.prep-release.outputs.version }}
-      push_latest: true
-    permissions:
-      contents: read
-      packages: write
-
   finalize-release:
     needs:
       - prep-release
       - build
-      - build-containers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v2
@@ -142,3 +151,30 @@ jobs:
           merge-and-cleanup $version
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifests
+        run: |
+          VERSION=${{ needs.prep-release.outputs.version }}
+          REPO=ghcr.io/${{ github.repository_owner }}/context
+
+          # Pull architecture-specific images
+          docker pull $REPO:$VERSION-amd64
+          docker pull $REPO:$VERSION-arm64
+
+          # Create versioned multi-arch manifest
+          docker manifest create $REPO:$VERSION \
+            $REPO:$VERSION-amd64 \
+            $REPO:$VERSION-arm64
+          docker manifest push $REPO:$VERSION
+
+          docker manifest create $REPO:latest --amend \
+            $REPO:$VERSION-amd64 \
+            $REPO:$VERSION-arm64
+          docker manifest push $REPO:latest
