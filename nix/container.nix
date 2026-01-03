@@ -18,7 +18,7 @@ pkgs.dockerTools.buildLayeredImage {
 
   # Setup /data directory before packaging
   extraCommands = ''
-    mkdir /data
+    mkdir -p data
     chmod 777 data
   '';
 
