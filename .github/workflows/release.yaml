@@ -89,7 +89,6 @@ jobs:
     needs: prep-release
     uses: ./.github/workflows/container-build.yaml
     with:
-      version: ${{ needs.prep-release.outputs.version }}
       ref: release/${{ needs.prep-release.outputs.version }}
       push_latest: true
     permissions:

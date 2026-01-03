@@ -54,9 +54,23 @@
           nixos/nix:latest bash -c \
           "git config --global --add safe.directory /workspace && \
            nix --extra-experimental-features 'nix-command flakes' build \
-           .#packages.aarch64-linux.container --impure && cat result" | docker load
+           .#container --system x86_64-linux --impure && cat result" | docker load
       '';
       description = "Build ARM64 container image using Nix in Docker";
+    };
+    test-container-workflow = {
+      exec = ''
+        act workflow_dispatch \
+          -W .github/workflows/container-build.yaml \
+          --container-architecture linux/arm64 \
+          --container-daemon-socket /var/run/docker.sock \
+          --privileged \
+          --secret GITHUB_TOKEN \
+          --input push_latest=false \
+          -P ubuntu-latest=catthehacker/ubuntu:js-latest \
+          "$@"
+      '';
+      description = "Test container-build workflow with act (pass -n for dry-run)";
     };
   };
 
