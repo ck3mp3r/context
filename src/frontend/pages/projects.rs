@@ -19,18 +19,16 @@ pub fn Projects() -> impl IntoView {
 
     // Watch for WebSocket updates
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            match update {
-                UpdateMessage::ProjectCreated { .. }
-                | UpdateMessage::ProjectUpdated { .. }
-                | UpdateMessage::ProjectDeleted { .. } => {
-                    web_sys::console::log_1(
-                        &"Project updated via WebSocket, refetching projects list...".into(),
-                    );
-                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                }
-                _ => {} // Ignore other updates
-            }
+        if let Some(
+            UpdateMessage::ProjectCreated { .. }
+            | UpdateMessage::ProjectUpdated { .. }
+            | UpdateMessage::ProjectDeleted { .. },
+        ) = ws_updates.get()
+        {
+            web_sys::console::log_1(
+                &"Project updated via WebSocket, refetching projects list...".into(),
+            );
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 

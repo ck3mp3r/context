@@ -4,7 +4,7 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
 use crate::components::{
-    CopyableId, NoteCard, NoteDetailModal, Pagination, TaskListCard, TaskListDetailModal,
+    CopyableId, NoteCard, NoteDetailModal, Pagination, RepoCard, TaskListCard, TaskListDetailModal,
 };
 use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -34,6 +34,10 @@ pub fn ProjectDetail() -> impl IntoView {
     // Pagination state for notes
     let (note_page, set_note_page) = signal(0usize);
     const NOTE_PAGE_SIZE: usize = 12;
+
+    // Pagination state for repos
+    let (repo_page, set_repo_page) = signal(0usize);
+    const REPO_PAGE_SIZE: usize = 12;
 
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
@@ -175,13 +179,15 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Fetch repos for this project
+    // Fetch repos for this project (with pagination)
     Effect::new(move || {
         let id = project_id();
+        let current_page = repo_page.get();
         let _ = repo_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
-                let result = repos::list(Some(50), None, Some(id)).await;
+                let offset = current_page * REPO_PAGE_SIZE;
+                let result = repos::list(Some(REPO_PAGE_SIZE), Some(offset), None, Some(id)).await;
                 set_repos_data.set(Some(result));
             });
         }
@@ -599,18 +605,38 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 view! { <p class="text-ctp-subtext0">"No repos linked to this project"</p> }
                                                                     .into_any()
                                                             } else {
+                                                                let total_pages = paginated.total.div_ceil(REPO_PAGE_SIZE);
                                                                 view! {
-                                                                    <div class="space-y-4">
-                                                                        {filtered
-                                                                            .iter()
-                                                                            .map(|repo| {
-                                                                                view! {
-                                                                                    <div class="bg-ctp-surface0 rounded-lg p-4 border border-ctp-surface1">
-                                                                                        <h3 class="font-semibold text-ctp-text">{repo.remote.clone()}</h3>
-                                                                                    </div>
+                                                                    <div>
+                                                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
+                                                                            {filtered
+                                                                                .iter()
+                                                                                .map(|repo| {
+                                                                                    view! { <RepoCard repo=repo.clone()/> }
+                                                                                })
+                                                                                .collect::<Vec<_>>()}
+                                                                        </div>
+
+                                                                        <Pagination
+                                                                            current_page=repo_page
+                                                                            total_pages=total_pages
+                                                                            on_prev=Callback::new(move |_| {
+                                                                                let current = repo_page.get();
+                                                                                if current > 0 {
+                                                                                    set_repo_page.set(current - 1);
                                                                                 }
                                                                             })
-                                                                            .collect::<Vec<_>>()}
+                                                                            on_next=Callback::new(move |_| {
+                                                                                let current = repo_page.get();
+                                                                                if current < total_pages - 1 {
+                                                                                    set_repo_page.set(current + 1);
+                                                                                }
+                                                                            })
+                                                                            show_summary=true
+                                                                            total_items=paginated.total
+                                                                            page_size=REPO_PAGE_SIZE
+                                                                            item_name="repositories".to_string()
+                                                                        />
                                                                     </div>
                                                                 }
                                                                     .into_any()
