@@ -52,8 +52,10 @@ pub fn ProjectDetail() -> impl IntoView {
     // Triggers to force refetch
     let (note_refetch_trigger, set_note_refetch_trigger) = signal(0u32);
     let (task_list_refetch_trigger, set_task_list_refetch_trigger) = signal(0u32);
+    let (repo_refetch_trigger, set_repo_refetch_trigger) = signal(0u32);
+    let (project_refetch_trigger, set_project_refetch_trigger) = signal(0u32);
 
-    // Watch for WebSocket updates and trigger refetch when notes or task lists change
+    // Watch for WebSocket updates and trigger refetch when anything changes
     Effect::new(move || {
         if let Some(update) = ws_updates.get() {
             match update {
@@ -73,7 +75,21 @@ pub fn ProjectDetail() -> impl IntoView {
                     );
                     set_task_list_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                _ => {} // Ignore other updates
+                UpdateMessage::RepoCreated { .. }
+                | UpdateMessage::RepoUpdated { .. }
+                | UpdateMessage::RepoDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"Repo updated via WebSocket, refetching project repos...".into(),
+                    );
+                    set_repo_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                UpdateMessage::ProjectUpdated { .. } => {
+                    web_sys::console::log_1(
+                        &"Project updated via WebSocket, refetching project...".into(),
+                    );
+                    set_project_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore other updates (ProjectCreated, ProjectDeleted not relevant for detail page)
             }
         }
     });
@@ -81,6 +97,7 @@ pub fn ProjectDetail() -> impl IntoView {
     // Fetch project details
     Effect::new(move || {
         let id = project_id();
+        let _ = project_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let result = projects::get(&id).await;
@@ -161,6 +178,7 @@ pub fn ProjectDetail() -> impl IntoView {
     // Fetch repos for this project
     Effect::new(move || {
         let id = project_id();
+        let _ = repo_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let result = repos::list(Some(50), None, Some(id)).await;

@@ -59,6 +59,7 @@ async fn handle_socket<D: Database, G: GitOps + Send + Sync>(
 
             // Send updates to client
             Ok(update) = rx.recv() => {
+                debug!("WebSocket: Received update from notifier: {:?}", update);
                 let json = match serde_json::to_string(&update) {
                     Ok(j) => j,
                     Err(e) => {
@@ -67,6 +68,7 @@ async fn handle_socket<D: Database, G: GitOps + Send + Sync>(
                     }
                 };
 
+                debug!("WebSocket: Sending to client: {}", json);
                 if let Err(e) = socket.send(Message::Text(json.into())).await {
                     error!("Failed to send update: {}", e);
                     break;

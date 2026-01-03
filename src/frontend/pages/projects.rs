@@ -3,15 +3,40 @@ use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, projects};
 use crate::components::CopyableId;
-use crate::models::{Paginated, Project};
+use crate::models::{Paginated, Project, UpdateMessage};
+use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn Projects() -> impl IntoView {
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
 
-    // Fetch projects on mount
+    // WebSocket updates
+    let ws_updates = use_websocket_updates();
+
+    // Refetch trigger
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+
+    // Watch for WebSocket updates
     Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            match update {
+                UpdateMessage::ProjectCreated { .. }
+                | UpdateMessage::ProjectUpdated { .. }
+                | UpdateMessage::ProjectDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"Project updated via WebSocket, refetching projects list...".into(),
+                    );
+                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {} // Ignore other updates
+            }
+        }
+    });
+
+    // Fetch projects on mount and when refetch triggered
+    Effect::new(move || {
+        let _ = refetch_trigger.get(); // Track refetch trigger
         spawn_local(async move {
             let result = projects::list(Some(100), None).await;
             set_projects_data.set(Some(result));
