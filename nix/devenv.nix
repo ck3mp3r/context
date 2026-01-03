@@ -45,6 +45,18 @@
       exec = "cargo build --release";
       description = "Build release binary";
     };
+    build-container = {
+      exec = ''
+        docker run --rm \
+          -v $(pwd):/workspace \
+          -w /workspace \
+          nixos/nix:latest bash -c \
+          "git config --global --add safe.directory /workspace && \
+           nix --extra-experimental-features 'nix-command flakes' build \
+           .#packages.aarch64-linux.container --impure && cat result" | docker load
+      '';
+      description = "Build ARM64 container image using Nix in Docker";
+    };
   };
 
   git-hooks.hooks = {
