@@ -11,24 +11,24 @@ pkgs.dockerTools.buildLayeredImage {
 
   # Closure contents - no base image, just what we need
   contents = [
-    defaultPackage # c5t binary with embedded frontend
+    defaultPackage # c5t binary with embedded frontend (statically linked)
     pkgs.cacert # CA certificates for HTTPS/git sync
-    pkgs.dash # Lightweight shell for debugging
-    pkgs.coreutils # For id, whoami commands
+    # Removed dash and coreutils - they pull in glibc
+    # Static binary doesn't need them anyway
   ];
 
   # Setup /data directory and create non-root user
   extraCommands = ''
     mkdir -p data
     chmod 777 data  # World-writable so c5t user can write when volume is mounted
-    
+
     # Create /etc for passwd/group files
     mkdir -p etc
-    
+
     # Create c5t user (UID 1000) and group (GID 1000)
-    echo "c5t:x:1000:1000:c5t user:/data:/bin/dash" > etc/passwd
+    echo "c5t:x:1000:1000:c5t user:/data:/bin/noshell" > etc/passwd
     echo "c5t:x:1000:" > etc/group
-    
+
     # Note: Ownership is handled by Docker runtime when User is set
     # The /data directory will be writable via the mounted volume
   '';
