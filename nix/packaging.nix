@@ -108,7 +108,7 @@
   # Import container image build
   containerImage = import ./container.nix {
     inherit pkgs cargoToml;
-    defaultPackage = regularPackages.default;
+    defaultPackage = regularPackages.context;
   };
   # Check if we're on Darwin (macOS)
   isDarwin = builtins.match ".*-darwin" system != null;
