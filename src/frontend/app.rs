@@ -68,14 +68,14 @@ fn NavAndContent() -> impl IntoView {
                     </div>
                 </Tooltip>
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
-                    <div class="flex items-center gap-2">
+                    <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
                         <h1 class="text-3xl font-bold bg-gradient-to-r from-ctp-mauve to-ctp-blue bg-clip-text text-transparent">
                             "context"
                         </h1>
                         <span class="text-xs text-ctp-subtext0 font-mono">
                             {env!("CARGO_PKG_VERSION")}
                         </span>
-                    </div>
+                    </a>
                     <div class="flex gap-2 items-center">
                         <a href="/"
                             class="px-4 py-2 rounded-lg font-medium transition-colors"
