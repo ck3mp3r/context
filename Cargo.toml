@@ -13,7 +13,7 @@ test = false
 name = "context"
 version = "0.2.0"
 edition = "2024"
-license = "MIT"
+license = "GPL-2.0"
 authors = ["Christian Kemper"]
 
 [lib]

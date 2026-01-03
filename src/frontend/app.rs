@@ -125,9 +125,9 @@ fn NavAndContent() -> impl IntoView {
                             let date = web_sys::js_sys::Date::new_0();
                             date.get_full_year()
                         } " Christian Kemper. Licensed under "
-                        <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer"
+                        <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener noreferrer"
                             class="text-ctp-blue hover:text-ctp-lavender underline">
-                            "MIT License"
+                            "GPL v2"
                         </a>
                         "."
                     </p>
