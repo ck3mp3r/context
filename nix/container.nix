@@ -20,7 +20,7 @@ pkgs.dockerTools.buildLayeredImage {
   # Setup /data directory and create non-root user
   extraCommands = ''
     mkdir -p data
-    chmod 755 data
+    chmod 777 data  # World-writable so c5t user can write when volume is mounted
     
     # Create /etc for passwd/group files
     mkdir -p etc
@@ -29,8 +29,8 @@ pkgs.dockerTools.buildLayeredImage {
     echo "c5t:x:1000:1000:c5t user:/data:/bin/dash" > etc/passwd
     echo "c5t:x:1000:" > etc/group
     
-    # Set ownership of /data to c5t user
-    chown -R 1000:1000 data
+    # Note: Ownership is handled by Docker runtime when User is set
+    # The /data directory will be writable via the mounted volume
   '';
 
   config = {
