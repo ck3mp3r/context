@@ -170,4 +170,4 @@ The `c5t api` command serves:
 
 ## License
 
-MIT
+GPL v2 - See [LICENSE](LICENSE) file for details.
