@@ -50,7 +50,7 @@ fn NavAndContent() -> impl IntoView {
     };
 
     view! {
-        <main class="min-h-screen bg-ctp-base">
+        <main class="min-h-screen bg-ctp-base flex flex-col">
             <nav class="bg-ctp-surface0 border-b border-ctp-surface1 relative">
                 // WebSocket connection status bar (left edge)
                 <Tooltip content=move || {
@@ -68,14 +68,14 @@ fn NavAndContent() -> impl IntoView {
                     </div>
                 </Tooltip>
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
-                    <div class="flex items-center gap-2">
+                    <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
                         <h1 class="text-3xl font-bold bg-gradient-to-r from-ctp-mauve to-ctp-blue bg-clip-text text-transparent">
                             "context"
                         </h1>
                         <span class="text-xs text-ctp-subtext0 font-mono">
                             {env!("CARGO_PKG_VERSION")}
                         </span>
-                    </div>
+                    </a>
                     <div class="flex gap-2 items-center">
                         <a href="/"
                             class="px-4 py-2 rounded-lg font-medium transition-colors"
@@ -108,13 +108,34 @@ fn NavAndContent() -> impl IntoView {
                 </div>
             </nav>
 
-            <Routes fallback=|| view! { <p>"Page not found"</p> }>
-                <Route path=path!("/") view=Projects/>
-                <Route path=path!("/projects/:id") view=ProjectDetail/>
-                <Route path=path!("/notes") view=Notes/>
-                <Route path=path!("/notes/:id") view=Notes/>
-                <Route path=path!("/repos") view=Repos/>
-            </Routes>
+            <div class="flex-1">
+                <Routes fallback=|| view! { <p>"Page not found"</p> }>
+                    <Route path=path!("/") view=Projects/>
+                    <Route path=path!("/projects/:id") view=ProjectDetail/>
+                    <Route path=path!("/notes") view=Notes/>
+                    <Route path=path!("/notes/:id") view=Notes/>
+                    <Route path=path!("/repos") view=Repos/>
+                </Routes>
+            </div>
+
+            <footer class="py-6 px-6 border-t border-ctp-surface1 bg-ctp-surface0">
+                <div class="container mx-auto text-center text-sm text-ctp-subtext0">
+                    <p>
+                        "© " {
+                            let date = web_sys::js_sys::Date::new_0();
+                            date.get_full_year()
+                        } " Christian Kemper. Licensed under "
+                        <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener noreferrer"
+                            class="text-ctp-blue hover:text-ctp-lavender underline">
+                            "GPL v2"
+                        </a>
+                        "."
+                    </p>
+                    <p class="mt-1 text-xs text-ctp-overlay0">
+                        "context v" {env!("CARGO_PKG_VERSION")}
+                    </p>
+                </div>
+            </footer>
         </main>
     }
 }

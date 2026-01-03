@@ -22,10 +22,10 @@ use crate::mcp::tools::{apply_limit, map_db_error};
 
 /// Validates that priority is within the valid range (1-5).
 fn validate_priority(priority: Option<i32>) -> Result<(), String> {
-    if let Some(p) = priority {
-        if p < 1 || p > 5 {
-            return Err("Priority must be between 1 and 5".to_string());
-        }
+    if let Some(p) = priority
+        && !(1..=5).contains(&p)
+    {
+        return Err("Priority must be between 1 and 5".to_string());
     }
     Ok(())
 }

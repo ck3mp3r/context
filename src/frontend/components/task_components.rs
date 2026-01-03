@@ -1180,10 +1180,10 @@ pub fn TaskListDetailModal(
                                         <div class="flex justify-between items-start mb-4 flex-shrink-0">
                                             <div class="flex-1">
                                                 <div class="flex items-center gap-3 mb-1">
+                                                    <CopyableId id=tl.id.clone()/>
                                                     <h2 class="text-2xl font-bold text-ctp-text">
                                                         {tl.title.clone()}
                                                     </h2>
-                                                    <CopyableId id=tl.id.clone()/>
                                                 </div>
                                                 {tl.description.as_ref().map(|desc| {
                                                     view! { <p class="text-ctp-subtext0 text-sm mt-1">{desc.clone()}</p> }

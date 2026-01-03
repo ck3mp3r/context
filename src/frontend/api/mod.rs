@@ -114,10 +114,14 @@ pub mod repos {
         limit: Option<usize>,
         offset: Option<usize>,
         search_query: Option<String>,
+        project_id: Option<String>,
     ) -> Result<Paginated<Repo>> {
         let mut url = format!("{}/repos", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(proj_id) = project_id {
+            query_params.push(format!("project_id={}", proj_id));
+        }
         if let Some(q) = search_query
             && !q.trim().is_empty()
         {
