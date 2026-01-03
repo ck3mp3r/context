@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  packages: write
   contents: write
   actions: read
   checks: read
@@ -91,9 +92,6 @@ jobs:
     with:
       ref: release/${{ needs.prep-release.outputs.version }}
       push_latest: true
-    permissions:
-      contents: read
-      packages: write
 
   finalize-release:
     needs:

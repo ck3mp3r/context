@@ -68,6 +68,7 @@
           --secret GITHUB_TOKEN \
           --input push_latest=false \
           -P ubuntu-latest=catthehacker/ubuntu:js-latest \
+          -P ubuntu-24.04-arm=catthehacker/ubuntu:js-latest \
           "$@"
       '';
       description = "Test container-build workflow with act (pass -n for dry-run)";

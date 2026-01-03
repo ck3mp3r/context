@@ -3,10 +3,6 @@ name: Build and Push Containers
 on:
   workflow_call:
     inputs:
-      version:
-        description: "Version tag for the container images"
-        required: true
-        type: string
       ref:
         description: "Git ref to checkout (branch, tag, or commit SHA)"
         required: false
@@ -33,11 +29,26 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   build-containers:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64-linux
+            docker_arch: amd64
+            runner: ubuntu-24.04
+          - arch: aarch64-linux
+            docker_arch: arm64
+            runner: ubuntu-24.04-arm
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -57,36 +68,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build x86_64-linux container
+      - name: Build and push ${{ matrix.arch }} container
         run: |
-          docker run --rm \
-            -v $(pwd):/workspace \
-            -w /workspace \
-            nixos/nix:latest bash -c \
-            "git config --global --add safe.directory /workspace && \
-             nix --extra-experimental-features 'nix-command flakes' build \
-             .#container --system x86_64-linux --impure && cat result" | docker load
+          nix build .#container --system ${{ matrix.arch }} && cat result | docker load
 
-          docker tag context:${{ steps.version.outputs.version }} ghcr.io/${{ github.repository_owner }}/context:${{ steps.version.outputs.version }}-amd64
-          docker push ghcr.io/${{ github.repository_owner }}/context:${{ steps.version.outputs.version }}-amd64
+          docker tag context:${{ steps.version.outputs.version }} ghcr.io/${{ github.repository_owner }}/context:${{ steps.version.outputs.version }}-${{ matrix.docker_arch }}
+          docker push ghcr.io/${{ github.repository_owner }}/context:${{ steps.version.outputs.version }}-${{ matrix.docker_arch }}
 
-      - name: Build aarch64-linux container
-        run: |
-          docker run --rm \
-            -v $(pwd):/workspace \
-            -w /workspace \
-            nixos/nix:latest bash -c \
-            "git config --global --add safe.directory /workspace && \
-             nix --extra-experimental-features 'nix-command flakes' build \
-             .#container --system aarch64-linux --impure && cat result" | docker load
-
-          docker tag context:${{ steps.version.outputs.version }} ghcr.io/${{ github.repository_owner }}/context:${{ steps.version.outputs.version }}-arm64
-          docker push ghcr.io/${{ github.repository_owner }}/context:${{ steps.version.outputs.version }}-arm64
+  create-manifest:
+    runs-on: ubuntu-24.04
+    needs: build-containers
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push multi-arch manifests
         run: |
-          VERSION=${{ steps.version.outputs.version }}
+          VERSION=${{ needs.build-containers.outputs.version }}
           REPO=ghcr.io/${{ github.repository_owner }}/context
+
+          # Pull architecture-specific images
+          docker pull $REPO:$VERSION-amd64
+          docker pull $REPO:$VERSION-arm64
 
           # Create versioned multi-arch manifest
           docker manifest create $REPO:$VERSION \
