@@ -12,9 +12,9 @@ pkgs.dockerTools.buildLayeredImage {
   # Closure contents - no base image, just what we need
   contents = [
     defaultPackage # c5t binary with embedded frontend (statically linked)
-    pkgs.cacert # CA certificates for HTTPS/git sync
-    # Removed dash and coreutils - they pull in glibc
-    # Static binary doesn't need them anyway
+    pkgs.cacert # CA certificates for HTTPS
+    # Note: git is NOT included - sync functionality unavailable in container
+    # Use the CLI binary directly for sync operations
   ];
 
   # Setup /data directory and create non-root user
