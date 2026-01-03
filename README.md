@@ -121,8 +121,15 @@ services:
       - ~/.local/share/c5t:/data
     environment:
       - TZ=UTC
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3737/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
 ```
+
+**Note**: Health check runs from Docker host (requires curl on host), checking `http://localhost:3737/health`
 
 ## Documentation
 
