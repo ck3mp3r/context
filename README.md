@@ -72,6 +72,65 @@ c5t sync import     # Pull changes from Machine B
 
 See [Sync Guide](docs/sync.md) for SSH setup, conflict resolution, and troubleshooting.
 
+## Container Deployment
+
+Run c5t in a container using pre-built multi-arch images from GitHub Container Registry:
+
+```sh
+# Pull latest image (supports amd64 and arm64)
+docker pull ghcr.io/ck3mp3r/context:latest
+
+# Run with persistent data volume
+docker run -d \
+  -p 3737:3737 \
+  -v ~/.local/share/c5t:/data \
+  --name c5t \
+  --restart unless-stopped \
+  ghcr.io/ck3mp3r/context:latest
+```
+
+Access the Web UI at http://localhost:3737
+
+**Available tags:**
+- `latest` - Latest release (multi-arch manifest)
+- `0.2.0` - Specific version (multi-arch manifest)
+- `0.2.0-amd64` - x86_64-linux specific
+- `0.2.0-arm64` - aarch64-linux specific
+
+**Volume mounts:**
+- `/data` - Required for database persistence (maps to `~/.local/share/c5t`)
+
+**Environment variables:**
+- `PORT=3737` - API server port
+- `TZ=UTC` - Timezone
+
+**Notes:**
+- Container size: ~23MB (optimized Nix-built image)
+- Git sync is **not available** in containers - use CLI binary for sync operations
+- Images built from static musl binaries for minimal attack surface
+
+**docker-compose.yml example:**
+
+```yaml
+services:
+  c5t:
+    image: ghcr.io/ck3mp3r/context:latest
+    ports:
+      - "3737:3737"
+    volumes:
+      - ~/.local/share/c5t:/data
+    environment:
+      - TZ=UTC
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3737/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+```
+
+**Note**: Health check runs from Docker host (requires curl on host), checking `http://localhost:3737/health`
+
 ## Documentation
 
 - [Development Guide](docs/development.md) - Setup, building, testing

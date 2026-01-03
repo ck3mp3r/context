@@ -85,10 +85,21 @@ jobs:
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
 
+  build-containers:
+    needs: prep-release
+    uses: ./.github/workflows/container-build.yaml
+    with:
+      ref: release/${{ needs.prep-release.outputs.version }}
+      push_latest: true
+    permissions:
+      contents: read
+      packages: write
+
   finalize-release:
     needs:
       - prep-release
       - build
+      - build-containers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v2
