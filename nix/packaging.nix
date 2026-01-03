@@ -110,14 +110,19 @@
     inherit pkgs cargoToml;
     defaultPackage = regularPackages.default;
   };
+  # Check if we're on Darwin (macOS)
+  isDarwin = builtins.match ".*-darwin" system != null;
 in {
   # Export all package outputs
   packages =
     regularPackages
     // archivePackages
-    // {
-      container = containerImage;
-    };
+    // (
+      # Only include container on non-Darwin systems (Linux)
+      if isDarwin
+      then {}
+      else {container = containerImage;}
+    );
 
   # Export apps
   apps = {
