@@ -18,6 +18,7 @@
     pkgs.wasm-bindgen-cli
     pkgs.nodejs
     pkgs.nodePackages.tailwindcss
+    pkgs.act # GitHub Actions local testing
   ];
 
   scripts = {
