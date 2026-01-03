@@ -87,67 +87,14 @@ jobs:
 
   build-containers:
     needs: prep-release
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/container-build.yaml
+    with:
+      version: ${{ needs.prep-release.outputs.version }}
+      ref: release/${{ needs.prep-release.outputs.version }}
+      push_latest: true
     permissions:
       contents: read
       packages: write
-    steps:
-      - name: Checkout release branch
-        uses: actions/checkout@v6
-        with:
-          ref: release/${{ needs.prep-release.outputs.version }}
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build x86_64-linux container
-        run: |
-          docker run --rm \
-            -v $(pwd):/workspace \
-            -w /workspace \
-            nixos/nix:latest bash -c \
-            "git config --global --add safe.directory /workspace && \
-             nix --extra-experimental-features 'nix-command flakes' build \
-             .#packages.x86_64-linux.container --impure && cat result" | docker load
-          
-          docker tag context:${{ needs.prep-release.outputs.version }} \
-            ghcr.io/${{ github.repository_owner }}/context:${{ needs.prep-release.outputs.version }}-amd64
-          docker push ghcr.io/${{ github.repository_owner }}/context:${{ needs.prep-release.outputs.version }}-amd64
-
-      - name: Build aarch64-linux container
-        run: |
-          docker run --rm \
-            -v $(pwd):/workspace \
-            -w /workspace \
-            nixos/nix:latest bash -c \
-            "git config --global --add safe.directory /workspace && \
-             nix --extra-experimental-features 'nix-command flakes' build \
-             .#packages.aarch64-linux.container --impure && cat result" | docker load
-          
-          docker tag context:${{ needs.prep-release.outputs.version }} \
-            ghcr.io/${{ github.repository_owner }}/context:${{ needs.prep-release.outputs.version }}-arm64
-          docker push ghcr.io/${{ github.repository_owner }}/context:${{ needs.prep-release.outputs.version }}-arm64
-
-      - name: Create and push multi-arch manifests
-        run: |
-          VERSION=${{ needs.prep-release.outputs.version }}
-          REPO=ghcr.io/${{ github.repository_owner }}/context
-          
-          # Create versioned multi-arch manifest
-          docker manifest create $REPO:$VERSION \
-            $REPO:$VERSION-amd64 \
-            $REPO:$VERSION-arm64
-          docker manifest push $REPO:$VERSION
-          
-          # Create :latest multi-arch manifest
-          docker manifest create $REPO:latest \
-            $REPO:$VERSION-amd64 \
-            $REPO:$VERSION-arm64
-          docker manifest push $REPO:latest
 
   finalize-release:
     needs:
