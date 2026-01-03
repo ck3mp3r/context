@@ -14,16 +14,28 @@ pkgs.dockerTools.buildLayeredImage {
     defaultPackage # c5t binary with embedded frontend
     pkgs.cacert # CA certificates for HTTPS/git sync
     pkgs.dash # Lightweight shell for debugging
+    pkgs.coreutils # For id, whoami commands
   ];
 
-  # Setup /data directory before packaging
+  # Setup /data directory and create non-root user
   extraCommands = ''
     mkdir -p data
-    chmod 777 data
+    chmod 755 data
+    
+    # Create /etc for passwd/group files
+    mkdir -p etc
+    
+    # Create c5t user (UID 1000) and group (GID 1000)
+    echo "c5t:x:1000:1000:c5t user:/data:/bin/dash" > etc/passwd
+    echo "c5t:x:1000:" > etc/group
+    
+    # Set ownership of /data to c5t user
+    chown -R 1000:1000 data
   '';
 
   config = {
     Cmd = ["/bin/c5t" "api" "--home" "/data"];
+    User = "c5t";
     ExposedPorts = {"3737/tcp" = {};};
     Env = [
       "PORT=3737"
