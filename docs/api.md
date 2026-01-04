@@ -37,7 +37,7 @@
 - `POST /api/v1/task-lists/:list_id/tasks` - Create task
 - `GET /api/v1/tasks/:id` - Get task
 - `PUT /api/v1/tasks/:id` - Update task
-- `PATCH /api/v1/tasks/:id/complete` - Mark task complete
+- `PATCH /api/v1/tasks/:id/transition` - Transition task status
 - `DELETE /api/v1/tasks/:id` - Delete task
 
 ### Notes
@@ -52,14 +52,14 @@
 
 ```sh
 # Development
-cargo run --bin c5t-api
+cargo run --bin c5t -- api
 
 # Production
 cargo build --release
-./target/release/c5t-api
+./target/release/c5t api
 
 # With custom port
-C5T_PORT=8080 cargo run --bin c5t-api
+cargo run --bin c5t -- api --port 8080
 ```
 
 ## Configuration

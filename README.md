@@ -22,6 +22,21 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 
 ## Quick Start
 
+**Install:**
+```sh
+# Homebrew (macOS/Linux)
+brew tap ck3mp3r/context
+brew install ck3mp3r/context/context
+
+# Or Nix
+nix profile install github:ck3mp3r/context
+
+# Or Docker
+docker run -d -p 3737:3737 -v ~/.local/share/c5t:/data ghcr.io/ck3mp3r/context:latest
+```
+
+See [User Guide](docs/user-guide.md#installation) for detailed installation instructions.
+
 **Run the API server (includes Web UI, REST API, and MCP server):**
 
 ```sh
@@ -133,6 +148,7 @@ services:
 
 ## Documentation
 
+- **[User Guide](docs/user-guide.md)** - Complete guide for end users
 - [Development Guide](docs/development.md) - Setup, building, testing
 - [API Reference](docs/api.md) - REST API endpoints
 - [MCP Tools](docs/mcp.md) - Model Context Protocol tools
@@ -142,24 +158,7 @@ services:
 
 ## Architecture
 
-**Single unified binary** (`c5t`) with embedded WASM frontend:
-
-```
-context/
-├── src/
-│   ├── lib.rs              # Shared library
-│   ├── bin/
-│   │   └── cli.rs          # Unified CLI binary
-│   ├── api/                # REST API (Axum) + embedded assets
-│   ├── cli/                # CLI commands (api, sync, task, etc.)
-│   ├── db/                 # Database layer (SQLite)
-│   ├── mcp/                # MCP server & tools
-│   ├── sync/               # Git-based sync
-│   └── frontend/           # Leptos WASM UI (embedded via rust-embed)
-├── docs/                   # Documentation
-├── scripts/                # Migration & utility scripts
-└── data/sql/sqlite/        # Database migrations
-```
+**Single unified binary** (`c5t`) with embedded WASM frontend.
 
 The `c5t api` command serves:
 - **Web UI** at `/` (Leptos WASM SPA, embedded in binary)

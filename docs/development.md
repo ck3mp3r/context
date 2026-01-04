@@ -29,17 +29,17 @@ cargo build --release
 ## Running
 
 ```sh
-# CLI
+# Show help
 cargo run --bin c5t -- --help
 
 # API server
-cargo run --bin c5t-api
+cargo run --bin c5t -- api
 
 # API with trace logging
-RUST_LOG=trace cargo run --bin c5t-api
+RUST_LOG=trace cargo run --bin c5t -- api
 
 # API on custom port
-C5T_PORT=8080 cargo run --bin c5t-api
+cargo run --bin c5t -- api --port 8080
 ```
 
 ## Testing
@@ -90,36 +90,7 @@ When modifying the schema:
 3. Test migration on development database
 4. Update `docs/schema.md` to reflect changes
 
-## Project Structure
 
-```
-context/
-├── src/
-│   ├── lib.rs              # Shared library
-│   ├── bin/
-│   │   ├── cli.rs          # CLI binary
-│   │   └── api.rs          # API server
-│   ├── api/                # REST API (Axum)
-│   │   ├── handlers/       # HTTP handlers
-│   │   ├── routes.rs       # Route definitions
-│   │   └── state.rs        # Shared state
-│   ├── cli/                # CLI commands
-│   ├── db/                 # Database layer
-│   │   ├── sqlite/         # SQLite implementation
-│   │   ├── repository.rs   # Repository trait
-│   │   └── models.rs       # Data models
-│   ├── mcp/                # MCP server
-│   │   ├── server.rs       # Server coordinator
-│   │   ├── service.rs      # Service layer
-│   │   └── tools/          # Tool implementations
-│   └── sync/               # Git-based sync
-│       ├── manager.rs      # Sync manager
-│       ├── git.rs          # Git operations
-│       └── jsonl.rs        # JSONL format
-├── data/sql/sqlite/        # Database migrations
-├── docs/                   # Documentation
-├── scripts/                # Utility scripts
-└── nix/                    # Nix configuration
 ```
 
 ## Release Build
@@ -139,5 +110,5 @@ Build release binary:
 ```sh
 cargo build --release
 ./target/release/c5t --version
-./target/release/c5t-api
+./target/release/c5t api
 ```
