@@ -118,22 +118,17 @@ fn NavAndContent() -> impl IntoView {
                 </Routes>
             </div>
 
-            <footer class="py-6 px-6 border-t border-ctp-surface1 bg-ctp-surface0">
-                <div class="container mx-auto text-center text-sm text-ctp-subtext0">
-                    <p>
-                        "© " {
-                            let date = web_sys::js_sys::Date::new_0();
-                            date.get_full_year()
-                        } " Christian Kemper. Licensed under "
-                        <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener noreferrer"
-                            class="text-ctp-blue hover:text-ctp-lavender underline">
-                            "GPL v2"
-                        </a>
-                        "."
-                    </p>
-                    <p class="mt-1 text-xs text-ctp-overlay0">
-                        "context v" {env!("CARGO_PKG_VERSION")}
-                    </p>
+            <footer class="py-3 px-6 border-t border-ctp-surface1 bg-ctp-surface0">
+                <div class="container mx-auto text-center text-xs text-ctp-overlay0">
+                    "© " {
+                        let date = web_sys::js_sys::Date::new_0();
+                        date.get_full_year()
+                    } " Christian Kemper. Licensed under "
+                    <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener noreferrer"
+                        class="text-ctp-blue hover:text-ctp-lavender underline">
+                        "GPL v2"
+                    </a>
+                    "."
                 </div>
             </footer>
         </main>
