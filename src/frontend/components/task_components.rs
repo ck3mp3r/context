@@ -208,59 +208,103 @@ pub fn KanbanColumn(
                 on:scroll=on_scroll
                 class="space-y-2 overflow-y-auto flex-1 min-h-0"
             >
-                // Parent tasks + Orphaned subtasks (interleaved by sort order)
-                // Orphaned subtasks = subtasks whose parent is NOT in this status column
-                <For
-                    each=move || {
-                        let all_tasks = tasks.get();
+                {move || {
+                    let all_tasks = tasks.get();
 
-                        // Build set of parent IDs that exist in this column
-                        let parent_ids: std::collections::HashSet<String> = all_tasks
-                            .iter()
-                            .filter(|t| t.parent_id.is_none())
-                            .map(|p| p.id.clone())
-                            .collect();
+                    // Build set of parent IDs that exist in this column
+                    let parent_ids: std::collections::HashSet<String> = all_tasks
+                        .iter()
+                        .filter(|t| t.parent_id.is_none())
+                        .map(|p| p.id.clone())
+                        .collect();
 
-                        // Filter to parent tasks + orphaned subtasks
-                        all_tasks
-                            .into_iter()
-                            .filter(|t| {
-                                // Include if: parent task OR orphaned subtask
-                                t.parent_id.is_none() || {
-                                    // Orphaned = has parent_id but parent not in this column
-                                    t.parent_id.as_ref().is_some_and(|pid| !parent_ids.contains(pid))
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                    }
-                    key=|task| task.id.clone()
-                    children=move |task| {
-                        view! {
-                            <TaskCard
-                                task=task
-                                show_subtasks_inline=true
-                                on_click=Callback::new(move |t: Task| {
-                                    set_selected_task_id.set(t.id.clone());
-                                    set_initial_open_subtask.set(None);
-                                    dialog_open.set(true);
-                                })
-                                on_subtask_click=Callback::new(move |clicked_subtask: Task| {
-                                    if let Some(parent_id) = clicked_subtask.parent_id.clone() {
-                                        let clicked_id = clicked_subtask.id.clone();
-                                        set_selected_task_id.set(parent_id);
-                                        set_initial_open_subtask.set(Some(clicked_id));
-                                        dialog_open.set(true);
-                                    } else {
-                                        // Fallback: show subtask directly
-                                        set_selected_task_id.set(clicked_subtask.id.clone());
-                                        set_initial_open_subtask.set(None);
-                                        dialog_open.set(true);
+                    // Filter to parent tasks + orphaned subtasks
+                    let display_tasks: Vec<_> = all_tasks
+                        .into_iter()
+                        .filter(|t| {
+                            // Include if: parent task OR orphaned subtask
+                            t.parent_id.is_none() || {
+                                // Orphaned = has parent_id but parent not in this column
+                                t.parent_id.as_ref().is_some_and(|pid| !parent_ids.contains(pid))
+                            }
+                        })
+                        .collect();
+
+                    // Track last parent_id to avoid duplicate mini parent cards
+                    let last_parent_id = StoredValue::new(None::<String>);
+
+                    view! {
+                        <For
+                            each=move || display_tasks.clone()
+                            key=|task| task.id.clone()
+                            children=move |task| {
+                                let is_orphaned = task.parent_id.is_some();
+                                let task_parent_id = task.parent_id.clone();
+                                let (parent_task, set_parent_task) = signal(None::<Task>);
+
+                                // Fetch parent task if this is orphaned and we haven't shown this parent yet
+                                if is_orphaned && let Some(parent_id) = &task_parent_id {
+                                    let current_last = last_parent_id.get_value();
+                                    let is_new_parent = current_last.as_ref() != Some(parent_id);
+
+                                    if is_new_parent {
+                                        last_parent_id.set_value(Some(parent_id.clone()));
+                                        let parent_id = parent_id.clone();
+
+                                        spawn_local(async move {
+                                            if let Ok(parent) = tasks::get(&parent_id).await {
+                                                set_parent_task.set(Some(parent));
+                                            }
+                                        });
                                     }
-                                })
-                            />
-                        }
+                                }
+
+                                view! {
+                                    <div>
+                                        {move || {
+                                            parent_task.get().map(|parent| {
+                                                view! {
+                                                    <MiniParentCard
+                                                        parent_task=parent.clone()
+                                                        on_click=Callback::new(move |t: Task| {
+                                                            set_selected_task_id.set(t.id.clone());
+                                                            set_initial_open_subtask.set(None);
+                                                            dialog_open.set(true);
+                                                        })
+                                                    />
+                                                }
+                                            })
+                                        }}
+                                        <div class={if is_orphaned { "ml-3 border-l-2 border-ctp-surface1 pl-2" } else { "" }}>
+                                            <TaskCard
+                                                task=task.clone()
+                                                show_subtasks_inline=true
+                                                on_click=Callback::new(move |t: Task| {
+                                                    set_selected_task_id.set(t.id.clone());
+                                                    set_initial_open_subtask.set(None);
+                                                    dialog_open.set(true);
+                                                })
+                                                on_subtask_click=Callback::new(move |clicked_subtask: Task| {
+                                                    if let Some(parent_id) = clicked_subtask.parent_id.clone() {
+                                                        let clicked_id = clicked_subtask.id.clone();
+                                                        set_selected_task_id.set(parent_id);
+                                                        set_initial_open_subtask.set(Some(clicked_id));
+                                                        dialog_open.set(true);
+                                                    } else {
+                                                        // Fallback: show subtask directly
+                                                        set_selected_task_id.set(clicked_subtask.id.clone());
+                                                        set_initial_open_subtask.set(None);
+                                                        dialog_open.set(true);
+                                                    }
+                                                })
+                                            />
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        />
                     }
-                />
+                }}
 
                 {move || {
                     loading.get().then(|| {
@@ -427,7 +471,6 @@ pub fn TaskCard(
 
     // Fetch subtask count
     let (subtask_count, set_subtask_count) = signal(0usize);
-    let (subtasks_expanded, set_subtasks_expanded) = signal(true);
     let task_id = task.id.clone();
     let list_id = task.list_id.clone();
 
@@ -459,13 +502,9 @@ pub fn TaskCard(
         });
     });
 
-    let toggle_subtasks = move |e: ev::MouseEvent| {
-        e.stop_propagation(); // Don't trigger parent task click
-        set_subtasks_expanded.update(|v| *v = !*v);
-    };
-
     let task_id_for_list = task.id.clone();
     let list_id_for_list = task.list_id.clone();
+    let task_status_for_list = task.status.to_string();
 
     let task_for_click = task.clone();
     let task_for_subtask_click = task.clone();
@@ -496,18 +535,7 @@ pub fn TaskCard(
                 }
                 on:click=handle_card_click
             >
-                // Show orphaned subtask indicator ONLY for orphaned subtasks (not inline nested ones)
-                // show_subtasks_inline=true → kanban view (show label for orphaned subtasks)
-                // show_subtasks_inline=false → SubtaskList (don't show label, already nested under parent)
-                {(task.parent_id.is_some() && show_subtasks_inline).then(|| {
-                    let parent_id = task.parent_id.as_ref().unwrap();
-                    view! {
-                        <div class="flex items-center gap-1 mb-2 text-xs text-ctp-overlay1">
-                            <span>"↳ Subtask of:"</span>
-                            <CopyableId id=parent_id.clone() />
-                        </div>
-                    }
-                })}
+
 
                 <div class="text-sm text-ctp-text mb-2">
                     <div class="font-medium break-words">
@@ -578,27 +606,11 @@ pub fn TaskCard(
                         })}
 
                         {move || {
-                            (show_subtasks_inline && subtask_count.get() > 0).then(|| {
+                            (subtask_count.get() > 0).then(|| {
                                 view! {
-                                    <button
-                                        on:click=toggle_subtasks
-                                        class="flex items-center gap-1 text-xs text-ctp-brand hover:text-ctp-blue transition-colors"
-                                    >
-                                        <span>{if subtasks_expanded.get() { "▼" } else { "▶" }}</span>
-                                        <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
-                                            "📁 " {move || subtask_count.get()} " subtask" {move || if subtask_count.get() > 1 { "s" } else { "" }}
-                                        </Badge>
-                                    </button>
-                                }
-                            })
-                        }}
-
-                        {move || {
-                            (!show_subtasks_inline && subtask_count.get() > 0).then(|| {
-                                view! {
-                                    <Badge size=BadgeSize::Small appearance=BadgeAppearance::Outline color=BadgeColor::Brand>
-                                        "📁 " {subtask_count.get()} " subtask" {if subtask_count.get() > 1 { "s" } else { "" }}
-                                    </Badge>
+                                    <span class="text-xs text-ctp-overlay1 bg-ctp-surface1 px-2 py-0.5 rounded">
+                                        "📁 " {move || subtask_count.get()} " subtask" {move || if subtask_count.get() > 1 { "s" } else { "" }}
+                                    </span>
                                 }
                             })
                         }}
@@ -607,12 +619,13 @@ pub fn TaskCard(
             </div>
 
             {move || {
-                (show_subtasks_inline && subtasks_expanded.get() && subtask_count.get() > 0).then(|| {
+                (show_subtasks_inline && subtask_count.get() > 0).then(|| {
                     match on_subtask_click {
                         Some(callback) => view! {
                             <SubtaskList
                                 task_id=task_id_for_list.clone()
                                 list_id=list_id_for_list.clone()
+                                parent_status=task_status_for_list.clone()
                                 on_subtask_click=callback
                             />
                         }.into_any(),
@@ -620,6 +633,7 @@ pub fn TaskCard(
                             <SubtaskList
                                 task_id=task_id_for_list.clone()
                                 list_id=list_id_for_list.clone()
+                                parent_status=task_status_for_list.clone()
                             />
                         }.into_any(),
                     }
@@ -635,6 +649,7 @@ pub fn TaskCard(
 pub fn SubtaskList(
     #[prop(into)] task_id: String,
     #[prop(into)] list_id: String,
+    #[prop(into)] parent_status: String,
     #[prop(optional)] on_subtask_click: Option<Callback<Task>>,
 ) -> impl IntoView {
     let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
@@ -643,21 +658,23 @@ pub fn SubtaskList(
 
     let task_id_for_fetch = task_id.clone();
     let list_id_for_fetch = list_id.clone();
+    let parent_status_for_fetch = parent_status.clone();
 
-    // Fetch subtasks on mount
+    // Fetch subtasks on mount - only those matching parent's status
     Effect::new(move || {
         let task_id = task_id_for_fetch.clone();
         let list_id = list_id_for_fetch.clone();
+        let parent_status = parent_status_for_fetch.clone();
         spawn_local(async move {
             match tasks::list_for_task_list(
                 &list_id,
-                None,             // limit - get all subtasks
-                None,             // offset
-                None,             // status
-                Some("priority"), // sort by priority
-                Some("asc"),      // ascending
-                Some(&task_id),   // parent_id filter
-                None,             // task_type - we want subtasks here
+                None,                 // limit - get all matching subtasks
+                None,                 // offset
+                Some(&parent_status), // status - filter by parent's status
+                Some("priority"),     // sort by priority
+                Some("asc"),          // ascending
+                Some(&task_id),       // parent_id filter
+                None,                 // task_type - we want subtasks here
             )
             .await
             {
@@ -681,7 +698,7 @@ pub fn SubtaskList(
                 } else if let Some(err) = error.get() {
                     view! { <p class="text-xs text-ctp-red">{err}</p> }.into_any()
                 } else if subtasks.get().is_empty() {
-                    view! { <p class="text-xs text-ctp-overlay0">"No subtasks"</p> }.into_any()
+                    view! { <div></div> }.into_any()
                 } else {
                     match on_subtask_click {
                         Some(callback) => view! {
@@ -691,7 +708,7 @@ pub fn SubtaskList(
                                 let:subtask
                             >
                                 <div class="my-2">
-                                    <TaskCard task=subtask.clone() show_status_badge=true on_click=callback />
+                                    <TaskCard task=subtask.clone() on_click=callback />
                                 </div>
                             </For>
                         }.into_any(),
@@ -702,13 +719,54 @@ pub fn SubtaskList(
                                 let:subtask
                             >
                                 <div class="my-2">
-                                    <TaskCard task=subtask.clone() show_status_badge=true />
+                                    <TaskCard task=subtask.clone() />
                                 </div>
                             </For>
                         }.into_any(),
                     }
                 }
             }}
+        </div>
+    }
+}
+
+/// MiniParentCard - compact one-liner parent task display for orphaned subtasks
+#[component]
+pub fn MiniParentCard(
+    parent_task: Task,
+    #[prop(optional)] on_click: Option<Callback<Task>>,
+) -> impl IntoView {
+    let parent_for_click = parent_task.clone();
+
+    let handle_click = move |_| {
+        if let Some(callback) = on_click {
+            callback.run(parent_for_click.clone());
+        }
+    };
+
+    let truncated_title = if parent_task.title.len() > 50 {
+        format!("{}...", &parent_task.title[..50])
+    } else {
+        parent_task.title.clone()
+    };
+
+    view! {
+        <div
+            class="bg-ctp-surface0 border-l-2 border-ctp-brand rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer"
+            on:click=handle_click
+        >
+            <div class="flex flex-col gap-1">
+                <div class="flex items-center gap-1">
+                    <CopyableId id=parent_task.id.clone() />
+                    <span class="text-ctp-text font-medium truncate">{truncated_title}</span>
+                </div>
+                <span class=format!(
+                    "px-1.5 py-0.5 rounded font-medium self-start {}",
+                    status_badge_color(&parent_task.status)
+                )>
+                    {status_badge_label(&parent_task.status)}
+                </span>
+            </div>
         </div>
     }
 }
