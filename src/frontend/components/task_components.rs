@@ -55,15 +55,15 @@ fn status_badge_label(status: &str) -> String {
     }
 }
 
-fn status_border_color(status: &str) -> &'static str {
+fn status_bg_color(status: &str) -> &'static str {
     match status {
-        "backlog" => "border-ctp-overlay0",
-        "todo" => "border-ctp-blue",
-        "in_progress" => "border-ctp-yellow",
-        "review" => "border-ctp-mauve",
-        "done" => "border-ctp-green",
-        "cancelled" => "border-ctp-red",
-        _ => "border-ctp-surface1",
+        "backlog" => "bg-ctp-surface0",
+        "todo" => "bg-ctp-blue/10",
+        "in_progress" => "bg-ctp-yellow/10",
+        "review" => "bg-ctp-mauve/10",
+        "done" => "bg-ctp-green/10",
+        "cancelled" => "bg-ctp-red/10",
+        _ => "bg-ctp-surface0",
     }
 }
 
@@ -762,13 +762,13 @@ pub fn MiniParentCard(
         parent_task.title.clone()
     };
 
-    let border_color = status_border_color(&parent_task.status.to_string());
+    let bg_color = status_bg_color(&parent_task.status.to_string());
 
     view! {
         <div
             class=format!(
-                "bg-ctp-surface0 border {} rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer",
-                border_color
+                "{} rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer",
+                bg_color
             )
             on:click=handle_click
         >
