@@ -62,13 +62,6 @@ jobs:
             nix_system: aarch64-linux
             docker_arch: arm64
     steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Checkout release branch
         uses: actions/checkout@v6
         with:
@@ -79,15 +72,6 @@ jobs:
 
       - name: Build archive for ${{ matrix.nix_system }}
         run: nix build .#archive --print-build-logs
-
-      - name: Build and push ${{ matrix.nix_system }} container
-        if: matrix.docker_arch != 'na' # not needed for darwin
-        run: |
-          VERSION=${{ needs.prep-release.outputs.version }}
-          nix build .#container --system ${{ matrix.nix_system }} && cat result | docker load
-
-          docker tag context:${VERSION} ghcr.io/${{ github.repository_owner }}/context:${VERSION}-${{ matrix.docker_arch }}
-          docker push ghcr.io/${{ github.repository_owner }}/context:${VERSION}-${{ matrix.docker_arch }}
 
       - name: Copy build outputs for uniqueness
         run: |
@@ -104,6 +88,23 @@ jobs:
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.tgz
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        if: ${{ matrix.docker_arch != 'na' }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.nix_system }} container
+        if: ${{ matrix.docker_arch != 'na' }}
+        run: |
+          VERSION=${{ needs.prep-release.outputs.version }}
+          nix build .#container --system ${{ matrix.nix_system }} && cat result | docker load
+
+          docker tag context:${VERSION} ghcr.io/${{ github.repository_owner }}/context:${VERSION}-${{ matrix.docker_arch }}
+          docker push ghcr.io/${{ github.repository_owner }}/context:${VERSION}-${{ matrix.docker_arch }}
 
   finalize-release:
     needs:
