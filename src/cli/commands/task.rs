@@ -14,6 +14,7 @@ pub struct Task {
     pub status: String,
     pub priority: Option<i32>,
     pub tags: Option<Vec<String>>,
+    pub external_ref: Option<String>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -28,6 +29,8 @@ pub(crate) struct CreateTaskRequest {
     pub(crate) priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) external_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -42,6 +45,8 @@ pub(crate) struct UpdateTaskRequest {
     pub(crate) priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) external_ref: Option<String>,
 }
 
 #[derive(Tabled)]
@@ -184,6 +189,9 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
                     .unwrap_or_else(|| "-".to_string()),
             ]);
             builder.push_record(["Tags", &format_tags(task.tags.as_ref())]);
+            if let Some(ext_ref) = &task.external_ref {
+                builder.push_record(["External Ref", ext_ref]);
+            }
             builder.push_record(["Created", &task.created_at]);
             builder.push_record(["Started", task.started_at.as_deref().unwrap_or("-")]);
             builder.push_record(["Completed", task.completed_at.as_deref().unwrap_or("-")]);
@@ -203,12 +211,14 @@ pub async fn create_task(
     description: Option<&str>,
     priority: Option<i32>,
     tags: Option<&str>,
+    external_ref: Option<&str>,
 ) -> CliResult<String> {
     let request_body = CreateTaskRequest {
         title: title.to_string(),
         description: description.map(|s| s.to_string()),
         priority,
         tags: parse_tags(tags),
+        external_ref: external_ref.map(|s| s.to_string()),
     };
 
     let response = api_client
@@ -221,22 +231,29 @@ pub async fn create_task(
     Ok(format!("✓ Created task: {} ({})", task.title, task.id))
 }
 
+/// Parameters for updating a task
+pub struct UpdateTaskParams<'a> {
+    pub title: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub priority: Option<i32>,
+    pub tags: Option<&'a str>,
+    pub external_ref: Option<&'a str>,
+}
+
 /// Update a task
 pub async fn update_task(
     api_client: &ApiClient,
     id: &str,
-    title: Option<&str>,
-    description: Option<&str>,
-    status: Option<&str>,
-    priority: Option<i32>,
-    tags: Option<&str>,
+    params: UpdateTaskParams<'_>,
 ) -> CliResult<String> {
     let request_body = UpdateTaskRequest {
-        title: title.map(|s| s.to_string()),
-        description: description.map(|s| s.to_string()),
-        status: status.map(|s| s.to_string()),
-        priority,
-        tags: parse_tags(tags),
+        title: params.title.map(|s| s.to_string()),
+        description: params.description.map(|s| s.to_string()),
+        status: params.status.map(|s| s.to_string()),
+        priority: params.priority,
+        tags: parse_tags(params.tags),
+        external_ref: params.external_ref.map(|s| s.to_string()),
     };
 
     let response = api_client

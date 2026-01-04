@@ -51,6 +51,8 @@ pub struct TaskResponse {
     pub priority: Option<i32>,
     #[schema(example = json!(["urgent", "bug-fix"]))]
     pub tags: Vec<String>,
+    #[schema(example = "owner/repo#123")]
+    pub external_ref: Option<String>,
     pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -76,6 +78,7 @@ impl From<Task> for TaskResponse {
             .to_string(),
             priority: t.priority,
             tags: t.tags,
+            external_ref: t.external_ref,
             created_at: t.created_at,
             started_at: t.started_at,
             completed_at: t.completed_at,
@@ -93,6 +96,9 @@ pub struct CreateTaskRequest {
     /// Priority: 1 (highest) to 5 (lowest). Defaults to 5 (P5) if not provided.
     #[schema(example = 2)]
     pub priority: Option<i32>,
+    /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
+    #[schema(example = "owner/repo#123")]
+    pub external_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -106,6 +112,9 @@ pub struct UpdateTaskRequest {
     #[schema(example = json!(["urgent", "bug-fix"]))]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
+    #[schema(example = "owner/repo#456")]
+    pub external_ref: Option<String>,
 }
 
 /// Patch task request DTO (partial update)
@@ -129,6 +138,9 @@ pub struct PatchTaskRequest {
     /// Move task to different list
     #[schema(example = "abc123de")]
     pub list_id: Option<String>,
+    /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
+    #[schema(example = "owner/repo#789")]
+    pub external_ref: Option<String>,
 }
 
 impl PatchTaskRequest {
@@ -155,6 +167,9 @@ impl PatchTaskRequest {
         }
         if let Some(list_id) = self.list_id {
             target.list_id = list_id;
+        }
+        if let Some(external_ref) = self.external_ref {
+            target.external_ref = Some(external_ref);
         }
     }
 }
@@ -324,6 +339,7 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         status: TaskStatus::Backlog,
         priority: req.priority.or(Some(5)), // Default to P5 (lowest priority)
         tags: vec![],
+        external_ref: req.external_ref,
         created_at: None, // Repository will generate this
         started_at: None,
         completed_at: None,
@@ -388,6 +404,7 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
     task.description = req.description;
     task.priority = req.priority;
     task.tags = req.tags;
+    task.external_ref = req.external_ref;
 
     if let Some(status_str) = req.status {
         let new_status = parse_status(&status_str);

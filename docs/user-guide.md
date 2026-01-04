@@ -118,6 +118,7 @@ Database: `~/.local/share/c5t/context.db` (created on first run)
 - **Status**: `backlog` → `todo` → `in_progress` → `review` → `done` or `cancelled`
 - **Priority**: P1 (highest/urgent) through P5 (lowest/nice-to-have)
 - **Tags**: Labels for categorization (e.g., `bug`, `frontend`, `critical`)
+- **External Ref**: Link to external systems (e.g., `owner/repo#123` for GitHub, `https://jira.example.com/browse/PROJ-123` for Jira)
 - **Parent/Subtasks**: Tasks can have child subtasks (one level recommended)
 
 **Status Flow:**
@@ -209,6 +210,12 @@ c5t task create --list-id $LIST_ID \
   --title "Create wireframes" \
   --priority 1 \
   --status backlog
+
+# Link task to external system (GitHub issue or Jira ticket)
+c5t task create --list-id $LIST_ID \
+  --title "Fix authentication bug" \
+  --external-ref "myorg/myrepo#456" \
+  --priority 1
 ```
 
 ## Using the Web UI

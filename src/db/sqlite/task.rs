@@ -41,8 +41,8 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         sqlx::query(
             r#"
-            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -53,6 +53,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(status_str)
         .bind(task.priority)
         .bind(&tags_json)
+        .bind(&task.external_ref)
         .bind(&created_at)
         .bind(&task.started_at)
         .bind(&task.completed_at)
@@ -81,7 +82,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
-            "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at
              FROM task WHERE id = ?",
         )
         .bind(id)
@@ -170,7 +171,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build SQL based on whether we need json_each
         let (sql, count_sql) = if needs_json_each {
             let sql = format!(
-                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.created_at, t.started_at, t.completed_at, t.updated_at
+                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_ref, t.created_at, t.started_at, t.completed_at, t.updated_at
                  FROM task t, json_each(t.tags)
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -182,7 +183,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             (sql, count_sql)
         } else {
             let sql = format!(
-                "SELECT id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at
+                "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at
                  FROM task
                  {} {} {}",
                 where_clause, order_clause, limit_clause
@@ -284,7 +285,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let result = sqlx::query(
             r#"
             UPDATE task 
-            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?,
+            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?, external_ref = ?,
                 started_at = ?, completed_at = ?, updated_at = ?
             WHERE id = ?
             "#,
@@ -296,6 +297,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&status_str)
         .bind(task.priority)
         .bind(&tags_json)
+        .bind(&task.external_ref)
         .bind(&task.started_at)
         .bind(&task.completed_at)
         .bind(&updated_at)
@@ -476,6 +478,7 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default()
         },
+        external_ref: row.get("external_ref"),
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),

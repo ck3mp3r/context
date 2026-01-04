@@ -913,6 +913,15 @@ pub fn TaskDetailContent(
                             </div>
                         }
                     })}
+
+                    // External reference link (if present)
+                    {task.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
+                        view! {
+                            <div class="mt-2">
+                                <ExternalRefLink external_ref=ext_ref.clone() />
+                            </div>
+                        }
+                    })}
                 </div>
             </div>
 
@@ -1105,6 +1114,15 @@ pub fn TaskListCard(
                     }
                 })}
 
+            // External reference link (if present)
+            {task_list.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
+                view! {
+                    <div class="mb-3">
+                        <ExternalRefLink external_ref=ext_ref.clone() />
+                    </div>
+                }
+            })}
+
             // Task stats badges - compact with icons, always show all statuses
             {move || {
                 stats.get().and_then(|result| {
@@ -1271,6 +1289,15 @@ pub fn TaskListDetailModal(
                                                         </div>
                                                     }
                                                 })}
+
+                                                // External reference link (if present)
+                                                {tl.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
+                                                    view! {
+                                                        <div class="mt-2">
+                                                            <ExternalRefLink external_ref=ext_ref.clone() />
+                                                        </div>
+                                                    }
+                                                })}
                                             </div>
                                             <button
                                                 on:click=move |_| open.set(false)
@@ -1330,5 +1357,85 @@ pub fn TaskListDetailModal(
                 </Suspense>
             </DrawerBody>
         </OverlayDrawer>
+    }
+}
+
+/// ExternalRefLink component - renders external references as clickable links
+/// Intelligently parses different formats:
+/// - Full URLs: https://jira.company.com/browse/PROJ-123 → displays "PROJ-123", links to full URL
+/// - GitHub issues: owner/repo#123 → displays "owner/repo#123", links to GitHub
+/// - Short references: PROJ-123 → displays as non-clickable badge
+#[component]
+pub fn ExternalRefLink(external_ref: String) -> impl IntoView {
+    // Parse the external_ref intelligently
+    let (url, display_text, icon, label_class, is_link) =
+        if external_ref.starts_with("http://") || external_ref.starts_with("https://") {
+            // Full URL - extract ticket ID from last path segment
+            let display = external_ref
+                .split('/')
+                .next_back()
+                .unwrap_or(&external_ref)
+                .to_string();
+            (
+                external_ref.clone(),
+                display,
+                "🔗",
+                "bg-ctp-blue/10 text-ctp-blue border border-ctp-blue/30",
+                true,
+            )
+        } else if external_ref.contains('/') && external_ref.contains('#') {
+            // GitHub issue format: owner/repo#123
+            let url = format!(
+                "https://github.com/{}",
+                external_ref.replace('#', "/issues/")
+            );
+            (
+                url,
+                external_ref.clone(),
+                "🔗",
+                "bg-ctp-blue/10 text-ctp-blue border border-ctp-blue/30",
+                true,
+            )
+        } else {
+            // Short reference: PROJ-123, etc. - not a clickable link
+            (
+                String::new(),
+                external_ref.clone(),
+                "📋",
+                "bg-ctp-mauve/10 text-ctp-mauve border border-ctp-mauve/30",
+                false,
+            )
+        };
+
+    if is_link {
+        view! {
+            <a
+                href=url
+                target="_blank"
+                rel="noopener noreferrer"
+                on:click=|ev| {
+                    ev.stop_propagation(); // Prevent parent link from triggering
+                }
+                class=format!("inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded hover:opacity-80 transition-opacity {}", label_class)
+            >
+                <span>{icon}</span>
+                <span class="font-medium">{display_text}</span>
+                <span class="opacity-60">"↗"</span>
+            </a>
+        }.into_any()
+    } else {
+        // Non-clickable badge for short references
+        view! {
+            <span
+                on:click=|ev| {
+                    ev.stop_propagation(); // Prevent parent link from triggering
+                }
+                class=format!("inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded {}", label_class)
+                title="External reference"
+            >
+                <span>{icon}</span>
+                <span class="font-medium">{display_text}</span>
+            </span>
+        }.into_any()
     }
 }

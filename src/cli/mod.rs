@@ -117,6 +117,9 @@ enum TaskCommands {
         /// Tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-456' for Jira)
+        #[arg(long)]
+        external_ref: Option<String>,
     },
     /// Update a task
     Update {
@@ -137,6 +140,9 @@ enum TaskCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-456' for Jira)
+        #[arg(long)]
+        external_ref: Option<String>,
     },
     /// Delete a task
     Delete {
@@ -643,6 +649,7 @@ pub async fn run() -> Result<()> {
                 description,
                 priority,
                 tags,
+                external_ref,
             } => {
                 let output = commands::task::create_task(
                     &api_client,
@@ -651,6 +658,7 @@ pub async fn run() -> Result<()> {
                     description.as_deref(),
                     priority,
                     tags.as_deref(),
+                    external_ref.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
@@ -662,17 +670,17 @@ pub async fn run() -> Result<()> {
                 status,
                 priority,
                 tags,
+                external_ref,
             } => {
-                let output = commands::task::update_task(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    description.as_deref(),
-                    status.as_deref(),
+                let params = commands::task::UpdateTaskParams {
+                    title: title.as_deref(),
+                    description: description.as_deref(),
+                    status: status.as_deref(),
                     priority,
-                    tags.as_deref(),
-                )
-                .await?;
+                    tags: tags.as_deref(),
+                    external_ref: external_ref.as_deref(),
+                };
+                let output = commands::task::update_task(&api_client, &id, params).await?;
                 println!("{}", output);
             }
             TaskCommands::Delete { id, force } => {

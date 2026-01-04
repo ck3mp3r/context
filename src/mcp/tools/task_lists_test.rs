@@ -429,6 +429,7 @@ async fn test_get_task_list_stats() {
             status,
             priority: None,
             tags: vec![],
+            external_ref: None,
             created_at: None,
             started_at: None,
             completed_at: None,
