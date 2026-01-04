@@ -763,12 +763,14 @@ pub fn MiniParentCard(
     };
 
     let bg_color = status_bg_color(&parent_task.status.to_string());
+    let priority_color = priority_border_color(parent_task.priority);
 
     view! {
         <div
             class=format!(
-                "{} rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer",
-                bg_color
+                "{} rounded px-2 py-1 mb-1 text-xs border-l-2 {} hover:bg-ctp-surface1 transition-colors cursor-pointer",
+                bg_color,
+                priority_color
             )
             on:click=handle_click
         >
