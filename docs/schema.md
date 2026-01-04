@@ -49,9 +49,11 @@ content      TEXT NOT NULL
 status       TEXT                -- 'backlog' | 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
 priority     INTEGER             -- 1-5 (1=highest)
 tags         TEXT                -- JSON array
+external_ref TEXT                -- e.g., "owner/repo#123", "https://jira.example.com/browse/PROJ-123"
 created_at   TEXT
 started_at   TEXT
 completed_at TEXT
+updated_at   TEXT
 ```
 
 ### note
