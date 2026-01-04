@@ -55,6 +55,18 @@ fn status_badge_label(status: &str) -> String {
     }
 }
 
+fn status_border_color(status: &str) -> &'static str {
+    match status {
+        "backlog" => "border-ctp-overlay0",
+        "todo" => "border-ctp-blue",
+        "in_progress" => "border-ctp-yellow",
+        "review" => "border-ctp-mauve",
+        "done" => "border-ctp-green",
+        "cancelled" => "border-ctp-red",
+        _ => "border-ctp-surface1",
+    }
+}
+
 #[component]
 pub fn KanbanColumn(
     status: &'static str,
@@ -750,22 +762,19 @@ pub fn MiniParentCard(
         parent_task.title.clone()
     };
 
+    let border_color = status_border_color(&parent_task.status.to_string());
+
     view! {
         <div
-            class="bg-ctp-surface0 border-l-2 border-ctp-brand rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer"
+            class=format!(
+                "bg-ctp-surface0 border-2 {} rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer",
+                border_color
+            )
             on:click=handle_click
         >
-            <div class="flex flex-col gap-1">
-                <div class="flex items-center gap-1">
-                    <CopyableId id=parent_task.id.clone() />
-                    <span class="text-ctp-text font-medium truncate">{truncated_title}</span>
-                </div>
-                <span class=format!(
-                    "px-1.5 py-0.5 rounded font-medium self-start {}",
-                    status_badge_color(&parent_task.status)
-                )>
-                    {status_badge_label(&parent_task.status)}
-                </span>
+            <div class="flex items-center gap-1">
+                <CopyableId id=parent_task.id.clone() />
+                <span class="text-ctp-text font-medium truncate">{truncated_title}</span>
             </div>
         </div>
     }
