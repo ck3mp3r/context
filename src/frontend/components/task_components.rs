@@ -915,7 +915,7 @@ pub fn TaskDetailContent(
                     })}
 
                     // External reference link (if present)
-                    {task.external_ref.as_ref().map(|ext_ref| {
+                    {task.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
                         view! {
                             <div class="mt-2">
                                 <ExternalRefLink external_ref=ext_ref.clone() />
@@ -1115,7 +1115,7 @@ pub fn TaskListCard(
                 })}
 
             // External reference link (if present)
-            {task_list.external_ref.as_ref().map(|ext_ref| {
+            {task_list.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
                 view! {
                     <div class="mb-3">
                         <ExternalRefLink external_ref=ext_ref.clone() />
@@ -1291,7 +1291,7 @@ pub fn TaskListDetailModal(
                                                 })}
 
                                                 // External reference link (if present)
-                                                {tl.external_ref.as_ref().map(|ext_ref| {
+                                                {tl.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
                                                     view! {
                                                         <div class="mt-2">
                                                             <ExternalRefLink external_ref=ext_ref.clone() />
