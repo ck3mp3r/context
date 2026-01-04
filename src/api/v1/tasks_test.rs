@@ -1369,3 +1369,247 @@ async fn delete_task_broadcasts_notification() {
         _ => panic!("Expected TaskDeleted message, got {:?}", msg),
     }
 }
+
+// =============================================================================
+// External Reference Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_github_external_ref() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Fix GitHub issue",
+                        "external_ref": "owner/repo#123"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "Fix GitHub issue");
+    assert_eq!(body["external_ref"], "owner/repo#123");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_jira_external_ref() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Implement Jira ticket",
+                        "external_ref": "PROJ-456"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "Implement Jira ticket");
+    assert_eq!(body["external_ref"], "PROJ-456");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_without_external_ref_returns_null() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task without external ref"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response).await;
+    assert!(
+        body["external_ref"].is_null(),
+        "external_ref should be null when not provided"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_external_ref_via_put() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create task without external_ref
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "Original task"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(response).await;
+    let task_id = created["id"].as_str().unwrap();
+    assert!(created["external_ref"].is_null());
+
+    // Update with external_ref
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Updated task",
+                        "external_ref": "owner/repo#789"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated = json_body(response).await;
+    assert_eq!(updated["external_ref"], "owner/repo#789");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_task_external_ref() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create task with external_ref
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task with ref",
+                        "external_ref": "PROJ-100"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(response).await;
+    let task_id = created["id"].as_str().unwrap();
+    assert_eq!(created["external_ref"], "PROJ-100");
+
+    // PATCH to update external_ref only
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "external_ref": "owner/repo#999"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let patched = json_body(response).await;
+    assert_eq!(patched["external_ref"], "owner/repo#999");
+    assert_eq!(
+        patched["title"], "Task with ref",
+        "Title should remain unchanged"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_task_returns_external_ref() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create task with external_ref
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Task with external ref",
+                        "external_ref": "PROJ-777"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(response).await;
+    let task_id = created["id"].as_str().unwrap();
+
+    // GET task
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}", task_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched = json_body(response).await;
+    assert_eq!(
+        fetched["external_ref"], "PROJ-777",
+        "GET should return external_ref"
+    );
+}

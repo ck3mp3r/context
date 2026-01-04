@@ -93,6 +93,10 @@ pub struct CreateTaskParams {
         description = "Tags for categorization (e.g., 'bug', 'frontend', 'critical'). Optional."
     )]
     pub tags: Option<Vec<String>>,
+    #[schemars(
+        description = "External reference to link task to external systems. Examples: 'owner/repo#123' (GitHub issue), 'PROJ-456' (Jira ticket). Optional."
+    )]
+    pub external_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -115,6 +119,10 @@ pub struct UpdateTaskParams {
         description = "Move task to different list (optional). Use sparingly - tasks should stay in their original list."
     )]
     pub list_id: Option<String>,
+    #[schemars(
+        description = "External reference (optional). Examples: 'owner/repo#123' (GitHub), 'PROJ-456' (Jira). Set to update or change the external reference."
+    )]
+    pub external_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -290,6 +298,7 @@ impl<D: Database + 'static> TaskTools<D> {
             status: TaskStatus::Backlog, // Always create as backlog
             priority: params.0.priority.or(Some(5)), // Default to P5 (lowest priority)
             tags: params.0.tags.clone().unwrap_or_default(),
+            external_ref: params.0.external_ref.clone(),
             created_at: None, // Will be set by DB
             started_at: None,
             completed_at: None,
@@ -456,6 +465,9 @@ impl<D: Database + 'static> TaskTools<D> {
         }
         if let Some(list_id) = &params.0.list_id {
             task.list_id = list_id.clone();
+        }
+        if let Some(external_ref) = &params.0.external_ref {
+            task.external_ref = Some(external_ref.clone());
         }
 
         self.db.tasks().update(&task).await.map_err(map_db_error)?;

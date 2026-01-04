@@ -62,6 +62,7 @@ pub struct Task {
     pub status: String,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
+    pub external_ref: Option<String>,
     pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
