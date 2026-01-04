@@ -767,7 +767,7 @@ pub fn MiniParentCard(
     view! {
         <div
             class=format!(
-                "bg-ctp-surface0 border-2 {} rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer",
+                "bg-ctp-surface0 border {} rounded px-2 py-1 mb-1 text-xs hover:bg-ctp-surface1 transition-colors cursor-pointer",
                 border_color
             )
             on:click=handle_click
