@@ -83,7 +83,8 @@ def main [] {
         let status = if ($tl.status | is-empty) { "active" } else { $tl.status }
         let archived = if ($tl.archived_at | is-empty) { null } else { $tl.archived_at }
         
-        open $target | query db "INSERT INTO task_list (id, name, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" --params [$tl.id, $tl.name, $desc, $notes_val, $tags_val, $ext_ref, $status, $default_project_id, $tl.created_at, $tl.updated_at, $archived]
+        # OLD schema: task_list.name → NEW schema: task_list.title
+        open $target | query db "INSERT INTO task_list (id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" --params [$tl.id, $tl.name, $desc, $notes_val, $tags_val, $ext_ref, $status, $default_project_id, $tl.created_at, $tl.updated_at, $archived]
         
         # Create task_list_repo relationship if repo_id exists
         if not ($tl.repo_id | is-empty) {
@@ -108,7 +109,9 @@ def main [] {
         let started = if ($task.started_at | is-empty) { null } else { $task.started_at }
         let completed = if ($task.completed_at | is-empty) { null } else { $task.completed_at }
         
-        open $target | query db "INSERT INTO task (id, list_id, parent_id, content, status, priority, tags, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" --params [$task.id, $task.list_id, $parent, $task.content, $status, $priority, "[]", $task.created_at, $started, $completed]
+        # OLD schema: task.content → NEW schema: task.title
+        # NEW fields: task.description (set to NULL), task.updated_at (use created_at as default)
+        open $target | query db "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" --params [$task.id, $task.list_id, $parent, $task.content, null, $status, $priority, "[]", $task.created_at, $started, $completed, $task.created_at]
     }
     
     let migrated_tasks = (open $target | query db "SELECT COUNT(*) as count FROM task" | get count.0)

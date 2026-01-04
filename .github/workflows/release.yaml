@@ -144,12 +144,12 @@ jobs:
           # Generate platform data and commit
           generate-platform-data-for $version "context" "./artifacts" | commit-files $"Add platform data for release ($version)"
 
+          # Merge and cleanup
+          merge-and-cleanup $version
+
           # Create release and upload artifacts using gh CLI
           create-github-release $version
           glob "./artifacts/**/*.*" | upload-release-artifacts $version
-
-          # Merge and cleanup
-          merge-and-cleanup $version
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
 
