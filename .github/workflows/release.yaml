@@ -144,6 +144,24 @@ jobs:
           # Generate platform data and commit
           generate-platform-data-for $version "context" "./artifacts" | commit-files $"Add platform data for release ($version)"
 
+          # Prepare architecture data with hashes
+          let architectures = [
+            {
+              name: "aarch64-darwin"
+              hash: (open $"./artifacts/context-assets-aarch64-darwin/context-($version)-aarch64-darwin.sha256" | str trim)
+            }
+            {
+              name: "aarch64-linux"
+              hash: (open $"./artifacts/context-assets-aarch64-linux/context-($version)-aarch64-linux.sha256" | str trim)
+            }
+            {
+              name: "x86_64-linux"
+              hash: (open $"./artifacts/context-assets-x86_64-linux/context-($version)-x86_64-linux.sha256" | str trim)
+            }
+          ]
+
+          # Update Homebrew formula
+          open Formula/context.rb | update-homebrew-formula $version "context" $architectures | save --force Formula/context.rb
           # Merge and cleanup
           merge-and-cleanup $version
 
