@@ -9,11 +9,12 @@ extern "C" {
     fn copy_to_clipboard(text: &str);
 }
 
-/// Copyable ID component - icon-only with tooltip showing ID and click-to-copy functionality
+/// Copyable ID component - icon-only with tooltip showing "ID: <id>" and title "Copy to clipboard"
 #[component]
 pub fn CopyableId(id: String) -> impl IntoView {
     let (copied, set_copied) = signal(false);
     let id_clone = id.clone();
+    let tooltip_text = format!("ID: {}", id);
 
     let do_copy = move |ev: leptos::ev::MouseEvent| {
         ev.prevent_default();
@@ -31,10 +32,11 @@ pub fn CopyableId(id: String) -> impl IntoView {
     };
 
     view! {
-        <Tooltip content=id>
+        <Tooltip content=tooltip_text>
             <button
                 on:click=do_copy
                 class="inline-flex items-center justify-center w-4 h-4 bg-ctp-surface0/50 border border-ctp-surface1/50 rounded hover:border-ctp-blue hover:bg-ctp-surface0 transition-colors cursor-pointer align-text-top"
+                title="Copy to clipboard"
             >
                 <span class="text-[10px] text-ctp-overlay0 leading-none">
                     {move || {

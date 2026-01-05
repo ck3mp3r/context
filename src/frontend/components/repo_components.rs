@@ -1,7 +1,15 @@
 use leptos::prelude::*;
+use wasm_bindgen::prelude::*;
 
 use crate::components::CopyableId;
 use crate::models::Repo;
+
+#[wasm_bindgen(
+    inline_js = "export function copy_to_clipboard(text) { navigator.clipboard.writeText(text); }"
+)]
+extern "C" {
+    fn copy_to_clipboard(text: &str);
+}
 
 #[component]
 pub fn RepoCard(repo: Repo) -> impl IntoView {
@@ -12,17 +20,65 @@ pub fn RepoCard(repo: Repo) -> impl IntoView {
                 <div class="flex-1 min-w-0">
                     <h3 class="text-xl font-semibold text-ctp-text break-all mb-2">{repo.remote.clone()}</h3>
 
-                    {repo
-                        .path
-                        .as_ref()
-                        .map(|p| {
-                            view! {
-                                <p class="text-ctp-subtext0 text-sm mb-3 font-mono">
+                    {repo.path.clone().map(|p| {
+                        let (copied, set_copied) = signal(false);
+                        let path_clone = p.clone();
+                        let path_clone2 = p.clone();
+                        let path_for_display = p.clone();
+
+                        let do_copy_text = move |ev: leptos::ev::MouseEvent| {
+                            ev.prevent_default();
+                            ev.stop_propagation();
+                            copy_to_clipboard(&path_clone);
+                            set_copied.set(true);
+                            set_timeout(
+                                move || {
+                                    set_copied.set(false);
+                                },
+                                std::time::Duration::from_secs(2),
+                            );
+                        };
+
+                        let do_copy_button = move |ev: leptos::ev::MouseEvent| {
+                            ev.prevent_default();
+                            ev.stop_propagation();
+                            copy_to_clipboard(&path_clone2);
+                            set_copied.set(true);
+                            set_timeout(
+                                move || {
+                                    set_copied.set(false);
+                                },
+                                std::time::Duration::from_secs(2),
+                            );
+                        };
+
+                        view! {
+                            <div class="flex items-center gap-2 mb-3">
+                                <p
+                                    class="text-ctp-subtext0 text-sm font-mono truncate cursor-pointer hover:text-ctp-blue transition-colors flex-1 min-w-0"
+                                    title=p.clone()
+                                    on:click=do_copy_text
+                                >
                                     <span class="text-ctp-overlay1">"Path: "</span>
-                                    {p.clone()}
+                                    {path_for_display.clone()}
                                 </p>
-                            }
-                        })}
+                                <button
+                                    on:click=do_copy_button
+                                    class="flex-shrink-0 text-ctp-overlay0 hover:text-ctp-blue transition-colors text-sm"
+                                    title="Copy to clipboard"
+                                >
+                                    {move || {
+                                        if copied.get() {
+                                            "✓"
+                                        } else {
+                                            "📋"
+                                        }
+                                    }}
+
+                                </button>
+                            </div>
+                        }
+                    })}
 
                     {(!repo.tags.is_empty())
                         .then(|| {
