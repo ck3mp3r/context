@@ -9,7 +9,8 @@ class Context < Formula
       url "https://github.com/ck3mp3r/context/releases/download/v0.2.1/context-0.2.1-aarch64-darwin.tgz"
       sha256 "cd9fea7fa9c71b78901d061074833fadd20f38471ea623d82770627cf57f8488"
     else
-      odie "Intel Macs are no longer supported. Please use an Apple Silicon Mac or Linux."
+      url "https://github.com/ck3mp3r/context/releases/download/v0.2.1/context-0.2.1-x86_64-darwin.tgz"
+      sha256 "PLACEHOLDER_HASH_WILL_BE_GENERATED_DURING_RELEASE"
     end
   end
 
