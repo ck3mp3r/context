@@ -55,6 +55,9 @@ jobs:
           - os: ubuntu-latest
             nix_system: x86_64-linux
             docker_arch: amd64
+          - os: macos-13
+            nix_system: x86_64-darwin
+            docker_arch: na
           - os: macos-14
             nix_system: aarch64-darwin
             docker_arch: na
@@ -153,6 +156,10 @@ jobs:
             {
               name: "aarch64-linux"
               hash: (open $"./artifacts/context-assets-aarch64-linux/context-($version)-aarch64-linux.sha256" | str trim)
+            }
+            {
+              name: "x86_64-darwin"
+              hash: (open $"./artifacts/context-assets-x86_64-darwin/context-($version)-x86_64-darwin.sha256" | str trim)
             }
             {
               name: "x86_64-linux"

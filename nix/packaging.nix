@@ -6,7 +6,7 @@
   cargoLock,
   overlays,
 }: let
-  supportedTargets = ["aarch64-darwin" "aarch64-linux" "x86_64-linux"];
+  supportedTargets = ["aarch64-darwin" "aarch64-linux" "x86_64-darwin" "x86_64-linux"];
 
   # Install data for pre-built releases (will be generated during release)
   installData = {
@@ -17,6 +17,10 @@
     aarch64-linux =
       if builtins.pathExists ../data/aarch64-linux.json
       then builtins.fromJSON (builtins.readFile ../data/aarch64-linux.json)
+      else {};
+    x86_64-darwin =
+      if builtins.pathExists ../data/x86_64-darwin.json
+      then builtins.fromJSON (builtins.readFile ../data/x86_64-darwin.json)
       else {};
     x86_64-linux =
       if builtins.pathExists ../data/x86_64-linux.json
