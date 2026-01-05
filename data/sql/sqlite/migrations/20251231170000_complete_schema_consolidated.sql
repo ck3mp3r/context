@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS task (
     status TEXT NOT NULL CHECK(status IN ('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')),
     priority INTEGER CHECK(priority BETWEEN 1 AND 5),
     tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags)),   -- JSON array
+    external_ref TEXT,                                         -- External reference (GitHub issues: "owner/repo#123", Jira: "PROJ-123")
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
