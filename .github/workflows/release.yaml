@@ -55,10 +55,10 @@ jobs:
           - os: ubuntu-latest
             nix_system: x86_64-linux
             docker_arch: amd64
-          - os: macos-13
+          - os: macos-15-intel
             nix_system: x86_64-darwin
             docker_arch: na
-          - os: macos-14
+          - os: macos-15
             nix_system: aarch64-darwin
             docker_arch: na
           - os: ubuntu-24.04-arm
