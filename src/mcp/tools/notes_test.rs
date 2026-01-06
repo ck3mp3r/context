@@ -159,7 +159,6 @@ async fn test_list_notes_with_tag_filter() {
     // List only "work" notes
     let params = ListNotesParams {
         tags: Some(vec!["work".to_string()]),
-        note_type: None,
         project_id: None,
         parent_id: None,
         limit: None,
@@ -197,7 +196,6 @@ async fn test_update_note() {
         title: "Original Title".to_string(),
         content: "Original content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -250,7 +248,6 @@ async fn test_delete_note() {
         title: "To be deleted".to_string(),
         content: "This will be removed".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -296,7 +293,6 @@ async fn test_search_notes() {
         title: "Rust Programming".to_string(),
         content: "Learning about Rust ownership and borrowing".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -309,7 +305,6 @@ async fn test_search_notes() {
         title: "Python Tutorial".to_string(),
         content: "Python list comprehensions and generators".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -361,7 +356,6 @@ async fn test_search_notes_with_tag_filter() {
         title: "Rust Async".to_string(),
         content: "Async programming in Rust".to_string(),
         tags: vec!["rust".to_string(), "async".to_string()],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -374,7 +368,6 @@ async fn test_search_notes_with_tag_filter() {
         title: "Rust Basics".to_string(),
         content: "Basic Rust syntax and types".to_string(),
         tags: vec!["rust".to_string(), "basics".to_string()],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -426,7 +419,6 @@ async fn test_list_notes_with_sort_and_order() {
         title: "First Note".to_string(),
         content: "First content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -440,7 +432,6 @@ async fn test_list_notes_with_sort_and_order() {
         title: "Second Note".to_string(),
         content: "Second content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -454,7 +445,6 @@ async fn test_list_notes_with_sort_and_order() {
         title: "Third Note".to_string(),
         content: "Third content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -471,7 +461,6 @@ async fn test_list_notes_with_sort_and_order() {
 
     // Test sorting by updated_at DESC
     let params = ListNotesParams {
-        note_type: None,
         tags: None,
         project_id: None,
         parent_id: None,
@@ -502,7 +491,6 @@ async fn test_list_notes_with_sort_and_order() {
 
     // Test sorting by title ASC
     let params = ListNotesParams {
-        note_type: None,
         tags: None,
         project_id: None,
         parent_id: None,
@@ -548,7 +536,6 @@ async fn test_create_note_with_parent() {
         title: "Parent Note".to_string(),
         content: "Parent content".to_string(),
         tags: None,
-        note_type: None,
         parent_id: None,
         idx: None,
         repo_ids: None,
@@ -571,7 +558,6 @@ async fn test_create_note_with_parent() {
         title: "Child Note".to_string(),
         content: "Child content".to_string(),
         tags: None,
-        note_type: None,
         parent_id: Some(parent.id.clone()),
         idx: None,
         repo_ids: None,
@@ -605,7 +591,6 @@ async fn test_update_note_idx() {
         title: "Test Note".to_string(),
         content: "Content".to_string(),
         tags: None,
-        note_type: None,
         parent_id: None,
         idx: Some(10),
         repo_ids: None,
@@ -661,7 +646,6 @@ async fn test_list_subnotes() {
         title: "Parent".to_string(),
         content: "Parent content".to_string(),
         tags: None,
-        note_type: None,
         parent_id: None,
         idx: None,
         repo_ids: None,
@@ -687,7 +671,6 @@ async fn test_list_subnotes() {
             title: title.to_string(),
             content: "Content".to_string(),
             tags: None,
-            note_type: None,
             parent_id: Some(parent.id.clone()),
             idx: Some(idx),
             repo_ids: None,
@@ -703,7 +686,6 @@ async fn test_list_subnotes() {
     // List subnotes filtered by parent_id
     let list_params = ListNotesParams {
         tags: None,
-        note_type: None,
         project_id: None,
         parent_id: Some(parent.id.clone()),
         limit: None,
