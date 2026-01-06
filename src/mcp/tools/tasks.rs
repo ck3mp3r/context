@@ -317,7 +317,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses with validation. Enforces workflow rules and sets timestamps. Valid transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done→[backlog,todo,in_progress,review], cancelled→[backlog,todo,in_progress,review]. Both done and cancelled can be reopened. Sets started_at when transitioning to in_progress, completed_at when transitioning to done, clears completed_at when transitioning from done."
+        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
     )]
     pub async fn transition_task(
         &self,
