@@ -32,6 +32,8 @@ pub struct ListNotesParams {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Filter by project ID")]
     pub project_id: Option<String>,
+    #[schemars(description = "Filter by parent note ID to list subnotes")]
+    pub parent_id: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -74,6 +76,10 @@ pub struct CreateNoteParams {
         description = "Note type: 'manual' (default, user notes) or 'archived_todo' (system-generated from completed tasks)"
     )]
     pub note_type: Option<String>,
+    #[schemars(description = "Parent note ID for hierarchical notes (optional)")]
+    pub parent_id: Option<String>,
+    #[schemars(description = "Index for manual ordering (lower values first, optional)")]
+    pub idx: Option<i32>,
     #[schemars(
         description = "Repository IDs to link (optional). Associate with relevant repos for context."
     )]
@@ -98,6 +104,10 @@ pub struct UpdateNoteParams {
         description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
     )]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Parent note ID for hierarchical notes (optional)")]
+    pub parent_id: Option<Option<String>>,
+    #[schemars(description = "Index for manual ordering (optional)")]
+    pub idx: Option<Option<i32>>,
     #[schemars(
         description = "Repository IDs to link (optional). Associate with relevant repos for context."
     )]
@@ -188,7 +198,7 @@ impl<D: Database + 'static> NoteTools<D> {
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
-            parent_id: None,
+            parent_id: params.0.parent_id.clone(),
         };
 
         let result = if include_content {
@@ -273,8 +283,8 @@ impl<D: Database + 'static> NoteTools<D> {
             content: params.0.content.clone(),
             tags: params.0.tags.clone().unwrap_or_default(),
             note_type,
-            parent_id: None,
-            idx: None,
+            parent_id: params.0.parent_id.clone(),
+            idx: params.0.idx,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
@@ -317,6 +327,12 @@ impl<D: Database + 'static> NoteTools<D> {
         }
         if let Some(tags) = &params.0.tags {
             note.tags = tags.clone();
+        }
+        if let Some(parent_id) = &params.0.parent_id {
+            note.parent_id = parent_id.clone();
+        }
+        if let Some(idx) = &params.0.idx {
+            note.idx = *idx;
         }
         if let Some(repo_ids) = &params.0.repo_ids {
             note.repo_ids = repo_ids.clone();

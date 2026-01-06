@@ -443,6 +443,19 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Tag filtering requires json_each join
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
         let mut bind_values: Vec<String> = Vec::new();
+        let mut where_conditions: Vec<String> = Vec::new();
+
+        // Add parent_id filter if specified
+        if let Some(parent_id) = &query.parent_id {
+            where_conditions.push("parent_id = ?".to_string());
+            bind_values.push(parent_id.clone());
+        }
+
+        let where_clause = if !where_conditions.is_empty() {
+            format!("WHERE {}", where_conditions.join(" AND "))
+        } else {
+            String::new()
+        };
 
         let (sql, count_sql) = if needs_json_each {
             let tags = query.tags.as_ref().unwrap();
@@ -467,10 +480,10 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             (
                 format!(
                     "SELECT id, title, tags, note_type, parent_id, idx, created_at, updated_at 
-                     FROM note {} {}",
-                    order_clause, limit_clause
+                     FROM note {} {} {}",
+                    where_clause, order_clause, limit_clause
                 ),
-                "SELECT COUNT(*) FROM note".to_string(),
+                format!("SELECT COUNT(*) FROM note {}", where_clause),
             )
         };
 
