@@ -917,3 +917,105 @@ async fn delete_project_broadcasts_notification() {
         _ => panic!("Expected ProjectDeleted message, got {:?}", msg),
     }
 }
+
+// =============================================================================
+// External Reference Support
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_project_with_external_ref() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "GitHub Project",
+                        "description": "Project linked to GitHub",
+                        "external_ref": "owner/repo#123"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "GitHub Project");
+    assert_eq!(body["external_ref"], "owner/repo#123");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_project_external_ref() {
+    let app = test_app().await;
+
+    // Create a project without external_ref
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project Without Ref"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap();
+    assert!(created["external_ref"].is_null());
+
+    // Update to add external_ref
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project With Ref",
+                        "external_ref": "JIRA-456"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "Project With Ref");
+    assert_eq!(body["external_ref"], "JIRA-456");
+
+    // Verify via GET
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["external_ref"], "JIRA-456");
+}

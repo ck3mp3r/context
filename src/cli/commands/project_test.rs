@@ -75,6 +75,7 @@ async fn test_create_and_get_project() {
         "Test Project",
         Some("Test desc"),
         Some("tag1,tag2"),
+        None,
     )
     .await;
     assert!(create_result.is_ok());
@@ -89,4 +90,79 @@ async fn test_create_and_get_project() {
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed.as_array().unwrap().len(), 1); // Just Test Project
+}
+
+// =============================================================================
+// External Reference Support
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_project_with_external_ref() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create project with external_ref
+    let create_result = create_project(
+        &api_client,
+        "GitHub Project",
+        Some("Linked to GitHub issue"),
+        None,
+        Some("owner/repo#123"),
+    )
+    .await;
+    assert!(create_result.is_ok());
+
+    let output = create_result.unwrap();
+    assert!(output.contains("Created project"));
+
+    // List and verify external_ref is present
+    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    assert!(list_result.is_ok());
+
+    let output = list_result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let projects = parsed.as_array().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["external_ref"], "owner/repo#123");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_project_external_ref() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create project without external_ref
+    let create_result = create_project(
+        &api_client,
+        "Project Without Ref",
+        Some("No external ref yet"),
+        None,
+        None,
+    )
+    .await;
+    assert!(create_result.is_ok());
+
+    // Get project ID from list
+    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    let output = list_result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let project_id = parsed[0]["id"].as_str().unwrap();
+
+    // Update to add external_ref
+    let update_result = update_project(
+        &api_client,
+        project_id,
+        Some("Project With Ref"),
+        None,
+        None,
+        Some("JIRA-456"),
+    )
+    .await;
+    assert!(update_result.is_ok());
+
+    // Verify external_ref was added
+    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    let output = list_result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed[0]["external_ref"], "JIRA-456");
 }

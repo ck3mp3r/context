@@ -22,6 +22,7 @@ async fn create_test_project(db: &SqliteDatabase) -> String {
         title: "Test Project".to_string(),
         description: Some("Test project for tasks".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],

@@ -54,6 +54,7 @@ async fn test_list_projects_with_data() {
         title: "Test Project".to_string(),
         description: Some("Test Description".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -102,6 +103,7 @@ async fn test_get_project() {
         title: "Test Project".to_string(),
         description: Some("Test Description".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -168,6 +170,7 @@ async fn test_create_project() {
             title: "New Project".to_string(),
             description: Some("A new project".to_string()),
             tags: None,
+            external_ref: None,
         }))
         .await;
     assert!(result.is_ok());
@@ -198,6 +201,7 @@ async fn test_update_project() {
         title: "Original Title".to_string(),
         description: Some("Original Description".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -217,6 +221,7 @@ async fn test_update_project() {
             title: Some("Updated Title".to_string()),
             description: Some("Updated Description".to_string()),
             tags: None,
+            external_ref: None,
         }))
         .await;
     assert!(result.is_ok());
@@ -250,6 +255,7 @@ async fn test_delete_project() {
         title: "To Delete".to_string(),
         description: None,
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -291,6 +297,7 @@ async fn test_list_projects_respects_limit() {
             title: format!("Project {}", i),
             description: None,
             tags: vec![],
+            external_ref: None,
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
@@ -377,6 +384,7 @@ async fn test_list_projects_with_sort_and_order() {
         title: "ZZZ Project".to_string(),
         description: Some("First project".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -389,6 +397,7 @@ async fn test_list_projects_with_sort_and_order() {
         title: "AAA Project".to_string(),
         description: Some("Second project".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -401,6 +410,7 @@ async fn test_list_projects_with_sort_and_order() {
         title: "MMM Project".to_string(),
         description: Some("Third project".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -485,4 +495,91 @@ async fn test_list_projects_with_sort_and_order() {
     let ts2 = projects[2]["created_at"].as_str().unwrap();
     assert!(ts0 >= ts1, "First timestamp should be >= second");
     assert!(ts1 >= ts2, "Second timestamp should be >= third");
+}
+
+// =============================================================================
+// External Reference Support
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_project_with_external_ref() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::CreateProjectParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .create_project(Parameters(CreateProjectParams {
+            title: "GitHub Linked Project".to_string(),
+            description: Some("Project linked to GitHub".to_string()),
+            tags: None,
+            external_ref: Some("owner/repo#123".to_string()),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result: CallToolResult = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let project_json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(project_json["title"], "GitHub Linked Project");
+    assert_eq!(project_json["external_ref"], "owner/repo#123");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_project_external_ref() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create initial project without external_ref
+    let project = Project {
+        id: "12345678".to_string(),
+        title: "Project Without Ref".to_string(),
+        description: None,
+        tags: vec![],
+        external_ref: None,
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+
+    let tools = ProjectTools::new(Arc::clone(&db), ChangeNotifier::new());
+
+    // Update to add external_ref
+    use crate::mcp::tools::projects::UpdateProjectParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .update_project(Parameters(UpdateProjectParams {
+            id: "12345678".to_string(),
+            title: Some("Project With Ref".to_string()),
+            description: None,
+            tags: None,
+            external_ref: Some("JIRA-456".to_string()),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result: CallToolResult = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let project_json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(project_json["title"], "Project With Ref");
+    assert_eq!(project_json["external_ref"], "JIRA-456");
 }

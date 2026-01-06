@@ -132,6 +132,7 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
+    pub external_ref: Option<String>,
     /// Linked repository IDs (M:N relationship via project_repo)
     #[serde(default)]
     pub repo_ids: Vec<Id>,

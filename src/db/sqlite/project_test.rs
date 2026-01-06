@@ -20,6 +20,7 @@ async fn create_and_get_project() {
         title: "Test Project".to_string(),
         description: Some("A test project".to_string()),
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -59,6 +60,7 @@ async fn list_projects_includes_created() {
         title: "My Project".to_string(),
         description: None,
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -82,6 +84,7 @@ async fn update_project() {
         title: "Original".to_string(),
         description: None,
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -112,6 +115,7 @@ async fn delete_project() {
         title: "To Delete".to_string(),
         description: None,
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -138,6 +142,7 @@ async fn project_create_with_tags() {
         title: "Tagged Project".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -164,6 +169,7 @@ async fn project_list_with_tag_filter() {
         title: "Rust Backend".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -178,6 +184,7 @@ async fn project_list_with_tag_filter() {
         title: "Rust Frontend".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "frontend".to_string()],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -192,6 +199,7 @@ async fn project_list_with_tag_filter() {
         title: "Python Backend".to_string(),
         description: None,
         tags: vec!["python".to_string(), "backend".to_string()],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -240,6 +248,7 @@ async fn project_get_loads_all_relationships() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
+        external_ref: None,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -329,4 +338,60 @@ async fn project_get_loads_all_relationships() {
         "Should load 1 note relationship"
     );
     assert!(retrieved.note_ids.contains(&"note0001".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_project_with_external_ref() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    let project = Project {
+        id: "extref01".to_string(),
+        title: "Project with External Ref".to_string(),
+        description: None,
+        tags: vec![],
+        external_ref: Some("JIRA-123".to_string()),
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    repo.create(&project).await.expect("Create should succeed");
+
+    let retrieved = repo.get("extref01").await.expect("Get should succeed");
+    assert_eq!(retrieved.external_ref, Some("JIRA-123".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_project_external_ref() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    // Create project without external_ref
+    let mut project = Project {
+        id: "extref02".to_string(),
+        title: "Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_ref: None,
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+
+    repo.create(&project).await.expect("Create should succeed");
+
+    // Update with external_ref
+    project.external_ref = Some("gh:owner/repo#123".to_string());
+    repo.update(&project).await.expect("Update should succeed");
+
+    let retrieved = repo.get("extref02").await.expect("Get should succeed");
+    assert_eq!(
+        retrieved.external_ref,
+        Some("gh:owner/repo#123".to_string())
+    );
 }
