@@ -20,6 +20,7 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
+    pub external_ref: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -4,7 +4,8 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
 use crate::components::{
-    CopyableId, NoteCard, NoteDetailModal, Pagination, RepoCard, TaskListCard, TaskListDetailModal,
+    CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, TaskListCard,
+    TaskListDetailModal,
 };
 use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -234,7 +235,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                 {(!project.tags.is_empty())
                                     .then(|| {
                                         view! {
-                                            <div class="flex flex-wrap gap-2">
+                                            <div class="flex flex-wrap gap-2 mb-3">
                                                 {project
                                                     .tags
                                                     .iter()
@@ -248,6 +249,13 @@ pub fn ProjectDetail() -> impl IntoView {
                                                     .collect::<Vec<_>>()}
                                             </div>
                                         }
+                                    })}
+
+                                {project
+                                    .external_ref
+                                    .as_ref()
+                                    .map(|ext_ref| {
+                                        view! { <ExternalRefLink external_ref=ext_ref.clone()/> }
                                     })}
 
                             </div>

@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, projects};
-use crate::components::CopyableId;
+use crate::components::{CopyableId, ExternalRefLink};
 use crate::models::{Paginated, Project, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -76,6 +76,7 @@ pub fn Projects() -> impl IntoView {
                                         let project_title = project.title.clone();
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
+                                        let project_external_ref = project.external_ref.clone();
                                         view! {
                                             <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
@@ -116,6 +117,16 @@ pub fn Projects() -> impl IntoView {
                                                                         }
                                                                     })
                                                                     .collect::<Vec<_>>()}
+                                                            </div>
+                                                        }
+                                                    })}
+
+                                                {project_external_ref
+                                                    .as_ref()
+                                                    .map(|ext_ref| {
+                                                        view! {
+                                                            <div class="mt-2">
+                                                                <ExternalRefLink external_ref=ext_ref.clone()/>
                                                             </div>
                                                         }
                                                     })}
