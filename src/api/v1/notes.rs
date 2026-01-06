@@ -33,6 +33,12 @@ pub struct NoteResponse {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: String,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     pub repo_ids: Vec<String>,
@@ -56,6 +62,8 @@ impl From<Note> for NoteResponse {
                 NoteType::Scratchpad => "scratchpad",
             }
             .to_string(),
+            parent_id: n.parent_id,
+            idx: n.idx,
             repo_ids: n.repo_ids,
             project_ids: n.project_ids,
             created_at: n.created_at,
@@ -74,6 +82,12 @@ pub struct CreateNoteRequest {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: Option<String>,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     #[serde(default)]
@@ -94,6 +108,12 @@ pub struct UpdateNoteRequest {
     pub tags: Vec<String>,
     #[schema(example = "manual")]
     pub note_type: Option<String>,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     #[serde(default)]
@@ -113,6 +133,12 @@ pub struct PatchNoteRequest {
     pub tags: Option<Vec<String>>,
     #[schema(example = "manual")]
     pub note_type: Option<String>,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<Option<String>>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<Option<i32>>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     pub repo_ids: Option<Vec<String>>,
@@ -137,6 +163,12 @@ impl PatchNoteRequest {
         {
             target.note_type = note_type;
         }
+        if let Some(parent_id) = self.parent_id {
+            target.parent_id = parent_id;
+        }
+        if let Some(idx) = self.idx {
+            target.idx = idx;
+        }
         if let Some(repo_ids) = self.repo_ids {
             target.repo_ids = repo_ids;
         }
@@ -157,6 +189,9 @@ pub struct ListNotesQuery {
     /// Filter by project ID
     #[param(example = "a1b2c3d4")]
     pub project_id: Option<String>,
+    /// Filter by parent note ID to list subnotes
+    #[param(example = "parent123")]
+    pub parent_id: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -228,7 +263,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         },
         tags,
         project_id: query.project_id.clone(),
-        parent_id: None,
+        parent_id: query.parent_id.clone(),
     };
 
     // Get notes - either search or list all (at database level)
@@ -330,8 +365,8 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         content: req.content,
         tags: req.tags,
         note_type,
-        parent_id: None,
-        idx: None,
+        parent_id: req.parent_id,
+        idx: req.idx,
         repo_ids: req.repo_ids,
         project_ids: req.project_ids,
         created_at: None, // Repository will generate this
@@ -391,6 +426,8 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
     note.title = req.title;
     note.content = req.content;
     note.tags = req.tags;
+    note.parent_id = req.parent_id;
+    note.idx = req.idx;
     note.repo_ids = req.repo_ids;
     note.project_ids = req.project_ids;
 

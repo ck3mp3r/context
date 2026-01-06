@@ -1598,3 +1598,193 @@ async fn delete_note_broadcasts_notification() {
         }
     );
 }
+
+// =============================================================================
+// Hierarchical Notes Tests (parent_id and idx)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_parent() {
+    let app = test_app().await;
+
+    // Create parent note
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent Note",
+                        "content": "Parent content"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(parent_response.status(), StatusCode::CREATED);
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create child note with parent_id
+    let child_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Child Note",
+                        "content": "Child content",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(child_response.status(), StatusCode::CREATED);
+    let child = json_body(child_response).await;
+    assert_eq!(child["title"], "Child Note");
+    assert_eq!(child["parent_id"], parent_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_note_idx() {
+    let app = test_app().await;
+
+    // Create note
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Note",
+                        "content": "Content",
+                        "idx": 10
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let note = json_body(create_response).await;
+    let note_id = note["id"].as_str().unwrap();
+    assert_eq!(note["idx"], 10);
+
+    // Update idx
+    let update_response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Note",
+                        "content": "Content",
+                        "idx": 20
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(update_response.status(), StatusCode::OK);
+    let updated = json_body(update_response).await;
+    assert_eq!(updated["idx"], 20);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_subnotes_filtered() {
+    let app = test_app().await;
+
+    // Create parent note
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent",
+                        "content": "Parent"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create child notes with different idx values
+    let children = vec![("Child 1", 30), ("Child 2", 10), ("Child 3", 20)];
+
+    for (title, idx) in children {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/notes")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "title": title,
+                            "content": "Content",
+                            "parent_id": parent_id,
+                            "idx": idx
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // List subnotes filtered by parent_id
+    let list_response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes?parent_id={}", parent_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let body = json_body(list_response).await;
+    let items = body["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 3);
+    // Should be ordered by idx (10, 20, 30)
+    assert_eq!(items[0]["title"], "Child 2");
+    assert_eq!(items[0]["idx"], 10);
+    assert_eq!(items[1]["title"], "Child 3");
+    assert_eq!(items[1]["idx"], 20);
+    assert_eq!(items[2]["title"], "Child 1");
+    assert_eq!(items[2]["idx"], 30);
+}
