@@ -11,6 +11,8 @@ pub struct Note {
     pub content: String,
     pub tags: Vec<String>,
     pub note_type: Option<String>,
+    pub parent_id: Option<String>,
+    pub idx: Option<i32>,
     pub repo_ids: Option<Vec<String>>,
     pub project_ids: Option<Vec<String>>,
     pub created_at: String,
@@ -23,6 +25,10 @@ pub(crate) struct CreateNoteRequest {
     pub(crate) content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) idx: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -33,6 +39,10 @@ pub(crate) struct UpdateNoteRequest {
     pub(crate) content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) parent_id: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) idx: Option<Option<i32>>,
 }
 
 #[derive(Tabled)]
@@ -160,6 +170,8 @@ pub async fn create_note(
         title: title.to_string(),
         content: content.to_string(),
         tags: parse_tags(tags),
+        parent_id: None,
+        idx: None,
     };
 
     let response = api_client
@@ -184,6 +196,8 @@ pub async fn update_note(
         title: title.map(|s| s.to_string()),
         content: content.map(|s| s.to_string()),
         tags: parse_tags(tags),
+        parent_id: None,
+        idx: None,
     };
 
     let response = api_client

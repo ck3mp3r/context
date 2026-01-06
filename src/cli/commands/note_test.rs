@@ -10,6 +10,8 @@ fn test_format_table_with_notes() {
             content: "Content 1".to_string(),
             tags: vec!["rust".to_string(), "tdd".to_string()],
             note_type: None,
+            parent_id: None,
+            idx: None,
             repo_ids: None,
             project_ids: None,
             created_at: "2025-12-28T10:00:00Z".to_string(),
@@ -21,6 +23,8 @@ fn test_format_table_with_notes() {
             content: "Content 2".to_string(),
             tags: vec![],
             note_type: None,
+            parent_id: None,
+            idx: None,
             repo_ids: None,
             project_ids: None,
             created_at: "2025-12-28T11:00:00Z".to_string(),
@@ -56,6 +60,8 @@ fn test_note_display_conversion() {
         content: "test content".to_string(),
         tags: vec!["rust".to_string(), "tdd".to_string()],
         note_type: None,
+        parent_id: None,
+        idx: None,
         repo_ids: None,
         project_ids: None,
         created_at: "2025-12-28T10:00:00Z".to_string(),
@@ -73,6 +79,8 @@ fn test_note_display_conversion() {
         content: "test content".to_string(),
         tags: vec![],
         note_type: None,
+        parent_id: None,
+        idx: None,
         repo_ids: None,
         project_ids: None,
         created_at: "2025-12-28T10:00:00Z".to_string(),
@@ -93,6 +101,8 @@ async fn test_list_notes_json_format() {
         content: "Test content".to_string(),
         tags: vec!["test".to_string()],
         note_type: None,
+        parent_id: None,
+        idx: None,
         repo_ids: None,
         project_ids: None,
         created_at: "2025-12-28T10:00:00Z".to_string(),
@@ -152,6 +162,8 @@ fn test_create_request_serialization() {
         title: "Test Note".to_string(),
         content: "Test content".to_string(),
         tags: Some(vec!["test".to_string()]),
+        parent_id: None,
+        idx: None,
     };
 
     let json = serde_json::to_string(&req).unwrap();
@@ -166,6 +178,8 @@ fn test_update_request_serialization() {
         title: Some("Updated Title".to_string()),
         content: Some("Updated content".to_string()),
         tags: Some(vec!["updated".to_string()]),
+        parent_id: None,
+        idx: None,
     };
 
     let json = serde_json::to_string(&req).unwrap();
@@ -186,10 +200,77 @@ fn test_note_with_all_fields() {
         project_ids: Some(vec!["proj1".to_string()]),
         created_at: "2025-12-28T10:00:00Z".to_string(),
         updated_at: "2025-12-28T11:00:00Z".to_string(),
+        parent_id: None,
+        idx: None,
     };
 
     assert_eq!(note.id, "abc12345");
     assert_eq!(note.title, "Full note");
     assert_eq!(note.tags, vec!["tag1".to_string(), "tag2".to_string()]);
     assert_eq!(note.note_type, Some("manual".to_string()));
+}
+
+// =============================================================================
+// Hierarchical Notes Tests (parent_id and idx)
+// =============================================================================
+
+#[test]
+fn test_create_request_includes_parent_id_and_idx() {
+    let req = CreateNoteRequest {
+        title: "Child Note".to_string(),
+        content: "Child content".to_string(),
+        tags: None,
+        parent_id: Some("parent123".to_string()),
+        idx: Some(10),
+    };
+
+    // Verify the struct has the fields set correctly
+    assert_eq!(req.parent_id, Some("parent123".to_string()));
+    assert_eq!(req.idx, Some(10));
+
+    // Verify serialization produces valid JSON with the fields
+    let json = serde_json::to_value(&req).unwrap();
+    assert_eq!(json["parent_id"], "parent123");
+    assert_eq!(json["idx"], 10);
+}
+
+#[test]
+fn test_update_request_includes_parent_id_and_idx() {
+    let req = UpdateNoteRequest {
+        title: Some("Updated".to_string()),
+        content: Some("Content".to_string()),
+        tags: None,
+        parent_id: Some(Some("parent456".to_string())),
+        idx: Some(Some(20)),
+    };
+
+    // Verify the struct has the fields set correctly
+    assert_eq!(req.parent_id, Some(Some("parent456".to_string())));
+    assert_eq!(req.idx, Some(Some(20)));
+
+    // Verify serialization
+    let json = serde_json::to_value(&req).unwrap();
+    assert_eq!(json["parent_id"], "parent456");
+    assert_eq!(json["idx"], 20);
+}
+
+#[test]
+fn test_note_response_includes_parent_id_and_idx() {
+    let note = Note {
+        id: "child123".to_string(),
+        title: "Child note".to_string(),
+        content: "Child content".to_string(),
+        tags: vec![],
+        note_type: None,
+        parent_id: Some("parent789".to_string()),
+        idx: Some(15),
+        repo_ids: None,
+        project_ids: None,
+        created_at: "2025-12-28T10:00:00Z".to_string(),
+        updated_at: "2025-12-28T11:00:00Z".to_string(),
+    };
+
+    // Verify fields are accessible
+    assert_eq!(note.parent_id, Some("parent789".to_string()));
+    assert_eq!(note.idx, Some(15));
 }
