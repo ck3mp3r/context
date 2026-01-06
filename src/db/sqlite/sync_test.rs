@@ -380,9 +380,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_export_preserves_all_relationships() {
-        use crate::db::{
-            Note, NoteRepository, NoteType, TaskList, TaskListRepository, TaskListStatus,
-        };
+        use crate::db::{Note, NoteRepository, TaskList, TaskListRepository, TaskListStatus};
 
         let db1 = setup_test_db().await;
         let db2 = setup_test_db().await;
@@ -434,7 +432,6 @@ mod tests {
             title: "Test Note".to_string(),
             content: "Note content".to_string(),
             tags: vec!["important".to_string()],
-            note_type: NoteType::Manual,
             parent_id: None,
             idx: None,
             repo_ids: vec!["repo0001".to_string()],

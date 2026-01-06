@@ -288,12 +288,11 @@ async fn project_get_loads_all_relationships() {
         .expect("Insert task list should succeed");
 
     // Create note
-    sqlx::query("INSERT INTO note (id, title, content, tags, note_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO note (id, title, content, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
         .bind("note0001")
         .bind("Test Note")
         .bind("Content")
         .bind("[]")
-        .bind("manual")
         .bind("2025-01-01 00:00:00")
         .bind("2025-01-01 00:00:00")
         .execute(db.pool())

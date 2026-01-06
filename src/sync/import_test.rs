@@ -1,5 +1,5 @@
 use crate::db::{
-    Database, Note, NoteRepository, NoteType, Project, ProjectRepository, Repo, RepoRepository,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
     SqliteDatabase,
 };
 use crate::sync::export::export_all;
@@ -185,7 +185,6 @@ async fn test_import_preserves_relationships() {
         title: "Test Note".to_string(),
         content: "Test content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec!["repo0001".to_string()],
