@@ -413,9 +413,15 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn list_metadata_only(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "created_at", "updated_at"];
+        let allowed_fields = ["title", "created_at", "updated_at", "idx"];
 
-        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        // Build ORDER BY - special handling for parent_id queries (order by idx)
+        let order_clause = if query.parent_id.is_some() && query.page.sort_by.is_none() {
+            // Default order for subnotes: idx ASC (lowest first), then updated_at DESC (latest first)
+            "ORDER BY idx ASC, updated_at DESC".to_string()
+        } else {
+            build_order_clause(&query.page, &allowed_fields, "created_at")
+        };
         let limit_clause = build_limit_offset_clause(&query.page);
 
         // Tag filtering requires json_each join
@@ -487,7 +493,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
-                    content: row.get("content"),
+                    content: String::new(), // Metadata-only: content intentionally excluded
                     tags,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
