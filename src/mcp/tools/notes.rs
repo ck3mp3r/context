@@ -188,6 +188,7 @@ impl<D: Database + 'static> NoteTools<D> {
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
+            parent_id: None,
         };
 
         let result = if include_content {
@@ -272,6 +273,8 @@ impl<D: Database + 'static> NoteTools<D> {
             content: params.0.content.clone(),
             tags: params.0.tags.clone().unwrap_or_default(),
             note_type,
+            parent_id: None,
+            idx: None,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
@@ -387,6 +390,7 @@ impl<D: Database + 'static> NoteTools<D> {
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
+            parent_id: None,
         };
 
         let result = self

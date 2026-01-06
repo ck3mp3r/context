@@ -107,6 +107,8 @@ pub struct NoteQuery {
     pub tags: Option<Vec<String>>,
     /// Filter by project ID (notes with project_id in project_ids array).
     pub project_id: Option<String>,
+    /// Filter by parent_id (get subnotes of a specific parent note).
+    pub parent_id: Option<String>,
 }
 
 /// Result of a paginated list query.
@@ -290,6 +292,10 @@ pub struct Note {
     pub content: String,
     pub tags: Vec<String>,
     pub note_type: NoteType,
+    /// Parent note ID for hierarchical structure (self-referencing FK)
+    pub parent_id: Option<Id>,
+    /// Manual ordering index within siblings (same parent)
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[serde(default)]
     pub repo_ids: Vec<Id>,

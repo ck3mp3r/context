@@ -186,6 +186,8 @@ async fn test_import_preserves_relationships() {
         content: "Test content".to_string(),
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec!["repo0001".to_string()],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),

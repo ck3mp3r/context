@@ -1,6 +1,13 @@
 //! Tests for SqliteNoteRepository.
 
-use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, SqliteDatabase};
+use crate::db::{
+    Database, Note, NoteQuery, NoteRepository, NoteType, PageSort, SortOrder, SqliteDatabase,
+};
+
+fn generate_id() -> String {
+    use crate::db::utils::generate_entity_id;
+    generate_entity_id()
+}
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -17,6 +24,8 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         content: content.to_string(),
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
         created_at: Some("2025-01-01 00:00:00".to_string()),
@@ -526,6 +535,8 @@ async fn note_create_and_get() {
         content: "This is markdown content\n\n## Heading\n\nWith paragraphs.".to_string(),
         tags: vec!["session".to_string(), "important".to_string()],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
         created_at: Some("2025-01-01 00:00:00".to_string()),
@@ -863,6 +874,8 @@ async fn note_create_with_warn_size_content_succeeds_with_warning() {
         content: large_content.clone(),
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
@@ -895,6 +908,8 @@ async fn note_create_at_hard_max_succeeds() {
         content: max_content.clone(),
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
@@ -920,6 +935,8 @@ async fn note_create_over_hard_max_fails() {
         content: oversized_content,
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
@@ -1084,6 +1101,8 @@ async fn note_timestamps_are_optional() {
         content: "Test content".to_string(),
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-15 10:00:00".to_string()),
@@ -1111,6 +1130,8 @@ async fn note_timestamps_are_optional() {
         content: "Test content".to_string(),
         tags: vec![],
         note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
         created_at: None,
@@ -1126,4 +1147,178 @@ async fn note_timestamps_are_optional() {
     assert!(created_without_ts.updated_at.is_some());
     assert!(!created_without_ts.created_at.as_ref().unwrap().is_empty());
     assert!(!created_without_ts.updated_at.as_ref().unwrap().is_empty());
+}
+
+// =============================================================================
+// Hierarchical Notes (parent_id and idx)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_parent_id() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create parent note
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent Note".to_string(),
+        content: "Parent content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent = db.notes().create(&parent).await.unwrap();
+
+    // Create child note
+    let child = Note {
+        id: generate_id(),
+        title: "Child Note".to_string(),
+        content: "Child content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: Some(created_parent.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_child = db.notes().create(&child).await.unwrap();
+
+    // Verify parent_id is set
+    assert_eq!(created_child.parent_id, Some(created_parent.id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_subnote_with_idx() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create parent note
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent Note".to_string(),
+        content: "Parent content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent = db.notes().create(&parent).await.unwrap();
+
+    // Create child note with idx
+    let child = Note {
+        id: generate_id(),
+        title: "Child Note".to_string(),
+        content: "Child content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: Some(created_parent.id.clone()),
+        idx: Some(10),
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_child = db.notes().create(&child).await.unwrap();
+
+    // Verify idx is set
+    assert_eq!(created_child.idx, Some(10));
+    assert_eq!(created_child.parent_id, Some(created_parent.id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_subnotes_ordered_by_idx() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create parent note
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent Note".to_string(),
+        content: "Parent content".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent = db.notes().create(&parent).await.unwrap();
+
+    // Create multiple child notes with different idx values
+    let child1 = Note {
+        id: generate_id(),
+        title: "Child 1 (idx=30)".to_string(),
+        content: "Should be third".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: Some(created_parent.id.clone()),
+        idx: Some(30),
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1).await.unwrap();
+
+    let child2 = Note {
+        id: generate_id(),
+        title: "Child 2 (idx=10)".to_string(),
+        content: "Should be first".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: Some(created_parent.id.clone()),
+        idx: Some(10),
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child2).await.unwrap();
+
+    let child3 = Note {
+        id: generate_id(),
+        title: "Child 3 (idx=20)".to_string(),
+        content: "Should be second".to_string(),
+        tags: vec![],
+        note_type: NoteType::Manual,
+        parent_id: Some(created_parent.id.clone()),
+        idx: Some(20),
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child3).await.unwrap();
+
+    // Query for subnotes filtered by parent_id, sorted by idx
+    let query = NoteQuery {
+        parent_id: Some(created_parent.id.clone()),
+        page: PageSort {
+            sort_by: Some("idx".to_string()),
+            sort_order: Some(SortOrder::Asc),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let result = db.notes().list(Some(&query)).await.unwrap();
+
+    // Verify ordering by idx
+    assert_eq!(result.items.len(), 3);
+    assert_eq!(result.items[0].title, "Child 2 (idx=10)");
+    assert_eq!(result.items[1].title, "Child 3 (idx=20)");
+    assert_eq!(result.items[2].title, "Child 1 (idx=30)");
 }

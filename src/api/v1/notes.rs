@@ -228,6 +228,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         },
         tags,
         project_id: query.project_id.clone(),
+        parent_id: None,
     };
 
     // Get notes - either search or list all (at database level)
@@ -329,6 +330,8 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         content: req.content,
         tags: req.tags,
         note_type,
+        parent_id: None,
+        idx: None,
         repo_ids: req.repo_ids,
         project_ids: req.project_ids,
         created_at: None, // Repository will generate this

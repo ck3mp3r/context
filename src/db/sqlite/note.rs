@@ -84,8 +84,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         sqlx::query(
             r#"
-            INSERT INTO note (id, title, content, tags, note_type, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO note (id, title, content, tags, note_type, parent_id, idx, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -93,6 +93,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(&note.content)
         .bind(tags_json)
         .bind(note_type_str)
+        .bind(&note.parent_id)
+        .bind(note.idx)
         .bind(&created_at)
         .bind(&updated_at)
         .execute(self.pool)
@@ -131,6 +133,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             content: note.content.clone(),
             tags: note.tags.clone(),
             note_type: note.note_type.clone(),
+            parent_id: note.parent_id.clone(),
+            idx: note.idx,
             repo_ids: note.repo_ids.clone(),
             project_ids: note.project_ids.clone(),
             created_at: Some(created_at),
@@ -140,7 +144,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, content, tags, note_type, created_at, updated_at FROM note WHERE id = ?",
+            "SELECT id, title, content, tags, note_type, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -187,6 +191,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 content: row.get("content"),
                 tags,
                 note_type,
+                parent_id: row.get("parent_id"),
+                idx: row.get("idx"),
                 repo_ids,
                 project_ids,
                 created_at: row.get("created_at"),
@@ -202,7 +208,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
     async fn get_metadata_only(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, tags, note_type, created_at, updated_at FROM note WHERE id = ?",
+            "SELECT id, title, tags, note_type, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -249,6 +255,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 content: String::new(), // Empty content for metadata-only
                 tags,
                 note_type,
+                parent_id: row.get("parent_id"),
+                idx: row.get("idx"),
                 repo_ids,
                 project_ids,
                 created_at: row.get("created_at"),
@@ -265,7 +273,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn list(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "created_at", "updated_at"];
+        let allowed_fields = ["title", "created_at", "updated_at", "idx"];
 
         // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
@@ -297,18 +305,24 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             }
 
             (
-                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at",
+                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.parent_id, n.idx, n.created_at, n.updated_at",
                 from,
                 "n.",
             )
         } else {
             // No joins, simple query
             (
-                "id, title, content, tags, note_type, created_at, updated_at",
+                "id, title, content, tags, note_type, parent_id, idx, created_at, updated_at",
                 "FROM note".to_string(),
                 "",
             )
         };
+
+        // Add parent_id filter if specified (after we know the table prefix)
+        if let Some(parent_id) = &query.parent_id {
+            where_conditions.push(format!("{}parent_id = ?", order_field_prefix));
+            bind_values.push(parent_id.clone());
+        }
 
         // Build WHERE clause
         let where_clause = if !where_conditions.is_empty() {
@@ -318,20 +332,29 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         };
 
         // Build ORDER BY with proper prefixes
-        let sort_field = query
-            .page
-            .sort_by
-            .as_deref()
-            .filter(|f| allowed_fields.contains(f))
-            .unwrap_or("created_at");
-        let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-            crate::db::SortOrder::Asc => "ASC",
-            crate::db::SortOrder::Desc => "DESC",
+        // Special handling: when querying by parent_id, default to ordering by idx
+        let order_clause = if query.parent_id.is_some() && query.page.sort_by.is_none() {
+            // Default order for subnotes: idx ASC (lowest first), then updated_at DESC (latest first)
+            format!(
+                "ORDER BY {}idx ASC, {}updated_at DESC",
+                order_field_prefix, order_field_prefix
+            )
+        } else {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+                crate::db::SortOrder::Asc => "ASC",
+                crate::db::SortOrder::Desc => "DESC",
+            };
+            format!(
+                "ORDER BY {}{} {}",
+                order_field_prefix, sort_field, sort_order
+            )
         };
-        let order_clause = format!(
-            "ORDER BY {}{} {}",
-            order_field_prefix, sort_field, sort_order
-        );
 
         let limit_clause = build_limit_offset_clause(&query.page);
 
@@ -378,6 +401,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     content: row.get("content"),
                     tags,
                     note_type,
+                    parent_id: row.get("parent_id"),
+                    idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
                     project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
@@ -426,7 +451,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             (
                 format!(
-                    "SELECT DISTINCT n.id, n.title, n.tags, n.note_type, n.created_at, n.updated_at 
+                    "SELECT DISTINCT n.id, n.title, n.tags, n.note_type, n.parent_id, n.idx, n.created_at, n.updated_at 
                      FROM note n, json_each(n.tags)
                      WHERE json_each.value IN ({}) {} {}",
                     placeholders.join(", "),
@@ -441,7 +466,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, tags, note_type, created_at, updated_at 
+                    "SELECT id, title, tags, note_type, parent_id, idx, created_at, updated_at 
                      FROM note {} {}",
                     order_clause, limit_clause
                 ),
@@ -477,6 +502,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     content: String::new(), // Empty content for metadata-only
                     tags,
                     note_type,
+                    parent_id: row.get("parent_id"),
+                    idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
                     project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
@@ -531,7 +558,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let result = sqlx::query(
             r#"
             UPDATE note 
-            SET title = ?, content = ?, tags = ?, note_type = ?, updated_at = ?
+            SET title = ?, content = ?, tags = ?, note_type = ?, parent_id = ?, idx = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
@@ -539,6 +566,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(&note.content)
         .bind(tags_json)
         .bind(note_type_str)
+        .bind(&note.parent_id)
+        .bind(note.idx)
         .bind(&updated_at)
         .bind(&note.id)
         .execute(&mut *tx)
@@ -721,14 +750,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             }
 
             (
-                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.created_at, n.updated_at",
+                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.parent_id, n.idx, n.created_at, n.updated_at",
                 from,
                 "n.",
             )
         } else {
             // No filters, simple FTS5 join - use explicit table prefix
             (
-                "note.id, note.title, note.content, note.tags, note.note_type, note.created_at, note.updated_at",
+                "note.id, note.title, note.content, note.tags, note.note_type, note.parent_id, note.idx, note.created_at, note.updated_at",
                 "FROM note INNER JOIN note_fts ON note.rowid = note_fts.rowid".to_string(),
                 "note.",
             )
@@ -799,6 +828,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     content: row.get("content"),
                     tags,
                     note_type,
+                    parent_id: row.get("parent_id"),
+                    idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
                     project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
