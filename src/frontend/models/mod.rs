@@ -1,18 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-// Re-export common types from shared db models
-#[cfg(all(feature = "backend", not(feature = "frontend")))]
-pub use crate::db::models::NoteType;
-
-// For frontend builds, define NoteType locally
-#[cfg(any(feature = "frontend", not(feature = "backend")))]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum NoteType {
-    Manual,
-    ArchivedTodo,
-}
-
 /// Project response from API
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {
@@ -89,7 +76,6 @@ pub struct Note {
     pub id: String,
     pub title: String,
     pub content: String,
-    pub note_type: NoteType,
     pub tags: Vec<String>,
     pub project_ids: Vec<String>,
     pub repo_ids: Vec<String>,

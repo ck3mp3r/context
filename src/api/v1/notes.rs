@@ -12,9 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::{
-    Database, DbError, Note, NoteQuery, NoteRepository, NoteType, PageSort, SortOrder,
-};
+use crate::db::{Database, DbError, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
 
 use super::ErrorResponse;
 
@@ -31,8 +29,6 @@ pub struct NoteResponse {
     #[schema(example = "Note content in markdown")]
     pub content: String,
     pub tags: Vec<String>,
-    #[schema(example = "manual")]
-    pub note_type: String,
     /// Parent note ID for hierarchical notes
     #[schema(example = "parent123")]
     pub parent_id: Option<String>,
@@ -56,12 +52,6 @@ impl From<Note> for NoteResponse {
             title: n.title,
             content: n.content,
             tags: n.tags,
-            note_type: match n.note_type {
-                NoteType::Manual => "manual",
-                NoteType::ArchivedTodo => "archived_todo",
-                NoteType::Scratchpad => "scratchpad",
-            }
-            .to_string(),
             parent_id: n.parent_id,
             idx: n.idx,
             repo_ids: n.repo_ids,
@@ -80,8 +70,6 @@ pub struct CreateNoteRequest {
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[schema(example = "manual")]
-    pub note_type: Option<String>,
     /// Parent note ID for hierarchical notes
     #[schema(example = "parent123")]
     pub parent_id: Option<String>,
@@ -106,8 +94,6 @@ pub struct UpdateNoteRequest {
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[schema(example = "manual")]
-    pub note_type: Option<String>,
     /// Parent note ID for hierarchical notes
     #[schema(example = "parent123")]
     pub parent_id: Option<String>,
@@ -131,8 +117,6 @@ pub struct PatchNoteRequest {
     #[schema(example = "Updated content")]
     pub content: Option<String>,
     pub tags: Option<Vec<String>>,
-    #[schema(example = "manual")]
-    pub note_type: Option<String>,
     /// Parent note ID for hierarchical notes
     #[schema(example = "parent123")]
     pub parent_id: Option<Option<String>>,
@@ -157,11 +141,6 @@ impl PatchNoteRequest {
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
-        }
-        if let Some(note_type_str) = self.note_type
-            && let Ok(note_type) = note_type_str.parse::<NoteType>()
-        {
-            target.note_type = note_type;
         }
         if let Some(parent_id) = self.parent_id {
             target.parent_id = parent_id;
@@ -352,19 +331,12 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Json(req): Json<CreateNoteRequest>,
 ) -> Result<(StatusCode, Json<NoteResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let note_type = req
-        .note_type
-        .as_deref()
-        .map(parse_note_type)
-        .unwrap_or(NoteType::Manual);
-
     // Create note with placeholder values - repository will generate ID and timestamps
     let note = Note {
         id: String::new(), // Repository will generate this
         title: req.title,
         content: req.content,
         tags: req.tags,
-        note_type,
         parent_id: req.parent_id,
         idx: req.idx,
         repo_ids: req.repo_ids,
@@ -430,10 +402,6 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
     note.idx = req.idx;
     note.repo_ids = req.repo_ids;
     note.project_ids = req.project_ids;
-
-    if let Some(note_type_str) = req.note_type {
-        note.note_type = parse_note_type(&note_type_str);
-    }
 
     state.db().notes().update(&note).await.map_err(|e| {
         (
@@ -549,11 +517,3 @@ pub async fn delete_note<D: Database, G: GitOps + Send + Sync>(
 // =============================================================================
 // Helpers
 // =============================================================================
-
-fn parse_note_type(s: &str) -> NoteType {
-    match s {
-        "archived_todo" => NoteType::ArchivedTodo,
-        "scratchpad" => NoteType::Scratchpad,
-        _ => NoteType::Manual,
-    }
-}

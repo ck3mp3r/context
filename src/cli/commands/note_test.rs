@@ -9,7 +9,6 @@ fn test_format_table_with_notes() {
             title: "Test note 1".to_string(),
             content: "Content 1".to_string(),
             tags: vec!["rust".to_string(), "tdd".to_string()],
-            note_type: None,
             parent_id: None,
             idx: None,
             repo_ids: None,
@@ -22,7 +21,6 @@ fn test_format_table_with_notes() {
             title: "Test note 2 with a very long title that should be truncated".to_string(),
             content: "Content 2".to_string(),
             tags: vec![],
-            note_type: None,
             parent_id: None,
             idx: None,
             repo_ids: None,
@@ -59,7 +57,6 @@ fn test_note_display_conversion() {
         title: "short title".to_string(),
         content: "test content".to_string(),
         tags: vec!["rust".to_string(), "tdd".to_string()],
-        note_type: None,
         parent_id: None,
         idx: None,
         repo_ids: None,
@@ -78,7 +75,6 @@ fn test_note_display_conversion() {
         title: "x".repeat(60),
         content: "test content".to_string(),
         tags: vec![],
-        note_type: None,
         parent_id: None,
         idx: None,
         repo_ids: None,
@@ -100,7 +96,6 @@ async fn test_list_notes_json_format() {
         title: "Test note".to_string(),
         content: "Test content".to_string(),
         tags: vec!["test".to_string()],
-        note_type: None,
         parent_id: None,
         idx: None,
         repo_ids: None,
@@ -195,7 +190,6 @@ fn test_note_with_all_fields() {
         title: "Full note".to_string(),
         content: "Full content".to_string(),
         tags: vec!["tag1".to_string(), "tag2".to_string()],
-        note_type: Some("manual".to_string()),
         repo_ids: Some(vec!["repo1".to_string()]),
         project_ids: Some(vec!["proj1".to_string()]),
         created_at: "2025-12-28T10:00:00Z".to_string(),
@@ -207,7 +201,6 @@ fn test_note_with_all_fields() {
     assert_eq!(note.id, "abc12345");
     assert_eq!(note.title, "Full note");
     assert_eq!(note.tags, vec!["tag1".to_string(), "tag2".to_string()]);
-    assert_eq!(note.note_type, Some("manual".to_string()));
 }
 
 // =============================================================================
@@ -261,7 +254,6 @@ fn test_note_response_includes_parent_id_and_idx() {
         title: "Child note".to_string(),
         content: "Child content".to_string(),
         tags: vec![],
-        note_type: None,
         parent_id: Some("parent789".to_string()),
         idx: Some(15),
         repo_ids: None,

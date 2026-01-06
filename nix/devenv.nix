@@ -9,6 +9,7 @@
     toolchain = inputs.fenix.packages.${pkgs.system}.combine [
       inputs.fenix.packages.${pkgs.system}.stable.cargo
       inputs.fenix.packages.${pkgs.system}.stable.rustc
+      inputs.fenix.packages.${pkgs.system}.stable.rust-analyzer
       inputs.fenix.packages.${pkgs.system}.targets.wasm32-unknown-unknown.stable.rust-std
     ];
   in [

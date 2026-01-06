@@ -291,7 +291,6 @@ pub struct Note {
     pub title: String,
     pub content: String,
     pub tags: Vec<String>,
-    pub note_type: NoteType,
     /// Parent note ID for hierarchical structure (self-referencing FK)
     pub parent_id: Option<Id>,
     /// Manual ordering index within siblings (same parent)
@@ -304,38 +303,4 @@ pub struct Note {
     pub project_ids: Vec<Id>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
-}
-
-/// Type of note.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum NoteType {
-    #[default]
-    Manual,
-    ArchivedTodo,
-    Scratchpad,
-}
-
-impl std::fmt::Display for NoteType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            NoteType::Manual => "manual",
-            NoteType::ArchivedTodo => "archived_todo",
-            NoteType::Scratchpad => "scratchpad",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-impl std::str::FromStr for NoteType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "manual" => Ok(NoteType::Manual),
-            "archived_todo" => Ok(NoteType::ArchivedTodo),
-            "scratchpad" => Ok(NoteType::Scratchpad),
-            _ => Err(format!("Invalid note type: {}", s)),
-        }
-    }
 }

@@ -535,8 +535,7 @@ async fn create_note_returns_created() {
                     serde_json::to_vec(&json!({
                         "title": "My Note",
                         "content": "This is the note content",
-                        "tags": ["rust", "api"],
-                        "note_type": "manual"
+                        "tags": ["rust", "api"]
                     }))
                     .unwrap(),
                 ))
@@ -551,7 +550,6 @@ async fn create_note_returns_created() {
     assert_eq!(body["title"], "My Note");
     assert_eq!(body["content"], "This is the note content");
     assert_eq!(body["tags"], json!(["rust", "api"]));
-    assert_eq!(body["note_type"], "manual");
     assert!(body["id"].as_str().unwrap().len() == 8);
 }
 
@@ -583,7 +581,6 @@ async fn create_note_minimal() {
     assert_eq!(body["title"], "Quick Note");
     assert_eq!(body["content"], "Some content");
     assert_eq!(body["tags"], json!([]));
-    assert_eq!(body["note_type"], "manual");
 }
 
 // =============================================================================

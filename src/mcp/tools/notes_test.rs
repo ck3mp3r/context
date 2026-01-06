@@ -1,7 +1,7 @@
 //! Tests for Note MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, Note, NoteRepository, NoteType, SqliteDatabase};
+use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
 use crate::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools,
     SearchNotesParams, UpdateNoteParams,
@@ -19,7 +19,6 @@ async fn test_list_notes_empty() {
 
     let params = ListNotesParams {
         tags: None,
-        note_type: None,
         project_id: None,
         parent_id: None,
         limit: None,
@@ -59,7 +58,6 @@ async fn test_create_and_get_note() {
         content: "# Meeting with team\n\n- Discussed project timeline\n- Assigned tasks"
             .to_string(),
         tags: Some(vec!["meeting".to_string(), "team".to_string()]),
-        note_type: None,
         parent_id: None,
         idx: None,
         repo_ids: None,
@@ -83,7 +81,6 @@ async fn test_create_and_get_note() {
         created.tags,
         vec!["meeting".to_string(), "team".to_string()]
     );
-    assert_eq!(created.note_type, NoteType::Manual);
     assert!(!created.id.is_empty());
 
     // Get the note
@@ -135,7 +132,6 @@ async fn test_list_notes_with_tag_filter() {
         title: "Work Note".to_string(),
         content: "Content 1".to_string(),
         tags: vec!["work".to_string()],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -148,7 +144,6 @@ async fn test_list_notes_with_tag_filter() {
         title: "Personal Note".to_string(),
         content: "Content 2".to_string(),
         tags: vec!["personal".to_string()],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],

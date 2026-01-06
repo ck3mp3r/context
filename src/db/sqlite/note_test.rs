@@ -1,8 +1,6 @@
 //! Tests for SqliteNoteRepository.
 
-use crate::db::{
-    Database, Note, NoteQuery, NoteRepository, NoteType, PageSort, SortOrder, SqliteDatabase,
-};
+use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort, SortOrder, SqliteDatabase};
 
 fn generate_id() -> String {
     use crate::db::utils::generate_entity_id;
@@ -23,7 +21,6 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         title: title.to_string(),
         content: content.to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],    // Empty by default - relationships managed separately
@@ -534,7 +531,6 @@ async fn note_create_and_get() {
         title: "My First Note".to_string(),
         content: "This is markdown content\n\n## Heading\n\nWith paragraphs.".to_string(),
         tags: vec!["session".to_string(), "important".to_string()],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],    // Empty by default - relationships managed separately
@@ -550,7 +546,6 @@ async fn note_create_and_get() {
     assert_eq!(retrieved.title, note.title);
     assert_eq!(retrieved.content, note.content);
     assert_eq!(retrieved.tags, note.tags);
-    assert_eq!(retrieved.note_type, NoteType::Manual);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -596,14 +591,12 @@ async fn note_update() {
     note.title = "Updated Title".to_string();
     note.content = "Updated content with more text".to_string();
     note.tags = vec!["updated".to_string()];
-    note.note_type = NoteType::ArchivedTodo;
     notes.update(&note).await.expect("Update should succeed");
 
     let retrieved = notes.get("noteupd1").await.expect("Get should succeed");
     assert_eq!(retrieved.title, "Updated Title");
     assert_eq!(retrieved.content, "Updated content with more text");
     assert_eq!(retrieved.tags, vec!["updated".to_string()]);
-    assert_eq!(retrieved.note_type, NoteType::ArchivedTodo);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -873,7 +866,6 @@ async fn note_create_with_warn_size_content_succeeds_with_warning() {
         title: "Large Note".to_string(),
         content: large_content.clone(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -907,7 +899,6 @@ async fn note_create_at_hard_max_succeeds() {
         title: "Maximum Size Note".to_string(),
         content: max_content.clone(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -934,7 +925,6 @@ async fn note_create_over_hard_max_fails() {
         title: "Oversized Note".to_string(),
         content: oversized_content,
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -1100,7 +1090,6 @@ async fn note_timestamps_are_optional() {
         title: "Note with timestamps".to_string(),
         content: "Test content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -1129,7 +1118,6 @@ async fn note_timestamps_are_optional() {
         title: "Note without timestamps".to_string(),
         content: "Test content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -1164,7 +1152,6 @@ async fn test_create_note_with_parent_id() {
         title: "Parent Note".to_string(),
         content: "Parent content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -1180,7 +1167,6 @@ async fn test_create_note_with_parent_id() {
         title: "Child Note".to_string(),
         content: "Child content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: Some(created_parent.id.clone()),
         idx: None,
         repo_ids: vec![],
@@ -1205,7 +1191,6 @@ async fn test_create_subnote_with_idx() {
         title: "Parent Note".to_string(),
         content: "Parent content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -1221,7 +1206,6 @@ async fn test_create_subnote_with_idx() {
         title: "Child Note".to_string(),
         content: "Child content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: Some(created_parent.id.clone()),
         idx: Some(10),
         repo_ids: vec![],
@@ -1247,7 +1231,6 @@ async fn test_list_subnotes_ordered_by_idx() {
         title: "Parent Note".to_string(),
         content: "Parent content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: None,
         idx: None,
         repo_ids: vec![],
@@ -1263,7 +1246,6 @@ async fn test_list_subnotes_ordered_by_idx() {
         title: "Child 1 (idx=30)".to_string(),
         content: "Should be third".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: Some(created_parent.id.clone()),
         idx: Some(30),
         repo_ids: vec![],
@@ -1278,7 +1260,6 @@ async fn test_list_subnotes_ordered_by_idx() {
         title: "Child 2 (idx=10)".to_string(),
         content: "Should be first".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: Some(created_parent.id.clone()),
         idx: Some(10),
         repo_ids: vec![],
@@ -1293,7 +1274,6 @@ async fn test_list_subnotes_ordered_by_idx() {
         title: "Child 3 (idx=20)".to_string(),
         content: "Should be second".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
         parent_id: Some(created_parent.id.clone()),
         idx: Some(20),
         repo_ids: vec![],

@@ -1,13 +1,11 @@
 //! SQLite NoteRepository implementation.
 
-use std::str::FromStr;
-
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::models::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository, NoteType};
+use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
 
 /// SQLx-backed note repository.
 pub struct SqliteNoteRepository<'a> {
@@ -80,19 +78,16 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
 
-        let note_type_str = note.note_type.to_string();
-
         sqlx::query(
             r#"
-            INSERT INTO note (id, title, content, tags, note_type, parent_id, idx, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
         .bind(&note.title)
         .bind(&note.content)
         .bind(tags_json)
-        .bind(note_type_str)
         .bind(&note.parent_id)
         .bind(note.idx)
         .bind(&created_at)
@@ -132,7 +127,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             title: note.title.clone(),
             content: note.content.clone(),
             tags: note.tags.clone(),
-            note_type: note.note_type.clone(),
             parent_id: note.parent_id.clone(),
             idx: note.idx,
             repo_ids: note.repo_ids.clone(),
@@ -144,7 +138,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, content, tags, note_type, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
+            "SELECT id, title, content, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -159,11 +153,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
                     message: format!("Failed to parse tags JSON: {}", e),
                 })?;
-
-            let note_type_str: String = row.get("note_type");
-            let note_type = NoteType::from_str(&note_type_str).map_err(|_| DbError::Database {
-                message: format!("Invalid note_type: {}", note_type_str),
-            })?;
 
             // Get repo relationships
             let repo_ids: Vec<String> =
@@ -190,7 +179,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 title: row.get("title"),
                 content: row.get("content"),
                 tags,
-                note_type,
                 parent_id: row.get("parent_id"),
                 idx: row.get("idx"),
                 repo_ids,
@@ -208,7 +196,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
     async fn get_metadata_only(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, tags, note_type, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
+            "SELECT id, title, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -223,11 +211,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
                     message: format!("Failed to parse tags JSON: {}", e),
                 })?;
-
-            let note_type_str: String = row.get("note_type");
-            let note_type = NoteType::from_str(&note_type_str).map_err(|_| DbError::Database {
-                message: format!("Invalid note_type: {}", note_type_str),
-            })?;
 
             // Get repo relationships
             let repo_ids: Vec<String> =
@@ -254,7 +237,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 title: row.get("title"),
                 content: String::new(), // Empty content for metadata-only
                 tags,
-                note_type,
                 parent_id: row.get("parent_id"),
                 idx: row.get("idx"),
                 repo_ids,
@@ -305,14 +287,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             }
 
             (
-                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.parent_id, n.idx, n.created_at, n.updated_at",
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at",
                 from,
                 "n.",
             )
         } else {
             // No joins, simple query
             (
-                "id, title, content, tags, note_type, parent_id, idx, created_at, updated_at",
+                "id, title, content, tags, parent_id, idx, created_at, updated_at",
                 "FROM note".to_string(),
                 "",
             )
@@ -392,15 +374,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-                let note_type_str: String = row.get("note_type");
-                let note_type = NoteType::from_str(&note_type_str).unwrap_or_default();
-
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
                     content: row.get("content"),
                     tags,
-                    note_type,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
@@ -464,7 +442,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             (
                 format!(
-                    "SELECT DISTINCT n.id, n.title, n.tags, n.note_type, n.parent_id, n.idx, n.created_at, n.updated_at 
+                    "SELECT DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at 
                      FROM note n, json_each(n.tags)
                      WHERE json_each.value IN ({}) {} {}",
                     placeholders.join(", "),
@@ -479,7 +457,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, tags, note_type, parent_id, idx, created_at, updated_at 
+                    "SELECT id, title, tags, parent_id, idx, created_at, updated_at 
                      FROM note {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -506,15 +484,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-                let note_type_str: String = row.get("note_type");
-                let note_type = NoteType::from_str(&note_type_str).unwrap_or_default();
-
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
-                    content: String::new(), // Empty content for metadata-only
+                    content: row.get("content"),
                     tags,
-                    note_type,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
@@ -559,8 +533,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
 
-        let note_type_str = note.note_type.to_string();
-
         // Use provided timestamp or generate if None/empty
         let updated_at = note
             .updated_at
@@ -571,14 +543,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let result = sqlx::query(
             r#"
             UPDATE note 
-            SET title = ?, content = ?, tags = ?, note_type = ?, parent_id = ?, idx = ?, updated_at = ?
+            SET title = ?, content = ?, tags = ?, parent_id = ?, idx = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
         .bind(&note.title)
         .bind(&note.content)
         .bind(tags_json)
-        .bind(note_type_str)
         .bind(&note.parent_id)
         .bind(note.idx)
         .bind(&updated_at)
@@ -763,14 +734,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             }
 
             (
-                "DISTINCT n.id, n.title, n.content, n.tags, n.note_type, n.parent_id, n.idx, n.created_at, n.updated_at",
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at",
                 from,
                 "n.",
             )
         } else {
             // No filters, simple FTS5 join - use explicit table prefix
             (
-                "note.id, note.title, note.content, note.tags, note.note_type, note.parent_id, note.idx, note.created_at, note.updated_at",
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at",
                 "FROM note INNER JOIN note_fts ON note.rowid = note_fts.rowid".to_string(),
                 "note.",
             )
@@ -832,15 +803,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-                let note_type_str: String = row.get("note_type");
-                let note_type = NoteType::from_str(&note_type_str).unwrap_or_default();
-
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
                     content: row.get("content"),
                     tags,
-                    note_type,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately

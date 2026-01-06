@@ -10,7 +10,6 @@ pub struct Note {
     pub title: String,
     pub content: String,
     pub tags: Vec<String>,
-    pub note_type: Option<String>,
     pub parent_id: Option<String>,
     pub idx: Option<i32>,
     pub repo_ids: Option<Vec<String>>,
@@ -148,7 +147,6 @@ pub async fn get_note(api_client: &ApiClient, id: &str, format: &str) -> CliResu
             builder.push_record(["Title", &note.title]);
             builder.push_record(["Content", &truncate_with_ellipsis(&note.content, 200)]);
             builder.push_record(["Tags", &format_tags(Some(&note.tags))]);
-            builder.push_record(["Type", note.note_type.as_deref().unwrap_or("-")]);
             builder.push_record(["Created", &note.created_at]);
             builder.push_record(["Updated", &note.updated_at]);
 
