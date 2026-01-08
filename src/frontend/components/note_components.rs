@@ -37,18 +37,11 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
 
     view! {
-        // Wrapper for stacked effect - adds padding to show the layers
-        <div class="relative" style={if has_subnotes { "padding-right: 8px; padding-bottom: 8px;" } else { "" }}>
-            // Stack layer 2 (furthest back) - only show if has subnotes
-            {has_subnotes.then(|| view! {
-                <div class="absolute top-2 left-2 right-0 bottom-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-40" style="z-index: 0;"></div>
-            })}
-            // Stack layer 1 (middle) - only show if has subnotes
-            {has_subnotes.then(|| view! {
-                <div class="absolute top-1 left-1 right-0 bottom-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60" style="z-index: 1;"></div>
-            })}
-            // Main card (front)
-            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]" style="z-index: 2;">
+        // Wrapper for stacked effect - main card at top-left, layers offset down-right
+        <div class="relative h-full">
+            // Main card (FRONT - smaller when stacked to fit within original bounds)
+            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col min-h-[220px]"
+                 style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); height: calc(100% - 8px);" } else { "z-index: 2; width: 100%; height: 100%;" }}>
             <a
                 href=href
                 on:click=move |ev| {
@@ -100,6 +93,15 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
             </a>
             </div>
             // End main card
+
+            // Stack layer 1 (MIDDLE - offset 4px down-right, same size as main card)
+            {has_subnotes.then(|| view! {
+                <div class="absolute top-1 left-1 bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60" style="z-index: 1; width: calc(100% - 8px); height: calc(100% - 8px);"></div>
+            })}
+            // Stack layer 2 (BACK - offset 8px down-right, same size as main card)
+            {has_subnotes.then(|| view! {
+                <div class="absolute top-2 left-2 bg-ctp-surface2 border border-ctp-overlay0 rounded-lg opacity-40" style="z-index: 0; width: calc(100% - 8px); height: calc(100% - 8px);"></div>
+            })}
         </div>
         // End wrapper
     }
