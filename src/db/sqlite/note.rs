@@ -552,6 +552,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             let select_cols = if needs_activity_column {
                 "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                 (SELECT COUNT(*) FROM note WHERE parent_id = n.id) AS subnote_count, \
                  COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
             } else {
                 "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
@@ -576,6 +577,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             (
                 format!(
                     "SELECT note.id, note.title, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                     (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id) AS subnote_count, \
                      COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at 
                      FROM note {} {} {}",
                     where_clause, order_clause, limit_clause

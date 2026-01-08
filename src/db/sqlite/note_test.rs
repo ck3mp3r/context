@@ -2017,3 +2017,122 @@ async fn test_parent_notes_include_subnote_count() {
         "Parent with no subnotes should have subnote_count = 0"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_subnote_count_only_for_parent_notes() {
+    let db = setup_db().await;
+
+    // Create parent note
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent".to_string(),
+        content: "Content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent).await.unwrap();
+
+    // Create subnote
+    let subnote = Note {
+        id: generate_id(),
+        title: "Subnote".to_string(),
+        content: "Content".to_string(),
+        tags: vec![],
+        parent_id: Some(parent.id.clone()),
+        idx: Some(1),
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&subnote).await.unwrap();
+
+    // Query WITHOUT type filter - subnote_count should be None
+    let result = db.notes().list(None).await.unwrap();
+    for note in &result.items {
+        assert_eq!(
+            note.subnote_count, None,
+            "subnote_count should be None when not filtering by type=note"
+        );
+    }
+
+    // Query WITH type=note - subnote_count should be Some
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        ..Default::default()
+    };
+    let result = db.notes().list(Some(&query)).await.unwrap();
+    let parent_result = result.items.iter().find(|n| n.id == parent.id).unwrap();
+    assert_eq!(
+        parent_result.subnote_count,
+        Some(1),
+        "subnote_count should be Some(1) when filtering by type=note"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_metadata_only_includes_subnote_count() {
+    let db = setup_db().await;
+
+    // Create parent with 2 subnotes
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent".to_string(),
+        content: "This is the full content that should NOT be in metadata_only".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent).await.unwrap();
+
+    for i in 1..=2 {
+        let subnote = Note {
+            id: generate_id(),
+            title: format!("Subnote {}", i),
+            content: format!("Content {}", i),
+            tags: vec![],
+            parent_id: Some(parent.id.clone()),
+            idx: Some(i),
+            repo_ids: vec![],
+            project_ids: vec![],
+            subnote_count: None,
+            created_at: None,
+            updated_at: None,
+        };
+        db.notes().create(&subnote).await.unwrap();
+    }
+
+    // Query with list_metadata_only and type=note
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        ..Default::default()
+    };
+    let result = db.notes().list_metadata_only(Some(&query)).await.unwrap();
+
+    let parent_result = result.items.iter().find(|n| n.id == parent.id).unwrap();
+
+    // Verify content is empty (metadata only)
+    assert_eq!(
+        parent_result.content, "",
+        "Content should be empty in metadata_only"
+    );
+
+    // Verify subnote_count is still populated
+    assert_eq!(
+        parent_result.subnote_count,
+        Some(2),
+        "subnote_count should be Some(2) even in metadata_only"
+    );
+}
