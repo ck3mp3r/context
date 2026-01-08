@@ -33,8 +33,22 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
         format!("/notes/{}", note.id)
     };
 
+    // Check if note has subnotes for stacked effect
+    let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
+
     view! {
-        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]">
+        // Wrapper for stacked effect - only visible when has_subnotes
+        <div class="relative">
+            // Stack layer 2 (furthest back) - only show if has subnotes
+            {has_subnotes.then(|| view! {
+                <div class="absolute inset-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg translate-x-2 translate-y-2 -z-20 opacity-40"></div>
+            })}
+            // Stack layer 1 (middle) - only show if has subnotes
+            {has_subnotes.then(|| view! {
+                <div class="absolute inset-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg translate-x-1 translate-y-1 -z-10 opacity-60"></div>
+            })}
+            // Main card (front)
+            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]">
             <a
                 href=href
                 on:click=move |ev| {
@@ -84,7 +98,10 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
             </div>
             </div>
             </a>
+            </div>
+            // End main card
         </div>
+        // End wrapper
     }
 }
 
