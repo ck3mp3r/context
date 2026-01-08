@@ -189,6 +189,7 @@ async fn test_import_preserves_relationships() {
         idx: None,
         repo_ids: vec!["repo0001".to_string()],
         project_ids: vec!["proj0001".to_string()],
+        subnote_count: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };

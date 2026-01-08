@@ -260,6 +260,7 @@ impl<D: Database + 'static> NoteTools<D> {
             idx: params.0.idx,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
+            subnote_count: None,
             created_at: None, // Will be set by DB
             updated_at: None, // Will be set by DB
         };

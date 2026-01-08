@@ -347,6 +347,7 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         idx: req.idx,
         repo_ids: req.repo_ids,
         project_ids: req.project_ids,
+        subnote_count: None,
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
     };

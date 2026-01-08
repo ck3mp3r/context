@@ -304,6 +304,9 @@ pub struct Note {
     /// Linked project IDs (M:N relationship via project_note)
     #[serde(default)]
     pub project_ids: Vec<Id>,
+    /// Count of subnotes (children) - computed field, not stored in DB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subnote_count: Option<i32>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

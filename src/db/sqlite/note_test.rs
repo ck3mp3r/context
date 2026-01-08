@@ -25,6 +25,7 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         idx: None,
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
+        subnote_count: None, // Computed field - not set on creation
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     }
@@ -535,6 +536,7 @@ async fn note_create_and_get() {
         idx: None,
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
+        subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -870,6 +872,7 @@ async fn note_create_with_warn_size_content_succeeds_with_warning() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -903,6 +906,7 @@ async fn note_create_at_hard_max_succeeds() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -929,6 +933,7 @@ async fn note_create_over_hard_max_fails() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -1094,6 +1099,7 @@ async fn note_timestamps_are_optional() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-15 10:00:00".to_string()),
         updated_at: Some("2025-01-15 11:00:00".to_string()),
     };
@@ -1122,6 +1128,7 @@ async fn note_timestamps_are_optional() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1156,6 +1163,7 @@ async fn test_create_note_with_parent_id() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1171,6 +1179,7 @@ async fn test_create_note_with_parent_id() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1195,6 +1204,7 @@ async fn test_create_subnote_with_idx() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1210,6 +1220,7 @@ async fn test_create_subnote_with_idx() {
         idx: Some(10),
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1235,6 +1246,7 @@ async fn test_list_subnotes_ordered_by_idx() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1250,6 +1262,7 @@ async fn test_list_subnotes_ordered_by_idx() {
         idx: Some(30),
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1264,6 +1277,7 @@ async fn test_list_subnotes_ordered_by_idx() {
         idx: Some(10),
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1278,6 +1292,7 @@ async fn test_list_subnotes_ordered_by_idx() {
         idx: Some(20),
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1318,6 +1333,7 @@ async fn test_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1332,6 +1348,7 @@ async fn test_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1347,6 +1364,7 @@ async fn test_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1361,6 +1379,7 @@ async fn test_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1398,6 +1417,7 @@ async fn test_note_type_filter_returns_only_subnotes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1413,6 +1433,7 @@ async fn test_note_type_filter_returns_only_subnotes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1427,6 +1448,7 @@ async fn test_note_type_filter_returns_only_subnotes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1464,6 +1486,7 @@ async fn test_search_with_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1478,6 +1501,7 @@ async fn test_search_with_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1493,6 +1517,7 @@ async fn test_search_with_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1507,6 +1532,7 @@ async fn test_search_with_note_type_filter_returns_only_parent_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1544,6 +1570,7 @@ async fn test_search_with_note_type_filter_returns_only_subnotes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1559,6 +1586,7 @@ async fn test_search_with_note_type_filter_returns_only_subnotes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1573,6 +1601,7 @@ async fn test_search_with_note_type_filter_returns_only_subnotes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1610,6 +1639,7 @@ async fn test_search_with_parent_id_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1624,6 +1654,7 @@ async fn test_search_with_parent_id_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1639,6 +1670,7 @@ async fn test_search_with_parent_id_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1653,6 +1685,7 @@ async fn test_search_with_parent_id_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1668,6 +1701,7 @@ async fn test_search_with_parent_id_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1707,6 +1741,7 @@ async fn test_parent_notes_sorted_by_last_activity() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1724,6 +1759,7 @@ async fn test_parent_notes_sorted_by_last_activity() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1740,6 +1776,7 @@ async fn test_parent_notes_sorted_by_last_activity() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1757,6 +1794,7 @@ async fn test_parent_notes_sorted_by_last_activity() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1820,6 +1858,7 @@ async fn test_parent_notes_explicit_sort_overrides_activity_sort() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1836,6 +1875,7 @@ async fn test_parent_notes_explicit_sort_overrides_activity_sort() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1853,6 +1893,7 @@ async fn test_parent_notes_explicit_sort_overrides_activity_sort() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -1881,5 +1922,98 @@ async fn test_parent_notes_explicit_sort_overrides_activity_sort() {
     assert_eq!(
         result.items[1].title, "Z Parent",
         "Should be last alphabetically despite recent activity"
+    );
+}
+
+// =============================================================================
+// Subnote Count Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_parent_notes_include_subnote_count() {
+    let db = setup_db().await;
+
+    // Create parent note with 3 subnotes
+    let parent_with_subnotes = Note {
+        id: generate_id(),
+        title: "Parent with children".to_string(),
+        content: "Has subnotes".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent_with_subnotes).await.unwrap();
+
+    // Create 3 subnotes
+    for i in 1..=3 {
+        let subnote = Note {
+            id: generate_id(),
+            title: format!("Subnote {}", i),
+            content: format!("Content {}", i),
+            tags: vec![],
+            parent_id: Some(parent_with_subnotes.id.clone()),
+            idx: Some(i),
+            repo_ids: vec![],
+            project_ids: vec![],
+            subnote_count: None,
+            created_at: None,
+            updated_at: None,
+        };
+        db.notes().create(&subnote).await.unwrap();
+    }
+
+    // Create parent note without subnotes
+    let parent_no_subnotes = Note {
+        id: generate_id(),
+        title: "Parent alone".to_string(),
+        content: "No subnotes".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent_no_subnotes).await.unwrap();
+
+    // Query parent notes with type=note
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        ..Default::default()
+    };
+
+    let result = db.notes().list(Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return 2 parent notes");
+
+    // Find each parent in results
+    let parent_with = result
+        .items
+        .iter()
+        .find(|n| n.id == parent_with_subnotes.id)
+        .expect("Parent with subnotes should be in results");
+
+    let parent_without = result
+        .items
+        .iter()
+        .find(|n| n.id == parent_no_subnotes.id)
+        .expect("Parent without subnotes should be in results");
+
+    // Verify subnote_count is populated correctly
+    assert_eq!(
+        parent_with.subnote_count,
+        Some(3),
+        "Parent with 3 subnotes should have subnote_count = 3"
+    );
+    assert_eq!(
+        parent_without.subnote_count,
+        Some(0),
+        "Parent with no subnotes should have subnote_count = 0"
     );
 }

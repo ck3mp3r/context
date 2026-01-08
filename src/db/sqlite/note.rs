@@ -131,6 +131,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             idx: note.idx,
             repo_ids: note.repo_ids.clone(),
             project_ids: note.project_ids.clone(),
+            subnote_count: None, // Not computed for single note get
             created_at: Some(created_at),
             updated_at: Some(updated_at),
         })
@@ -183,6 +184,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 idx: row.get("idx"),
                 repo_ids,
                 project_ids,
+                subnote_count: None, // Not computed for single note get
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
             })
@@ -241,6 +243,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 idx: row.get("idx"),
                 repo_ids,
                 project_ids,
+                subnote_count: None, // Not computed for single note get
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
             })
@@ -297,7 +300,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             let select = if needs_activity_column {
                 "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at, \
+                 (SELECT COUNT(*) FROM note WHERE parent_id = n.id) AS subnote_count"
             } else {
                 "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
             };
@@ -308,7 +312,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             let select = if needs_activity_column {
                 // Explicitly reference outer table in subquery using table name
                 "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at"
+                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at, \
+                 (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id) AS subnote_count"
             } else {
                 "id, title, content, tags, parent_id, idx, created_at, updated_at"
             };
@@ -414,6 +419,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
+                // Try to get subnote_count if it exists in the result set
+                let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
+
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
@@ -423,6 +431,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
                     project_ids: vec![], // Empty by default - relationships managed separately
+                    subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 }
@@ -603,15 +612,19 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
+                // Try to get subnote_count if it exists in the result set
+                let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
+
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
-                    content: String::new(), // Metadata-only: content intentionally excluded
+                    content: String::new(), // metadata_only doesn't include content
                     tags,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
                     project_ids: vec![], // Empty by default - relationships managed separately
+                    subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 }
@@ -963,6 +976,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
+                // Try to get subnote_count if it exists in the result set
+                let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
+
                 Note {
                     id: row.get("id"),
                     title: row.get("title"),
@@ -972,6 +988,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     idx: row.get("idx"),
                     repo_ids: vec![], // Empty by default - relationships managed separately
                     project_ids: vec![], // Empty by default - relationships managed separately
+                    subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 }

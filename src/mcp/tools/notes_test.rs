@@ -137,6 +137,7 @@ async fn test_list_notes_with_tag_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -149,6 +150,7 @@ async fn test_list_notes_with_tag_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -202,6 +204,7 @@ async fn test_update_note() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -254,6 +257,7 @@ async fn test_delete_note() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -299,6 +303,7 @@ async fn test_search_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -311,6 +316,7 @@ async fn test_search_notes() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -362,6 +368,7 @@ async fn test_search_notes_with_tag_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -374,6 +381,7 @@ async fn test_search_notes_with_tag_filter() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -425,6 +433,7 @@ async fn test_list_notes_with_sort_and_order() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-01 10:00:00".to_string()),
         updated_at: Some("2025-01-01 10:00:00".to_string()),
     };
@@ -438,6 +447,7 @@ async fn test_list_notes_with_sort_and_order() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-02 10:00:00".to_string()),
         updated_at: Some("2025-01-03 10:00:00".to_string()),
     };
@@ -451,6 +461,7 @@ async fn test_list_notes_with_sort_and_order() {
         idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-03 10:00:00".to_string()),
         updated_at: Some("2025-01-02 10:00:00".to_string()),
     };
