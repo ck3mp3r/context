@@ -174,7 +174,7 @@ fn NotesList() -> impl IntoView {
                                     view! {
                                         <div>
                                             // Notes grid
-                                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
+                                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                                                 {paginated
                                                     .items
                                                     .iter()

@@ -37,11 +37,21 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
 
     view! {
-        // Wrapper for stacked effect - main card at top-left, layers offset down-right
-        <div class="relative h-full">
-            // Main card (FRONT - smaller when stacked to fit within original bounds)
-            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col min-h-[220px]"
-                 style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); height: calc(100% - 8px);" } else { "z-index: 2; width: 100%; height: 100%;" }}>
+        // Wrapper - natural sizing
+        <div class="relative w-full">
+            // Background layers BEFORE main card - absolute positioned, SAME width and height as main card
+            // Layer 2 (BACK - offset 8px down+right)
+            {has_subnotes.then(|| view! {
+                <div class="absolute bg-ctp-surface2 border border-ctp-overlay0 rounded-lg opacity-40 pointer-events-none" style="z-index: 0; top: 8px; left: 8px; width: calc(100% - 8px); min-height: 212px;"></div>
+            })}
+            // Layer 1 (MIDDLE - offset 4px down+right)
+            {has_subnotes.then(|| view! {
+                <div class="absolute bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60 pointer-events-none" style="z-index: 1; top: 4px; left: 4px; width: calc(100% - 8px); min-height: 212px;"></div>
+            })}
+
+            // Main card (FRONT - relative positioned, defines size)
+            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col"
+                 style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); min-height: 212px;" } else { "z-index: 2; width: 100%; min-height: 220px;" }}>
             <a
                 href=href
                 on:click=move |ev| {
@@ -93,15 +103,6 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
             </a>
             </div>
             // End main card
-
-            // Stack layer 1 (MIDDLE - offset 4px down-right, same size as main card)
-            {has_subnotes.then(|| view! {
-                <div class="absolute top-1 left-1 bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60" style="z-index: 1; width: calc(100% - 8px); height: calc(100% - 8px);"></div>
-            })}
-            // Stack layer 2 (BACK - offset 8px down-right, same size as main card)
-            {has_subnotes.then(|| view! {
-                <div class="absolute top-2 left-2 bg-ctp-surface2 border border-ctp-overlay0 rounded-lg opacity-40" style="z-index: 0; width: calc(100% - 8px); height: calc(100% - 8px);"></div>
-            })}
         </div>
         // End wrapper
     }
