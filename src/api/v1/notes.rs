@@ -41,6 +41,10 @@ pub struct NoteResponse {
     /// Linked project IDs (M:N relationship via project_note)
     #[schema(example = json!(["proj123a", "proj456b"]))]
     pub project_ids: Vec<String>,
+    /// Count of subnotes (children) - computed field, not stored in DB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 3)]
+    pub subnote_count: Option<i32>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -56,6 +60,7 @@ impl From<Note> for NoteResponse {
             idx: n.idx,
             repo_ids: n.repo_ids,
             project_ids: n.project_ids,
+            subnote_count: n.subnote_count,
             created_at: n.created_at,
             updated_at: n.updated_at,
         }
