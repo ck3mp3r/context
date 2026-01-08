@@ -77,8 +77,17 @@ pub struct Note {
     pub title: String,
     pub content: String,
     pub tags: Vec<String>,
+    /// Parent note ID for hierarchical structure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// Manual ordering index within siblings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idx: Option<i32>,
     pub project_ids: Vec<String>,
     pub repo_ids: Vec<String>,
+    /// Count of subnotes (children) - computed field
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subnote_count: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
