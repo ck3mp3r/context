@@ -21,6 +21,9 @@ module.exports = {
     'text-ctp-subtext1',
     'hover:bg-ctp-surface1',
     'hover:text-ctp-text',
+    // Stacked card z-index
+    '-z-10',
+    '-z-20',
   ],
   theme: {
     extend: {

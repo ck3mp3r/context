@@ -37,18 +37,18 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
 
     view! {
-        // Wrapper for stacked effect - only visible when has_subnotes
-        <div class="relative">
+        // Wrapper for stacked effect - adds padding to show the layers
+        <div class="relative" style={if has_subnotes { "padding-right: 8px; padding-bottom: 8px;" } else { "" }}>
             // Stack layer 2 (furthest back) - only show if has subnotes
             {has_subnotes.then(|| view! {
-                <div class="absolute inset-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg translate-x-2 translate-y-2 -z-20 opacity-40"></div>
+                <div class="absolute top-2 left-2 right-0 bottom-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-40" style="z-index: 0;"></div>
             })}
             // Stack layer 1 (middle) - only show if has subnotes
             {has_subnotes.then(|| view! {
-                <div class="absolute inset-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg translate-x-1 translate-y-1 -z-10 opacity-60"></div>
+                <div class="absolute top-1 left-1 right-0 bottom-0 bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60" style="z-index: 1;"></div>
             })}
             // Main card (front)
-            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]">
+            <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[220px]" style="z-index: 2;">
             <a
                 href=href
                 on:click=move |ev| {
