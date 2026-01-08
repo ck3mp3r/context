@@ -1448,3 +1448,245 @@ async fn test_note_type_filter_returns_only_subnotes() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_with_note_type_filter_returns_only_parent_notes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 2 parent notes with searchable content
+    let parent1 = Note {
+        id: generate_id(),
+        title: "Parent Note 1".to_string(),
+        content: "Searchable content in parent note".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent1 = db.notes().create(&parent1).await.unwrap();
+
+    let parent2 = Note {
+        id: generate_id(),
+        title: "Parent Note 2".to_string(),
+        content: "More searchable content here".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent2).await.unwrap();
+
+    // Create 2 subnotes with searchable content
+    let child1 = Note {
+        id: generate_id(),
+        title: "Subnote 1".to_string(),
+        content: "Searchable content in subnote".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent1.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1).await.unwrap();
+
+    let child2 = Note {
+        id: generate_id(),
+        title: "Subnote 2".to_string(),
+        content: "Another searchable subnote".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent1.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child2).await.unwrap();
+
+    // Search with note_type=note filter (should return only parent notes)
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        ..Default::default()
+    };
+
+    let result = db.notes().search("searchable", Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return only 2 parent notes");
+    assert_eq!(result.items.len(), 2);
+    for note in &result.items {
+        assert!(
+            note.parent_id.is_none(),
+            "All notes should have parent_id = None"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_with_note_type_filter_returns_only_subnotes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 1 parent note with searchable content
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent Note".to_string(),
+        content: "Searchable content in parent".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent = db.notes().create(&parent).await.unwrap();
+
+    // Create 2 subnotes with searchable content
+    let child1 = Note {
+        id: generate_id(),
+        title: "Subnote 1".to_string(),
+        content: "Searchable content in subnote".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1).await.unwrap();
+
+    let child2 = Note {
+        id: generate_id(),
+        title: "Subnote 2".to_string(),
+        content: "Another searchable subnote".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child2).await.unwrap();
+
+    // Search with note_type=subnote filter (should return only subnotes)
+    let query = NoteQuery {
+        note_type: Some("subnote".to_string()),
+        ..Default::default()
+    };
+
+    let result = db.notes().search("searchable", Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return only 2 subnotes");
+    assert_eq!(result.items.len(), 2);
+    for note in &result.items {
+        assert!(
+            note.parent_id.is_some(),
+            "All notes should have parent_id != None"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_with_parent_id_filter() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 2 parent notes
+    let parent1 = Note {
+        id: generate_id(),
+        title: "Parent 1".to_string(),
+        content: "Parent 1 content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent1 = db.notes().create(&parent1).await.unwrap();
+
+    let parent2 = Note {
+        id: generate_id(),
+        title: "Parent 2".to_string(),
+        content: "Parent 2 content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent2 = db.notes().create(&parent2).await.unwrap();
+
+    // Create subnotes for parent1 with searchable content
+    let child1_1 = Note {
+        id: generate_id(),
+        title: "Child 1.1".to_string(),
+        content: "Findme in parent1 child".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent1.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1_1).await.unwrap();
+
+    let child1_2 = Note {
+        id: generate_id(),
+        title: "Child 1.2".to_string(),
+        content: "Findme in another parent1 child".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent1.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1_2).await.unwrap();
+
+    // Create subnote for parent2 with searchable content
+    let child2_1 = Note {
+        id: generate_id(),
+        title: "Child 2.1".to_string(),
+        content: "Findme in parent2 child".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent2.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child2_1).await.unwrap();
+
+    // Search with parent_id filter (should return only subnotes of parent1)
+    let query = NoteQuery {
+        parent_id: Some(created_parent1.id.clone()),
+        ..Default::default()
+    };
+
+    let result = db.notes().search("Findme", Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return only 2 subnotes of parent1");
+    assert_eq!(result.items.len(), 2);
+    for note in &result.items {
+        assert_eq!(
+            note.parent_id.as_ref().unwrap(),
+            &created_parent1.id,
+            "All notes should have parent_id = parent1.id"
+        );
+    }
+}

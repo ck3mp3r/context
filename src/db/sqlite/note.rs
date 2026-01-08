@@ -773,6 +773,23 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             )
         };
 
+        // Add parent_id filter if specified (after we know the table prefix)
+        if let Some(parent_id) = &query.parent_id {
+            where_conditions.push(format!("{}parent_id = ?", order_field_prefix));
+            bind_values.push(parent_id.clone());
+        }
+
+        // Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL)
+        if let Some(note_type) = &query.note_type {
+            match note_type.as_str() {
+                "note" => where_conditions.push(format!("{}parent_id IS NULL", order_field_prefix)),
+                "subnote" => {
+                    where_conditions.push(format!("{}parent_id IS NOT NULL", order_field_prefix))
+                }
+                _ => {} // Ignore invalid values
+            }
+        }
+
         // FTS5 MATCH condition - searches across title, content, and tags
         where_conditions.insert(0, "note_fts MATCH ?".to_string());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
