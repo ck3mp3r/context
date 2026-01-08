@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause};
+use super::helpers::build_limit_offset_clause;
 use crate::db::models::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
@@ -255,7 +255,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn list(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "created_at", "updated_at", "idx"];
+        let allowed_fields = [
+            "title",
+            "created_at",
+            "updated_at",
+            "last_activity_at",
+            "idx",
+        ];
 
         // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
@@ -264,6 +270,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Build query conditionally based on what filters are needed
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
+
+        // Check if we need last_activity_at computed column for parent notes
+        let needs_activity_column = query.note_type.as_deref() == Some("note");
 
         // Decide on table alias usage
         let (select_cols, from_clause, order_field_prefix) = if needs_json_each
@@ -286,17 +295,28 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 bind_values.extend(tags.clone());
             }
 
-            (
-                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at",
-                from,
-                "n.",
-            )
+            let select = if needs_activity_column {
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
+            } else {
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
+            };
+
+            (select, from, "n.")
         } else {
             // No joins, simple query
+            let select = if needs_activity_column {
+                // Explicitly reference outer table in subquery using table name
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at"
+            } else {
+                "id, title, content, tags, parent_id, idx, created_at, updated_at"
+            };
+
             (
-                "id, title, content, tags, parent_id, idx, created_at, updated_at",
+                select,
                 "FROM note".to_string(),
-                "",
+                if needs_activity_column { "note." } else { "" },
             )
         };
 
@@ -332,6 +352,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "ORDER BY {}idx ASC, {}updated_at DESC",
                 order_field_prefix, order_field_prefix
             )
+        } else if needs_activity_column && query.page.sort_by.is_none() {
+            // Default order for parent notes: most recently active first
+            "ORDER BY last_activity_at DESC".to_string()
         } else {
             let sort_field = query
                 .page
@@ -343,10 +366,16 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 crate::db::SortOrder::Asc => "ASC",
                 crate::db::SortOrder::Desc => "DESC",
             };
-            format!(
-                "ORDER BY {}{} {}",
-                order_field_prefix, sort_field, sort_order
-            )
+
+            // Handle last_activity_at sort field
+            if sort_field == "last_activity_at" {
+                format!("ORDER BY last_activity_at {}", sort_order)
+            } else {
+                format!(
+                    "ORDER BY {}{} {}",
+                    order_field_prefix, sort_field, sort_order
+                )
+            }
         };
 
         let limit_clause = build_limit_offset_clause(&query.page);
@@ -424,33 +453,44 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn list_metadata_only(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "created_at", "updated_at", "idx"];
+        let allowed_fields = [
+            "title",
+            "created_at",
+            "updated_at",
+            "last_activity_at",
+            "idx",
+        ];
 
-        // Build ORDER BY - special handling for parent_id queries (order by idx)
-        let order_clause = if query.parent_id.is_some() && query.page.sort_by.is_none() {
-            // Default order for subnotes: idx ASC (lowest first), then updated_at DESC (latest first)
-            "ORDER BY idx ASC, updated_at DESC".to_string()
-        } else {
-            build_order_clause(&query.page, &allowed_fields, "created_at")
-        };
-        let limit_clause = build_limit_offset_clause(&query.page);
+        // Check if we need last_activity_at computed column for parent notes
+        let needs_activity_column = query.note_type.as_deref() == Some("note");
 
         // Tag filtering requires json_each join
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
 
+        // Determine table prefix based on whether we need JOINs
+        let order_field_prefix = if needs_json_each {
+            "n."
+        } else if needs_activity_column {
+            "note."
+        } else {
+            ""
+        };
+
         // Add parent_id filter if specified
         if let Some(parent_id) = &query.parent_id {
-            where_conditions.push("parent_id = ?".to_string());
+            where_conditions.push(format!("{}parent_id = ?", order_field_prefix));
             bind_values.push(parent_id.clone());
         }
 
         // Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL)
         if let Some(note_type) = &query.note_type {
             match note_type.as_str() {
-                "note" => where_conditions.push("parent_id IS NULL".to_string()),
-                "subnote" => where_conditions.push("parent_id IS NOT NULL".to_string()),
+                "note" => where_conditions.push(format!("{}parent_id IS NULL", order_field_prefix)),
+                "subnote" => {
+                    where_conditions.push(format!("{}parent_id IS NOT NULL", order_field_prefix))
+                }
                 _ => {} // Ignore invalid values
             }
         }
@@ -461,16 +501,59 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             String::new()
         };
 
+        // Build ORDER BY - special handling for different query types
+        let order_clause = if query.parent_id.is_some() && query.page.sort_by.is_none() {
+            // Default order for subnotes: idx ASC (lowest first), then updated_at DESC (latest first)
+            format!(
+                "ORDER BY {}idx ASC, {}updated_at DESC",
+                order_field_prefix, order_field_prefix
+            )
+        } else if needs_activity_column && query.page.sort_by.is_none() {
+            // Default order for parent notes: most recently active first
+            "ORDER BY last_activity_at DESC".to_string()
+        } else {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+                crate::db::SortOrder::Asc => "ASC",
+                crate::db::SortOrder::Desc => "DESC",
+            };
+
+            // Handle last_activity_at sort field
+            if sort_field == "last_activity_at" {
+                format!("ORDER BY last_activity_at {}", sort_order)
+            } else {
+                format!(
+                    "ORDER BY {}{} {}",
+                    order_field_prefix, sort_field, sort_order
+                )
+            }
+        };
+
+        let limit_clause = build_limit_offset_clause(&query.page);
+
         let (sql, count_sql) = if needs_json_each {
             let tags = query.tags.as_ref().unwrap();
             let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
             bind_values.extend(tags.clone());
 
+            let select_cols = if needs_activity_column {
+                "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
+            } else {
+                "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
+            };
+
             (
                 format!(
-                    "SELECT DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at 
+                    "SELECT {} 
                      FROM note n, json_each(n.tags)
                      WHERE json_each.value IN ({}) {} {}",
+                    select_cols,
                     placeholders.join(", "),
                     order_clause,
                     limit_clause
@@ -479,6 +562,16 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE json_each.value IN ({})",
                     placeholders.join(", ")
                 ),
+            )
+        } else if needs_activity_column {
+            (
+                format!(
+                    "SELECT note.id, note.title, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                     COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at 
+                     FROM note {} {} {}",
+                    where_clause, order_clause, limit_clause
+                ),
+                format!("SELECT COUNT(*) FROM note {}", where_clause),
             )
         } else {
             (
@@ -666,11 +759,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     ) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "created_at", "updated_at"];
+        let allowed_fields = ["title", "created_at", "updated_at", "last_activity_at"];
 
         // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
         let needs_project_join = query.project_id.is_some();
+
+        // Check if we need last_activity_at computed column for parent notes
+        let needs_activity_column = query.note_type.as_deref() == Some("note");
 
         // Sanitize FTS5 search query to prevent syntax errors
         // FTS5 has strict bareword requirements - only allows: A-Z, a-z, 0-9, _, non-ASCII
@@ -759,15 +855,25 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 bind_values.extend(tags.clone());
             }
 
-            (
-                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at",
-                from,
-                "n.",
-            )
+            let select = if needs_activity_column {
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
+            } else {
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
+            };
+
+            (select, from, "n.")
         } else {
             // No filters, simple FTS5 join - use explicit table prefix
+            let select = if needs_activity_column {
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at"
+            } else {
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at"
+            };
+
             (
-                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at",
+                select,
                 "FROM note INNER JOIN note_fts ON note.rowid = note_fts.rowid".to_string(),
                 "note.",
             )
@@ -795,20 +901,31 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
         // Build ORDER BY with proper prefixes
-        let sort_field = query
-            .page
-            .sort_by
-            .as_deref()
-            .filter(|f| allowed_fields.contains(f))
-            .unwrap_or("created_at");
-        let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-            crate::db::SortOrder::Asc => "ASC",
-            crate::db::SortOrder::Desc => "DESC",
+        let order_clause = if needs_activity_column && query.page.sort_by.is_none() {
+            // Default order for parent notes: most recently active first
+            "ORDER BY last_activity_at DESC".to_string()
+        } else {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+                crate::db::SortOrder::Asc => "ASC",
+                crate::db::SortOrder::Desc => "DESC",
+            };
+
+            // Handle last_activity_at sort field
+            if sort_field == "last_activity_at" {
+                format!("ORDER BY last_activity_at {}", sort_order)
+            } else {
+                format!(
+                    "ORDER BY {}{} {}",
+                    order_field_prefix, sort_field, sort_order
+                )
+            }
         };
-        let order_clause = format!(
-            "ORDER BY {}{} {}",
-            order_field_prefix, sort_field, sort_order
-        );
 
         let limit_clause = build_limit_offset_clause(&query.page);
 

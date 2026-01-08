@@ -1690,3 +1690,196 @@ async fn test_search_with_parent_id_filter() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_parent_notes_sorted_by_last_activity() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 3 parent notes
+    // We rely on actual timestamps since triggers override passed timestamps
+    let parent1 = Note {
+        id: generate_id(),
+        title: "Parent 1".to_string(),
+        content: "First parent (oldest)".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let _created_parent1 = db.notes().create(&parent1).await.unwrap();
+
+    // Wait to ensure timestamp difference (SQLite has second precision by default)
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    let parent2 = Note {
+        id: generate_id(),
+        title: "Parent 2".to_string(),
+        content: "Second parent".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent2 = db.notes().create(&parent2).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    let parent3 = Note {
+        id: generate_id(),
+        title: "Parent 3".to_string(),
+        content: "Third parent".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent3 = db.notes().create(&parent3).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Create a subnote for parent2 - will be updated to have most recent activity
+    let subnote = Note {
+        id: generate_id(),
+        title: "Subnote of Parent 2".to_string(),
+        content: "Medium activity".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent2.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_subnote = db.notes().create(&subnote).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Update parent3 directly - should have second most recent activity
+    let mut updated_parent3 = created_parent3.clone();
+    updated_parent3.content = "Updated parent 3".to_string();
+    db.notes().update(&updated_parent3).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Update the subnote - parent2 should now have the most recent activity
+    let mut updated_subnote = created_subnote.clone();
+    updated_subnote.content = "Latest activity".to_string();
+    db.notes().update(&updated_subnote).await.unwrap();
+
+    // Query parent notes with type=note filter (no explicit sort)
+    // Expected order by last_activity_at DESC:
+    // 1. Parent 2 (most recent - subnote updated last)
+    // 2. Parent 3 (medium - updated directly)
+    // 3. Parent 1 (oldest - no updates)
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        ..Default::default()
+    };
+
+    let result = db.notes().list(Some(&query)).await.unwrap();
+    assert_eq!(result.total, 3, "Should return all 3 parent notes");
+    assert_eq!(result.items.len(), 3);
+
+    // Verify sort order by last activity (DESC)
+    assert_eq!(
+        result.items[0].title, "Parent 2",
+        "Parent 2 should be first (most recent activity via subnote)"
+    );
+    assert_eq!(
+        result.items[1].title, "Parent 3",
+        "Parent 3 should be second (updated directly)"
+    );
+    assert_eq!(
+        result.items[2].title, "Parent 1",
+        "Parent 1 should be third (oldest, no updates)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_parent_notes_explicit_sort_overrides_activity_sort() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 2 parent notes
+    let parent_a = Note {
+        id: generate_id(),
+        title: "Z Parent".to_string(),
+        content: "Should be last alphabetically".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent_a = db.notes().create(&parent_a).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    let parent_b = Note {
+        id: generate_id(),
+        title: "A Parent".to_string(),
+        content: "Should be first alphabetically".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent_b).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Create subnote for Z Parent - makes it most recently active
+    let subnote = Note {
+        id: generate_id(),
+        title: "Subnote".to_string(),
+        content: "Latest activity".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent_a.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&subnote).await.unwrap();
+
+    // Query with explicit sort by title ASC
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        page: crate::db::PageSort {
+            sort_by: Some("title".to_string()),
+            sort_order: Some(crate::db::SortOrder::Asc),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let result = db.notes().list(Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return 2 parent notes");
+    assert_eq!(result.items.len(), 2);
+
+    // Verify sort order is by title ASC, NOT by activity
+    assert_eq!(
+        result.items[0].title, "A Parent",
+        "Should be first alphabetically despite older activity"
+    );
+    assert_eq!(
+        result.items[1].title, "Z Parent",
+        "Should be last alphabetically despite recent activity"
+    );
+}

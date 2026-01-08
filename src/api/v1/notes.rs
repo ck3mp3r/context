@@ -182,7 +182,7 @@ pub struct ListNotesQuery {
     /// Number of items to skip
     #[param(example = 0)]
     pub offset: Option<usize>,
-    /// Field to sort by (title, note_type, created_at, updated_at)
+    /// Field to sort by (title, note_type, created_at, updated_at, last_activity_at)
     #[param(example = "created_at")]
     pub sort: Option<String>,
     /// Sort order (asc, desc)

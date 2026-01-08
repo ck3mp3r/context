@@ -43,7 +43,7 @@ pub struct ListNotesParams {
     )]
     pub include_content: Option<bool>,
     #[schemars(
-        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+        description = "Field to sort by (title, created_at, updated_at, last_activity_at). Default: created_at"
     )]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc). Default: asc")]
@@ -137,7 +137,7 @@ pub struct SearchNotesParams {
     #[schemars(description = "Number of results to skip (optional)")]
     pub offset: Option<usize>,
     #[schemars(
-        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+        description = "Field to sort by (title, created_at, updated_at, last_activity_at). Default: created_at"
     )]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc). Default: asc")]
