@@ -173,8 +173,14 @@ pub fn ProjectDetail() -> impl IntoView {
                     Some(search)
                 };
                 let offset = current_page * NOTE_PAGE_SIZE;
-                let result =
-                    notes::list(Some(NOTE_PAGE_SIZE), Some(offset), search_query, Some(id)).await;
+                let result = notes::list(
+                    Some(NOTE_PAGE_SIZE),
+                    Some(offset),
+                    search_query,
+                    Some(id),
+                    Some("note"),
+                )
+                .await;
                 set_notes_data.set(Some(result));
             });
         }
