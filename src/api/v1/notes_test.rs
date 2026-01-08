@@ -1785,3 +1785,274 @@ async fn test_list_subnotes_filtered() {
     assert_eq!(items[2]["title"], "Child 1");
     assert_eq!(items[2]["idx"], 30);
 }
+
+// =============================================================================
+// Note Type Filtering Tests (type=note, type=subnote)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_note_returns_only_parent_notes() {
+    let app = test_app().await;
+
+    // Create 2 parent notes
+    let parent1 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent Note 1",
+                        "content": "This is a parent note"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent1_body = json_body(parent1).await;
+    let parent1_id = parent1_body["id"].as_str().unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent Note 2",
+                        "content": "Another parent note"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Create 2 subnotes
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subnote 1",
+                        "content": "This is a subnote",
+                        "parent_id": parent1_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subnote 2",
+                        "content": "Another subnote",
+                        "parent_id": parent1_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Query with type=note
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?type=note")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return only 2 parent notes");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned notes have parent_id = null
+    for item in body["items"].as_array().unwrap() {
+        assert!(
+            item["parent_id"].is_null(),
+            "All notes should be parents (parent_id IS NULL)"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_subnote_returns_only_subnotes() {
+    let app = test_app().await;
+
+    // Create 1 parent note
+    let parent = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent Note",
+                        "content": "This is a parent note"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent_body = json_body(parent).await;
+    let parent_id = parent_body["id"].as_str().unwrap();
+
+    // Create 2 subnotes
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subnote 1",
+                        "content": "This is a subnote",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subnote 2",
+                        "content": "Another subnote",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Query with type=subnote
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?type=subnote")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2, "Should return only 2 subnotes");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+    // Verify all returned notes have parent_id NOT null
+    for item in body["items"].as_array().unwrap() {
+        assert!(
+            !item["parent_id"].is_null(),
+            "All notes should be subnotes (parent_id IS NOT NULL)"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_type_omitted_returns_all_notes() {
+    let app = test_app().await;
+
+    // Create 1 parent note
+    let parent = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent Note",
+                        "content": "This is a parent note"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent_body = json_body(parent).await;
+    let parent_id = parent_body["id"].as_str().unwrap();
+
+    // Create 1 subnote
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subnote",
+                        "content": "This is a subnote",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Query WITHOUT type parameter (backward compatibility)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["total"], 2,
+        "Should return all notes (parent + subnote)"
+    );
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+}

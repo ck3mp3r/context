@@ -171,6 +171,11 @@ pub struct ListNotesQuery {
     /// Filter by parent note ID to list subnotes
     #[param(example = "parent123")]
     pub parent_id: Option<String>,
+    /// Filter by note type: "note" (parent notes only) or "subnote" (subnotes only)
+    /// Omit to return both parent notes and subnotes (default)
+    #[param(example = "note")]
+    #[serde(rename = "type")]
+    pub note_type: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -243,6 +248,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         tags,
         project_id: query.project_id.clone(),
         parent_id: query.parent_id.clone(),
+        note_type: query.note_type.clone(),
     };
 
     // Get notes - either search or list all (at database level)

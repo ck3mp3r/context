@@ -1302,3 +1302,149 @@ async fn test_list_subnotes_ordered_by_idx() {
     assert_eq!(result.items[1].title, "Child 3 (idx=20)");
     assert_eq!(result.items[2].title, "Child 1 (idx=30)");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_note_type_filter_returns_only_parent_notes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 2 parent notes
+    let parent1 = Note {
+        id: generate_id(),
+        title: "Parent 1".to_string(),
+        content: "Parent content 1".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent1 = db.notes().create(&parent1).await.unwrap();
+
+    let parent2 = Note {
+        id: generate_id(),
+        title: "Parent 2".to_string(),
+        content: "Parent content 2".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&parent2).await.unwrap();
+
+    // Create 2 subnotes
+    let child1 = Note {
+        id: generate_id(),
+        title: "Child 1".to_string(),
+        content: "Child content 1".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent1.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1).await.unwrap();
+
+    let child2 = Note {
+        id: generate_id(),
+        title: "Child 2".to_string(),
+        content: "Child content 2".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent1.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child2).await.unwrap();
+
+    // Test filter for parent notes only (note_type="note")
+    let query = NoteQuery {
+        note_type: Some("note".to_string()),
+        ..Default::default()
+    };
+
+    let result = db.notes().list(Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return only 2 parent notes");
+    assert_eq!(result.items.len(), 2);
+    for note in &result.items {
+        assert!(
+            note.parent_id.is_none(),
+            "All notes should have parent_id = None"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_note_type_filter_returns_only_subnotes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create 1 parent note
+    let parent = Note {
+        id: generate_id(),
+        title: "Parent".to_string(),
+        content: "Parent content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_parent = db.notes().create(&parent).await.unwrap();
+
+    // Create 2 subnotes
+    let child1 = Note {
+        id: generate_id(),
+        title: "Child 1".to_string(),
+        content: "Child content 1".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child1).await.unwrap();
+
+    let child2 = Note {
+        id: generate_id(),
+        title: "Child 2".to_string(),
+        content: "Child content 2".to_string(),
+        tags: vec![],
+        parent_id: Some(created_parent.id.clone()),
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.notes().create(&child2).await.unwrap();
+
+    // Test filter for subnotes only (note_type="subnote")
+    let query = NoteQuery {
+        note_type: Some("subnote".to_string()),
+        ..Default::default()
+    };
+
+    let result = db.notes().list(Some(&query)).await.unwrap();
+    assert_eq!(result.total, 2, "Should return only 2 subnotes");
+    assert_eq!(result.items.len(), 2);
+    for note in &result.items {
+        assert!(
+            note.parent_id.is_some(),
+            "All notes should have parent_id != None"
+        );
+    }
+}

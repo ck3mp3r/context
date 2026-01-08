@@ -30,6 +30,10 @@ pub struct ListNotesParams {
     pub project_id: Option<String>,
     #[schemars(description = "Filter by parent note ID to list subnotes")]
     pub parent_id: Option<String>,
+    #[schemars(
+        description = "Filter by note type: 'note' (parent notes only) or 'subnote' (subnotes only). Omit to return both parent notes and subnotes (default)."
+    )]
+    pub note_type: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -191,6 +195,7 @@ impl<D: Database + 'static> NoteTools<D> {
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
             parent_id: params.0.parent_id.clone(),
+            note_type: params.0.note_type.clone(),
         };
 
         let result = if include_content {
@@ -375,6 +380,7 @@ impl<D: Database + 'static> NoteTools<D> {
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
             parent_id: None,
+            note_type: None,
         };
 
         let result = self

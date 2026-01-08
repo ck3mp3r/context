@@ -306,6 +306,17 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             bind_values.push(parent_id.clone());
         }
 
+        // Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL)
+        if let Some(note_type) = &query.note_type {
+            match note_type.as_str() {
+                "note" => where_conditions.push(format!("{}parent_id IS NULL", order_field_prefix)),
+                "subnote" => {
+                    where_conditions.push(format!("{}parent_id IS NOT NULL", order_field_prefix))
+                }
+                _ => {} // Ignore invalid values
+            }
+        }
+
         // Build WHERE clause
         let where_clause = if !where_conditions.is_empty() {
             format!("WHERE {}", where_conditions.join(" AND "))
@@ -352,7 +363,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 from_clause, where_clause
             )
         } else {
-            "SELECT COUNT(*) FROM note".to_string()
+            format!("SELECT COUNT(*) FROM note {}", where_clause)
         };
 
         // Get paginated results
@@ -433,6 +444,15 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         if let Some(parent_id) = &query.parent_id {
             where_conditions.push("parent_id = ?".to_string());
             bind_values.push(parent_id.clone());
+        }
+
+        // Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL)
+        if let Some(note_type) = &query.note_type {
+            match note_type.as_str() {
+                "note" => where_conditions.push("parent_id IS NULL".to_string()),
+                "subnote" => where_conditions.push("parent_id IS NOT NULL".to_string()),
+                _ => {} // Ignore invalid values
+            }
         }
 
         let where_clause = if !where_conditions.is_empty() {

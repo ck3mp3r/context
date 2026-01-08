@@ -109,6 +109,9 @@ pub struct NoteQuery {
     pub project_id: Option<String>,
     /// Filter by parent_id (get subnotes of a specific parent note).
     pub parent_id: Option<String>,
+    /// Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL).
+    /// Omit to return both parent notes and subnotes.
+    pub note_type: Option<String>,
 }
 
 /// Result of a paginated list query.
