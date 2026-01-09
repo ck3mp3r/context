@@ -24,9 +24,17 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             task_list.id.clone()
         };
 
-        // Always generate current timestamps - never use input timestamps
-        let created_at = current_timestamp();
-        let updated_at = created_at.clone();
+        // Use provided timestamps or generate if empty
+        let created_at = if task_list.created_at.is_empty() {
+            current_timestamp()
+        } else {
+            task_list.created_at.clone()
+        };
+        let updated_at = if task_list.updated_at.is_empty() {
+            created_at.clone()
+        } else {
+            task_list.updated_at.clone()
+        };
 
         // Start a transaction for atomic operations
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {

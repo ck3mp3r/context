@@ -14,3 +14,13 @@ CREATE INDEX IF NOT EXISTS idx_note_parent_updated
 -- Enables fast sorting when user explicitly sorts by updated_at
 CREATE INDEX IF NOT EXISTS idx_note_updated_at 
   ON note(updated_at);
+
+-- Drop auto-update triggers that interfere with import/export timestamp preservation
+-- 
+-- These triggers were automatically setting updated_at=datetime('now') on every UPDATE,
+-- which broke import functionality by overwriting imported timestamps.
+-- The application code already handles updated_at correctly in the update() methods.
+
+DROP TRIGGER IF EXISTS project_update;
+DROP TRIGGER IF EXISTS task_list_update;
+DROP TRIGGER IF EXISTS note_update;

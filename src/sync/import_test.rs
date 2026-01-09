@@ -1,6 +1,6 @@
 use crate::db::{
     Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    SqliteDatabase,
+    SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
 };
 use crate::sync::export::export_all;
 use crate::sync::import::*;
@@ -212,4 +212,208 @@ async fn test_import_preserves_relationships() {
     let imported_note = db2.notes().get("note0001").await.unwrap();
     assert_eq!(imported_note.project_ids, vec!["proj0001"]);
     assert_eq!(imported_note.repo_ids, vec!["repo0001"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_preserves_timestamps() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a note with specific timestamps
+    let original_created = "2024-01-01T10:00:00Z";
+    let original_updated = "2024-01-02T15:30:00Z";
+
+    let note = Note {
+        id: "testid01".to_string(),
+        title: "Test Note".to_string(),
+        content: "Original content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(original_updated.to_string()),
+    };
+
+    db.notes().create(&note).await.unwrap();
+
+    // Verify timestamps were stored correctly
+    let stored_note = db.notes().get("testid01").await.unwrap();
+    assert_eq!(stored_note.created_at, Some(original_created.to_string()));
+    assert_eq!(stored_note.updated_at, Some(original_updated.to_string()));
+
+    // Export the note
+    export_all(&db, temp_dir.path()).await.unwrap();
+
+    // Modify the note content and update timestamp
+    let modified_updated = "2024-01-03T20:45:00Z";
+    let modified_note = Note {
+        id: "testid01".to_string(),
+        title: "Test Note".to_string(),
+        content: "Modified content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(modified_updated.to_string()),
+    };
+
+    // Write the modified note to JSONL (simulating external modification)
+    write_jsonl(&temp_dir.path().join("notes.jsonl"), &[modified_note]).unwrap();
+
+    // Import should preserve the modified timestamp
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    // Verify timestamps were preserved (not overwritten by trigger)
+    let imported_note = db.notes().get("testid01").await.unwrap();
+    assert_eq!(
+        imported_note.created_at,
+        Some(original_created.to_string()),
+        "created_at should be preserved"
+    );
+    assert_eq!(
+        imported_note.updated_at,
+        Some(modified_updated.to_string()),
+        "updated_at should be preserved from import, not auto-generated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_preserves_project_timestamps() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a project with specific timestamps
+    let original_created = "2024-01-01T10:00:00Z";
+    let original_updated = "2024-01-02T15:30:00Z";
+
+    let project = Project {
+        id: "proj1234".to_string(),
+        title: "Test Project".to_string(),
+        description: Some("Test description".to_string()),
+        tags: vec![],
+        external_ref: None,
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: original_created.to_string(),
+        updated_at: original_updated.to_string(),
+    };
+
+    db.projects().create(&project).await.unwrap();
+
+    // Modify and reimport with new timestamp
+    let modified_updated = "2024-01-03T20:45:00Z";
+    let modified_project = Project {
+        id: "proj1234".to_string(),
+        title: "Modified Project".to_string(),
+        description: Some("Modified description".to_string()),
+        tags: vec![],
+        external_ref: None,
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: original_created.to_string(),
+        updated_at: modified_updated.to_string(),
+    };
+
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[modified_project]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    let imported_project = db.projects().get("proj1234").await.unwrap();
+    assert_eq!(
+        imported_project.created_at, original_created,
+        "project created_at should be preserved"
+    );
+    assert_eq!(
+        imported_project.updated_at, modified_updated,
+        "project updated_at should be preserved from import, not auto-generated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_preserves_task_list_timestamps() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a project first (required for task list)
+    let project = Project {
+        id: "proj1234".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_ref: None,
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+
+    // Create a task list with specific timestamps
+    let original_created = "2024-01-01T10:00:00Z";
+    let original_updated = "2024-01-02T15:30:00Z";
+
+    let task_list = TaskList {
+        id: "list1234".to_string(),
+        title: "Test List".to_string(),
+        description: Some("Test description".to_string()),
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        notes: None,
+        repo_ids: vec![],
+        project_id: "proj1234".to_string(),
+        created_at: original_created.to_string(),
+        updated_at: original_updated.to_string(),
+        archived_at: None,
+    };
+
+    db.task_lists().create(&task_list).await.unwrap();
+
+    // Modify and reimport with new timestamp
+    let modified_updated = "2024-01-03T20:45:00Z";
+    let modified_list = TaskList {
+        id: "list1234".to_string(),
+        title: "Modified List".to_string(),
+        description: Some("Modified description".to_string()),
+        tags: vec![],
+        external_ref: None,
+        status: TaskListStatus::Active,
+        notes: None,
+        repo_ids: vec![],
+        project_id: "proj1234".to_string(),
+        created_at: original_created.to_string(),
+        updated_at: modified_updated.to_string(),
+        archived_at: None,
+    };
+
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
+    write_jsonl(&temp_dir.path().join("lists.jsonl"), &[modified_list]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    let imported_list = db.task_lists().get("list1234").await.unwrap();
+    assert_eq!(
+        imported_list.created_at, original_created,
+        "task_list created_at should be preserved"
+    );
+    assert_eq!(
+        imported_list.updated_at, modified_updated,
+        "task_list updated_at should be preserved from import, not auto-generated"
+    );
 }

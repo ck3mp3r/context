@@ -20,9 +20,17 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             project.id.clone()
         };
 
-        // Always generate current timestamps - never use input timestamps
-        let created_at = current_timestamp();
-        let updated_at = created_at.clone();
+        // Use provided timestamps or generate if empty
+        let created_at = if project.created_at.is_empty() {
+            current_timestamp()
+        } else {
+            project.created_at.clone()
+        };
+        let updated_at = if project.updated_at.is_empty() {
+            created_at.clone()
+        } else {
+            project.updated_at.clone()
+        };
 
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
 
