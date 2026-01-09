@@ -548,4 +548,117 @@ mod tests {
         assert_eq!(imported_task.title, "Test Task");
         assert_eq!(imported_task.status, TaskStatus::InProgress);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_export_import_preserves_note_hierarchy() {
+        // RED: This test will fail because parent_id and idx are not preserved during import
+        use crate::db::NoteRepository;
+
+        let db1 = setup_test_db().await;
+        let db2 = setup_test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create a project
+        let project = Project {
+            id: "proj0001".to_string(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_ref: None,
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        db1.projects().create(&project).await.unwrap();
+
+        // Create parent note
+        let parent_note = crate::db::Note {
+            id: "note0001".to_string(),
+            title: "Parent Note".to_string(),
+            content: "This is the parent".to_string(),
+            tags: vec!["parent".to_string()],
+            parent_id: None,
+            idx: Some(1),
+            repo_ids: vec![],
+            project_ids: vec!["proj0001".to_string()],
+            subnote_count: None,
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        db1.notes().create(&parent_note).await.unwrap();
+
+        // Create child note with parent_id and idx
+        let child_note = crate::db::Note {
+            id: "note0002".to_string(),
+            title: "Child Note".to_string(),
+            content: "This is a child".to_string(),
+            tags: vec!["child".to_string()],
+            parent_id: Some("note0001".to_string()), // CRITICAL: Must be preserved
+            idx: Some(2),                            // CRITICAL: Must be preserved
+            repo_ids: vec![],
+            project_ids: vec!["proj0001".to_string()],
+            subnote_count: None,
+            created_at: Some("2024-01-02T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-02T00:00:00Z".to_string()),
+        };
+        db1.notes().create(&child_note).await.unwrap();
+
+        // Create another child with different idx
+        let child_note2 = crate::db::Note {
+            id: "note0003".to_string(),
+            title: "Second Child".to_string(),
+            content: "Another child".to_string(),
+            tags: vec![],
+            parent_id: Some("note0001".to_string()), // CRITICAL: Must be preserved
+            idx: Some(1),                            // CRITICAL: Different idx for ordering
+            repo_ids: vec![],
+            project_ids: vec!["proj0001".to_string()],
+            subnote_count: None,
+            created_at: Some("2024-01-03T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-03T00:00:00Z".to_string()),
+        };
+        db1.notes().create(&child_note2).await.unwrap();
+
+        // Export and import
+        db1.sync().export_all(temp_dir.path()).await.unwrap();
+        db2.sync().import_all(temp_dir.path()).await.unwrap();
+
+        // Verify parent_id and idx are preserved
+        let imported_parent = db2.notes().get("note0001").await.unwrap();
+        assert_eq!(
+            imported_parent.parent_id, None,
+            "Parent should have no parent_id"
+        );
+        assert_eq!(
+            imported_parent.idx,
+            Some(1),
+            "Parent idx should be preserved"
+        );
+
+        let imported_child = db2.notes().get("note0002").await.unwrap();
+        assert_eq!(
+            imported_child.parent_id,
+            Some("note0001".to_string()),
+            "CRITICAL: child parent_id must be preserved during export/import!"
+        );
+        assert_eq!(
+            imported_child.idx,
+            Some(2),
+            "CRITICAL: child idx must be preserved during export/import!"
+        );
+
+        let imported_child2 = db2.notes().get("note0003").await.unwrap();
+        assert_eq!(
+            imported_child2.parent_id,
+            Some("note0001".to_string()),
+            "CRITICAL: second child parent_id must be preserved!"
+        );
+        assert_eq!(
+            imported_child2.idx,
+            Some(1),
+            "CRITICAL: second child idx must be preserved!"
+        );
+    }
 }

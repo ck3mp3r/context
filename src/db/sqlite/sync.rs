@@ -249,18 +249,22 @@ async fn import_all_with_transaction(
         for note in notes {
             // Upsert note
             sqlx::query(
-                "INSERT INTO note (id, title, content, tags, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?)
+                "INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    title = excluded.title,
                    content = excluded.content,
                    tags = excluded.tags,
+                   parent_id = excluded.parent_id,
+                   idx = excluded.idx,
                    updated_at = excluded.updated_at",
             )
             .bind(&note.id)
             .bind(&note.title)
             .bind(&note.content)
             .bind(serde_json::to_string(&note.tags)?)
+            .bind(&note.parent_id)
+            .bind(&note.idx)
             .bind(&note.created_at)
             .bind(&note.updated_at)
             .execute(&mut **tx)
