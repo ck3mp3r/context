@@ -125,17 +125,16 @@ pub fn MarkdownContent(content: String) -> impl IntoView {
 }
 
 #[component]
-pub fn NoteStackSidebar(
-    parent_note: Note,
-    selected_note_id: RwSignal<String>,
-    on_note_select: Callback<String>,
-) -> impl IntoView {
+pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> impl IntoView {
     use leptos::task::spawn_local;
 
     let (subnotes, set_subnotes) = signal(Vec::<Note>::new());
     let (offset, set_offset) = signal(0);
     let (loading, set_loading) = signal(false);
     let (total_count, set_total_count) = signal(0);
+
+    // Internal selection state - starts with parent selected
+    let (selected_note_id, set_selected_note_id) = signal(parent_note.id.clone());
 
     let parent_id = parent_note.id.clone();
     let parent_id_for_fetch = parent_note.id.clone();
@@ -212,6 +211,44 @@ pub fn NoteStackSidebar(
 
     let scroll_ref = NodeRef::<leptos::html::Div>::new();
 
+    // Helper to update selection in DOM (non-reactive)
+    let update_selection = {
+        let scroll_ref = scroll_ref.clone();
+        move |note_id: String| {
+            use wasm_bindgen::JsCast;
+            if let Some(container) = scroll_ref.get() {
+                let element: &web_sys::Element = container.unchecked_ref();
+                // Remove selected from all cards
+                if let Ok(cards) = element.query_selector_all("[data-note-id]") {
+                    for i in 0..cards.length() {
+                        if let Some(node) = cards.item(i) {
+                            if let Some(card) = node.dyn_ref::<web_sys::Element>() {
+                                let _ = card.set_attribute("data-selected", "false");
+                            }
+                        }
+                    }
+                }
+                // Add selected to the clicked card
+                let selector = format!("[data-note-id='{}']", note_id);
+                if let Ok(Some(card)) = element.query_selector(&selector) {
+                    let _ = card.set_attribute("data-selected", "true");
+                }
+            }
+        }
+    };
+
+    // Set initial highlight on mount
+    {
+        let scroll_ref_for_init = scroll_ref.clone();
+        let update_selection_for_init = update_selection.clone();
+        let parent_id_for_init = parent_note.id.clone();
+        Effect::new(move || {
+            if scroll_ref_for_init.get().is_some() {
+                update_selection_for_init(parent_id_for_init.clone());
+            }
+        });
+    }
+
     // Infinite scroll: load more when scrolling near bottom
     let on_scroll = move |_| {
         if loading.get() {
@@ -233,24 +270,23 @@ pub fn NoteStackSidebar(
     };
 
     view! {
-        <div class="p-3" node_ref=scroll_ref on:scroll=on_scroll>
+        <div class="note-stack-sidebar p-3" node_ref=scroll_ref on:scroll=on_scroll>
                 // Parent note preview (static, doesn't re-render)
                 {
                     let parent_id = parent_note.id.clone();
+                    let update_selection_parent = update_selection.clone();
                     view! {
-                        <div class=move || {
-                            let is_selected = selected_note_id.get() == parent_id;
-                            if is_selected {
-                                "bg-ctp-blue/20 border-ctp-blue border-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
-                            } else {
-                                "bg-ctp-surface0 border-ctp-surface1 border hover:bg-ctp-surface0/80 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                        <div
+                            class="note-stack-card rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                            style="height: 200px; width: 150px;"
+                            data-note-id=parent_id.clone()
+                            data-selected="false"
+                            on:click=move |e| {
+                                e.prevent_default();
+                                let id = parent_note.id.clone();
+                                update_selection_parent(id.clone());
+                                on_note_select.run(id);
                             }
-                        }
-                        style="height: 200px; width: 150px;"
-                        on:click=move |e| {
-                            e.prevent_default();
-                            on_note_select.run(parent_note.id.clone());
-                        }
                         >
                             <h4 class="text-sm font-semibold text-ctp-text mb-1 truncate">
                                 {parent_note.title.clone()}
@@ -292,23 +328,20 @@ pub fn NoteStackSidebar(
                     key=|note| note.id.clone()
                     children=move |note| {
                         let note_id = note.id.clone();
-                        let note_id_for_class = note_id.clone();
-                        let note_id_for_click = note_id.clone();
                         let note_clone = note.clone();
+                        let update_selection_child = update_selection.clone();
                         view! {
-                            <div class=move || {
-                                let is_selected = selected_note_id.get() == note_id_for_class;
-                                if is_selected {
-                                    "bg-ctp-blue/20 border-ctp-blue border-2 ml-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
-                                } else {
-                                    "bg-ctp-surface0 border-ctp-surface1 border hover:bg-ctp-surface0/80 ml-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                            <div
+                                class="note-stack-card ml-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                                style="height: 200px; width: 150px;"
+                                data-note-id=note_id.clone()
+                                data-selected="false"
+                                on:click=move |e| {
+                                    e.prevent_default();
+                                    let id = note_id.clone();
+                                    update_selection_child(id.clone());
+                                    on_note_select.run(id);
                                 }
-                            }
-                            style="height: 200px; width: 150px;"
-                            on:click=move |e| {
-                                e.prevent_default();
-                                on_note_select.run(note_id_for_click.clone());
-                            }
                             >
                                 <h4 class="text-sm font-semibold text-ctp-text mb-1 truncate">
                                     {note_clone.title.clone()}
@@ -427,7 +460,12 @@ pub fn NoteDetailModal(
     });
 
     // State for selected note in stack (initialized to parent note)
-    let selected_note_id = RwSignal::new(String::new());
+    let selected_note_id = RwSignal::new(note_id.get());
+
+    // Callback for note selection - defined OUTSIDE reactive context
+    let on_note_select = Callback::new(move |id: String| {
+        selected_note_id.set(id);
+    });
 
     // Refetch trigger for selected note
     let (selected_refetch_trigger, set_selected_refetch_trigger) = signal(0u32);
@@ -506,11 +544,6 @@ pub fn NoteDetailModal(
                                 .map(|result| {
                                     match result {
                                         Ok(note) => {
-                                        // Initialize selected_note_id to parent note on first load
-                                        if selected_note_id.get().is_empty() {
-                                            selected_note_id.set(note.id.clone());
-                                        }
-
                                         web_sys::console::log_1(&format!("Note {} has_subnotes: {}", note.id, has_subnotes).into());
 
                                         // Close button (always in top-right)
@@ -529,9 +562,18 @@ pub fn NoteDetailModal(
                                         if has_subnotes {
                                             // Split-panel layout for note stacks
                                             let parent_note_for_sidebar = note.clone();
-                                            let on_note_select = Callback::new(move |id: String| {
-                                                selected_note_id.set(id);
-                                            });
+
+                                            // Sidebar component - renders ONCE, never re-renders
+                                            let sidebar_view = view! {
+                                                <div class="border-r border-ctp-surface1 flex-shrink-0 flex flex-col overflow-hidden" style="width: 190px;">
+                                                    <div class="overflow-y-auto flex-1 min-h-0">
+                                                        <NoteStackSidebar
+                                                            parent_note=parent_note_for_sidebar
+                                                            on_note_select=on_note_select
+                                                        />
+                                                    </div>
+                                                </div>
+                                            };
 
                                             view! {
                                                 <div class="flex flex-col" style="height: 100vh;">
@@ -542,18 +584,10 @@ pub fn NoteDetailModal(
 
                                                     // Main content area - split panel
                                                     <div class="flex flex-1 min-h-0 overflow-hidden">
-                                                        // Left sidebar - note stack navigation (SCROLLABLE)
-                                                        <div class="border-r border-ctp-surface1 flex-shrink-0 flex flex-col overflow-hidden" style="width: 190px;">
-                                                            <div class="overflow-y-auto flex-1 min-h-0">
-                                                                <NoteStackSidebar
-                                                                    parent_note=parent_note_for_sidebar
-                                                                    selected_note_id=selected_note_id
-                                                                    on_note_select=on_note_select
-                                                                />
-                                                            </div>
-                                                        </div>
+                                                        // Left sidebar - STATIC, never re-renders
+                                                        {sidebar_view}
 
-                                                        // Right side - SPLIT: fixed header + scrollable content
+                                                        // Right side - REACTIVE, re-renders on selection change
                                                         <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
                                                             <Suspense fallback=move || {
                                                                 view! { <p class="text-ctp-subtext0 p-6">"Loading..."</p> }

@@ -276,3 +276,30 @@ body {
 .note-preview hr {
   display: none; /* Hide horizontal rules in preview */
 }
+
+/* Note Stack Sidebar - Prevent scroll anchoring */
+.note-stack-sidebar {
+  /* CRITICAL: Prevents browser from auto-scrolling when DOM updates */
+  overflow-anchor: none;
+}
+
+/* Note Stack Card Selection - CSS-only, no reactive classes */
+.note-stack-card {
+  /* Base styles - unselected */
+  background-color: #313244; /* ctp-surface0 */
+  border: 1px solid #45475a; /* ctp-surface1 */
+  /* Prevent focus/scroll behavior */
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Prevent this element from being a scroll anchor */
+  overflow-anchor: none;
+}
+
+.note-stack-card:hover {
+  background-color: rgba(49, 50, 68, 0.8); /* ctp-surface0/80 */
+}
+
+.note-stack-card[data-selected="true"] {
+  background-color: rgba(137, 180, 250, 0.2); /* ctp-blue/20 */
+  border: 2px solid #89b4fa; /* ctp-blue */
+}
