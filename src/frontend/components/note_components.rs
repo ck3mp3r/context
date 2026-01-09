@@ -39,19 +39,19 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     view! {
         // Wrapper - natural sizing
         <div class="relative w-full">
-            // Background layers BEFORE main card - absolute positioned, SAME width and height as main card
-            // Layer 2 (BACK - offset 8px down+right)
+            // Background layers - ALL same size: (W-8px) × (H-8px), positioned with offset
+            // Layer 2 (BACK) at (8px, 8px): left=8px, right=0 → width = W-8px ✓
             {has_subnotes.then(|| view! {
-                <div class="absolute bg-ctp-surface2 border border-ctp-overlay0 rounded-lg opacity-40 pointer-events-none" style="z-index: 0; top: 8px; left: 8px; width: calc(100% - 8px); min-height: 212px;"></div>
+                <div class="absolute bg-ctp-surface2 border border-ctp-overlay0 rounded-lg opacity-40 pointer-events-none" style="z-index: 0; top: 8px; left: 8px; right: 0; bottom: 0;"></div>
             })}
-            // Layer 1 (MIDDLE - offset 4px down+right)
+            // Layer 1 (MIDDLE) at (4px, 4px): left=4px, right=4px → width = W-8px ✓
             {has_subnotes.then(|| view! {
-                <div class="absolute bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60 pointer-events-none" style="z-index: 1; top: 4px; left: 4px; width: calc(100% - 8px); min-height: 212px;"></div>
+                <div class="absolute bg-ctp-surface1 border border-ctp-surface2 rounded-lg opacity-60 pointer-events-none" style="z-index: 1; top: 4px; left: 4px; right: 4px; bottom: 4px;"></div>
             })}
 
-            // Main card (FRONT - relative positioned, defines size)
+            // Main card (FRONT) at (0, 0), size (W-8px) × (H-8px)
             <div class="relative bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col"
-                 style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); min-height: 212px;" } else { "z-index: 2; width: 100%; min-height: 220px;" }}>
+                 style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); height: calc(100% - 8px);" } else { "z-index: 2; width: 100%; height: 100%;" }}>
             <a
                 href=href
                 on:click=move |ev| {
