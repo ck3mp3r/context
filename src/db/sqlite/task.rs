@@ -64,19 +64,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             message: e.to_string(),
         })?;
 
-        // If this is a child task, update parent's updated_at
-        // This replaces the SQL trigger logic
-        if let Some(parent_id) = &task.parent_id {
-            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
-                .bind(&updated_at)
-                .bind(parent_id)
-                .execute(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-        }
-
         self.get(&id).await
     }
 
@@ -111,6 +98,14 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             "completed_at",
             "updated_at",
         ];
+
+        // Check if we need last_activity_at computed column
+        // - When sorting by updated_at, compute activity for proper ordering
+        // - Only relevant for parent tasks (task_type=task or not filtering by parent_id)
+        let is_sorting_by_updated = query.page.sort_by.as_deref() == Some("updated_at");
+        let is_querying_parents = query.task_type.as_deref() == Some("task")
+            || (query.parent_id.is_none() && query.task_type.is_none());
+        let needs_activity_column = is_sorting_by_updated && is_querying_parents;
 
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
@@ -168,13 +163,27 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             format!("WHERE {}", conditions.join(" AND "))
         };
 
-        // Build SQL based on whether we need json_each
+        // Build SQL based on whether we need json_each or activity column
         let (sql, count_sql) = if needs_json_each {
+            let select_cols = if needs_activity_column {
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_ref, t.created_at, t.started_at, t.completed_at, t.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id), t.updated_at) AS last_activity_at"
+            } else {
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_ref, t.created_at, t.started_at, t.completed_at, t.updated_at"
+            };
+
+            // Replace updated_at in ORDER BY with last_activity_at if we computed it
+            let order_clause_adjusted = if needs_activity_column {
+                order_clause.replace("updated_at", "last_activity_at")
+            } else {
+                order_clause.clone()
+            };
+
             let sql = format!(
-                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_ref, t.created_at, t.started_at, t.completed_at, t.updated_at
+                "SELECT {}
                  FROM task t, json_each(t.tags)
                  {} {} {}",
-                where_clause, order_clause, limit_clause
+                select_cols, where_clause, order_clause_adjusted, limit_clause
             );
             let count_sql = format!(
                 "SELECT COUNT(DISTINCT t.id) FROM task t, json_each(t.tags) {}",
@@ -182,11 +191,25 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             );
             (sql, count_sql)
         } else {
+            let select_cols = if needs_activity_column {
+                "task.id, task.list_id, task.parent_id, task.title, task.description, task.status, task.priority, task.tags, task.external_ref, task.created_at, task.started_at, task.completed_at, task.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM task AS child WHERE child.parent_id = task.id), task.updated_at) AS last_activity_at"
+            } else {
+                "id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at"
+            };
+
+            // Replace updated_at in ORDER BY with last_activity_at if we computed it
+            let order_clause_adjusted = if needs_activity_column {
+                order_clause.replace("updated_at", "last_activity_at")
+            } else {
+                order_clause.clone()
+            };
+
             let sql = format!(
-                "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at
+                "SELECT {}
                  FROM task
                  {} {} {}",
-                where_clause, order_clause, limit_clause
+                select_cols, where_clause, order_clause_adjusted, limit_clause
             );
             let count_sql = format!("SELECT COUNT(*) FROM task {}", where_clause);
             (sql, count_sql)
@@ -313,19 +336,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 entity_type: "Task".to_string(),
                 id: task.id.clone(),
             });
-        }
-
-        // CASCADE: Update parent's updated_at if this is a child task
-        // This replaces the SQL trigger logic
-        if let Some(parent_id) = &task.parent_id {
-            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
-                .bind(&updated_at)
-                .bind(parent_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
         }
 
         // CASCADE: If status changed and this is a parent task, update matching subtasks

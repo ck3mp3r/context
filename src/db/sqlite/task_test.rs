@@ -1485,131 +1485,6 @@ async fn test_type_works_with_parent_id_filter() {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn task_update_cascades_updated_at_to_parent() {
-    let db = setup_db().await;
-    let task_lists = db.task_lists();
-    let tasks = db.tasks();
-
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(),
-            title: "Cascade Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_ref: None,
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
-            archived_at: None,
-        })
-        .await
-        .expect("Create list");
-
-    // Create parent task with None timestamps so DB generates current time
-    let mut parent_task = make_task("parent01", &list.id, "Parent Task");
-    parent_task.created_at = None;
-    parent_task.updated_at = None;
-    let parent = tasks.create(&parent_task).await.unwrap();
-
-    let initial_parent_updated_at = parent.updated_at.clone();
-
-    // Wait to ensure timestamp difference (SQLite second precision)
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    // Create subtask
-    let mut subtask = make_task("subtask1", &list.id, "Subtask");
-    subtask.parent_id = Some(parent.id.clone());
-    subtask.created_at = None;
-    subtask.updated_at = None;
-    let subtask = tasks.create(&subtask).await.unwrap();
-
-    // Wait again to ensure update gets different timestamp
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    // Update the subtask
-    let mut updated_subtask = subtask.clone();
-    updated_subtask.title = "Updated Subtask".to_string();
-    tasks
-        .update(&updated_subtask)
-        .await
-        .expect("Update subtask");
-
-    // Fetch both parent and subtask after update
-    let parent_after = tasks.get(&parent.id).await.expect("Get parent");
-    let subtask_after = tasks.get(&subtask.id).await.expect("Get subtask");
-
-    // ASSERT: Parent's updated_at should have changed
-    assert_ne!(
-        parent_after.updated_at, initial_parent_updated_at,
-        "Parent's updated_at should be updated when subtask changes"
-    );
-    // With new trigger logic: parent's updated_at should EQUAL child's updated_at
-    assert_eq!(
-        parent_after.updated_at, subtask_after.updated_at,
-        "Parent's updated_at should equal subtask's updated_at (cascade trigger)"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn task_create_cascades_updated_at_to_parent() {
-    let db = setup_db().await;
-    let task_lists = db.task_lists();
-    let tasks = db.tasks();
-
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(),
-            title: "Cascade Insert Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_ref: None,
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
-            archived_at: None,
-        })
-        .await
-        .expect("Create list");
-
-    // Create parent task with None timestamps so DB generates current time
-    let mut parent_task = make_task("parent02", &list.id, "Parent Task");
-    parent_task.created_at = None;
-    parent_task.updated_at = None;
-    let parent = tasks.create(&parent_task).await.unwrap();
-
-    let initial_parent_updated_at = parent.updated_at.clone();
-
-    // Wait to ensure timestamp difference
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    // Create subtask - this INSERT should trigger cascade
-    let mut subtask = make_task("subtask2", &list.id, "New Subtask");
-    subtask.parent_id = Some(parent.id.clone());
-    subtask.created_at = None;
-    subtask.updated_at = None;
-    let created_subtask = tasks.create(&subtask).await.unwrap();
-
-    // Fetch parent again
-    let parent_after = tasks.get(&parent.id).await.expect("Get parent");
-
-    // ASSERT: Parent's updated_at should have changed when subtask was created
-    assert_ne!(
-        parent_after.updated_at, initial_parent_updated_at,
-        "Parent's updated_at should be updated when subtask is CREATED (INSERT trigger)"
-    );
-    assert!(
-        parent_after.updated_at >= created_subtask.updated_at,
-        "Parent's updated_at should be >= subtask's created_at"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn task_create_with_github_external_ref() {
     let db = setup_db().await;
     let list = db
@@ -1705,4 +1580,133 @@ async fn task_remove_external_ref() {
     // Verify it's persisted
     let fetched = db.tasks().get(&updated_task.id).await.expect("Get task");
     assert_eq!(fetched.external_ref, None);
+}
+
+// ============================================================================
+// Activity-Based Sorting Tests
+// ============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn subtask_update_does_not_update_parent_timestamp() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("activity", "Activity Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent task at T0
+    let mut parent = make_task("", "activity", "Parent task");
+    parent.status = TaskStatus::InProgress;
+    parent.created_at = Some("2026-01-01 10:00:00".to_string());
+    parent.updated_at = Some("2026-01-01 10:00:00".to_string());
+    let created_parent = tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    // Capture parent's timestamp
+    let parent_timestamp_before = created_parent.updated_at.clone();
+
+    // Sleep to ensure timestamp difference
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Create subtask at T1
+    let mut subtask = make_task("", "activity", "Subtask");
+    subtask.parent_id = Some(created_parent.id.clone());
+    subtask.status = TaskStatus::InProgress;
+    subtask.created_at = Some("2026-01-01 11:00:00".to_string());
+    subtask.updated_at = Some("2026-01-01 11:00:00".to_string());
+    let mut created_subtask = tasks
+        .create(&subtask)
+        .await
+        .expect("Create subtask should succeed");
+
+    // Sleep again
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Update subtask at T2
+    created_subtask.title = "Updated subtask".to_string();
+    created_subtask.updated_at = Some("2026-01-01 12:00:00".to_string());
+    tasks
+        .update(&created_subtask)
+        .await
+        .expect("Update subtask should succeed");
+
+    // Verify: Parent timestamp should NOT have changed
+    let parent_after = tasks
+        .get(&created_parent.id)
+        .await
+        .expect("Get parent should succeed");
+
+    assert_eq!(
+        parent_after.updated_at, parent_timestamp_before,
+        "Parent's updated_at should NOT change when subtask is updated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn parent_tasks_sorted_by_activity_include_subtask_updates() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("sort0001", "Activity Sort Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent1 at T0
+    let mut parent1 = make_task("", "sort0001", "Parent 1");
+    parent1.created_at = Some("2026-01-01 10:00:00".to_string());
+    parent1.updated_at = Some("2026-01-01 10:00:00".to_string());
+    let parent1 = tasks.create(&parent1).await.expect("Create parent1");
+
+    // Create parent2 at T1 (more recent than parent1)
+    let mut parent2 = make_task("", "sort0001", "Parent 2");
+    parent2.created_at = Some("2026-01-01 11:00:00".to_string());
+    parent2.updated_at = Some("2026-01-01 11:00:00".to_string());
+    let parent2 = tasks.create(&parent2).await.expect("Create parent2");
+
+    // Create subtask of parent1 at T2 (most recent activity)
+    let mut subtask1 = make_task("", "sort0001", "Subtask of Parent 1");
+    subtask1.parent_id = Some(parent1.id.clone());
+    subtask1.created_at = Some("2026-01-01 12:00:00".to_string());
+    subtask1.updated_at = Some("2026-01-01 12:00:00".to_string());
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    // Query parent tasks sorted by updated_at DESC
+    // Expected order: parent1 (last_activity=12:00), parent2 (last_activity=11:00)
+    let query = TaskQuery {
+        page: crate::db::PageSort {
+            limit: Some(10),
+            offset: Some(0),
+            sort_by: Some("updated_at".to_string()),
+            sort_order: Some(crate::db::SortOrder::Desc),
+        },
+        list_id: Some("sort0001".to_string()),
+        parent_id: None,
+        status: None,
+        tags: None,
+        task_type: Some("task".to_string()), // Parent tasks only
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    assert_eq!(result.total, 2, "Should have 2 parent tasks");
+    assert_eq!(result.items.len(), 2, "Should return 2 parent tasks");
+
+    // Assert order: parent1 should come FIRST because subtask activity is more recent
+    assert_eq!(
+        result.items[0].id, parent1.id,
+        "Parent 1 should be first (has most recent subtask activity at 12:00)"
+    );
+    assert_eq!(
+        result.items[1].id, parent2.id,
+        "Parent 2 should be second (last activity at 11:00)"
+    );
 }

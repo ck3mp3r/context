@@ -34,3 +34,12 @@ CREATE INDEX IF NOT EXISTS idx_note_parent_id ON note(parent_id);
 -- Composite index on (parent_id, idx) for ordered sibling queries
 -- Allows efficient "get all children of parent X ordered by idx"
 CREATE INDEX IF NOT EXISTS idx_note_parent_idx ON note(parent_id, idx);
+
+-- ============================================================================
+-- TASKS: Add composite index for activity-based sorting
+-- ============================================================================
+
+-- Composite index on (parent_id, updated_at DESC) for activity queries
+-- Enables O(1) MAX(updated_at) lookup per parent task
+-- Used for computing last_activity_at = COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id), t.updated_at)
+CREATE INDEX IF NOT EXISTS idx_task_parent_updated ON task(parent_id, updated_at DESC);
