@@ -134,7 +134,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
     let (total_count, set_total_count) = signal(0);
 
     // Internal selection state - starts with parent selected
-    let (selected_note_id, set_selected_note_id) = signal(parent_note.id.clone());
+    let (_selected_note_id, _set_selected_note_id) = signal(parent_note.id.clone());
 
     let parent_id = parent_note.id.clone();
     let parent_id_for_fetch = parent_note.id.clone();
@@ -145,19 +145,15 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
 
     // Watch for WebSocket note updates - refetch if any note in this stack changes
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            match update {
-                UpdateMessage::NoteUpdated { note_id: _ }
-                | UpdateMessage::NoteDeleted { note_id: _ }
-                | UpdateMessage::NoteCreated { note_id: _ } => {
-                    // Refetch the entire sidebar to catch any changes to subnotes
-                    web_sys::console::log_1(
-                        &"Note updated via WebSocket, refetching sidebar...".into(),
-                    );
-                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                }
-                _ => {}
-            }
+        if let Some(
+            UpdateMessage::NoteUpdated { note_id: _ }
+            | UpdateMessage::NoteDeleted { note_id: _ }
+            | UpdateMessage::NoteCreated { note_id: _ },
+        ) = ws_updates.get()
+        {
+            // Refetch the entire sidebar to catch any changes to subnotes
+            web_sys::console::log_1(&"Note updated via WebSocket, refetching sidebar...".into());
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 
@@ -213,7 +209,6 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
 
     // Helper to update selection in DOM (non-reactive)
     let update_selection = {
-        let scroll_ref = scroll_ref.clone();
         move |note_id: String| {
             use wasm_bindgen::JsCast;
             if let Some(container) = scroll_ref.get() {
@@ -221,10 +216,10 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                 // Remove selected from all cards
                 if let Ok(cards) = element.query_selector_all("[data-note-id]") {
                     for i in 0..cards.length() {
-                        if let Some(node) = cards.item(i) {
-                            if let Some(card) = node.dyn_ref::<web_sys::Element>() {
-                                let _ = card.set_attribute("data-selected", "false");
-                            }
+                        if let Some(node) = cards.item(i)
+                            && let Some(card) = node.dyn_ref::<web_sys::Element>()
+                        {
+                            let _ = card.set_attribute("data-selected", "false");
                         }
                     }
                 }
@@ -239,8 +234,8 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
 
     // Set initial highlight on mount
     {
-        let scroll_ref_for_init = scroll_ref.clone();
-        let update_selection_for_init = update_selection.clone();
+        let scroll_ref_for_init = scroll_ref;
+        let update_selection_for_init = update_selection;
         let parent_id_for_init = parent_note.id.clone();
         Effect::new(move || {
             if scroll_ref_for_init.get().is_some() {
@@ -274,7 +269,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                 // Parent note preview (static, doesn't re-render)
                 {
                     let parent_id = parent_note.id.clone();
-                    let update_selection_parent = update_selection.clone();
+                    let update_selection_parent = update_selection;
                     view! {
                         <div
                             class="note-stack-card rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
@@ -329,7 +324,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                     children=move |note| {
                         let note_id = note.id.clone();
                         let note_clone = note.clone();
-                        let update_selection_child = update_selection.clone();
+                        let update_selection_child = update_selection;
                         view! {
                             <div
                                 class="note-stack-card ml-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"

@@ -264,7 +264,7 @@ async fn import_all_with_transaction(
             .bind(&note.content)
             .bind(serde_json::to_string(&note.tags)?)
             .bind(&note.parent_id)
-            .bind(&note.idx)
+            .bind(note.idx)
             .bind(&note.created_at)
             .bind(&note.updated_at)
             .execute(&mut **tx)
