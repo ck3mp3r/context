@@ -125,14 +125,253 @@ pub fn MarkdownContent(content: String) -> impl IntoView {
 }
 
 #[component]
-pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> impl IntoView {
+pub fn NoteStackSidebar(
+    parent_note: Note,
+    selected_note_id: RwSignal<String>,
+    on_note_select: Callback<String>,
+) -> impl IntoView {
+    use leptos::task::spawn_local;
+
+    let (subnotes, set_subnotes) = signal(Vec::<Note>::new());
+    let (offset, set_offset) = signal(0);
+    let (loading, set_loading) = signal(false);
+    let (total_count, set_total_count) = signal(0);
+
+    let parent_id = parent_note.id.clone();
+    let parent_id_for_fetch = parent_note.id.clone();
+
+    // WebSocket updates - refetch trigger
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let ws_updates = use_websocket_updates();
+
+    // Watch for WebSocket note updates - refetch if any note in this stack changes
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            match update {
+                UpdateMessage::NoteUpdated { note_id: _ }
+                | UpdateMessage::NoteDeleted { note_id: _ }
+                | UpdateMessage::NoteCreated { note_id: _ } => {
+                    // Refetch the entire sidebar to catch any changes to subnotes
+                    web_sys::console::log_1(
+                        &"Note updated via WebSocket, refetching sidebar...".into(),
+                    );
+                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    // Initial fetch of subnotes + refetch on WebSocket updates
+    Effect::new(move || {
+        let _ = refetch_trigger.get(); // Track refetch trigger
+        let parent_id = parent_id_for_fetch.clone();
+        spawn_local(async move {
+            let result = notes::list(
+                Some(12),        // limit
+                Some(0),         // offset
+                None,            // search_query
+                None,            // project_id
+                Some("subnote"), // note_type
+                Some(parent_id), // parent_id
+            )
+            .await;
+
+            if let Ok(paginated) = result {
+                set_subnotes.set(paginated.items);
+                set_total_count.set(paginated.total);
+            }
+        });
+    });
+
+    let parent_id_for_load = parent_id.clone();
+    let load_more = move |_| {
+        set_loading.set(true);
+        let parent_id = parent_id_for_load.clone();
+        let current_offset = offset.get();
+        let new_offset = current_offset + 12;
+
+        spawn_local(async move {
+            let result = notes::list(
+                Some(12),
+                Some(new_offset),
+                None,
+                None,
+                Some("subnote"),
+                Some(parent_id),
+            )
+            .await;
+
+            if let Ok(paginated) = result {
+                set_subnotes.update(|notes| notes.extend(paginated.items));
+                set_offset.set(new_offset);
+            }
+            set_loading.set(false);
+        });
+    };
+
+    let scroll_ref = NodeRef::<leptos::html::Div>::new();
+
+    // Infinite scroll: load more when scrolling near bottom
+    let on_scroll = move |_| {
+        if loading.get() {
+            return;
+        }
+
+        if let Some(el) = scroll_ref.get() {
+            let scroll_height = el.scroll_height() as f64;
+            let scroll_top = el.scroll_top() as f64;
+            let client_height = el.client_height() as f64;
+
+            // Load more when within 200px of bottom
+            let displayed = subnotes.get().len();
+            if scroll_top + client_height >= scroll_height - 200.0 && displayed < total_count.get()
+            {
+                load_more(());
+            }
+        }
+    };
+
+    view! {
+        <div class="p-3" node_ref=scroll_ref on:scroll=on_scroll>
+                // Parent note preview (static, doesn't re-render)
+                {
+                    let parent_id = parent_note.id.clone();
+                    view! {
+                        <div class=move || {
+                            let is_selected = selected_note_id.get() == parent_id;
+                            if is_selected {
+                                "bg-ctp-blue/20 border-ctp-blue border-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                            } else {
+                                "bg-ctp-surface0 border-ctp-surface1 border hover:bg-ctp-surface0/80 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                            }
+                        }
+                        style="height: 200px; width: 150px;"
+                        on:click=move |e| {
+                            e.prevent_default();
+                            on_note_select.run(parent_note.id.clone());
+                        }
+                        >
+                            <h4 class="text-sm font-semibold text-ctp-text mb-1 truncate">
+                                {parent_note.title.clone()}
+                            </h4>
+                            <div class="text-xs text-ctp-subtext0 line-clamp-4 mb-2 flex-1">
+                                {if parent_note.content.chars().count() > 150 {
+                                    format!("{}...", parent_note.content.chars().take(150).collect::<String>())
+                                } else {
+                                    parent_note.content.clone()
+                                }}
+                            </div>
+                            {(!parent_note.tags.is_empty()).then(|| {
+                                view! {
+                                    <div class="flex flex-wrap gap-1 overflow-hidden">
+                                        {parent_note.tags.iter().take(3).map(|tag| {
+                                            view! {
+                                                <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-1.5 py-0.5 rounded">
+                                                    {tag.clone()}
+                                                </span>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                        {(parent_note.tags.len() > 3).then(|| {
+                                            view! {
+                                                <span class="text-xs text-ctp-overlay0">
+                                                    "+"{parent_note.tags.len() - 3}
+                                                </span>
+                                            }
+                                        })}
+                                    </div>
+                                }
+                            })}
+                        </div>
+                    }
+                }
+
+                // Subnotes (use For with stable keys to prevent re-render)
+                <For
+                    each=move || subnotes.get()
+                    key=|note| note.id.clone()
+                    children=move |note| {
+                        let note_id = note.id.clone();
+                        let note_id_for_class = note_id.clone();
+                        let note_id_for_click = note_id.clone();
+                        let note_clone = note.clone();
+                        view! {
+                            <div class=move || {
+                                let is_selected = selected_note_id.get() == note_id_for_class;
+                                if is_selected {
+                                    "bg-ctp-blue/20 border-ctp-blue border-2 ml-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                                } else {
+                                    "bg-ctp-surface0 border-ctp-surface1 border hover:bg-ctp-surface0/80 ml-2 rounded-lg p-2 cursor-pointer transition-colors mb-2 flex flex-col overflow-hidden"
+                                }
+                            }
+                            style="height: 200px; width: 150px;"
+                            on:click=move |e| {
+                                e.prevent_default();
+                                on_note_select.run(note_id_for_click.clone());
+                            }
+                            >
+                                <h4 class="text-sm font-semibold text-ctp-text mb-1 truncate">
+                                    {note_clone.title.clone()}
+                                </h4>
+                                <div class="text-xs text-ctp-subtext0 line-clamp-4 mb-2 flex-1">
+                                    {if note_clone.content.chars().count() > 150 {
+                                        format!("{}...", note_clone.content.chars().take(150).collect::<String>())
+                                    } else {
+                                        note_clone.content.clone()
+                                    }}
+                                </div>
+                                {(!note_clone.tags.is_empty()).then(|| {
+                                    view! {
+                                        <div class="flex flex-wrap gap-1 overflow-hidden">
+                                            {note_clone.tags.iter().take(3).map(|tag| {
+                                                view! {
+                                                    <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-1.5 py-0.5 rounded">
+                                                        {tag.clone()}
+                                                    </span>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                            {(note_clone.tags.len() > 3).then(|| {
+                                                view! {
+                                                    <span class="text-xs text-ctp-overlay0">
+                                                        "+"{note_clone.tags.len() - 3}
+                                                    </span>
+                                                }
+                                            })}
+                                        </div>
+                                    }
+                                })}
+                            </div>
+                        }
+                    }
+                />
+
+                // Loading indicator
+                {move || {
+                    loading.get().then(|| {
+                        view! {
+                            <div class="py-2 text-center">
+                                <span class="text-ctp-subtext0 text-xs">"Loading more..."</span>
+                            </div>
+                        }
+                    })
+                }}
+        </div>
+    }
+}
+
+#[component]
+pub fn NoteDetailModal(
+    note_id: ReadSignal<String>,
+    open: RwSignal<bool>,
+    has_subnotes: bool,
+) -> impl IntoView {
     // WebSocket updates
     let ws_updates = use_websocket_updates();
 
     // Trigger to force refetch when this specific note is updated
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
 
-    // Watch for WebSocket updates for THIS note
+    // Watch for WebSocket updates for THIS note (parent note)
     Effect::new(move || {
         if let Some(update) = ws_updates.get() {
             let current_note_id = note_id.get();
@@ -140,19 +379,31 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
                 match update {
                     UpdateMessage::NoteUpdated {
                         note_id: updated_id,
-                    }
-                    | UpdateMessage::NoteDeleted {
-                        note_id: updated_id,
                     } => {
                         if updated_id == current_note_id {
                             web_sys::console::log_1(
                                 &format!(
-                                    "Note {} updated via WebSocket, refetching detail...",
+                                    "Parent note {} updated via WebSocket, refetching...",
                                     updated_id
                                 )
                                 .into(),
                             );
                             set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                        }
+                    }
+                    UpdateMessage::NoteDeleted {
+                        note_id: updated_id,
+                    } => {
+                        if updated_id == current_note_id {
+                            // Parent note was deleted - close the modal
+                            web_sys::console::log_1(
+                                &format!(
+                                    "Parent note {} deleted via WebSocket, closing modal...",
+                                    updated_id
+                                )
+                                .into(),
+                            );
+                            open.set(false);
                         }
                     }
                     _ => {}
@@ -175,82 +426,267 @@ pub fn NoteDetailModal(note_id: ReadSignal<String>, open: RwSignal<bool>) -> imp
         }
     });
 
+    // State for selected note in stack (initialized to parent note)
+    let selected_note_id = RwSignal::new(String::new());
+
+    // Refetch trigger for selected note
+    let (selected_refetch_trigger, set_selected_refetch_trigger) = signal(0u32);
+
+    // Watch for WebSocket updates for the SELECTED note
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            let current_selected = selected_note_id.get();
+            let parent_note_id = note_id.get();
+            if !current_selected.is_empty() {
+                match update {
+                    UpdateMessage::NoteUpdated {
+                        note_id: updated_id,
+                    } => {
+                        if updated_id == current_selected {
+                            web_sys::console::log_1(
+                                &format!(
+                                    "Selected note {} updated via WebSocket, refetching...",
+                                    updated_id
+                                )
+                                .into(),
+                            );
+                            set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                        }
+                    }
+                    UpdateMessage::NoteDeleted {
+                        note_id: updated_id,
+                    } => {
+                        if updated_id == current_selected && current_selected != parent_note_id {
+                            // Selected subnote was deleted - switch back to parent
+                            web_sys::console::log_1(
+                                &format!(
+                                    "Selected note {} deleted via WebSocket, switching to parent...",
+                                    updated_id
+                                )
+                                .into(),
+                            );
+                            selected_note_id.set(parent_note_id);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    // Resource for fetching the selected note
+    let selected_note_resource = LocalResource::new(move || {
+        let id = selected_note_id.get();
+        let _ = selected_refetch_trigger.get(); // Track refetch trigger
+        async move {
+            if id.is_empty() {
+                Err(crate::api::ApiClientError::Network(
+                    "No note selected".to_string(),
+                ))
+            } else {
+                notes::get(&id).await
+            }
+        }
+    });
+
     view! {
         <OverlayDrawer
             open
             position=DrawerPosition::Right
             class="note-detail-drawer"
         >
-            <DrawerBody>
-                <Suspense fallback=move || {
-                    view! { <p class="text-ctp-subtext0">"Loading note..."</p> }
-                }>
-                    {move || {
-                        note_resource
-                            .get()
-                            .map(|result| {
-                                match result {
-                                    Ok(note) => {
-                                        view! {
-                                            <div class="space-y-4">
-                                                <div class="flex justify-between items-start mb-4">
-                                                    <div class="flex items-center gap-3">
-                                                        <CopyableId id=note.id.clone()/>
-                                                        <h2 class="text-2xl font-bold text-ctp-text">
-                                                            {note.title.clone()}
-                                                        </h2>
+            <DrawerBody class="h-full overflow-hidden p-0">
+                <div class="h-full">
+                    <Suspense fallback=move || {
+                        view! { <p class="text-ctp-subtext0 p-4">"Loading note..."</p> }
+                    }>
+                        {move || {
+                            note_resource
+                                .get()
+                                .map(|result| {
+                                    match result {
+                                        Ok(note) => {
+                                        // Initialize selected_note_id to parent note on first load
+                                        if selected_note_id.get().is_empty() {
+                                            selected_note_id.set(note.id.clone());
+                                        }
+
+                                        web_sys::console::log_1(&format!("Note {} has_subnotes: {}", note.id, has_subnotes).into());
+
+                                        // Close button (always in top-right)
+                                        let close_button = view! {
+                                            <button
+                                                on:click=move |_| {
+                                                    open.set(false);
+                                                    selected_note_id.set(String::new());
+                                                }
+                                                class="absolute top-4 right-4 text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2 z-10"
+                                            >
+                                                "✕"
+                                            </button>
+                                        };
+
+                                        if has_subnotes {
+                                            // Split-panel layout for note stacks
+                                            let parent_note_for_sidebar = note.clone();
+                                            let on_note_select = Callback::new(move |id: String| {
+                                                selected_note_id.set(id);
+                                            });
+
+                                            view! {
+                                                <div class="flex flex-col" style="height: 100vh;">
+                                                    // Fixed header with close button
+                                                    <div class="flex-shrink-0 p-4">
+                                                        {close_button}
                                                     </div>
-                                                    <button
-                                                        on:click=move |_| open.set(false)
-                                                        class="text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2"
-                                                    >
-                                                        "✕"
-                                                    </button>
-                                                </div>
-                                                <div class="flex justify-between items-start mb-4">
-                                                    <div class="flex flex-wrap gap-2">
-                                                        {(!note.tags.is_empty())
-                                                            .then(|| {
-                                                                note.tags
-                                                                    .iter()
-                                                                    .map(|tag: &String| {
-                                                                        view! {
-                                                                            <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                                                {tag.clone()}
-                                                                            </span>
+
+                                                    // Main content area - split panel
+                                                    <div class="flex flex-1 min-h-0 overflow-hidden">
+                                                        // Left sidebar - note stack navigation (SCROLLABLE)
+                                                        <div class="border-r border-ctp-surface1 flex-shrink-0 flex flex-col overflow-hidden" style="width: 190px;">
+                                                            <div class="overflow-y-auto flex-1 min-h-0">
+                                                                <NoteStackSidebar
+                                                                    parent_note=parent_note_for_sidebar
+                                                                    selected_note_id=selected_note_id
+                                                                    on_note_select=on_note_select
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        // Right side - SPLIT: fixed header + scrollable content
+                                                        <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
+                                                            <Suspense fallback=move || {
+                                                                view! { <p class="text-ctp-subtext0 p-6">"Loading..."</p> }
+                                                            }>
+                                                                {move || {
+                                                                    selected_note_resource.get().map(|result| {
+                                                                        match result {
+                                                                            Ok(selected_note) => {
+                                                                                view! {
+                                                                                    <div class="flex flex-col h-full">
+                                                                                    // FIXED HEADER: title, tags, metadata
+                                                                                    <div class="flex-shrink-0 p-6 border-b border-ctp-surface1">
+                                                                                        <div class="flex items-center gap-3 mb-4">
+                                                                                            <CopyableId id=selected_note.id.clone()/>
+                                                                                            <h2 class="text-2xl font-bold text-ctp-text">
+                                                                                                {selected_note.title.clone()}
+                                                                                            </h2>
+                                                                                        </div>
+                                                                                        <div class="flex justify-between items-start">
+                                                                                            <div class="flex flex-wrap gap-2">
+                                                                                                {(!selected_note.tags.is_empty())
+                                                                                                    .then(|| {
+                                                                                                        selected_note.tags
+                                                                                                            .iter()
+                                                                                                            .map(|tag: &String| {
+                                                                                                                view! {
+                                                                                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                                                                        {tag.clone()}
+                                                                                                                    </span>
+                                                                                                                }
+                                                                                                            })
+                                                                                                            .collect::<Vec<_>>()
+                                                                                                    })}
+                                                                                            </div>
+                                                                                            <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
+                                                                                                <span>"Created: " {selected_note.created_at.clone()}</span>
+                                                                                                <span>"Updated: " {selected_note.updated_at.clone()}</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    // SCROLLABLE CONTENT: markdown
+                                                                                    <div class="flex-1 overflow-y-auto min-h-0 p-6">
+                                                                                        <div class="prose prose-invert max-w-none">
+                                                                                            <MarkdownContent content=selected_note.content.clone()/>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    </div>
+                                                                                }.into_any()
+                                                                            }
+                                                                            Err(err) => {
+                                                                                let err_msg = err.to_string();
+                                                                                view! {
+                                                                                    <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 m-6">
+                                                                                        <p class="text-ctp-red font-semibold">"Error loading note"</p>
+                                                                                        <p class="text-ctp-subtext0 text-sm mt-2">{err_msg}</p>
+                                                                                    </div>
+                                                                                }.into_any()
+                                                                            }
                                                                         }
                                                                     })
-                                                                    .collect::<Vec<_>>()
-                                                            })}
-                                                    </div>
-                                                    <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
-                                                        <span>"Created: " {note.created_at.clone()}</span>
-                                                        <span>"Updated: " {note.updated_at.clone()}</span>
+                                                                }}
+                                                            </Suspense>
+                                                        </div>
                                                     </div>
                                                 </div>
-
-                                                <div class="prose prose-invert max-w-none">
-                                                    <MarkdownContent content=note.content.clone()/>
-                                                </div>
-                                            </div>
-                                    }
-                                            .into_any()
-                                        }
-                                        Err(err) => {
-                                            let err_msg = err.to_string();
+                                            }.into_any()
+                                        } else {
+                                            // Full-width layout for single notes - same 3-part structure
                                             view! {
-                                                <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                                    <p class="text-ctp-red font-semibold">"Error loading note"</p>
-                                                    <p class="text-ctp-subtext0 text-sm mt-2">{err_msg}</p>
+                                                <div class="flex flex-col" style="height: 100vh;">
+                                                    // Fixed header with close button
+                                                    <div class="flex-shrink-0 p-4">
+                                                        {close_button}
+                                                    </div>
+
+                                                    // Fixed metadata header
+                                                    <div class="flex-shrink-0 p-6 border-b border-ctp-surface1">
+                                                        <div class="flex items-center gap-3 mb-4">
+                                                            <CopyableId id=note.id.clone()/>
+                                                            <h2 class="text-2xl font-bold text-ctp-text">
+                                                                {note.title.clone()}
+                                                            </h2>
+                                                        </div>
+                                                        <div class="flex justify-between items-start">
+                                                            <div class="flex flex-wrap gap-2">
+                                                                {(!note.tags.is_empty())
+                                                                    .then(|| {
+                                                                        note.tags
+                                                                            .iter()
+                                                                            .map(|tag: &String| {
+                                                                                view! {
+                                                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                                        {tag.clone()}
+                                                                                    </span>
+                                                                                }
+                                                                            })
+                                                                            .collect::<Vec<_>>()
+                                                                    })}
+                                                            </div>
+                                                            <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
+                                                                <span>"Created: " {note.created_at.clone()}</span>
+                                                                <span>"Updated: " {note.updated_at.clone()}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    // Scrollable content
+                                                    <div class="flex-1 overflow-y-auto min-h-0 p-6">
+                                                        <div class="prose prose-invert max-w-none">
+                                                            <MarkdownContent content=note.content.clone()/>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            }
-                                                .into_any()
+                                            }.into_any()
                                         }
                                     }
-                                })
-                        }}
+                                    Err(err) => {
+                                        let err_msg = err.to_string();
+                                        view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                <p class="text-ctp-red font-semibold">"Error loading note"</p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">{err_msg}</p>
+                                            </div>
+                                        }
+                                            .into_any()
+                                    }
+                                }
+                                    })
+                            }}
 
-                    </Suspense>
+                        </Suspense>
+                    </div>
             </DrawerBody>
         </OverlayDrawer>
     }

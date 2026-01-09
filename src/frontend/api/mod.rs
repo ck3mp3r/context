@@ -278,6 +278,7 @@ pub mod notes {
         search_query: Option<String>,
         project_id: Option<String>,
         note_type: Option<&str>,
+        parent_id: Option<String>,
     ) -> Result<Paginated<Note>> {
         let mut url = format!("{}/notes", API_BASE);
         let mut query_params = vec![];
@@ -298,6 +299,9 @@ pub mod notes {
         }
         if let Some(note_type_val) = note_type {
             query_params.push(format!("type={}", note_type_val));
+        }
+        if let Some(parent) = parent_id {
+            query_params.push(format!("parent_id={}", parent));
         }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));

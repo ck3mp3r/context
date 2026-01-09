@@ -27,6 +27,7 @@ fn NotesList() -> impl IntoView {
     // Note detail modal state
     let note_modal_open = RwSignal::new(false);
     let selected_note_id = RwSignal::new(String::new());
+    let selected_note_has_subnotes = RwSignal::new(false);
 
     // WebSocket updates
     let ws_updates = use_websocket_updates();
@@ -115,8 +116,15 @@ fn NotesList() -> impl IntoView {
                 &format!("API call: offset={}, limit={}", offset, PAGE_SIZE).into(),
             );
 
-            let result =
-                notes::list(Some(PAGE_SIZE), Some(offset), query_opt, None, Some("note")).await;
+            let result = notes::list(
+                Some(PAGE_SIZE),
+                Some(offset),
+                query_opt,
+                None,
+                Some("note"),
+                None,
+            )
+            .await;
 
             match &result {
                 Ok(data) => web_sys::console::log_1(
@@ -182,9 +190,13 @@ fn NotesList() -> impl IntoView {
                                                         view! {
                                                             <NoteCard
                                                                 note=note.clone()
-                                                                on_click=Callback::new(move |note_id: String| {
-                                                                    selected_note_id.set(note_id);
-                                                                    note_modal_open.set(true);
+                                                                on_click=Callback::new({
+                                                                    let has_subs = note.subnote_count.unwrap_or(0) > 0;
+                                                                    move |note_id: String| {
+                                                                        selected_note_id.set(note_id);
+                                                                        selected_note_has_subnotes.set(has_subs);
+                                                                        note_modal_open.set(true);
+                                                                    }
                                                                 })
                                                             />
                                                         }
@@ -239,6 +251,7 @@ fn NotesList() -> impl IntoView {
                         <NoteDetailModal
                             note_id=selected_note_id.read_only()
                             open=note_modal_open
+                            has_subnotes=selected_note_has_subnotes.get()
                         />
                     })
                 } else {

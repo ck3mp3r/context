@@ -46,6 +46,7 @@ pub fn ProjectDetail() -> impl IntoView {
     // Note detail modal state
     let note_modal_open = RwSignal::new(false);
     let selected_note_id = RwSignal::new(String::new());
+    let selected_note_has_subnotes = RwSignal::new(false);
 
     // Task list detail modal state
     let task_list_modal_open = RwSignal::new(false);
@@ -179,6 +180,7 @@ pub fn ProjectDetail() -> impl IntoView {
                     search_query,
                     Some(id),
                     Some("note"),
+                    None,
                 )
                 .await;
                 set_notes_data.set(Some(result));
@@ -516,9 +518,13 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                     view! {
                                                                                          <NoteCard
                                                                                             note=note.clone()
-                                                                                            on_click=Callback::new(move |note_id: String| {
-                                                                                                selected_note_id.set(note_id);
-                                                                                                note_modal_open.set(true);
+                                                                                            on_click=Callback::new({
+                                                                                                let has_subs = note.subnote_count.unwrap_or(0) > 0;
+                                                                                                move |note_id: String| {
+                                                                                                    selected_note_id.set(note_id);
+                                                                                                    selected_note_has_subnotes.set(has_subs);
+                                                                                                    note_modal_open.set(true);
+                                                                                                }
                                                                                             })
                                                                                         />
                                                                                     }
@@ -697,6 +703,7 @@ pub fn ProjectDetail() -> impl IntoView {
                         <NoteDetailModal
                             note_id=selected_note_id.read_only()
                             open=note_modal_open
+                            has_subnotes=selected_note_has_subnotes.get()
                         />
                     })
                 } else {
