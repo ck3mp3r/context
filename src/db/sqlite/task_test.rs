@@ -1719,3 +1719,446 @@ async fn parent_tasks_sorted_by_activity_include_subtask_updates() {
         "Parent 2 should be second (last activity at 11:00)"
     );
 }
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_title() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    // Create task list
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create tasks
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Implement Rust Backend API".to_string(),
+        description: Some("Build REST endpoints".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Python Data Pipeline".to_string(),
+        description: Some("ETL processing".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by title
+    let result = repo
+        .search("rust", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Implement Rust Backend API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_description() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Feature Alpha".to_string(),
+        description: Some("Machine learning research implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Feature Beta".to_string(),
+        description: Some("Frontend web components".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by description
+    let result = repo
+        .search("machine learning", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Feature Alpha");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_tags() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Frontend Task".to_string(),
+        description: None,
+        tags: vec!["react".to_string(), "typescript".to_string()],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Backend Task".to_string(),
+        description: None,
+        tags: vec!["rust".to_string(), "api".to_string()],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by tag
+    let result = repo
+        .search("typescript", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Frontend Task");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_external_refs() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Fix GitHub Issue".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec!["owner/repo#123".to_string(), "owner/repo#456".to_string()],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Resolve Jira Ticket".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec!["PROJ-789".to_string()],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by external ref
+    let result = repo
+        .search("owner/repo#123", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Fix GitHub Issue");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_operators() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust Web API".to_string(),
+        description: Some("Backend service implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust CLI Tool".to_string(),
+        description: Some("Command line utility".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0003".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Python API".to_string(),
+        description: Some("Backend service implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:02".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:02".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search with AND operator
+    let result = repo
+        .search("rust AND backend", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Rust Web API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_phrase_query() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Backend Service".to_string(),
+        description: Some("RESTful API implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "API Documentation".to_string(),
+        description: Some("Implementation guide for API".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search with exact phrase
+    let result = repo
+        .search("\"API implementation\"", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Backend Service");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_combines_with_status_filter() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create tasks with different statuses
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust Feature".to_string(),
+        description: Some("Active work".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::InProgress,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: Some("2025-01-01 10:00:00".to_string()),
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust Documentation".to_string(),
+        description: Some("Completed work".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Done,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        started_at: Some("2025-01-01 09:00:00".to_string()),
+        completed_at: Some("2025-01-01 11:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search with status filter
+    let query = TaskQuery {
+        status: Some("in_progress".to_string()),
+        ..Default::default()
+    };
+    let result = repo
+        .search("rust", Some(&query))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Rust Feature");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_special_characters() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Test Task".to_string(),
+        description: Some("Test data".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Should sanitize special chars and return results
+    let result = repo
+        .search("test@#$%", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed with sanitization");
+
+    // Should match "test" after sanitization
+    assert_eq!(result.items.len(), 1);
+}

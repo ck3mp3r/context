@@ -79,6 +79,11 @@ pub trait TaskRepository: Send + Sync {
         &self,
         query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&TaskQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn get_stats_for_list(&self, list_id: &str)
