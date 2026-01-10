@@ -170,14 +170,12 @@ jobs:
           # Update Homebrew formula
           open Formula/context.rb | update-homebrew-formula $version "context" $architectures | save --force Formula/context.rb
 
-          # the following is in reverse order because merge-and-cleanup uses the branch as target instead of main
+          # Merge and cleanup
+          merge-and-cleanup $version
+
           # Create release and upload artifacts using gh CLI
           create-github-release $version
           glob "./artifacts/**/*.*" | upload-release-artifacts $version
-
-          # TODO: fix merge-and-cleanup to use main as target or provide ref
-          # Merge and cleanup
-          merge-and-cleanup $version
 
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
