@@ -6,6 +6,12 @@ use std::sync::Arc;
 
 use crate::cli::error::CliResult;
 
+#[cfg(debug_assertions)]
+const DEFAULT_API_URL: &str = "http://localhost:3738";
+
+#[cfg(not(debug_assertions))]
+const DEFAULT_API_URL: &str = "http://localhost:3737";
+
 /// Build a reqwest Client with TLS using platform verifier + webpki-root-certs fallback
 ///
 /// This provides the best UX:
@@ -53,7 +59,7 @@ impl ApiClient {
     pub fn new(api_url: Option<String>) -> Self {
         let base_url = api_url
             .or_else(|| env::var("C5T_API_URL").ok())
-            .unwrap_or_else(|| "http://localhost:3737".to_string());
+            .unwrap_or_else(|| DEFAULT_API_URL.to_string());
 
         Self {
             base_url,

@@ -28,6 +28,12 @@ pub use state::AppState;
 
 use crate::db::Database;
 
+#[cfg(debug_assertions)]
+const DEFAULT_API_PORT: u16 = 3738;
+
+#[cfg(not(debug_assertions))]
+const DEFAULT_API_PORT: u16 = 3737;
+
 /// API server errors.
 #[derive(Error, Diagnostic, Debug)]
 pub enum ApiError {
@@ -60,7 +66,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".parse().unwrap(),
-            port: 3737,
+            port: DEFAULT_API_PORT,
             verbosity: 0,
             enable_docs: false,
         }

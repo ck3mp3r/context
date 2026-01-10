@@ -14,6 +14,12 @@ mod api_client_test;
 use clap::{Parser, Subcommand};
 use miette::Result;
 
+#[cfg(debug_assertions)]
+const DEFAULT_PORT: &str = "3738";
+
+#[cfg(not(debug_assertions))]
+const DEFAULT_PORT: &str = "3737";
+
 #[derive(Parser)]
 #[command(name = "c5t")]
 #[command(author, version, about = "Context management CLI", long_about = None)]
@@ -35,10 +41,10 @@ enum Commands {
         host: std::net::IpAddr,
 
         /// Port to listen on
-        #[arg(short, long, default_value = "3737")]
+        #[arg(short, long, default_value = DEFAULT_PORT)]
         port: u16,
 
-        /// Override data home directory (defaults to XDG_DATA_HOME/c5t or ~/.local/share/c5t)
+        /// Override data home directory (defaults to XDG_DATA_HOME/c5t-dev or ~/.local/share/c5t-dev in debug, c5t in release)
         #[arg(long)]
         home: Option<std::path::PathBuf>,
 
