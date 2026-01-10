@@ -70,6 +70,24 @@ pub struct DeleteProjectParams {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchProjectsParams {
+    #[schemars(
+        description = "FTS5 search query. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match), 'term*' (prefix), 'NOT deprecated' (exclude)"
+    )]
+    pub query: String,
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
+    pub limit: Option<usize>,
+    #[schemars(description = "Number of results to skip (optional)")]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
+}
+
 /// Project management tools
 ///
 /// Generic over `D: Database` for zero-cost abstraction.
@@ -283,6 +301,50 @@ impl<D: Database + 'static> ProjectTools<D> {
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&content).unwrap(),
+        )]))
+    }
+
+    /// Full-text search projects using FTS5
+    #[tool(
+        description = "Full-text search projects (FTS5). Searches title, description, tags, external_refs. Supports: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Default limit: 10, max: 20."
+    )]
+    pub async fn search_projects(
+        &self,
+        params: Parameters<SearchProjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        // Build query
+        let query = ProjectQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            tags: None,
+        };
+
+        let result = self
+            .db
+            .projects()
+            .search(&params.0.query, Some(&query))
+            .await
+            .map_err(map_db_error)?;
+
+        let response = serde_json::json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
 }

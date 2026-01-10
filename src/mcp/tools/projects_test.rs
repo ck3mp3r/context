@@ -584,3 +584,405 @@ async fn test_update_project_external_ref() {
     assert_eq!(project_json["title"], "Project With Ref");
     assert_eq!(project_json["external_refs"], json!(["JIRA-456"]));
 }
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_projects_by_title() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create test projects
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Rust Backend API".to_string(),
+            description: Some("Web API in Rust".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Python Data Pipeline".to_string(),
+            description: Some("Data processing".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::SearchProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_projects(Parameters(SearchProjectsParams {
+            query: "rust".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Rust Backend API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_projects_by_description() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create test projects
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Project Alpha".to_string(),
+            description: Some("Machine learning research".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Project Beta".to_string(),
+            description: Some("Frontend application".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::SearchProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_projects(Parameters(SearchProjectsParams {
+            query: "machine learning".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Project Alpha");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_projects_by_tags() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create test projects
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Frontend App".to_string(),
+            description: None,
+            tags: vec!["react".to_string(), "typescript".to_string()],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Backend Service".to_string(),
+            description: None,
+            tags: vec!["rust".to_string(), "api".to_string()],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::SearchProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_projects(Parameters(SearchProjectsParams {
+            query: "typescript".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Frontend App");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_projects_by_external_refs() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create test projects
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "GitHub Integration".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec!["owner/repo#123".to_string()],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Jira Integration".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec!["PROJ-789".to_string()],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::SearchProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_projects(Parameters(SearchProjectsParams {
+            query: "owner/repo#123".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "GitHub Integration");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_projects_with_boolean_operators() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create test projects
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Rust Web API".to_string(),
+            description: Some("Backend service".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Rust CLI Tool".to_string(),
+            description: Some("Command line".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Python API".to_string(),
+            description: Some("Backend service".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::SearchProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_projects(Parameters(SearchProjectsParams {
+            query: "rust AND backend".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Rust Web API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_projects_empty_results() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create a project
+    db.projects()
+        .create(&Project {
+            id: String::new(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use crate::mcp::tools::projects::SearchProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_projects(Parameters(SearchProjectsParams {
+            query: "nonexistent".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 0);
+    assert_eq!(response["total"], 0);
+}
