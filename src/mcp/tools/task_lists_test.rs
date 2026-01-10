@@ -7,10 +7,10 @@ use crate::db::{
 };
 use crate::mcp::tools::task_lists::{
     CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,
-    ListTaskListsParams, TaskListTools, UpdateTaskListParams,
+    ListTaskListsParams, SearchTaskListsParams, TaskListTools, UpdateTaskListParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::RawContent;
+use rmcp::model::{CallToolResult, RawContent};
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -467,4 +467,405 @@ async fn test_get_task_list_stats() {
     assert_eq!(json["review"], 0);
     assert_eq!(json["done"], 3);
     assert_eq!(json["cancelled"], 0);
+}
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_task_lists_by_title() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create test project
+    let project = Project {
+        id: "test0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create task lists
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Rust Backend Sprint".to_string(),
+            description: Some("API work".to_string()),
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Python Data Pipeline".to_string(),
+            description: Some("ETL".to_string()),
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    use crate::mcp::tools::task_lists::SearchTaskListsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_task_lists(Parameters(SearchTaskListsParams {
+            query: "rust".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Rust Backend Sprint");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_task_lists_by_notes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let project = Project {
+        id: "test0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create task lists
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Q1 Release".to_string(),
+            description: None,
+            notes: Some("Critical deadline for stakeholders".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Q2 Planning".to_string(),
+            description: None,
+            notes: Some("Nice to have".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    use crate::mcp::tools::task_lists::SearchTaskListsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_task_lists(Parameters(SearchTaskListsParams {
+            query: "critical deadline".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Q1 Release");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_task_lists_by_external_refs() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let project = Project {
+        id: "test0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create task lists
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "GitHub Sprint".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_refs: vec!["owner/repo#123".to_string()],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Jira Sprint".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_refs: vec!["PROJ-789".to_string()],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    use crate::mcp::tools::task_lists::SearchTaskListsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_task_lists(Parameters(SearchTaskListsParams {
+            query: "owner/repo#123".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "GitHub Sprint");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_task_lists_boolean_operators() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let project = Project {
+        id: "test0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create task lists
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Rust Web API".to_string(),
+            description: Some("Backend service".to_string()),
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Rust CLI".to_string(),
+            description: Some("Command line".to_string()),
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    use crate::mcp::tools::task_lists::SearchTaskListsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_task_lists(Parameters(SearchTaskListsParams {
+            query: "rust AND backend".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Rust Web API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_task_lists_empty_results() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let project = Project {
+        id: "test0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create a task list
+    db.task_lists()
+        .create(&TaskList {
+            id: String::new(),
+            title: "Test List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived_at: None,
+        })
+        .await
+        .unwrap();
+
+    use crate::mcp::tools::task_lists::SearchTaskListsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .search_task_lists(Parameters(SearchTaskListsParams {
+            query: "nonexistent".to_string(),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result: CallToolResult = result.unwrap();
+    let content_text = match &call_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 0);
+    assert_eq!(response["total"], 0);
 }

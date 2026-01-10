@@ -113,6 +113,24 @@ pub struct GetTaskListStatsParams {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchTaskListsParams {
+    #[schemars(
+        description = "FTS5 search query. Searches title, description, notes, tags, external_refs. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match)"
+    )]
+    pub query: String,
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
+    pub limit: Option<usize>,
+    #[schemars(description = "Number of results to skip (optional)")]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
+}
+
 // =============================================================================
 // TaskList Tools
 // =============================================================================
@@ -389,5 +407,51 @@ impl<D: Database + 'static> TaskListTools<D> {
             )
         })?;
         Ok(CallToolResult::success(vec![Content::text(content)]))
+    }
+
+    /// Full-text search task lists using FTS5
+    #[tool(
+        description = "Full-text search task lists (FTS5). Searches title, description, notes, tags, external_refs. Supports: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Default limit: 10, max: 20."
+    )]
+    pub async fn search_task_lists(
+        &self,
+        params: Parameters<SearchTaskListsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        // Build query
+        let query = TaskListQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(SortOrder::Desc),
+                    Some("asc") => Some(SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            status: None,
+            tags: None,
+            project_id: None,
+        };
+
+        let result = self
+            .db
+            .task_lists()
+            .search(&params.0.query, Some(&query))
+            .await
+            .map_err(map_db_error)?;
+
+        let response = json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 }
