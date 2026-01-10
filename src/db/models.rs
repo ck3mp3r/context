@@ -107,6 +107,11 @@ pub struct NoteQuery {
     pub tags: Option<Vec<String>>,
     /// Filter by project ID (notes with project_id in project_ids array).
     pub project_id: Option<String>,
+    /// Filter by parent_id (get subnotes of a specific parent note).
+    pub parent_id: Option<String>,
+    /// Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL).
+    /// Omit to return both parent notes and subnotes.
+    pub note_type: Option<String>,
 }
 
 /// Result of a paginated list query.
@@ -132,6 +137,8 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     /// Linked repository IDs (M:N relationship via project_repo)
     #[serde(default)]
     pub repo_ids: Vec<Id>,
@@ -166,7 +173,8 @@ pub struct TaskList {
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     pub status: TaskListStatus,
     /// Linked repository IDs (M:N relationship via task_list_repo)
     #[serde(default)]
@@ -219,7 +227,8 @@ pub struct Task {
     pub status: TaskStatus,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -288,47 +297,19 @@ pub struct Note {
     pub title: String,
     pub content: String,
     pub tags: Vec<String>,
-    pub note_type: NoteType,
+    /// Parent note ID for hierarchical structure (self-referencing FK)
+    pub parent_id: Option<Id>,
+    /// Manual ordering index within siblings (same parent)
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[serde(default)]
     pub repo_ids: Vec<Id>,
     /// Linked project IDs (M:N relationship via project_note)
     #[serde(default)]
     pub project_ids: Vec<Id>,
+    /// Count of subnotes (children) - computed field, not stored in DB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subnote_count: Option<i32>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
-}
-
-/// Type of note.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum NoteType {
-    #[default]
-    Manual,
-    ArchivedTodo,
-    Scratchpad,
-}
-
-impl std::fmt::Display for NoteType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            NoteType::Manual => "manual",
-            NoteType::ArchivedTodo => "archived_todo",
-            NoteType::Scratchpad => "scratchpad",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-impl std::str::FromStr for NoteType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "manual" => Ok(NoteType::Manual),
-            "archived_todo" => Ok(NoteType::ArchivedTodo),
-            "scratchpad" => Ok(NoteType::Scratchpad),
-            _ => Err(format!("Invalid note type: {}", s)),
-        }
-    }
 }

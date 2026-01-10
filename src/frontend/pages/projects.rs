@@ -2,12 +2,18 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, projects};
-use crate::components::CopyableId;
+use crate::components::{CopyableId, ExternalRefLink, Pagination};
 use crate::models::{Paginated, Project, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn Projects() -> impl IntoView {
+    const PAGE_SIZE: usize = 12;
+
+    // State management
+    let (page, set_page) = signal(0usize);
+    let (search_input, set_search_input) = signal(String::new()); // Raw input
+    let (search_query, set_search_query) = signal(String::new()); // Debounced search
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
 
@@ -32,20 +38,85 @@ pub fn Projects() -> impl IntoView {
         }
     });
 
-    // Fetch projects on mount and when refetch triggered
+    // Store the timeout ID so we can cancel it
+    let debounce_timeout = RwSignal::new(None::<i32>);
+
+    // Handle search input change with proper debouncing
+    let on_search = move |ev: web_sys::Event| {
+        let value = event_target_value(&ev);
+        set_search_input.set(value.clone());
+
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::prelude::*;
+
+        // Cancel the previous timeout if it exists
+        if let Some(timeout_id) = debounce_timeout.get() {
+            web_sys::window()
+                .unwrap()
+                .clear_timeout_with_handle(timeout_id);
+        }
+
+        // Set new timeout
+        let callback = Closure::once(move || {
+            set_search_query.set(value.clone());
+            set_page.set(0); // Reset to first page on new search
+            debounce_timeout.set(None); // Clear timeout ID after it fires
+        });
+
+        let timeout_id = web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                500,
+            )
+            .unwrap();
+
+        debounce_timeout.set(Some(timeout_id));
+        callback.forget();
+    };
+
+    // Fetch projects when dependencies change
     Effect::new(move || {
+        let current_page = page.get();
+        let current_query = search_query.get();
         let _ = refetch_trigger.get(); // Track refetch trigger
+
+        // Reset to loading state immediately
+        set_projects_data.set(None);
+
         spawn_local(async move {
-            let result = projects::list(Some(100), None).await;
+            let offset = current_page * PAGE_SIZE;
+            let query_opt = if current_query.trim().is_empty() {
+                None
+            } else {
+                Some(current_query)
+            };
+
+            let result = projects::list(Some(PAGE_SIZE), Some(offset), query_opt).await;
             set_projects_data.set(Some(result));
         });
     });
 
+    // Pagination handlers
+    let go_to_page = move |new_page: usize| {
+        set_page.set(new_page);
+    };
+
     view! {
         <div class="container mx-auto p-6">
-            <div class="mb-8">
-                <h2 class="text-3xl font-bold text-ctp-text mb-2">"Projects"</h2>
-                <p class="text-ctp-subtext0">"Select a project to view task lists, notes, and repos"</p>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-ctp-text">"Projects"</h2>
+            </div>
+
+            // Search bar
+            <div class="mb-6">
+                <input
+                    type="text"
+                    placeholder="Search projects..."
+                    value=move || search_input.get()
+                    on:input=on_search
+                    class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue"
+                />
             </div>
 
             {move || match projects_data.get() {
@@ -58,16 +129,23 @@ pub fn Projects() -> impl IntoView {
                         .into_any()
                 }
                 Some(Ok(paginated)) => {
+                    let total_pages = paginated.total.div_ceil(PAGE_SIZE);
+
                     if paginated.items.is_empty() {
                         view! {
-                            <div class="text-center py-12">
-                                <p class="text-ctp-subtext0">"No projects found. Create one to get started!"</p>
-                            </div>
+                            <p class="text-ctp-subtext0">
+                                {if search_query.get().trim().is_empty() {
+                                    "No projects found. Create one to get started!"
+                                } else {
+                                    "No projects found matching your search."
+                                }}
+                            </p>
                         }
                             .into_any()
                     } else {
                         view! {
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+                            <div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr mb-6">
                                 {paginated
                                     .items
                                     .iter()
@@ -76,6 +154,7 @@ pub fn Projects() -> impl IntoView {
                                         let project_title = project.title.clone();
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
+                                        let project_external_refs = project.external_refs.clone();
                                         view! {
                                             <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
@@ -119,11 +198,50 @@ pub fn Projects() -> impl IntoView {
                                                             </div>
                                                         }
                                                     })}
+
+                                                {(!project_external_refs.is_empty())
+                                                    .then(|| {
+                                                        view! {
+                                                            <div class="mt-2 flex flex-wrap gap-1">
+                                                                {project_external_refs
+                                                                    .iter()
+                                                                    .map(|ext_ref| {
+                                                                        view! {
+                                                                            <ExternalRefLink external_ref=ext_ref.clone()/>
+                                                                        }
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+                                                            </div>
+                                                        }
+                                                    })}
                                                 </a>
                                             </div>
                                         }
                                     })
                                     .collect::<Vec<_>>()}
+                            </div>
+
+                            // Pagination
+                            <Pagination
+                                current_page=page
+                                total_pages=total_pages
+                                on_prev=Callback::new(move |_| {
+                                    let current = page.get();
+                                    if current > 0 {
+                                        go_to_page(current - 1);
+                                    }
+                                })
+                                on_next=Callback::new(move |_| {
+                                    let current = page.get();
+                                    if current < total_pages - 1 {
+                                        go_to_page(current + 1);
+                                    }
+                                })
+                                show_summary=true
+                                total_items=paginated.total
+                                page_size=PAGE_SIZE
+                                item_name="projects".to_string()
+                            />
                             </div>
                         }
                             .into_any()

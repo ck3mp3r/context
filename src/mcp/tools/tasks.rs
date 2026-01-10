@@ -66,6 +66,37 @@ pub struct ListTasksParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchTasksParams {
+    #[schemars(description = "Task list ID to search within (REQUIRED)")]
+    pub list_id: String,
+    #[schemars(
+        description = "FTS5 search query. Searches title, description, tags, external_refs. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match), 'owner/repo#123' (GitHub issue)"
+    )]
+    pub query: String,
+    #[schemars(
+        description = "Filter by status: ['backlog'], ['todo'], ['in_progress'], ['review'], ['done'], ['cancelled']. Optional."
+    )]
+    pub status: Option<Vec<String>>,
+    #[schemars(description = "Filter by parent task ID. Optional.")]
+    pub parent_id: Option<String>,
+    #[schemars(
+        description = "Filter by task type: 'task' (top-level only) or 'subtask' (only subtasks). Optional."
+    )]
+    #[serde(rename = "type")]
+    pub task_type: Option<String>,
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
+    pub limit: Option<usize>,
+    #[schemars(description = "Number of results to skip (optional)")]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, status, priority, created_at, updated_at, completed_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetTaskParams {
     #[schemars(description = "Task ID")]
     pub task_id: String,
@@ -94,9 +125,9 @@ pub struct CreateTaskParams {
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(
-        description = "External reference to link task to external systems. Examples: 'owner/repo#123' (GitHub issue), 'PROJ-456' (Jira ticket). Optional."
+        description = "External references to link task to external systems. Examples: ['owner/repo#123', 'PROJ-456']. Optional."
     )]
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -120,9 +151,9 @@ pub struct UpdateTaskParams {
     )]
     pub list_id: Option<String>,
     #[schemars(
-        description = "External reference (optional). Examples: 'owner/repo#123' (GitHub), 'PROJ-456' (Jira). Set to update or change the external reference."
+        description = "External references (optional). Examples: ['owner/repo#123', 'PROJ-456']. Set to update or change external references."
     )]
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -298,7 +329,7 @@ impl<D: Database + 'static> TaskTools<D> {
             status: TaskStatus::Backlog, // Always create as backlog
             priority: params.0.priority.or(Some(5)), // Default to P5 (lowest priority)
             tags: params.0.tags.clone().unwrap_or_default(),
-            external_ref: params.0.external_ref.clone(),
+            external_refs: params.0.external_refs.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
             started_at: None,
             completed_at: None,
@@ -317,7 +348,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses with validation. Enforces workflow rules and sets timestamps. Valid transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done→[backlog,todo,in_progress,review], cancelled→[backlog,todo,in_progress,review]. Both done and cancelled can be reopened. Sets started_at when transitioning to in_progress, completed_at when transitioning to done, clears completed_at when transitioning from done."
+        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
     )]
     pub async fn transition_task(
         &self,
@@ -466,8 +497,8 @@ impl<D: Database + 'static> TaskTools<D> {
         if let Some(list_id) = &params.0.list_id {
             task.list_id = list_id.clone();
         }
-        if let Some(external_ref) = &params.0.external_ref {
-            task.external_ref = Some(external_ref.clone());
+        if let Some(external_refs) = &params.0.external_refs {
+            task.external_refs = external_refs.clone();
         }
 
         self.db.tasks().update(&task).await.map_err(map_db_error)?;
@@ -515,5 +546,56 @@ impl<D: Database + 'static> TaskTools<D> {
             "Task {} deleted successfully",
             params.0.task_id
         ))]))
+    }
+
+    /// Full-text search tasks using FTS5
+    #[tool(
+        description = "Full-text search tasks within a task list using FTS5. Searches title, description, tags, external_refs. Supports: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase), 'owner/repo#123' (GitHub issues), 'term*' (prefix), 'NOT deprecated' (exclusion). Default limit: 10, max: 20."
+    )]
+    pub async fn search_tasks(
+        &self,
+        params: Parameters<SearchTasksParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        // Convert status Vec to comma-separated string if provided
+        let status_str = params.0.status.as_ref().map(|statuses| statuses.join(","));
+
+        // Build query
+        let query = TaskQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(SortOrder::Desc),
+                    Some("asc") => Some(SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            list_id: Some(params.0.list_id.clone()),
+            status: status_str,
+            parent_id: params.0.parent_id.clone(),
+            tags: None, // Not used with FTS5 search
+            task_type: params.0.task_type.clone(),
+        };
+
+        let result = self
+            .db
+            .tasks()
+            .search(&params.0.query, Some(&query))
+            .await
+            .map_err(map_db_error)?;
+
+        let response = json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 }

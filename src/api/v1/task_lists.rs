@@ -33,7 +33,8 @@ pub struct TaskListResponse {
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     #[schema(example = "active")]
     pub status: String,
     /// Repository IDs linked to this task list
@@ -53,7 +54,7 @@ impl From<TaskList> for TaskListResponse {
             description: t.description,
             notes: t.notes,
             tags: t.tags,
-            external_ref: t.external_ref,
+            external_refs: t.external_refs,
             status: match t.status {
                 TaskListStatus::Active => "active".to_string(),
                 TaskListStatus::Archived => "archived".to_string(),
@@ -75,7 +76,8 @@ pub struct CreateTaskListRequest {
     pub notes: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     /// Project ID this task list belongs to (REQUIRED - one project per task list)
     pub project_id: String,
 }
@@ -88,7 +90,8 @@ pub struct UpdateTaskListRequest {
     pub notes: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     #[schema(example = "active")]
     pub status: Option<String>,
     /// Repository IDs to link to this task list
@@ -105,7 +108,7 @@ pub struct PatchTaskListRequest {
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Option<Vec<String>>,
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
     #[schema(example = "active")]
     pub status: Option<String>,
     /// Repository IDs to link to this task list
@@ -128,8 +131,8 @@ impl PatchTaskListRequest {
         if let Some(tags) = self.tags {
             target.tags = tags;
         }
-        if let Some(external_ref) = self.external_ref {
-            target.external_ref = Some(external_ref);
+        if let Some(external_refs) = self.external_refs {
+            target.external_refs = external_refs;
         }
         if let Some(status_str) = self.status
             && let Ok(status) = status_str.parse::<TaskListStatus>()
@@ -147,6 +150,9 @@ impl PatchTaskListRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListTaskListsQuery {
+    /// FTS5 search query (optional)
+    #[param(example = "rust backend")]
+    pub q: Option<String>,
     /// Filter by tags (comma-separated)
     #[param(example = "work,urgent")]
     pub tags: Option<String>,
@@ -256,19 +262,28 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
         project_id: query.project_id.clone(),
     };
 
-    let result = state
-        .db()
-        .task_lists()
-        .list(Some(&db_query))
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    // Use search if query provided, otherwise list
+    let result = if let Some(ref search_query) = query.q {
+        if !search_query.trim().is_empty() {
+            state
+                .db()
+                .task_lists()
+                .search(search_query, Some(&db_query))
+                .await
+        } else {
+            state.db().task_lists().list(Some(&db_query)).await
+        }
+    } else {
+        state.db().task_lists().list(Some(&db_query)).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     let items: Vec<TaskListResponse> = result
         .items
@@ -345,7 +360,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
         description: req.description,
         notes: req.notes,
         tags: req.tags,
-        external_ref: req.external_ref,
+        external_refs: req.external_refs,
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: req.project_id,
@@ -416,7 +431,7 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
     list.description = req.description;
     list.notes = req.notes;
     list.tags = req.tags;
-    list.external_ref = req.external_ref;
+    list.external_refs = req.external_refs;
     list.repo_ids = req.repo_ids;
     if let Some(project_id) = req.project_id {
         list.project_id = project_id;

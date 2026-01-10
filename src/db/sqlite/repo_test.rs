@@ -360,3 +360,274 @@ async fn repo_list_with_search_query() {
     assert_eq!(result.items.len(), 0);
     assert_eq!(result.total, 0);
 }
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_repo_by_remote() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos with different remote URLs
+    repos
+        .create(&Repo {
+            id: "fts00001".to_string(),
+            remote: "https://github.com/rust-lang/rust.git".to_string(),
+            path: Some("/home/user/rust".to_string()),
+            tags: vec!["language".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "fts00002".to_string(),
+            remote: "https://github.com/python/cpython.git".to_string(),
+            path: Some("/home/user/python".to_string()),
+            tags: vec!["language".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Search by "rust" in remote URL
+    let query = RepoQuery {
+        search_query: Some("rust".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert!(result.items[0].remote.contains("rust-lang"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_repo_by_path() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos with different paths
+    repos
+        .create(&Repo {
+            id: "path0001".to_string(),
+            remote: "https://github.com/example/backend.git".to_string(),
+            path: Some("/home/projects/backend-api".to_string()),
+            tags: vec![],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "path0002".to_string(),
+            remote: "https://github.com/example/frontend.git".to_string(),
+            path: Some("/home/projects/frontend-app".to_string()),
+            tags: vec![],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Search by path containing "backend"
+    let query = RepoQuery {
+        search_query: Some("backend".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].id, "path0001");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_repo_by_tags() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos with different tags
+    repos
+        .create(&Repo {
+            id: "tag00001".to_string(),
+            remote: "https://github.com/example/service-a.git".to_string(),
+            path: None,
+            tags: vec!["microservice".to_string(), "production".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "tag00002".to_string(),
+            remote: "https://github.com/example/service-b.git".to_string(),
+            path: None,
+            tags: vec!["monolith".to_string(), "legacy".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Search by tag "microservice"
+    let query = RepoQuery {
+        search_query: Some("microservice".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].id, "tag00001");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_operators() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos
+    repos
+        .create(&Repo {
+            id: "bool0001".to_string(),
+            remote: "https://github.com/company/api-backend.git".to_string(),
+            path: Some("/srv/api".to_string()),
+            tags: vec!["api".to_string(), "production".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "bool0002".to_string(),
+            remote: "https://github.com/company/web-frontend.git".to_string(),
+            path: Some("/srv/web".to_string()),
+            tags: vec!["frontend".to_string(), "production".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "bool0003".to_string(),
+            remote: "https://github.com/company/api-staging.git".to_string(),
+            path: Some("/srv/staging".to_string()),
+            tags: vec!["api".to_string(), "staging".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:02".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Test AND operator: "api AND production"
+    let query = RepoQuery {
+        search_query: Some("api AND production".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].id, "bool0001");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_phrase_query() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repos
+    repos
+        .create(&Repo {
+            id: "phras001".to_string(),
+            remote: "https://github.com/acme/widget-api".to_string(),
+            path: None,
+            tags: vec![],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    repos
+        .create(&Repo {
+            id: "phras002".to_string(),
+            remote: "https://github.com/acme/api-widget".to_string(),
+            path: None,
+            tags: vec![],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:01".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Test phrase search: "widget-api" (exact order)
+    let query = RepoQuery {
+        search_query: Some("\"widget-api\"".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].id, "phras001");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_special_characters() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create repo with special characters in remote
+    repos
+        .create(&Repo {
+            id: "spec0001".to_string(),
+            remote: "https://github.com/user/my-app.git".to_string(),
+            path: Some("/home/user/my-app".to_string()),
+            tags: vec!["app".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Search with hyphen (should be sanitized properly)
+    let query = RepoQuery {
+        search_query: Some("my-app".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_empty_results() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Create a repo
+    repos
+        .create(&Repo {
+            id: "empty001".to_string(),
+            remote: "https://github.com/test/repo.git".to_string(),
+            path: None,
+            tags: vec!["test".to_string()],
+            project_ids: vec![],
+            created_at: "2025-01-01 00:00:00".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Search for non-existent term
+    let query = RepoQuery {
+        search_query: Some("nonexistent".to_string()),
+        ..Default::default()
+    };
+    let result = repos.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 0);
+    assert_eq!(result.total, 0);
+}

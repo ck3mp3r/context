@@ -157,7 +157,7 @@ async fn import_all_with_transaction(
         for task_list in task_lists {
             // Upsert task_list
             sqlx::query(
-                "INSERT INTO task_list (id, title, description, notes, project_id, tags, status, external_ref, created_at, updated_at, archived_at)
+                "INSERT INTO task_list (id, title, description, notes, project_id, tags, status, external_refs, created_at, updated_at, archived_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    title = excluded.title,
@@ -166,7 +166,7 @@ async fn import_all_with_transaction(
                    project_id = excluded.project_id,
                    tags = excluded.tags,
                    status = excluded.status,
-                   external_ref = excluded.external_ref,
+                   external_refs = excluded.external_refs,
                    updated_at = excluded.updated_at,
                    archived_at = excluded.archived_at",
             )
@@ -177,7 +177,7 @@ async fn import_all_with_transaction(
             .bind(&task_list.project_id)
             .bind(serde_json::to_string(&task_list.tags)?)
             .bind(task_list.status.to_string())
-            .bind(&task_list.external_ref)
+            .bind(serde_json::to_string(&task_list.external_refs).unwrap_or_else(|_| "[]".to_string()))
             .bind(&task_list.created_at)
             .bind(&task_list.updated_at)
             .bind(&task_list.archived_at)
@@ -249,20 +249,22 @@ async fn import_all_with_transaction(
         for note in notes {
             // Upsert note
             sqlx::query(
-                "INSERT INTO note (id, title, content, tags, note_type, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                "INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    title = excluded.title,
                    content = excluded.content,
                    tags = excluded.tags,
-                   note_type = excluded.note_type,
+                   parent_id = excluded.parent_id,
+                   idx = excluded.idx,
                    updated_at = excluded.updated_at",
             )
             .bind(&note.id)
             .bind(&note.title)
             .bind(&note.content)
             .bind(serde_json::to_string(&note.tags)?)
-            .bind(note.note_type.to_string())
+            .bind(&note.parent_id)
+            .bind(note.idx)
             .bind(&note.created_at)
             .bind(&note.updated_at)
             .execute(&mut **tx)

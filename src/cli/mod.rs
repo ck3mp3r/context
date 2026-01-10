@@ -274,6 +274,9 @@ enum ProjectCommands {
         /// Tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-456' for Jira)
+        #[arg(long)]
+        external_ref: Option<String>,
     },
     /// Update a project
     Update {
@@ -288,6 +291,9 @@ enum ProjectCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-456' for Jira)
+        #[arg(long)]
+        external_ref: Option<String>,
     },
     /// Delete a project
     Delete {
@@ -469,12 +475,14 @@ pub async fn run() -> Result<()> {
                 title,
                 description,
                 tags,
+                external_ref,
             } => {
                 let output = commands::project::create_project(
                     &api_client,
                     &title,
                     description.as_deref(),
                     tags.as_deref(),
+                    external_ref.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
@@ -484,6 +492,7 @@ pub async fn run() -> Result<()> {
                 title,
                 description,
                 tags,
+                external_ref,
             } => {
                 let output = commands::project::update_project(
                     &api_client,
@@ -491,6 +500,7 @@ pub async fn run() -> Result<()> {
                     title.as_deref(),
                     description.as_deref(),
                     tags.as_deref(),
+                    external_ref.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
@@ -678,7 +688,7 @@ pub async fn run() -> Result<()> {
                     status: status.as_deref(),
                     priority,
                     tags: tags.as_deref(),
-                    external_ref: external_ref.as_deref(),
+                    external_refs: external_ref.as_deref(),
                 };
                 let output = commands::task::update_task(&api_client, &id, params).await?;
                 println!("{}", output);

@@ -25,6 +25,8 @@ mod repo_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]
+mod task_list_test;
+#[cfg(test)]
 mod task_test;
 
 pub use connection::SqliteDatabase;

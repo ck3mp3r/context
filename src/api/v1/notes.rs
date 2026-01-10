@@ -12,9 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::{
-    Database, DbError, Note, NoteQuery, NoteRepository, NoteType, PageSort, SortOrder,
-};
+use crate::db::{Database, DbError, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
 
 use super::ErrorResponse;
 
@@ -31,14 +29,22 @@ pub struct NoteResponse {
     #[schema(example = "Note content in markdown")]
     pub content: String,
     pub tags: Vec<String>,
-    #[schema(example = "manual")]
-    pub note_type: String,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     pub repo_ids: Vec<String>,
     /// Linked project IDs (M:N relationship via project_note)
     #[schema(example = json!(["proj123a", "proj456b"]))]
     pub project_ids: Vec<String>,
+    /// Count of subnotes (children) - computed field, not stored in DB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 3)]
+    pub subnote_count: Option<i32>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -50,14 +56,11 @@ impl From<Note> for NoteResponse {
             title: n.title,
             content: n.content,
             tags: n.tags,
-            note_type: match n.note_type {
-                NoteType::Manual => "manual",
-                NoteType::ArchivedTodo => "archived_todo",
-                NoteType::Scratchpad => "scratchpad",
-            }
-            .to_string(),
+            parent_id: n.parent_id,
+            idx: n.idx,
             repo_ids: n.repo_ids,
             project_ids: n.project_ids,
+            subnote_count: n.subnote_count,
             created_at: n.created_at,
             updated_at: n.updated_at,
         }
@@ -72,8 +75,12 @@ pub struct CreateNoteRequest {
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[schema(example = "manual")]
-    pub note_type: Option<String>,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     #[serde(default)]
@@ -92,8 +99,12 @@ pub struct UpdateNoteRequest {
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[schema(example = "manual")]
-    pub note_type: Option<String>,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<i32>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     #[serde(default)]
@@ -111,8 +122,12 @@ pub struct PatchNoteRequest {
     #[schema(example = "Updated content")]
     pub content: Option<String>,
     pub tags: Option<Vec<String>>,
-    #[schema(example = "manual")]
-    pub note_type: Option<String>,
+    /// Parent note ID for hierarchical notes
+    #[schema(example = "parent123")]
+    pub parent_id: Option<Option<String>>,
+    /// Index for manual ordering (lower values first)
+    #[schema(example = 10)]
+    pub idx: Option<Option<i32>>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]
     pub repo_ids: Option<Vec<String>>,
@@ -132,10 +147,11 @@ impl PatchNoteRequest {
         if let Some(tags) = self.tags {
             target.tags = tags;
         }
-        if let Some(note_type_str) = self.note_type
-            && let Ok(note_type) = note_type_str.parse::<NoteType>()
-        {
-            target.note_type = note_type;
+        if let Some(parent_id) = self.parent_id {
+            target.parent_id = parent_id;
+        }
+        if let Some(idx) = self.idx {
+            target.idx = idx;
         }
         if let Some(repo_ids) = self.repo_ids {
             target.repo_ids = repo_ids;
@@ -157,13 +173,21 @@ pub struct ListNotesQuery {
     /// Filter by project ID
     #[param(example = "a1b2c3d4")]
     pub project_id: Option<String>,
+    /// Filter by parent note ID to list subnotes
+    #[param(example = "parent123")]
+    pub parent_id: Option<String>,
+    /// Filter by note type: "note" (parent notes only) or "subnote" (subnotes only)
+    /// Omit to return both parent notes and subnotes (default)
+    #[param(example = "note")]
+    #[serde(rename = "type")]
+    pub note_type: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
     /// Number of items to skip
     #[param(example = 0)]
     pub offset: Option<usize>,
-    /// Field to sort by (title, note_type, created_at, updated_at)
+    /// Field to sort by (title, note_type, created_at, updated_at, last_activity_at)
     #[param(example = "created_at")]
     pub sort: Option<String>,
     /// Sort order (asc, desc)
@@ -228,6 +252,8 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         },
         tags,
         project_id: query.project_id.clone(),
+        parent_id: query.parent_id.clone(),
+        note_type: query.note_type.clone(),
     };
 
     // Get notes - either search or list all (at database level)
@@ -316,21 +342,17 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Json(req): Json<CreateNoteRequest>,
 ) -> Result<(StatusCode, Json<NoteResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let note_type = req
-        .note_type
-        .as_deref()
-        .map(parse_note_type)
-        .unwrap_or(NoteType::Manual);
-
     // Create note with placeholder values - repository will generate ID and timestamps
     let note = Note {
         id: String::new(), // Repository will generate this
         title: req.title,
         content: req.content,
         tags: req.tags,
-        note_type,
+        parent_id: req.parent_id,
+        idx: req.idx,
         repo_ids: req.repo_ids,
         project_ids: req.project_ids,
+        subnote_count: None,
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
     };
@@ -388,12 +410,10 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
     note.title = req.title;
     note.content = req.content;
     note.tags = req.tags;
+    note.parent_id = req.parent_id;
+    note.idx = req.idx;
     note.repo_ids = req.repo_ids;
     note.project_ids = req.project_ids;
-
-    if let Some(note_type_str) = req.note_type {
-        note.note_type = parse_note_type(&note_type_str);
-    }
 
     state.db().notes().update(&note).await.map_err(|e| {
         (
@@ -509,11 +529,3 @@ pub async fn delete_note<D: Database, G: GitOps + Send + Sync>(
 // =============================================================================
 // Helpers
 // =============================================================================
-
-fn parse_note_type(s: &str) -> NoteType {
-    match s {
-        "archived_todo" => NoteType::ArchivedTodo,
-        "scratchpad" => NoteType::Scratchpad,
-        _ => NoteType::Manual,
-    }
-}

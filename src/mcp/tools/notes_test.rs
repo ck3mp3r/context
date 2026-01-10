@@ -1,7 +1,7 @@
 //! Tests for Note MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, Note, NoteRepository, NoteType, SqliteDatabase};
+use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
 use crate::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools,
     SearchNotesParams, UpdateNoteParams,
@@ -19,8 +19,9 @@ async fn test_list_notes_empty() {
 
     let params = ListNotesParams {
         tags: None,
-        note_type: None,
         project_id: None,
+        parent_id: None,
+        note_type: None,
         limit: None,
         offset: None,
         include_content: None,
@@ -58,7 +59,8 @@ async fn test_create_and_get_note() {
         content: "# Meeting with team\n\n- Discussed project timeline\n- Assigned tasks"
             .to_string(),
         tags: Some(vec!["meeting".to_string(), "team".to_string()]),
-        note_type: None,
+        parent_id: None,
+        idx: None,
         repo_ids: None,
         project_ids: None,
     };
@@ -80,7 +82,6 @@ async fn test_create_and_get_note() {
         created.tags,
         vec!["meeting".to_string(), "team".to_string()]
     );
-    assert_eq!(created.note_type, NoteType::Manual);
     assert!(!created.id.is_empty());
 
     // Get the note
@@ -132,9 +133,11 @@ async fn test_list_notes_with_tag_filter() {
         title: "Work Note".to_string(),
         content: "Content 1".to_string(),
         tags: vec!["work".to_string()],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -143,9 +146,11 @@ async fn test_list_notes_with_tag_filter() {
         title: "Personal Note".to_string(),
         content: "Content 2".to_string(),
         tags: vec!["personal".to_string()],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -157,8 +162,9 @@ async fn test_list_notes_with_tag_filter() {
     // List only "work" notes
     let params = ListNotesParams {
         tags: Some(vec!["work".to_string()]),
-        note_type: None,
         project_id: None,
+        parent_id: None,
+        note_type: None,
         limit: None,
         offset: None,
         include_content: None,
@@ -194,9 +200,11 @@ async fn test_update_note() {
         title: "Original Title".to_string(),
         content: "Original content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -210,6 +218,8 @@ async fn test_update_note() {
         title: Some("Updated Title".to_string()),
         content: Some("Updated content with more details".to_string()),
         tags: Some(vec!["updated".to_string()]),
+        parent_id: None,
+        idx: None,
         repo_ids: None,
         project_ids: None,
     };
@@ -243,9 +253,11 @@ async fn test_delete_note() {
         title: "To be deleted".to_string(),
         content: "This will be removed".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -287,9 +299,11 @@ async fn test_search_notes() {
         title: "Rust Programming".to_string(),
         content: "Learning about Rust ownership and borrowing".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -298,9 +312,11 @@ async fn test_search_notes() {
         title: "Python Tutorial".to_string(),
         content: "Python list comprehensions and generators".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -348,9 +364,11 @@ async fn test_search_notes_with_tag_filter() {
         title: "Rust Async".to_string(),
         content: "Async programming in Rust".to_string(),
         tags: vec!["rust".to_string(), "async".to_string()],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -359,9 +377,11 @@ async fn test_search_notes_with_tag_filter() {
         title: "Rust Basics".to_string(),
         content: "Basic Rust syntax and types".to_string(),
         tags: vec!["rust".to_string(), "basics".to_string()],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: None,
         updated_at: None,
     };
@@ -409,9 +429,11 @@ async fn test_list_notes_with_sort_and_order() {
         title: "First Note".to_string(),
         content: "First content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-01 10:00:00".to_string()),
         updated_at: Some("2025-01-01 10:00:00".to_string()),
     };
@@ -421,9 +443,11 @@ async fn test_list_notes_with_sort_and_order() {
         title: "Second Note".to_string(),
         content: "Second content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-02 10:00:00".to_string()),
         updated_at: Some("2025-01-03 10:00:00".to_string()),
     };
@@ -433,9 +457,11 @@ async fn test_list_notes_with_sort_and_order() {
         title: "Third Note".to_string(),
         content: "Third content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec![],
         project_ids: vec![],
+        subnote_count: None,
         created_at: Some("2025-01-03 10:00:00".to_string()),
         updated_at: Some("2025-01-02 10:00:00".to_string()),
     };
@@ -448,9 +474,10 @@ async fn test_list_notes_with_sort_and_order() {
 
     // Test sorting by updated_at DESC
     let params = ListNotesParams {
-        note_type: None,
         tags: None,
         project_id: None,
+        parent_id: None,
+        note_type: None,
         limit: None,
         offset: None,
         include_content: Some(false),
@@ -478,9 +505,10 @@ async fn test_list_notes_with_sort_and_order() {
 
     // Test sorting by title ASC
     let params = ListNotesParams {
-        note_type: None,
         tags: None,
         project_id: None,
+        parent_id: None,
+        note_type: None,
         limit: None,
         offset: None,
         include_content: Some(false),
@@ -505,4 +533,203 @@ async fn test_list_notes_with_sort_and_order() {
     assert_eq!(items[0]["title"], "First Note");
     assert_eq!(items[1]["title"], "Second Note");
     assert_eq!(items[2]["title"], "Third Note");
+}
+
+// =============================================================================
+// Hierarchical Notes Tests (parent_id and idx)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_parent() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create parent note
+    let parent_params = CreateNoteParams {
+        title: "Parent Note".to_string(),
+        content: "Parent content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let parent_result = tools
+        .create_note(Parameters(parent_params))
+        .await
+        .expect("create parent should succeed");
+
+    let parent_text = match &parent_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let parent: Note = serde_json::from_str(parent_text).unwrap();
+
+    // Create child note with parent_id
+    let child_params = CreateNoteParams {
+        title: "Child Note".to_string(),
+        content: "Child content".to_string(),
+        tags: None,
+        parent_id: Some(parent.id.clone()),
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let child_result = tools
+        .create_note(Parameters(child_params))
+        .await
+        .expect("create child should succeed");
+
+    let child_text = match &child_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let child: Note = serde_json::from_str(child_text).unwrap();
+
+    assert_eq!(child.title, "Child Note");
+    assert_eq!(child.parent_id, Some(parent.id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_note_idx() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create note with idx
+    let create_params = CreateNoteParams {
+        title: "Test Note".to_string(),
+        content: "Content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: Some(10),
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let create_result = tools
+        .create_note(Parameters(create_params))
+        .await
+        .expect("create should succeed");
+
+    let create_text = match &create_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let created: Note = serde_json::from_str(create_text).unwrap();
+    assert_eq!(created.idx, Some(10));
+
+    // Update idx
+    let update_params = UpdateNoteParams {
+        note_id: created.id.clone(),
+        title: Some("Test Note".to_string()),
+        content: Some("Content".to_string()),
+        tags: None,
+        parent_id: None,
+        idx: Some(Some(20)),
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let update_result = tools
+        .update_note(Parameters(update_params))
+        .await
+        .expect("update should succeed");
+
+    let update_text = match &update_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let updated: Note = serde_json::from_str(update_text).unwrap();
+    assert_eq!(updated.idx, Some(20));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_subnotes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create parent note
+    let parent_params = CreateNoteParams {
+        title: "Parent".to_string(),
+        content: "Parent content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let parent_result = tools
+        .create_note(Parameters(parent_params))
+        .await
+        .expect("create parent should succeed");
+
+    let parent_text = match &parent_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let parent: Note = serde_json::from_str(parent_text).unwrap();
+
+    // Create child notes with different idx values
+    let children = vec![("Child 1", 30), ("Child 2", 10), ("Child 3", 20)];
+
+    for (title, idx) in children {
+        let child_params = CreateNoteParams {
+            title: title.to_string(),
+            content: "Content".to_string(),
+            tags: None,
+            parent_id: Some(parent.id.clone()),
+            idx: Some(idx),
+            repo_ids: None,
+            project_ids: None,
+        };
+
+        tools
+            .create_note(Parameters(child_params))
+            .await
+            .expect("create child should succeed");
+    }
+
+    // List subnotes filtered by parent_id
+    let list_params = ListNotesParams {
+        tags: None,
+        project_id: None,
+        parent_id: Some(parent.id.clone()),
+        note_type: None,
+        limit: None,
+        offset: None,
+        include_content: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools
+        .list_notes(Parameters(list_params))
+        .await
+        .expect("list should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(json["total"], 3);
+    // Should be ordered by idx (10, 20, 30)
+    assert_eq!(items[0]["title"], "Child 2");
+    assert_eq!(items[0]["idx"], 10);
+    assert_eq!(items[1]["title"], "Child 3");
+    assert_eq!(items[1]["idx"], 20);
+    assert_eq!(items[2]["title"], "Child 1");
+    assert_eq!(items[2]["idx"], 30);
 }

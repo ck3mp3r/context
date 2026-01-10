@@ -33,6 +33,9 @@ pub struct ProjectResponse {
     /// Tags for categorization
     #[schema(example = json!(["rust", "backend"]))]
     pub tags: Vec<String>,
+    /// External references (e.g., GitHub issues, Jira tickets)
+    #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
+    pub external_refs: Vec<String>,
     /// Linked repository IDs
     #[schema(example = json!(["repo0001", "repo0002"]))]
     pub repo_ids: Vec<String>,
@@ -57,6 +60,7 @@ impl From<Project> for ProjectResponse {
             title: p.title,
             description: p.description,
             tags: p.tags,
+            external_refs: p.external_refs,
             repo_ids: p.repo_ids,
             task_list_ids: p.task_list_ids,
             note_ids: p.note_ids,
@@ -79,6 +83,10 @@ pub struct CreateProjectRequest {
     #[schema(example = json!(["rust", "backend"]))]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// External references (e.g., GitHub issues, Jira tickets)
+    #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
+    #[serde(default)]
+    pub external_refs: Vec<String>,
 }
 
 /// Update project request DTO
@@ -94,6 +102,10 @@ pub struct UpdateProjectRequest {
     #[schema(example = json!(["rust", "backend"]))]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// External references (e.g., GitHub issues, Jira tickets)
+    #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
+    #[serde(default)]
+    pub external_refs: Vec<String>,
 }
 
 /// Patch project request DTO (partial update)
@@ -112,6 +124,9 @@ pub struct PatchProjectRequest {
     /// Tags for categorization
     #[schema(example = json!(["rust", "backend"]))]
     pub tags: Option<Vec<String>>,
+    /// External references (e.g., GitHub issues, Jira tickets)
+    #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
+    pub external_refs: Option<Vec<String>>,
 }
 
 impl PatchProjectRequest {
@@ -124,6 +139,9 @@ impl PatchProjectRequest {
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
+        }
+        if let Some(external_refs) = self.external_refs {
+            target.external_refs = external_refs;
         }
     }
 }
@@ -138,6 +156,9 @@ pub struct ErrorResponse {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListProjectsQuery {
+    /// FTS5 search query (optional)
+    #[param(example = "rust backend")]
+    pub q: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -206,19 +227,29 @@ pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
         tags,
     };
 
-    let result = state
-        .db()
-        .projects()
-        .list(Some(&db_query))
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    // Use search if query provided, otherwise list
+    let result = if let Some(ref search_query) = query.q {
+        if !search_query.trim().is_empty() {
+            state
+                .db()
+                .projects()
+                .search(search_query, Some(&db_query))
+                .await
+        } else {
+            // Empty query - fall back to list
+            state.db().projects().list(Some(&db_query)).await
+        }
+    } else {
+        state.db().projects().list(Some(&db_query)).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     let items: Vec<ProjectResponse> = result
         .items
@@ -297,6 +328,7 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
         title: req.title,
         description: req.description,
         tags: req.tags,
+        external_refs: req.external_refs,
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -367,6 +399,7 @@ pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
     project.title = req.title;
     project.description = req.description;
     project.tags = req.tags;
+    project.external_refs = req.external_refs;
 
     state.db().projects().update(&project).await.map_err(|e| {
         (

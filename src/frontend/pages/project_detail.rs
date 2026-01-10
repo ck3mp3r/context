@@ -4,7 +4,8 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
 use crate::components::{
-    CopyableId, NoteCard, NoteDetailModal, Pagination, RepoCard, TaskListCard, TaskListDetailModal,
+    CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, TaskListCard,
+    TaskListDetailModal,
 };
 use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -45,6 +46,7 @@ pub fn ProjectDetail() -> impl IntoView {
     // Note detail modal state
     let note_modal_open = RwSignal::new(false);
     let selected_note_id = RwSignal::new(String::new());
+    let selected_note_has_subnotes = RwSignal::new(false);
 
     // Task list detail modal state
     let task_list_modal_open = RwSignal::new(false);
@@ -172,8 +174,15 @@ pub fn ProjectDetail() -> impl IntoView {
                     Some(search)
                 };
                 let offset = current_page * NOTE_PAGE_SIZE;
-                let result =
-                    notes::list(Some(NOTE_PAGE_SIZE), Some(offset), search_query, Some(id)).await;
+                let result = notes::list(
+                    Some(NOTE_PAGE_SIZE),
+                    Some(offset),
+                    search_query,
+                    Some(id),
+                    Some("note"),
+                    None,
+                )
+                .await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -234,7 +243,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                 {(!project.tags.is_empty())
                                     .then(|| {
                                         view! {
-                                            <div class="flex flex-wrap gap-2">
+                                            <div class="flex flex-wrap gap-2 mb-3">
                                                 {project
                                                     .tags
                                                     .iter()
@@ -243,6 +252,23 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-3 py-1 rounded">
                                                                 {tag.clone()}
                                                             </span>
+                                                        }
+                                                    })
+                                                    .collect::<Vec<_>>()}
+                                            </div>
+                                        }
+                                    })}
+
+                                {(!project.external_refs.is_empty())
+                                    .then(|| {
+                                        view! {
+                                            <div class="flex flex-wrap gap-1">
+                                                {project
+                                                    .external_refs
+                                                    .iter()
+                                                    .map(|ext_ref| {
+                                                        view! {
+                                                            <ExternalRefLink external_ref=ext_ref.clone()/>
                                                         }
                                                     })
                                                     .collect::<Vec<_>>()}
@@ -502,9 +528,13 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                     view! {
                                                                                          <NoteCard
                                                                                             note=note.clone()
-                                                                                            on_click=Callback::new(move |note_id: String| {
-                                                                                                selected_note_id.set(note_id);
-                                                                                                note_modal_open.set(true);
+                                                                                            on_click=Callback::new({
+                                                                                                let has_subs = note.subnote_count.unwrap_or(0) > 0;
+                                                                                                move |note_id: String| {
+                                                                                                    selected_note_id.set(note_id);
+                                                                                                    selected_note_has_subnotes.set(has_subs);
+                                                                                                    note_modal_open.set(true);
+                                                                                                }
                                                                                             })
                                                                                         />
                                                                                     }
@@ -683,6 +713,7 @@ pub fn ProjectDetail() -> impl IntoView {
                         <NoteDetailModal
                             note_id=selected_note_id.read_only()
                             open=note_modal_open
+                            has_subnotes=selected_note_has_subnotes.get()
                         />
                     })
                 } else {

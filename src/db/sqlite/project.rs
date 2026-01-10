@@ -4,7 +4,9 @@ use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository};
+use crate::db::{
+    DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository, SortOrder,
+};
 
 /// SQLx-backed project repository.
 pub struct SqliteProjectRepository<'a> {
@@ -20,17 +22,29 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             project.id.clone()
         };
 
-        // Always generate current timestamps - never use input timestamps
-        let created_at = current_timestamp();
-        let updated_at = created_at.clone();
+        // Use provided timestamps or generate if empty
+        let created_at = if project.created_at.is_empty() {
+            current_timestamp()
+        } else {
+            project.created_at.clone()
+        };
+        let updated_at = if project.updated_at.is_empty() {
+            created_at.clone()
+        } else {
+            project.updated_at.clone()
+        };
 
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
 
-        sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        let external_refs_json =
+            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
+
+        sqlx::query("INSERT INTO project (id, title, description, tags, external_refs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&project.title)
             .bind(&project.description)
             .bind(&tags_json)
+            .bind(&external_refs_json)
             .bind(&created_at)
             .bind(&updated_at)
             .execute(self.pool)
@@ -44,6 +58,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             title: project.title.clone(),
             description: project.description.clone(),
             tags: project.tags.clone(),
+            external_refs: project.external_refs.clone(),
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
@@ -54,7 +69,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Project> {
         let row = sqlx::query(
-            "SELECT id, title, description, tags, created_at, updated_at FROM project WHERE id = ?",
+            "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -70,6 +85,10 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
         let tags_json: String = row.get("tags");
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+        let external_refs_json: String = row.get("external_refs");
+        let external_refs: Vec<String> =
+            serde_json::from_str(&external_refs_json).unwrap_or_default();
 
         // Get repo relationships
         let repo_ids: Vec<String> =
@@ -106,6 +125,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             title: row.get("title"),
             description: row.get("description"),
             tags,
+            external_refs,
             repo_ids,
             task_list_ids,
             note_ids,
@@ -147,7 +167,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             (
                 format!(
-                    "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.created_at, p.updated_at \
+                    "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.external_refs, p.created_at, p.updated_at \
                      FROM project p, json_each(p.tags) {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -159,7 +179,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, description, tags, created_at, updated_at FROM project {} {}",
+                    "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project {} {}",
                     order_clause, limit_clause
                 ),
                 "SELECT COUNT(*) FROM project".to_string(),
@@ -184,11 +204,15 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             .map(|row| {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                let external_refs_json: String = row.get("external_refs");
+                let external_refs: Vec<String> =
+                    serde_json::from_str(&external_refs_json).unwrap_or_default();
                 Project {
                     id: row.get("id"),
                     title: row.get("title"),
                     description: row.get("description"),
                     tags,
+                    external_refs,
                     repo_ids: vec![],
                     task_list_ids: vec![],
                     note_ids: vec![],
@@ -221,13 +245,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
     async fn update(&self, project: &Project) -> DbResult<()> {
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+        let external_refs_json =
+            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
 
         let result = sqlx::query(
-            "UPDATE project SET title = ?, description = ?, tags = ?, updated_at = ? WHERE id = ?",
+            "UPDATE project SET title = ?, description = ?, tags = ?, external_refs = ?, updated_at = ? WHERE id = ?",
         )
         .bind(&project.title)
         .bind(&project.description)
         .bind(&tags_json)
+        .bind(&external_refs_json)
         .bind(&project.updated_at)
         .bind(&project.id)
         .execute(self.pool)
@@ -263,5 +290,186 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         }
 
         Ok(())
+    }
+
+    async fn search(
+        &self,
+        search_term: &str,
+        query: Option<&ProjectQuery>,
+    ) -> DbResult<ListResult<Project>> {
+        let default_query = ProjectQuery::default();
+        let query = query.unwrap_or(&default_query);
+
+        // Sanitize FTS5 search query to prevent syntax errors
+        // Same sanitization logic as Note search
+        let fts_query = {
+            // Strip FTS5-dangerous special characters
+            let cleaned = search_term
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric()
+                        || c == '_'
+                        || c == '"'
+                        || c.is_whitespace()
+                        || (c as u32) > 127
+                    {
+                        c
+                    } else {
+                        ' '
+                    }
+                })
+                .collect::<String>();
+
+            // Handle unbalanced quotes
+            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
+            let cleaned = if quote_count % 2 == 0 {
+                cleaned
+            } else {
+                cleaned.replace('"', "")
+            };
+
+            // Handle empty/whitespace-only queries
+            if cleaned.trim().is_empty() {
+                return Ok(ListResult {
+                    items: vec![],
+                    total: 0,
+                    limit: query.page.limit,
+                    offset: query.page.offset.unwrap_or(0),
+                });
+            }
+
+            // Detect advanced search features
+            let has_boolean =
+                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
+            let has_phrase = cleaned.contains('"');
+
+            // Apply query transformation
+            if has_boolean || has_phrase {
+                cleaned
+            } else {
+                // Simple mode - add prefix matching
+                cleaned
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|term| format!("{}*", term))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+        };
+
+        let mut bind_values: Vec<String> = vec![fts_query];
+        let mut where_conditions: Vec<String> = vec!["project_fts MATCH ?".to_string()];
+
+        // Check if we need JOINs for tag filtering
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+
+        // Add tag filter if specified
+        if needs_json_each {
+            let tags = query.tags.as_ref().unwrap();
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+            bind_values.extend(tags.clone());
+        }
+
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
+
+        // Build ORDER BY clause
+        let allowed_fields = ["title", "created_at", "updated_at"];
+        let order_clause = {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+
+            let order = match query.page.sort_order.unwrap_or(SortOrder::Asc) {
+                SortOrder::Asc => "ASC",
+                SortOrder::Desc => "DESC",
+            };
+
+            format!("ORDER BY p.{} {}", sort_field, order)
+        };
+
+        // Build FROM clause with necessary JOINs
+        let from_clause = if needs_json_each {
+            "FROM project p INNER JOIN project_fts ON p.id = project_fts.id, json_each(p.tags)"
+        } else {
+            "FROM project p INNER JOIN project_fts ON p.id = project_fts.id"
+        };
+
+        // Count query
+        let count_sql = format!(
+            "SELECT COUNT(DISTINCT p.id) {} {}",
+            from_clause, where_clause
+        );
+
+        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+        let total = count_query
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })? as usize;
+
+        // Data query with LIMIT/OFFSET
+        let limit = query.page.limit.unwrap_or(20);
+        let offset = query.page.offset.unwrap_or(0);
+
+        let data_sql = format!(
+            "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.external_refs, p.created_at, p.updated_at
+             {}
+             {}
+             {}
+             LIMIT ? OFFSET ?",
+            from_clause, where_clause, order_clause
+        );
+
+        let mut data_query = sqlx::query(&data_sql);
+        for value in &bind_values {
+            data_query = data_query.bind(value);
+        }
+        data_query = data_query.bind(limit as i64);
+        data_query = data_query.bind(offset as i64);
+
+        let rows = data_query
+            .fetch_all(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Convert rows to Project with empty relationship IDs
+        // Search doesn't load relationships (use get() for that)
+        let items: Vec<Project> = rows
+            .into_iter()
+            .map(|row| {
+                let tags_json: String = row.get("tags");
+                let external_refs_json: String = row.get("external_refs");
+
+                Project {
+                    id: row.get("id"),
+                    title: row.get("title"),
+                    description: row.get("description"),
+                    tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+                    external_refs: serde_json::from_str(&external_refs_json).unwrap_or_default(),
+                    repo_ids: vec![],
+                    task_list_ids: vec![],
+                    note_ids: vec![],
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                }
+            })
+            .collect();
+
+        Ok(ListResult {
+            items,
+            total,
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
+        })
     }
 }

@@ -250,7 +250,9 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_tools.update_task(params).await
     }
 
-    #[tool(description = "Transition task between statuses with validation")]
+    #[tool(
+        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
+    )]
     pub async fn transition_task(
         &self,
         params: Parameters<TransitionTaskParams>,

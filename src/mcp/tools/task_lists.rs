@@ -62,9 +62,9 @@ pub struct CreateTaskListParams {
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(
-        description = "External reference like Jira/GitHub issue (e.g., 'PROJ-123') (optional)"
+        description = "External references like Jira/GitHub issues (e.g., ['owner/repo#123', 'PROJ-456']) (optional)"
     )]
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
     #[schemars(description = "Repository IDs related to this workstream (optional)")]
     pub repo_ids: Option<Vec<String>>,
     #[schemars(
@@ -85,8 +85,10 @@ pub struct UpdateTaskListParams {
     pub notes: Option<String>,
     #[schemars(description = "Tags for organization (optional)")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "External reference (optional)")]
-    pub external_ref: Option<String>,
+    #[schemars(
+        description = "External references (e.g., ['owner/repo#123', 'PROJ-456']) (optional)"
+    )]
+    pub external_refs: Option<Vec<String>>,
     #[schemars(description = "Status (active, archived) (optional)")]
     pub status: Option<String>,
     #[schemars(
@@ -109,6 +111,24 @@ pub struct DeleteTaskListParams {
 pub struct GetTaskListStatsParams {
     #[schemars(description = "TaskList ID")]
     pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchTaskListsParams {
+    #[schemars(
+        description = "FTS5 search query. Searches title, description, notes, tags, external_refs. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match)"
+    )]
+    pub query: String,
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
+    pub limit: Option<usize>,
+    #[schemars(description = "Number of results to skip (optional)")]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 // =============================================================================
@@ -227,7 +247,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             description: params.0.description,
             notes: params.0.notes,
             tags: params.0.tags.unwrap_or_default(),
-            external_ref: params.0.external_ref,
+            external_refs: params.0.external_refs.unwrap_or_default(),
             status: TaskListStatus::Active,
             repo_ids: params.0.repo_ids.unwrap_or_default(),
             project_id: params.0.project_id,
@@ -286,8 +306,8 @@ impl<D: Database + 'static> TaskListTools<D> {
             list.tags = tags;
         }
 
-        if let Some(external_ref) = params.0.external_ref {
-            list.external_ref = Some(external_ref);
+        if let Some(external_refs) = params.0.external_refs {
+            list.external_refs = external_refs;
         }
 
         if let Some(repo_ids) = params.0.repo_ids {
@@ -387,5 +407,51 @@ impl<D: Database + 'static> TaskListTools<D> {
             )
         })?;
         Ok(CallToolResult::success(vec![Content::text(content)]))
+    }
+
+    /// Full-text search task lists using FTS5
+    #[tool(
+        description = "Full-text search task lists (FTS5). Searches title, description, notes, tags, external_refs. Supports: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Default limit: 10, max: 20."
+    )]
+    pub async fn search_task_lists(
+        &self,
+        params: Parameters<SearchTaskListsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        // Build query
+        let query = TaskListQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(SortOrder::Desc),
+                    Some("asc") => Some(SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            status: None,
+            tags: None,
+            project_id: None,
+        };
+
+        let result = self
+            .db
+            .task_lists()
+            .search(&params.0.query, Some(&query))
+            .await
+            .map_err(map_db_error)?;
+
+        let response = json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 }

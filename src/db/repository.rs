@@ -25,6 +25,11 @@ pub trait ProjectRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
     fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        query: &str,
+        project_query: Option<&ProjectQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
 }
 
 /// Repository for Repo operations.
@@ -47,6 +52,11 @@ pub trait TaskListRepository: Send + Sync {
         &self,
         query: Option<&TaskListQuery>,
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&TaskListQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn link_project(
@@ -67,6 +77,11 @@ pub trait TaskRepository: Send + Sync {
     fn get(&self, id: &str) -> impl Future<Output = DbResult<Task>> + Send;
     fn list(
         &self,
+        query: Option<&TaskQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
         query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;

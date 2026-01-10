@@ -64,10 +64,25 @@ async fn handle_response<T: DeserializeOwned>(
 pub mod projects {
     use super::*;
 
-    pub async fn list(limit: Option<usize>, offset: Option<usize>) -> Result<Paginated<Project>> {
+    pub async fn list(
+        limit: Option<usize>,
+        offset: Option<usize>,
+        search_query: Option<String>,
+    ) -> Result<Paginated<Project>> {
         let mut url = format!("{}/projects", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(q) = search_query
+            && !q.trim().is_empty()
+        {
+            // Simple URL encoding for search query
+            let encoded = q
+                .replace(' ', "+")
+                .replace('&', "%26")
+                .replace('=', "%3D")
+                .replace('#', "%23");
+            query_params.push(format!("q={}", encoded));
+        }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
         }
@@ -277,6 +292,8 @@ pub mod notes {
         offset: Option<usize>,
         search_query: Option<String>,
         project_id: Option<String>,
+        note_type: Option<&str>,
+        parent_id: Option<String>,
     ) -> Result<Paginated<Note>> {
         let mut url = format!("{}/notes", API_BASE);
         let mut query_params = vec![];
@@ -295,6 +312,12 @@ pub mod notes {
                 .replace('#', "%23");
             query_params.push(format!("q={}", encoded));
         }
+        if let Some(note_type_val) = note_type {
+            query_params.push(format!("type={}", note_type_val));
+        }
+        if let Some(parent) = parent_id {
+            query_params.push(format!("parent_id={}", parent));
+        }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
         }
@@ -302,9 +325,13 @@ pub mod notes {
             query_params.push(format!("offset={}", off));
         }
 
-        // Default to updated_at DESC (latest first)
-        query_params.push("sort=updated_at".to_string());
-        query_params.push("order=desc".to_string());
+        // Only set default sort if not filtering by type (let backend use its defaults)
+        // When type=note, backend defaults to last_activity_at DESC
+        // When type=subnote, backend defaults to idx ASC, updated_at DESC
+        if note_type.is_none() {
+            query_params.push("sort=updated_at".to_string());
+            query_params.push("order=desc".to_string());
+        }
 
         if !query_params.is_empty() {
             url = format!("{}?{}", url, query_params.join("&"));

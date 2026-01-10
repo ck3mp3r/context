@@ -1,5 +1,5 @@
 use crate::db::{
-    Database, Note, NoteRepository, NoteType, Project, ProjectRepository, Repo, RepoRepository,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
     SqliteDatabase,
 };
 use crate::sync::export::*;
@@ -55,6 +55,7 @@ async fn test_export_with_data() {
         title: "Test Project".to_string(),
         description: Some("A test".to_string()),
         tags: vec![],
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -119,6 +120,7 @@ async fn test_export_includes_relationships() {
         title: "Test Project".to_string(),
         description: Some("A test project".to_string()),
         tags: vec![],
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -144,9 +146,11 @@ async fn test_export_includes_relationships() {
         title: "Test Note".to_string(),
         content: "Test content".to_string(),
         tags: vec![],
-        note_type: NoteType::Manual,
+        parent_id: None,
+        idx: None,
         repo_ids: vec!["repo0001".to_string()],
         project_ids: vec!["proj0001".to_string()],
+        subnote_count: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };

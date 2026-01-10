@@ -14,7 +14,7 @@ async fn test_list_tasks_json_format() {
         status: "todo".to_string(),
         priority: Some(1),
         tags: None,
-        external_ref: None,
+        external_refs: vec![],
         created_at: "2025-12-28T10:00:00Z".to_string(),
         started_at: None,
         completed_at: None,
@@ -37,7 +37,7 @@ fn test_format_table_with_tasks() {
             status: "todo".to_string(),
             priority: Some(1),
             tags: None,
-            external_ref: None,
+            external_refs: vec![],
             created_at: "2025-12-28T10:00:00Z".to_string(),
             started_at: None,
             completed_at: None,
@@ -51,7 +51,7 @@ fn test_format_table_with_tasks() {
             status: "done".to_string(),
             priority: None,
             tags: None,
-            external_ref: None,
+            external_refs: vec![],
             created_at: "2025-12-28T11:00:00Z".to_string(),
             started_at: None,
             completed_at: None,
@@ -93,7 +93,7 @@ fn test_task_display_conversion() {
         status: "todo".to_string(),
         priority: Some(5),
         tags: None,
-        external_ref: None,
+        external_refs: vec![],
         created_at: "2025-12-28T10:00:00Z".to_string(),
         started_at: None,
         completed_at: None,
@@ -113,7 +113,7 @@ fn test_task_display_conversion() {
         status: "done".to_string(),
         priority: None,
         tags: None,
-        external_ref: None,
+        external_refs: vec![],
         created_at: "2025-12-28T10:00:00Z".to_string(),
         started_at: None,
         completed_at: None,
@@ -177,7 +177,7 @@ fn test_create_request_serialization() {
         description: Some("Test description".to_string()),
         priority: Some(3),
         tags: Some(vec!["urgent".to_string()]),
-        external_ref: None,
+        external_refs: None,
     };
 
     let json = serde_json::to_string(&req).unwrap();
@@ -195,7 +195,7 @@ fn test_update_request_serialization() {
         status: Some("in_progress".to_string()),
         priority: Some(2),
         tags: Some(vec!["important".to_string()]),
-        external_ref: None,
+        external_refs: None,
     };
 
     let json = serde_json::to_string(&req).unwrap();
@@ -217,7 +217,7 @@ fn test_task_with_all_fields() {
         status: "in_progress".to_string(),
         priority: Some(1),
         tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
-        external_ref: None,
+        external_refs: vec![],
         created_at: "2025-12-28T10:00:00Z".to_string(),
         started_at: Some("2025-12-28T11:00:00Z".to_string()),
         completed_at: None,

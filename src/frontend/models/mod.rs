@@ -1,18 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-// Re-export common types from shared db models
-#[cfg(all(feature = "backend", not(feature = "frontend")))]
-pub use crate::db::models::NoteType;
-
-// For frontend builds, define NoteType locally
-#[cfg(any(feature = "frontend", not(feature = "backend")))]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum NoteType {
-    Manual,
-    ArchivedTodo,
-}
-
 /// Project response from API
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {
@@ -20,6 +7,7 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
+    pub external_refs: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -43,7 +31,7 @@ pub struct TaskList {
     pub title: String,
     pub description: Option<String>,
     pub status: String,
-    pub external_ref: Option<String>,
+    pub external_refs: Vec<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
     pub repo_ids: Vec<String>,
@@ -62,7 +50,7 @@ pub struct Task {
     pub status: String,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    pub external_refs: Vec<String>,
     pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -88,10 +76,18 @@ pub struct Note {
     pub id: String,
     pub title: String,
     pub content: String,
-    pub note_type: NoteType,
     pub tags: Vec<String>,
+    /// Parent note ID for hierarchical structure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// Manual ordering index within siblings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idx: Option<i32>,
     pub project_ids: Vec<String>,
     pub repo_ids: Vec<String>,
+    /// Count of subnotes (children) - computed field
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subnote_count: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }

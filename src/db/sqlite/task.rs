@@ -39,9 +39,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
+        let external_refs_json =
+            serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
+
         sqlx::query(
             r#"
-            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at)
+            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
@@ -53,7 +56,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(status_str)
         .bind(task.priority)
         .bind(&tags_json)
-        .bind(&task.external_ref)
+        .bind(&external_refs_json)
         .bind(&created_at)
         .bind(&task.started_at)
         .bind(&task.completed_at)
@@ -64,25 +67,12 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             message: e.to_string(),
         })?;
 
-        // If this is a child task, update parent's updated_at
-        // This replaces the SQL trigger logic
-        if let Some(parent_id) = &task.parent_id {
-            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
-                .bind(&updated_at)
-                .bind(parent_id)
-                .execute(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-        }
-
         self.get(&id).await
     }
 
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
-            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at
              FROM task WHERE id = ?",
         )
         .bind(id)
@@ -111,6 +101,14 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             "completed_at",
             "updated_at",
         ];
+
+        // Check if we need last_activity_at computed column
+        // - When sorting by updated_at, compute activity for proper ordering
+        // - Only relevant for parent tasks (task_type=task or not filtering by parent_id)
+        let is_sorting_by_updated = query.page.sort_by.as_deref() == Some("updated_at");
+        let is_querying_parents = query.task_type.as_deref() == Some("task")
+            || (query.parent_id.is_none() && query.task_type.is_none());
+        let needs_activity_column = is_sorting_by_updated && is_querying_parents;
 
         let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
         let limit_clause = build_limit_offset_clause(&query.page);
@@ -168,13 +166,27 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             format!("WHERE {}", conditions.join(" AND "))
         };
 
-        // Build SQL based on whether we need json_each
+        // Build SQL based on whether we need json_each or activity column
         let (sql, count_sql) = if needs_json_each {
+            let select_cols = if needs_activity_column {
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.started_at, t.completed_at, t.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id), t.updated_at) AS last_activity_at"
+            } else {
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.started_at, t.completed_at, t.updated_at"
+            };
+
+            // Replace updated_at in ORDER BY with last_activity_at if we computed it
+            let order_clause_adjusted = if needs_activity_column {
+                order_clause.replace("updated_at", "last_activity_at")
+            } else {
+                order_clause.clone()
+            };
+
             let sql = format!(
-                "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_ref, t.created_at, t.started_at, t.completed_at, t.updated_at
+                "SELECT {}
                  FROM task t, json_each(t.tags)
                  {} {} {}",
-                where_clause, order_clause, limit_clause
+                select_cols, where_clause, order_clause_adjusted, limit_clause
             );
             let count_sql = format!(
                 "SELECT COUNT(DISTINCT t.id) FROM task t, json_each(t.tags) {}",
@@ -182,11 +194,25 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             );
             (sql, count_sql)
         } else {
+            let select_cols = if needs_activity_column {
+                "task.id, task.list_id, task.parent_id, task.title, task.description, task.status, task.priority, task.tags, task.external_refs, task.created_at, task.started_at, task.completed_at, task.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM task AS child WHERE child.parent_id = task.id), task.updated_at) AS last_activity_at"
+            } else {
+                "id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at"
+            };
+
+            // Replace updated_at in ORDER BY with last_activity_at if we computed it
+            let order_clause_adjusted = if needs_activity_column {
+                order_clause.replace("updated_at", "last_activity_at")
+            } else {
+                order_clause.clone()
+            };
+
             let sql = format!(
-                "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_ref, created_at, started_at, completed_at, updated_at
+                "SELECT {}
                  FROM task
                  {} {} {}",
-                where_clause, order_clause, limit_clause
+                select_cols, where_clause, order_clause_adjusted, limit_clause
             );
             let count_sql = format!("SELECT COUNT(*) FROM task {}", where_clause);
             (sql, count_sql)
@@ -223,6 +249,202 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         Ok(ListResult {
             items,
             total: total as usize,
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
+        })
+    }
+
+    async fn search(
+        &self,
+        search_term: &str,
+        query: Option<&TaskQuery>,
+    ) -> DbResult<ListResult<Task>> {
+        let default_query = TaskQuery::default();
+        let query = query.unwrap_or(&default_query);
+
+        // Sanitize FTS5 query (same pattern as task_list.rs and project.rs)
+        let fts_query = {
+            // Strip FTS5-dangerous characters but preserve alphanumeric, underscore, quotes,
+            // whitespace, and non-ASCII (for international text)
+            let cleaned = search_term
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric()
+                        || c == '_'
+                        || c == '"'
+                        || c.is_whitespace()
+                        || !c.is_ascii()
+                    {
+                        c
+                    } else {
+                        ' '
+                    }
+                })
+                .collect::<String>();
+
+            // Handle unbalanced quotes (FTS5 syntax error)
+            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
+            let cleaned = if quote_count % 2 == 0 {
+                cleaned
+            } else {
+                cleaned.replace('"', "")
+            };
+
+            // Handle empty/whitespace-only queries
+            if cleaned.trim().is_empty() {
+                return Ok(ListResult {
+                    items: vec![],
+                    total: 0,
+                    limit: query.page.limit,
+                    offset: query.page.offset.unwrap_or(0),
+                });
+            }
+
+            // Detect advanced search features
+            let has_boolean =
+                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
+            let has_phrase = cleaned.contains('"');
+
+            // Apply query transformation
+            if has_boolean || has_phrase {
+                cleaned
+            } else {
+                // Simple mode - add prefix matching
+                cleaned
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|term| format!("{}*", term))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+        };
+
+        let mut bind_values: Vec<String> = vec![fts_query];
+        let mut where_conditions: Vec<String> = vec!["task_fts MATCH ?".to_string()];
+
+        // Add list_id filter if specified (REQUIRED for tasks)
+        if let Some(ref list_id) = query.list_id {
+            where_conditions.push("t.list_id = ?".to_string());
+            bind_values.push(list_id.clone());
+        }
+
+        // Add status filter if specified
+        if let Some(ref status) = query.status {
+            // Handle multiple statuses (comma-separated OR logic)
+            let statuses: Vec<&str> = status.split(',').map(|s| s.trim()).collect();
+            if statuses.len() == 1 {
+                where_conditions.push("t.status = ?".to_string());
+                bind_values.push(status.clone());
+            } else {
+                let placeholders: Vec<&str> = statuses.iter().map(|_| "?").collect();
+                where_conditions.push(format!("t.status IN ({})", placeholders.join(", ")));
+                bind_values.extend(statuses.iter().map(|s| s.to_string()));
+            }
+        }
+
+        // Add parent_id filter if specified
+        if let Some(ref parent_id) = query.parent_id {
+            where_conditions.push("t.parent_id = ?".to_string());
+            bind_values.push(parent_id.clone());
+        }
+
+        // Filter by task type: "task" (parent_id IS NULL) or "subtask" (parent_id IS NOT NULL)
+        if let Some(task_type) = &query.task_type {
+            match task_type.as_str() {
+                "task" => where_conditions.push("t.parent_id IS NULL".to_string()),
+                "subtask" => where_conditions.push("t.parent_id IS NOT NULL".to_string()),
+                _ => {} // Ignore invalid values
+            }
+        }
+
+        // Check if we need JOINs for tag filtering
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+
+        // Add tag filter if specified
+        if needs_json_each {
+            let tags = query.tags.as_ref().unwrap();
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+            bind_values.extend(tags.clone());
+        }
+
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
+
+        // Build ORDER BY clause
+        let allowed_fields = [
+            "title",
+            "status",
+            "priority",
+            "created_at",
+            "completed_at",
+            "updated_at",
+        ];
+        let order_clause = {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+
+            let order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
+                crate::db::SortOrder::Asc => "ASC",
+                crate::db::SortOrder::Desc => "DESC",
+            };
+
+            format!("ORDER BY t.{} {}", sort_field, order)
+        };
+
+        // Build FROM clause with necessary JOINs
+        let from_clause = if needs_json_each {
+            "FROM task t INNER JOIN task_fts ON t.id = task_fts.id, json_each(t.tags)"
+        } else {
+            "FROM task t INNER JOIN task_fts ON t.id = task_fts.id"
+        };
+
+        // Count query
+        let count_sql = format!(
+            "SELECT COUNT(DISTINCT t.id) {} {}",
+            from_clause, where_clause
+        );
+
+        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+        let total = count_query
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })? as usize;
+
+        // Data query with LIMIT/OFFSET
+        let limit_clause = build_limit_offset_clause(&query.page);
+        let data_sql = format!(
+            "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.started_at, t.completed_at, t.updated_at
+             {} {} {} {}",
+            from_clause, where_clause, order_clause, limit_clause
+        );
+
+        let mut data_query = sqlx::query(&data_sql);
+        for value in &bind_values {
+            data_query = data_query.bind(value);
+        }
+
+        let rows = data_query
+            .fetch_all(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Map rows to Task objects
+        let items: Vec<Task> = rows.iter().map(row_to_task).collect();
+
+        Ok(ListResult {
+            items,
+            total,
             limit: query.page.limit,
             offset: query.page.offset.unwrap_or(0),
         })
@@ -282,10 +504,13 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         })?;
 
         // Update parent task
+        let external_refs_json =
+            serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
+
         let result = sqlx::query(
             r#"
             UPDATE task 
-            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?, external_ref = ?,
+            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?, external_refs = ?,
                 started_at = ?, completed_at = ?, updated_at = ?
             WHERE id = ?
             "#,
@@ -297,7 +522,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&status_str)
         .bind(task.priority)
         .bind(&tags_json)
-        .bind(&task.external_ref)
+        .bind(&external_refs_json)
         .bind(&task.started_at)
         .bind(&task.completed_at)
         .bind(&updated_at)
@@ -313,19 +538,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 entity_type: "Task".to_string(),
                 id: task.id.clone(),
             });
-        }
-
-        // CASCADE: Update parent's updated_at if this is a child task
-        // This replaces the SQL trigger logic
-        if let Some(parent_id) = &task.parent_id {
-            sqlx::query("UPDATE task SET updated_at = ? WHERE id = ?")
-                .bind(&updated_at)
-                .bind(parent_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
         }
 
         // CASCADE: If status changed and this is a parent task, update matching subtasks
@@ -478,7 +690,12 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default()
         },
-        external_ref: row.get("external_ref"),
+        external_refs: {
+            let external_refs_json: Option<String> = row.get("external_refs");
+            external_refs_json
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default()
+        },
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),

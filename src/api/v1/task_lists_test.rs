@@ -258,7 +258,7 @@ async fn create_task_list_returns_created() {
                         "title": "Sprint 1",
                         "description": "First sprint tasks",
                         "tags": ["work", "urgent"],
-                        "external_ref": "JIRA-123",
+                        "external_refs": json!(["JIRA-123"]),
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -274,7 +274,7 @@ async fn create_task_list_returns_created() {
     assert_eq!(body["title"], "Sprint 1");
     assert_eq!(body["description"], "First sprint tasks");
     assert_eq!(body["tags"], json!(["work", "urgent"]));
-    assert_eq!(body["external_ref"], "JIRA-123");
+    assert_eq!(body["external_refs"], json!(["JIRA-123"]));
     assert_eq!(body["status"], "active");
     assert!(body["id"].as_str().unwrap().len() == 8);
 }
@@ -1546,4 +1546,574 @@ async fn delete_task_list_broadcasts_notification() {
         }
         _ => panic!("Expected TaskListDeleted message, got {:?}", msg),
     }
+}
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_by_title() {
+    let app = test_app().await;
+
+    // Create task lists
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Backend Sprint",
+                        "description": "API development",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Data Pipeline",
+                        "description": "ETL processing",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for "rust"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Rust Backend Sprint");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_by_description() {
+    let app = test_app().await;
+
+    // Create task lists
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Sprint Alpha",
+                        "description": "Machine learning features",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Sprint Beta",
+                        "description": "Frontend improvements",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by description
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=machine+learning")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Sprint Alpha");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_by_notes() {
+    let app = test_app().await;
+
+    // Create task lists
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Q1 Release",
+                        "notes": "Critical deadline for stakeholders",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Q2 Planning",
+                        "notes": "Nice to have features",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by notes
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=critical+deadline")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Q1 Release");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_by_tags() {
+    let app = test_app().await;
+
+    // Create task lists
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Frontend Work",
+                        "tags": ["react", "typescript"],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Backend Work",
+                        "tags": ["rust", "api"],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by tag
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=typescript")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Frontend Work");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_by_external_refs() {
+    let app = test_app().await;
+
+    // Create task lists
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "GitHub Sprint",
+                        "external_refs": ["owner/repo#123"],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Jira Sprint",
+                        "external_refs": ["PROJ-789"],
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by external ref
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=owner%2Frepo%23123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "GitHub Sprint");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_combines_with_project_filter() {
+    let app = test_app().await;
+
+    // Create second project
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("proj0002")
+        .bind("Project 2")
+        .bind("Second project")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    // Create task lists in different projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust API Project 1",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search with project filter
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=rust&project_id=test0000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Rust API Project 1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_combines_with_status_filter() {
+    let app = test_app().await;
+
+    // Create active and archived task lists
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Active Sprint",
+                        "description": "Current work",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = json_body(create_response).await;
+    let list_id = created["id"].as_str().unwrap();
+
+    // Archive one
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Active Sprint",
+                        "status": "archived",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Create another active one
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Active Work",
+                        "description": "Current tasks",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search active only
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=work&status=active")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    // Should only match active
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Active Work");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_boolean_operators() {
+    let app = test_app().await;
+
+    // Create task lists
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Web API",
+                        "description": "Backend service",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust CLI",
+                        "description": "Command line",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search with AND
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=rust+AND+backend")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 1);
+    assert_eq!(lists[0]["title"], "Rust Web API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_task_lists_empty_results() {
+    let app = test_app().await;
+
+    // Create a task list
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for nonexistent
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let lists = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(lists.len(), 0);
+    assert_eq!(body["total"], 0);
 }

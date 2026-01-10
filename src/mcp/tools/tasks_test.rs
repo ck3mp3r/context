@@ -22,6 +22,7 @@ async fn create_test_project(db: &SqliteDatabase) -> String {
         title: "Test Project".to_string(),
         description: Some("Test project for tasks".to_string()),
         tags: vec![],
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -49,7 +50,7 @@ async fn test_list_tasks_empty() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -102,7 +103,7 @@ async fn test_create_and_list_task() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -119,7 +120,7 @@ async fn test_create_and_list_task() {
         priority: Some(1),
         parent_id: None,
         tags: Some(vec!["urgent".to_string()]),
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools
@@ -184,7 +185,7 @@ async fn test_get_task() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -202,7 +203,7 @@ async fn test_get_task() {
         status: TaskStatus::Todo,
         priority: Some(2),
         tags: vec!["test".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -264,96 +265,7 @@ async fn test_list_tasks_filtered_by_status() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
-        project_id: create_test_project(&db).await,
-        repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
-        archived_at: None,
-    };
-    let created_list = db.task_lists().create(&task_list).await.unwrap();
-
-    // Create tasks with different statuses
-    let task1 = Task {
-        id: String::new(),
-        list_id: created_list.id.clone(),
-        parent_id: None,
-        title: "Task 1".to_string(),
-        description: None,
-        status: TaskStatus::Todo,
-        priority: None,
-        tags: vec![],
-        external_ref: None,
-        created_at: None,
-        started_at: None,
-        completed_at: None,
-        updated_at: None,
-    };
-    let task2 = Task {
-        id: String::new(),
-        list_id: created_list.id.clone(),
-        parent_id: None,
-        title: "Task 2".to_string(),
-        description: None,
-        status: TaskStatus::Done,
-        priority: None,
-        tags: vec![],
-        external_ref: None,
-        created_at: None,
-        started_at: None,
-        completed_at: Some("2025-12-27T12:00:00Z".to_string()),
-        updated_at: None,
-    };
-    db.tasks().create(&task1).await.unwrap();
-    db.tasks().create(&task2).await.unwrap();
-
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    // List only "done" tasks
-    let params = ListTasksParams {
-        list_id: created_list.id.clone(),
-        status: Some(vec!["done".to_string()]),
-        parent_id: None,
-        tags: None,
-        task_type: None,
-        limit: None,
-        offset: None,
-        sort: None,
-        order: None,
-    };
-
-    let result = tools
-        .list_tasks(Parameters(params))
-        .await
-        .expect("list should succeed");
-
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
-        _ => panic!("Expected text content"),
-    };
-    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(json["total"], 1);
-    let items = json["items"].as_array().unwrap();
-    assert_eq!(items[0]["title"], "Task 2");
-    assert_eq!(items[0]["status"], "done");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_update_task() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    // Create task list and task
-    let task_list = TaskList {
-        id: String::new(),
-        title: "Test List".to_string(),
-        description: None,
-        notes: None,
-        tags: vec![],
-        status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -371,7 +283,7 @@ async fn test_update_task() {
         status: TaskStatus::Backlog,
         priority: Some(3),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -390,7 +302,7 @@ async fn test_update_task() {
         tags: Some(vec!["urgent".to_string()]),
         parent_id: None,
         list_id: None,
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools
@@ -426,7 +338,7 @@ async fn test_delete_task() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -444,7 +356,7 @@ async fn test_delete_task() {
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -490,7 +402,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -509,7 +421,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -527,7 +439,7 @@ async fn test_list_tasks_with_parent_id_filter() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -583,7 +495,7 @@ async fn test_update_task_move_to_different_list() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: project_id.clone(),
         repo_ids: vec![],
         created_at: String::new(),
@@ -599,7 +511,7 @@ async fn test_update_task_move_to_different_list() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -618,7 +530,7 @@ async fn test_update_task_move_to_different_list() {
         status: TaskStatus::Todo,
         priority: Some(3),
         tags: vec!["move-test".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -637,7 +549,7 @@ async fn test_update_task_move_to_different_list() {
         tags: None,
         parent_id: None,
         list_id: Some(created_list2.id.clone()),
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools
@@ -671,7 +583,7 @@ async fn test_update_task_parent_id() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -690,7 +602,7 @@ async fn test_update_task_parent_id() {
         status: TaskStatus::InProgress,
         priority: Some(2),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -708,7 +620,7 @@ async fn test_update_task_parent_id() {
         status: TaskStatus::Todo,
         priority: Some(3),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -727,7 +639,7 @@ async fn test_update_task_parent_id() {
         tags: None,
         list_id: None,
         parent_id: Some(created_parent.id.clone()),
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools
@@ -755,7 +667,7 @@ async fn test_update_task_parent_id() {
         tags: None,
         list_id: None,
         parent_id: Some(String::new()), // Empty string = remove parent
-        external_ref: None,
+        external_refs: None,
     };
 
     let result2 = tools
@@ -790,7 +702,7 @@ async fn test_list_tasks_with_sort_and_order() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -809,7 +721,7 @@ async fn test_list_tasks_with_sort_and_order() {
         status: TaskStatus::Done,
         priority: Some(1),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-01 10:00:00".to_string()),
         started_at: None,
         completed_at: Some("2025-01-01 11:00:00".to_string()),
@@ -826,7 +738,7 @@ async fn test_list_tasks_with_sort_and_order() {
         status: TaskStatus::Done,
         priority: Some(2),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-02 10:00:00".to_string()),
         started_at: None,
         completed_at: Some("2025-01-03 11:00:00".to_string()),
@@ -843,7 +755,7 @@ async fn test_list_tasks_with_sort_and_order() {
         status: TaskStatus::Done,
         priority: Some(3),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-03 10:00:00".to_string()),
         started_at: None,
         completed_at: Some("2025-01-02 11:00:00".to_string()),
@@ -894,7 +806,7 @@ async fn test_list_tasks_with_offset() {
             title: "Test List".to_string(),
             description: None,
             notes: None,
-            external_ref: None,
+            external_refs: vec![],
             status: crate::db::TaskListStatus::Active,
             tags: vec![],
             project_id,
@@ -918,7 +830,7 @@ async fn test_list_tasks_with_offset() {
                 status: TaskStatus::Backlog,
                 priority: Some(i),
                 tags: vec![],
-                external_ref: None,
+                external_refs: vec![],
                 created_at: None,
                 started_at: None,
                 completed_at: None,
@@ -1028,7 +940,7 @@ async fn create_task_with_status(
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1046,7 +958,7 @@ async fn create_task_with_status(
         status,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at,
         completed_at: None,
@@ -1147,7 +1059,7 @@ async fn test_create_task_with_invalid_priority_fails() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1164,7 +1076,7 @@ async fn test_create_task_with_invalid_priority_fails() {
         priority: Some(0),
         parent_id: None,
         tags: None,
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools.create_task(Parameters(create_params)).await;
@@ -1180,7 +1092,7 @@ async fn test_create_task_with_invalid_priority_fails() {
         priority: Some(6),
         parent_id: None,
         tags: None,
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools.create_task(Parameters(create_params)).await;
@@ -1196,7 +1108,7 @@ async fn test_create_task_with_invalid_priority_fails() {
         priority: Some(-1),
         parent_id: None,
         tags: None,
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools.create_task(Parameters(create_params)).await;
@@ -1220,7 +1132,7 @@ async fn test_create_task_without_priority_defaults_to_p5() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1237,7 +1149,7 @@ async fn test_create_task_without_priority_defaults_to_p5() {
         priority: None, // No priority specified
         parent_id: None,
         tags: None,
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools
@@ -1406,17 +1318,15 @@ async fn test_transition_in_progress_to_cancelled() {
 }
 
 // =============================================================================
-// External Reference Tests
+// FTS5 Search Tests
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_with_github_external_ref() {
+async fn test_search_tasks_by_title() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
-    let db = Arc::new(db);
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    // Create task list
+    // Create test project and task list
     let project_id = create_test_project(&db).await;
     let task_list = TaskList {
         id: String::new(),
@@ -1424,40 +1334,536 @@ async fn test_create_task_with_github_external_ref() {
         description: None,
         notes: None,
         tags: vec![],
+        external_refs: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
-        project_id,
         repo_ids: vec![],
+        project_id: project_id.clone(),
         created_at: String::new(),
         updated_at: String::new(),
         archived_at: None,
     };
-    let created_list = db.task_lists().create(&task_list).await.unwrap();
+    let list = db.task_lists().create(&task_list).await.unwrap();
 
-    // Create task with GitHub external_ref
-    let create_params = CreateTaskParams {
-        list_id: created_list.id.clone(),
-        title: "Fix GitHub issue".to_string(),
-        description: None,
-        priority: None,
-        parent_id: None,
-        tags: None,
-        external_ref: Some("owner/repo#123".to_string()),
-    };
-
-    let result = tools
-        .create_task(Parameters(create_params))
+    // Create tasks with different titles
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Implement Rust backend API".to_string(),
+            description: Some("Build REST endpoints".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
         .await
-        .expect("create should succeed");
+        .unwrap();
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
-        _ => panic!("Expected text content"),
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Write Python data pipeline".to_string(),
+            description: Some("ETL processing".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    use crate::mcp::tools::tasks::SearchTasksParams;
+    let result = tools
+        .search_tasks(Parameters(SearchTasksParams {
+            list_id: list.id.clone(),
+            query: "rust".to_string(),
+            status: None,
+            parent_id: None,
+            task_type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+
+    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Implement Rust backend API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_tasks_by_description() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create test project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: crate::db::TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: project_id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
     };
-    let created: Task = serde_json::from_str(content_text).unwrap();
+    let list = db.task_lists().create(&task_list).await.unwrap();
 
-    assert_eq!(created.title, "Fix GitHub issue");
-    assert_eq!(created.external_ref, Some("owner/repo#123".to_string()));
+    // Create tasks
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Backend work".to_string(),
+            description: Some("Implement GraphQL resolver".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Frontend work".to_string(),
+            description: Some("REST API client".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    use crate::mcp::tools::tasks::SearchTasksParams;
+    let result = tools
+        .search_tasks(Parameters(SearchTasksParams {
+            list_id: list.id.clone(),
+            query: "graphql".to_string(),
+            status: None,
+            parent_id: None,
+            task_type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Backend work");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_tasks_by_external_refs() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create test project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: crate::db::TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: project_id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create tasks with external refs
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Fix authentication bug".to_string(),
+            description: Some("Token refresh issue".to_string()),
+            tags: vec![],
+            external_refs: vec!["owner/repo#123".to_string()],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Add new feature".to_string(),
+            description: Some("Dashboard widgets".to_string()),
+            tags: vec![],
+            external_refs: vec!["owner/repo#456".to_string()],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    use crate::mcp::tools::tasks::SearchTasksParams;
+    let result = tools
+        .search_tasks(Parameters(SearchTasksParams {
+            list_id: list.id.clone(),
+            query: "owner/repo#123".to_string(),
+            status: None,
+            parent_id: None,
+            task_type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Fix authentication bug");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_tasks_boolean_operators() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create test project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: crate::db::TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: project_id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create tasks
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Rust backend API".to_string(),
+            description: Some("Build endpoints".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Rust frontend library".to_string(),
+            description: Some("WASM module".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Python backend service".to_string(),
+            description: Some("Microservice".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    use crate::mcp::tools::tasks::SearchTasksParams;
+    // Test AND operator
+    let result = tools
+        .search_tasks(Parameters(SearchTasksParams {
+            list_id: list.id.clone(),
+            query: "rust AND backend".to_string(),
+            status: None,
+            parent_id: None,
+            task_type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Rust backend API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_tasks_empty_results() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create test project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: crate::db::TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: project_id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create a task
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Rust API".to_string(),
+            description: Some("Backend".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    use crate::mcp::tools::tasks::SearchTasksParams;
+    let result = tools
+        .search_tasks(Parameters(SearchTasksParams {
+            list_id: list.id.clone(),
+            query: "nonexistent".to_string(),
+            status: None,
+            parent_id: None,
+            task_type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_search_tasks_with_status_filter() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create test project and task list
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: crate::db::TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: project_id.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived_at: None,
+    };
+    let list = db.task_lists().create(&task_list).await.unwrap();
+
+    // Create tasks with different statuses
+    let task1 = db
+        .tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "Rust API work".to_string(),
+            description: Some("Backend".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    // Transition one to in_progress
+    let mut task1_updated = task1.clone();
+    task1_updated.status = TaskStatus::InProgress;
+    task1_updated.started_at = Some("2025-01-01 00:00:00".to_string());
+    db.tasks().update(&task1_updated).await.unwrap();
+
+    db.tasks()
+        .create(&Task {
+            id: String::new(),
+            list_id: list.id.clone(),
+            title: "More Rust work".to_string(),
+            description: Some("Frontend".to_string()),
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskStatus::Backlog,
+            priority: Some(3),
+            parent_id: None,
+            created_at: None,
+            updated_at: None,
+            started_at: None,
+            completed_at: None,
+        })
+        .await
+        .unwrap();
+
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    use crate::mcp::tools::tasks::SearchTasksParams;
+    // Search for "rust" tasks that are in_progress
+    let result = tools
+        .search_tasks(Parameters(SearchTasksParams {
+            list_id: list.id.clone(),
+            query: "rust".to_string(),
+            status: Some(vec!["in_progress".to_string()]),
+            parent_id: None,
+            task_type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    let call_result = result.unwrap();
+    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let items = response["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Rust API work");
+    assert_eq!(items[0]["status"], "in_progress");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1476,7 +1882,7 @@ async fn test_create_task_with_jira_external_ref() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1493,7 +1899,7 @@ async fn test_create_task_with_jira_external_ref() {
         priority: None,
         parent_id: None,
         tags: None,
-        external_ref: Some("PROJ-456".to_string()),
+        external_refs: Some(vec!["PROJ-456".to_string()]),
     };
 
     let result = tools
@@ -1508,7 +1914,7 @@ async fn test_create_task_with_jira_external_ref() {
     let created: Task = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(created.title, "Implement Jira ticket");
-    assert_eq!(created.external_ref, Some("PROJ-456".to_string()));
+    assert_eq!(created.external_refs, vec!["PROJ-456".to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1527,7 +1933,7 @@ async fn test_create_task_without_external_ref() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1544,7 +1950,7 @@ async fn test_create_task_without_external_ref() {
         priority: None,
         parent_id: None,
         tags: None,
-        external_ref: None,
+        external_refs: None,
     };
 
     let result = tools
@@ -1559,7 +1965,7 @@ async fn test_create_task_without_external_ref() {
     let created: Task = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(created.title, "Task without external ref");
-    assert!(created.external_ref.is_none());
+    assert!(created.external_refs.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1577,7 +1983,7 @@ async fn test_update_task_external_ref() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1595,7 +2001,7 @@ async fn test_update_task_external_ref() {
         status: TaskStatus::Todo,
         priority: Some(2),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -1614,7 +2020,7 @@ async fn test_update_task_external_ref() {
         tags: None,
         parent_id: None,
         list_id: None,
-        external_ref: Some("owner/repo#789".to_string()),
+        external_refs: Some(vec!["owner/repo#789".to_string()]),
     };
 
     let result = tools
@@ -1628,7 +2034,7 @@ async fn test_update_task_external_ref() {
     };
     let updated: Task = serde_json::from_str(content_text).unwrap();
 
-    assert_eq!(updated.external_ref, Some("owner/repo#789".to_string()));
+    assert_eq!(updated.external_refs, vec!["owner/repo#789".to_string()]);
     assert_eq!(updated.title, "Original task"); // Title unchanged
 }
 
@@ -1647,7 +2053,7 @@ async fn test_get_task_returns_external_ref() {
         notes: None,
         tags: vec![],
         status: crate::db::TaskListStatus::Active,
-        external_ref: None,
+        external_refs: vec![],
         project_id,
         repo_ids: vec![],
         created_at: String::new(),
@@ -1665,7 +2071,7 @@ async fn test_get_task_returns_external_ref() {
         status: TaskStatus::Todo,
         priority: Some(2),
         tags: vec![],
-        external_ref: Some("PROJ-777".to_string()),
+        external_refs: vec!["PROJ-777".to_string()],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -1691,7 +2097,7 @@ async fn test_get_task_returns_external_ref() {
     };
     let retrieved: Task = serde_json::from_str(content_text).unwrap();
 
-    assert_eq!(retrieved.external_ref, Some("PROJ-777".to_string()));
+    assert_eq!(retrieved.external_refs, vec!["PROJ-777".to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

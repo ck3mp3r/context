@@ -13,7 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{Database, Note, NoteQuery, NoteRepository, NoteType, PageSort};
+use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort};
 use crate::mcp::tools::{apply_limit, map_db_error};
 
 // =============================================================================
@@ -23,15 +23,17 @@ use crate::mcp::tools::{apply_limit, map_db_error};
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesParams {
     #[schemars(
-        description = "Filter by note type: 'manual' (user notes) or 'archived_todo' (completed tasks)"
-    )]
-    pub note_type: Option<String>,
-    #[schemars(
         description = "Filter by tags. Use reference tags to find linked notes: ['parent:NOTE_ID'], ['related:NOTE_ID']"
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Filter by project ID")]
     pub project_id: Option<String>,
+    #[schemars(description = "Filter by parent note ID to list subnotes")]
+    pub parent_id: Option<String>,
+    #[schemars(
+        description = "Filter by note type: 'note' (parent notes only) or 'subnote' (subnotes only). Omit to return both parent notes and subnotes (default)."
+    )]
+    pub note_type: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -41,7 +43,7 @@ pub struct ListNotesParams {
     )]
     pub include_content: Option<bool>,
     #[schemars(
-        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+        description = "Field to sort by (title, created_at, updated_at, last_activity_at). Default: created_at"
     )]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc). Default: asc")]
@@ -70,10 +72,10 @@ pub struct CreateNoteParams {
         description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes. CRITICAL: Session notes MUST be re-read after context compaction to restore state."
     )]
     pub tags: Option<Vec<String>>,
-    #[schemars(
-        description = "Note type: 'manual' (default, user notes) or 'archived_todo' (system-generated from completed tasks)"
-    )]
-    pub note_type: Option<String>,
+    #[schemars(description = "Parent note ID for hierarchical notes (optional)")]
+    pub parent_id: Option<String>,
+    #[schemars(description = "Index for manual ordering (lower values first, optional)")]
+    pub idx: Option<i32>,
     #[schemars(
         description = "Repository IDs to link (optional). Associate with relevant repos for context."
     )]
@@ -98,6 +100,10 @@ pub struct UpdateNoteParams {
         description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
     )]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "Parent note ID for hierarchical notes (optional)")]
+    pub parent_id: Option<Option<String>>,
+    #[schemars(description = "Index for manual ordering (optional)")]
+    pub idx: Option<Option<i32>>,
     #[schemars(
         description = "Repository IDs to link (optional). Associate with relevant repos for context."
     )]
@@ -131,7 +137,7 @@ pub struct SearchNotesParams {
     #[schemars(description = "Number of results to skip (optional)")]
     pub offset: Option<usize>,
     #[schemars(
-        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+        description = "Field to sort by (title, created_at, updated_at, last_activity_at). Default: created_at"
     )]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc). Default: asc")]
@@ -188,6 +194,8 @@ impl<D: Database + 'static> NoteTools<D> {
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
+            parent_id: params.0.parent_id.clone(),
+            note_type: params.0.note_type.clone(),
         };
 
         let result = if include_content {
@@ -197,23 +205,9 @@ impl<D: Database + 'static> NoteTools<D> {
         }
         .map_err(map_db_error)?;
 
-        // Filter by note_type if specified (note_type not in NoteQuery yet)
-        let filtered_items: Vec<Note> = if let Some(note_type_str) = &params.0.note_type {
-            let note_type = note_type_str.parse::<NoteType>().map_err(|e| {
-                McpError::invalid_params("invalid_note_type", Some(serde_json::json!({"error": e})))
-            })?;
-            result
-                .items
-                .into_iter()
-                .filter(|note| note.note_type == note_type)
-                .collect()
-        } else {
-            result.items
-        };
-
         let response = json!({
-            "items": filtered_items,
-            "total": filtered_items.len(),
+            "items": result.items,
+            "total": result.total,
             "limit": result.limit,
             "offset": result.offset,
         });
@@ -257,23 +251,16 @@ impl<D: Database + 'static> NoteTools<D> {
         &self,
         params: Parameters<CreateNoteParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Parse note_type
-        let note_type = if let Some(nt_str) = &params.0.note_type {
-            nt_str.parse::<NoteType>().map_err(|e| {
-                McpError::invalid_params("invalid_note_type", Some(serde_json::json!({"error": e})))
-            })?
-        } else {
-            NoteType::Manual
-        };
-
         let note = Note {
             id: String::new(), // Will be generated by DB
             title: params.0.title.clone(),
             content: params.0.content.clone(),
             tags: params.0.tags.clone().unwrap_or_default(),
-            note_type,
+            parent_id: params.0.parent_id.clone(),
+            idx: params.0.idx,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
+            subnote_count: None,
             created_at: None, // Will be set by DB
             updated_at: None, // Will be set by DB
         };
@@ -314,6 +301,12 @@ impl<D: Database + 'static> NoteTools<D> {
         }
         if let Some(tags) = &params.0.tags {
             note.tags = tags.clone();
+        }
+        if let Some(parent_id) = &params.0.parent_id {
+            note.parent_id = parent_id.clone();
+        }
+        if let Some(idx) = &params.0.idx {
+            note.idx = *idx;
         }
         if let Some(repo_ids) = &params.0.repo_ids {
             note.repo_ids = repo_ids.clone();
@@ -387,6 +380,8 @@ impl<D: Database + 'static> NoteTools<D> {
             },
             tags: params.0.tags.clone(),
             project_id: params.0.project_id.clone(),
+            parent_id: None,
+            note_type: None,
         };
 
         let result = self

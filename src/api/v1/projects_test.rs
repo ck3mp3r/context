@@ -917,3 +917,659 @@ async fn delete_project_broadcasts_notification() {
         _ => panic!("Expected ProjectDeleted message, got {:?}", msg),
     }
 }
+
+// =============================================================================
+// External Reference Support
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_project_with_external_ref() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "GitHub Project",
+                        "description": "Project linked to GitHub",
+                        "external_refs": ["owner/repo#123"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "GitHub Project");
+    assert_eq!(body["external_refs"], json!(["owner/repo#123"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_project_external_ref() {
+    let app = test_app().await;
+
+    // Create a project without external_ref
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project Without Ref"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap();
+    assert!(created["external_refs"].as_array().unwrap().is_empty());
+
+    // Update to add external_ref
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project With Ref",
+                        "external_refs": json!(["JIRA-456"])
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "Project With Ref");
+    assert_eq!(body["external_refs"], json!(["JIRA-456"]));
+
+    // Verify via GET
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["external_refs"], json!(["JIRA-456"]));
+}
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_by_title() {
+    let app = test_app().await;
+
+    // Create test projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Backend API",
+                        "description": "A web API built with Rust"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python Data Pipeline",
+                        "description": "Data processing pipeline"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for "rust"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["title"], "Rust Backend API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_by_description() {
+    let app = test_app().await;
+
+    // Create test projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project Alpha",
+                        "description": "Machine learning research project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project Beta",
+                        "description": "Frontend web application"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by description
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=machine+learning")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["title"], "Project Alpha");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_by_tags() {
+    let app = test_app().await;
+
+    // Create test projects with tags
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Frontend Project",
+                        "tags": ["react", "typescript", "frontend"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Backend Project",
+                        "tags": ["rust", "api", "backend"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by tag
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=typescript")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["title"], "Frontend Project");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_by_external_refs() {
+    let app = test_app().await;
+
+    // Create projects with external refs
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "GitHub Integration",
+                        "external_refs": ["owner/repo#123", "owner/repo#456"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Jira Integration",
+                        "external_refs": ["PROJ-789"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by external ref
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=owner%2Frepo%23123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["title"], "GitHub Integration");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_with_boolean_operators() {
+    let app = test_app().await;
+
+    // Create test projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Web API",
+                        "description": "Backend service"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust CLI Tool",
+                        "description": "Command line utility"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Python API",
+                        "description": "Backend service"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search with AND operator
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=rust+AND+backend")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["title"], "Rust Web API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_with_phrase_query() {
+    let app = test_app().await;
+
+    // Create test projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Backend Service",
+                        "description": "RESTful API service implementation"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "API Documentation",
+                        "description": "Service documentation for API"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search with exact phrase
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=%22API+service%22")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    // Should only match exact phrase "API service"
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["title"], "Backend Service");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_combines_with_tag_filter() {
+    let app = test_app().await;
+
+    // Create test projects
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Backend",
+                        "tags": ["backend", "production"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust Frontend",
+                        "tags": ["frontend", "production"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust CLI",
+                        "tags": ["backend", "experimental"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search "rust" with tag filter "backend,production" (OR logic - matches ANY tag)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=rust&tags=backend,production")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    // Should match all "Rust" projects with "backend" OR "production" tags (3 projects):
+    // - "Rust Backend" (has backend + production)
+    // - "Rust Frontend" (has production)
+    // - "Rust CLI" (has backend)
+    assert_eq!(projects.len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_empty_query_returns_all() {
+    let app = test_app().await;
+
+    // Create a project
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search with empty query (should return all)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_projects_no_results() {
+    let app = test_app().await;
+
+    // Create a project
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Project"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for something that doesn't exist
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?q=nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    let projects = body["items"].as_array().expect("Expected items array");
+
+    assert_eq!(projects.len(), 0);
+    assert_eq!(body["total"], 0);
+}
