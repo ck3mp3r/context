@@ -79,9 +79,11 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let tags_json = serde_json::to_string(&task_list.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
+        let external_refs_json =
+            serde_json::to_string(&task_list.external_refs).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query(
-            "INSERT INTO task_list (id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at) 
+            "INSERT INTO task_list (id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
@@ -89,7 +91,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         .bind(&task_list.description)
         .bind(&task_list.notes)
         .bind(&tags_json)
-        .bind(&task_list.external_ref)
+        .bind(&external_refs_json)
         .bind(task_list.status.to_string())
         .bind(&task_list.project_id)
         .bind(&created_at)
@@ -124,7 +126,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             description: task_list.description.clone(),
             notes: task_list.notes.clone(),
             tags: task_list.tags.clone(),
-            external_ref: task_list.external_ref.clone(),
+            external_refs: task_list.external_refs.clone(),
             status: task_list.status.clone(),
             created_at,
             updated_at,
@@ -137,7 +139,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     async fn get(&self, id: &str) -> DbResult<TaskList> {
         // Get the main task_list record
         let row = sqlx::query(
-            "SELECT id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at
+            "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at
              FROM task_list WHERE id = ?",
         )
         .bind(id)
@@ -158,6 +160,11 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
                 message: format!("Failed to parse tags JSON: {}", e),
             })?;
+
+        // Parse external_refs JSON
+        let external_refs_json: String = row.get("external_refs");
+        let external_refs: Vec<String> =
+            serde_json::from_str(&external_refs_json).unwrap_or_default();
 
         // Parse status
         let status_str: String = row.get("status");
@@ -181,7 +188,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             description: row.get("description"),
             notes: row.get("notes"),
             tags,
-            external_ref: row.get("external_ref"),
+            external_refs,
             status,
             repo_ids,
             project_id: row.get("project_id"),
@@ -234,7 +241,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             (
                 format!(
-                    "SELECT DISTINCT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_ref, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at 
+                    "SELECT DISTINCT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_refs, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at 
                      FROM task_list tl, json_each(tl.tags)
                      {} {} {}",
                     where_clause, order_clause, limit_clause
@@ -247,7 +254,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else if !conditions.is_empty() {
             (
                 format!(
-                    "SELECT id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
+                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at 
                      FROM task_list tl {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -256,7 +263,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at, archived_at 
+                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at 
                      FROM task_list {} {}",
                      order_clause, limit_clause
                 ),
@@ -283,6 +290,10 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
+                let external_refs_json: String = row.get("external_refs");
+                let external_refs: Vec<String> =
+                    serde_json::from_str(&external_refs_json).unwrap_or_default();
+
                 let status_str: String = row.get("status");
                 let status = TaskListStatus::from_str(&status_str).unwrap_or_default();
 
@@ -292,7 +303,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     description: row.get("description"),
                     notes: row.get("notes"),
                     tags,
-                    external_ref: row.get("external_ref"),
+                    external_refs,
                     status,
                     repo_ids: vec![],
                     project_id: row.get("project_id"),
@@ -356,13 +367,15 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let tags_json = serde_json::to_string(&task_list.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
+        let external_refs_json =
+            serde_json::to_string(&task_list.external_refs).unwrap_or_else(|_| "[]".to_string());
 
         let status_str = task_list.status.to_string();
 
         sqlx::query(
             r#"
             UPDATE task_list 
-            SET title = ?, description = ?, notes = ?, tags = ?, external_ref = ?, 
+            SET title = ?, description = ?, notes = ?, tags = ?, external_refs = ?, 
                 status = ?, project_id = ?, updated_at = ?, archived_at = ?
             WHERE id = ?
             "#,
@@ -371,7 +384,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         .bind(&task_list.description)
         .bind(&task_list.notes)
         .bind(tags_json)
-        .bind(&task_list.external_ref)
+        .bind(&external_refs_json)
         .bind(status_str)
         .bind(&task_list.project_id)
         .bind(&task_list.updated_at)

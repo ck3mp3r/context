@@ -34,12 +34,15 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
 
-        sqlx::query("INSERT INTO project (id, title, description, tags, external_ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        let external_refs_json =
+            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
+
+        sqlx::query("INSERT INTO project (id, title, description, tags, external_refs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&project.title)
             .bind(&project.description)
             .bind(&tags_json)
-            .bind(&project.external_ref)
+            .bind(&external_refs_json)
             .bind(&created_at)
             .bind(&updated_at)
             .execute(self.pool)
@@ -53,7 +56,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             title: project.title.clone(),
             description: project.description.clone(),
             tags: project.tags.clone(),
-            external_ref: project.external_ref.clone(),
+            external_refs: project.external_refs.clone(),
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
@@ -64,7 +67,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Project> {
         let row = sqlx::query(
-            "SELECT id, title, description, tags, external_ref, created_at, updated_at FROM project WHERE id = ?",
+            "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -80,6 +83,10 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
         let tags_json: String = row.get("tags");
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+        let external_refs_json: String = row.get("external_refs");
+        let external_refs: Vec<String> =
+            serde_json::from_str(&external_refs_json).unwrap_or_default();
 
         // Get repo relationships
         let repo_ids: Vec<String> =
@@ -116,7 +123,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             title: row.get("title"),
             description: row.get("description"),
             tags,
-            external_ref: row.get("external_ref"),
+            external_refs,
             repo_ids,
             task_list_ids,
             note_ids,
@@ -158,7 +165,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             (
                 format!(
-                    "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.external_ref, p.created_at, p.updated_at \
+                    "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.external_refs, p.created_at, p.updated_at \
                      FROM project p, json_each(p.tags) {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -170,7 +177,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, description, tags, external_ref, created_at, updated_at FROM project {} {}",
+                    "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project {} {}",
                     order_clause, limit_clause
                 ),
                 "SELECT COUNT(*) FROM project".to_string(),
@@ -195,12 +202,15 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             .map(|row| {
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                let external_refs_json: String = row.get("external_refs");
+                let external_refs: Vec<String> =
+                    serde_json::from_str(&external_refs_json).unwrap_or_default();
                 Project {
                     id: row.get("id"),
                     title: row.get("title"),
                     description: row.get("description"),
                     tags,
-                    external_ref: row.get("external_ref"),
+                    external_refs,
                     repo_ids: vec![],
                     task_list_ids: vec![],
                     note_ids: vec![],
@@ -233,14 +243,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
 
     async fn update(&self, project: &Project) -> DbResult<()> {
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+        let external_refs_json =
+            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
 
         let result = sqlx::query(
-            "UPDATE project SET title = ?, description = ?, tags = ?, external_ref = ?, updated_at = ? WHERE id = ?",
+            "UPDATE project SET title = ?, description = ?, tags = ?, external_refs = ?, updated_at = ? WHERE id = ?",
         )
         .bind(&project.title)
         .bind(&project.description)
         .bind(&tags_json)
-        .bind(&project.external_ref)
+        .bind(&external_refs_json)
         .bind(&project.updated_at)
         .bind(&project.id)
         .execute(self.pool)

@@ -688,7 +688,7 @@ pub async fn run() -> Result<()> {
                     status: status.as_deref(),
                     priority,
                     tags: tags.as_deref(),
-                    external_ref: external_ref.as_deref(),
+                    external_refs: external_ref.as_deref(),
                 };
                 let output = commands::task::update_task(&api_client, &id, params).await?;
                 println!("{}", output);

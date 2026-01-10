@@ -46,8 +46,8 @@ pub struct CreateProjectParams {
     pub description: Option<String>,
     #[schemars(description = "Tags for categorization")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "External reference (e.g., GitHub issue, Jira ticket)")]
-    pub external_ref: Option<String>,
+    #[schemars(description = "External references (e.g., ['owner/repo#123', 'PROJ-456'])")]
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -60,8 +60,8 @@ pub struct UpdateProjectParams {
     pub description: Option<String>,
     #[schemars(description = "New tags")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "External reference (e.g., GitHub issue, Jira ticket)")]
-    pub external_ref: Option<String>,
+    #[schemars(description = "External references (e.g., ['owner/repo#123', 'PROJ-456'])")]
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -175,7 +175,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             title: params.0.title,
             description: params.0.description,
             tags: params.0.tags.unwrap_or_default(),
-            external_ref: params.0.external_ref,
+            external_refs: params.0.external_refs.unwrap_or_default(),
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
@@ -228,8 +228,8 @@ impl<D: Database + 'static> ProjectTools<D> {
         if let Some(tags) = params.0.tags {
             project.tags = tags;
         }
-        if let Some(ext_ref) = params.0.external_ref {
-            project.external_ref = Some(ext_ref);
+        if let Some(external_refs) = params.0.external_refs {
+            project.external_refs = external_refs;
         }
 
         self.db

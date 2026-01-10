@@ -46,7 +46,7 @@ pub struct TaskList {
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Option<Vec<String>>,
-    pub external_ref: Option<String>,
+    pub external_refs: Vec<String>,
     pub status: String,
     pub repo_ids: Option<Vec<String>>,
     pub project_id: String,
@@ -153,10 +153,12 @@ pub async fn get_task_list(api_client: &ApiClient, id: &str, format: &str) -> Cl
             builder.push_record(["Project ID", &task_list.project_id]);
             builder.push_record(["Status", &task_list.status]);
             builder.push_record(["Tags", &format_tags(task_list.tags.as_ref())]);
-            builder.push_record([
-                "External Ref",
-                task_list.external_ref.as_deref().unwrap_or("-"),
-            ]);
+            let external_refs_str = if task_list.external_refs.is_empty() {
+                "-".to_string()
+            } else {
+                task_list.external_refs.join(", ")
+            };
+            builder.push_record(["External Refs", &external_refs_str]);
             builder.push_record(["Created", &task_list.created_at]);
             builder.push_record(["Updated", &task_list.updated_at]);
 

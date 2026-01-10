@@ -137,7 +137,8 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     /// Linked repository IDs (M:N relationship via project_repo)
     #[serde(default)]
     pub repo_ids: Vec<Id>,
@@ -172,7 +173,8 @@ pub struct TaskList {
     pub description: Option<String>,
     pub notes: Option<String>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     pub status: TaskListStatus,
     /// Linked repository IDs (M:N relationship via task_list_repo)
     #[serde(default)]
@@ -225,7 +227,8 @@ pub struct Task {
     pub status: TaskStatus,
     pub priority: Option<i32>,
     pub tags: Vec<String>,
-    pub external_ref: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<String>,
     pub created_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,

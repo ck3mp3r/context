@@ -936,7 +936,7 @@ async fn create_project_with_external_ref() {
                     serde_json::to_vec(&json!({
                         "title": "GitHub Project",
                         "description": "Project linked to GitHub",
-                        "external_ref": "owner/repo#123"
+                        "external_refs": ["owner/repo#123"]
                     }))
                     .unwrap(),
                 ))
@@ -949,7 +949,7 @@ async fn create_project_with_external_ref() {
 
     let body = json_body(response).await;
     assert_eq!(body["title"], "GitHub Project");
-    assert_eq!(body["external_ref"], "owner/repo#123");
+    assert_eq!(body["external_refs"], json!(["owner/repo#123"]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -977,7 +977,7 @@ async fn update_project_external_ref() {
 
     let created = json_body(create_response).await;
     let project_id = created["id"].as_str().unwrap();
-    assert!(created["external_ref"].is_null());
+    assert!(created["external_refs"].as_array().unwrap().is_empty());
 
     // Update to add external_ref
     let response = app
@@ -990,7 +990,7 @@ async fn update_project_external_ref() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Project With Ref",
-                        "external_ref": "JIRA-456"
+                        "external_refs": json!(["JIRA-456"])
                     }))
                     .unwrap(),
                 ))
@@ -1003,7 +1003,7 @@ async fn update_project_external_ref() {
 
     let body = json_body(response).await;
     assert_eq!(body["title"], "Project With Ref");
-    assert_eq!(body["external_ref"], "JIRA-456");
+    assert_eq!(body["external_refs"], json!(["JIRA-456"]));
 
     // Verify via GET
     let response = app
@@ -1017,5 +1017,5 @@ async fn update_project_external_ref() {
         .unwrap();
 
     let body = json_body(response).await;
-    assert_eq!(body["external_ref"], "JIRA-456");
+    assert_eq!(body["external_refs"], json!(["JIRA-456"]));
 }

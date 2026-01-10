@@ -20,7 +20,7 @@ struct CreateProjectRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    external_ref: Option<String>,
+    external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,7 +32,7 @@ struct UpdateProjectRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    external_ref: Option<String>,
+    external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,7 +41,7 @@ pub struct Project {
     pub title: String,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
-    pub external_ref: Option<String>,
+    pub external_refs: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -145,8 +145,8 @@ fn format_project_detail(project: &Project) -> String {
         builder.push_record(["Tags", &tags.join(", ")]);
     }
 
-    if let Some(ext_ref) = &project.external_ref {
-        builder.push_record(["External Ref", ext_ref]);
+    if !project.external_refs.is_empty() {
+        builder.push_record(["External Refs", &project.external_refs.join(", ")]);
     }
 
     builder.push_record(["Created", &project.created_at]);
@@ -169,7 +169,7 @@ pub async fn create_project(
         title: title.to_string(),
         description: description.map(String::from),
         tags: parse_tags(tags),
-        external_ref: external_ref.map(String::from),
+        external_refs: external_ref.map(|s| vec![s.to_string()]),
     };
 
     let response = api_client
@@ -198,7 +198,7 @@ pub async fn update_project(
         title: title.map(String::from),
         description: description.map(String::from),
         tags: parse_tags(tags),
-        external_ref: external_ref.map(String::from),
+        external_refs: external_ref.map(|s| vec![s.to_string()]),
     };
 
     let response = api_client

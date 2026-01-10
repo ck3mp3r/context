@@ -94,9 +94,9 @@ pub struct CreateTaskParams {
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(
-        description = "External reference to link task to external systems. Examples: 'owner/repo#123' (GitHub issue), 'PROJ-456' (Jira ticket). Optional."
+        description = "External references to link task to external systems. Examples: ['owner/repo#123', 'PROJ-456']. Optional."
     )]
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -120,9 +120,9 @@ pub struct UpdateTaskParams {
     )]
     pub list_id: Option<String>,
     #[schemars(
-        description = "External reference (optional). Examples: 'owner/repo#123' (GitHub), 'PROJ-456' (Jira). Set to update or change the external reference."
+        description = "External references (optional). Examples: ['owner/repo#123', 'PROJ-456']. Set to update or change external references."
     )]
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -298,7 +298,7 @@ impl<D: Database + 'static> TaskTools<D> {
             status: TaskStatus::Backlog, // Always create as backlog
             priority: params.0.priority.or(Some(5)), // Default to P5 (lowest priority)
             tags: params.0.tags.clone().unwrap_or_default(),
-            external_ref: params.0.external_ref.clone(),
+            external_refs: params.0.external_refs.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
             started_at: None,
             completed_at: None,
@@ -466,8 +466,8 @@ impl<D: Database + 'static> TaskTools<D> {
         if let Some(list_id) = &params.0.list_id {
             task.list_id = list_id.clone();
         }
-        if let Some(external_ref) = &params.0.external_ref {
-            task.external_ref = Some(external_ref.clone());
+        if let Some(external_refs) = &params.0.external_refs {
+            task.external_refs = external_refs.clone();
         }
 
         self.db.tasks().update(&task).await.map_err(map_db_error)?;

@@ -258,7 +258,7 @@ async fn create_task_list_returns_created() {
                         "title": "Sprint 1",
                         "description": "First sprint tasks",
                         "tags": ["work", "urgent"],
-                        "external_ref": "JIRA-123",
+                        "external_refs": json!(["JIRA-123"]),
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -274,7 +274,7 @@ async fn create_task_list_returns_created() {
     assert_eq!(body["title"], "Sprint 1");
     assert_eq!(body["description"], "First sprint tasks");
     assert_eq!(body["tags"], json!(["work", "urgent"]));
-    assert_eq!(body["external_ref"], "JIRA-123");
+    assert_eq!(body["external_refs"], json!(["JIRA-123"]));
     assert_eq!(body["status"], "active");
     assert!(body["id"].as_str().unwrap().len() == 8);
 }

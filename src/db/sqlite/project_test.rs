@@ -20,7 +20,7 @@ async fn create_and_get_project() {
         title: "Test Project".to_string(),
         description: Some("A test project".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -60,7 +60,7 @@ async fn list_projects_includes_created() {
         title: "My Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -84,7 +84,7 @@ async fn update_project() {
         title: "Original".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -115,7 +115,7 @@ async fn delete_project() {
         title: "To Delete".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -142,7 +142,7 @@ async fn project_create_with_tags() {
         title: "Tagged Project".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -169,7 +169,7 @@ async fn project_list_with_tag_filter() {
         title: "Rust Backend".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -184,7 +184,7 @@ async fn project_list_with_tag_filter() {
         title: "Rust Frontend".to_string(),
         description: None,
         tags: vec!["rust".to_string(), "frontend".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -199,7 +199,7 @@ async fn project_list_with_tag_filter() {
         title: "Python Backend".to_string(),
         description: None,
         tags: vec!["python".to_string(), "backend".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -248,7 +248,7 @@ async fn project_get_loads_all_relationships() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -272,13 +272,13 @@ async fn project_get_loads_all_relationships() {
         .expect("Insert repo should succeed");
 
     // Create task list WITH project_id (NOT NULL constraint)
-    sqlx::query("INSERT INTO task_list (id, title, description, notes, tags, external_ref, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO task_list (id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("list0001")
         .bind("Test List")
         .bind(None::<String>)
         .bind(None::<String>)
         .bind("[]")
-        .bind(None::<String>)
+        .bind("[]")
         .bind("active")
         .bind("projrel1")
         .bind("2025-01-01 00:00:00")
@@ -349,7 +349,7 @@ async fn test_create_project_with_external_ref() {
         title: "Project with External Ref".to_string(),
         description: None,
         tags: vec![],
-        external_ref: Some("JIRA-123".to_string()),
+        external_refs: vec!["JIRA-123".to_string()],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -360,7 +360,7 @@ async fn test_create_project_with_external_ref() {
     repo.create(&project).await.expect("Create should succeed");
 
     let retrieved = repo.get("extref01").await.expect("Get should succeed");
-    assert_eq!(retrieved.external_ref, Some("JIRA-123".to_string()));
+    assert_eq!(retrieved.external_refs, vec!["JIRA-123".to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -374,7 +374,7 @@ async fn test_update_project_external_ref() {
         title: "Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -384,13 +384,13 @@ async fn test_update_project_external_ref() {
 
     repo.create(&project).await.expect("Create should succeed");
 
-    // Update with external_ref
-    project.external_ref = Some("gh:owner/repo#123".to_string());
+    // Update with external_refs
+    project.external_refs = vec!["gh:owner/repo#123".to_string()];
     repo.update(&project).await.expect("Update should succeed");
 
     let retrieved = repo.get("extref02").await.expect("Get should succeed");
     assert_eq!(
-        retrieved.external_ref,
-        Some("gh:owner/repo#123".to_string())
+        retrieved.external_refs,
+        vec!["gh:owner/repo#123".to_string()]
     );
 }

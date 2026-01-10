@@ -62,9 +62,9 @@ pub struct CreateTaskListParams {
     )]
     pub tags: Option<Vec<String>>,
     #[schemars(
-        description = "External reference like Jira/GitHub issue (e.g., 'PROJ-123') (optional)"
+        description = "External references like Jira/GitHub issues (e.g., ['owner/repo#123', 'PROJ-456']) (optional)"
     )]
-    pub external_ref: Option<String>,
+    pub external_refs: Option<Vec<String>>,
     #[schemars(description = "Repository IDs related to this workstream (optional)")]
     pub repo_ids: Option<Vec<String>>,
     #[schemars(
@@ -85,8 +85,10 @@ pub struct UpdateTaskListParams {
     pub notes: Option<String>,
     #[schemars(description = "Tags for organization (optional)")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "External reference (optional)")]
-    pub external_ref: Option<String>,
+    #[schemars(
+        description = "External references (e.g., ['owner/repo#123', 'PROJ-456']) (optional)"
+    )]
+    pub external_refs: Option<Vec<String>>,
     #[schemars(description = "Status (active, archived) (optional)")]
     pub status: Option<String>,
     #[schemars(
@@ -227,7 +229,7 @@ impl<D: Database + 'static> TaskListTools<D> {
             description: params.0.description,
             notes: params.0.notes,
             tags: params.0.tags.unwrap_or_default(),
-            external_ref: params.0.external_ref,
+            external_refs: params.0.external_refs.unwrap_or_default(),
             status: TaskListStatus::Active,
             repo_ids: params.0.repo_ids.unwrap_or_default(),
             project_id: params.0.project_id,
@@ -286,8 +288,8 @@ impl<D: Database + 'static> TaskListTools<D> {
             list.tags = tags;
         }
 
-        if let Some(external_ref) = params.0.external_ref {
-            list.external_ref = Some(external_ref);
+        if let Some(external_refs) = params.0.external_refs {
+            list.external_refs = external_refs;
         }
 
         if let Some(repo_ids) = params.0.repo_ids {

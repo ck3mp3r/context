@@ -4,6 +4,7 @@ use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
 use crate::mcp::tools::projects::ProjectTools;
 use rmcp::model::{CallToolResult, RawContent};
+use serde_json::json;
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -54,7 +55,7 @@ async fn test_list_projects_with_data() {
         title: "Test Project".to_string(),
         description: Some("Test Description".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -103,7 +104,7 @@ async fn test_get_project() {
         title: "Test Project".to_string(),
         description: Some("Test Description".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -170,7 +171,7 @@ async fn test_create_project() {
             title: "New Project".to_string(),
             description: Some("A new project".to_string()),
             tags: None,
-            external_ref: None,
+            external_refs: None,
         }))
         .await;
     assert!(result.is_ok());
@@ -201,7 +202,7 @@ async fn test_update_project() {
         title: "Original Title".to_string(),
         description: Some("Original Description".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -221,7 +222,7 @@ async fn test_update_project() {
             title: Some("Updated Title".to_string()),
             description: Some("Updated Description".to_string()),
             tags: None,
-            external_ref: None,
+            external_refs: None,
         }))
         .await;
     assert!(result.is_ok());
@@ -255,7 +256,7 @@ async fn test_delete_project() {
         title: "To Delete".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -297,7 +298,7 @@ async fn test_list_projects_respects_limit() {
             title: format!("Project {}", i),
             description: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
@@ -384,7 +385,7 @@ async fn test_list_projects_with_sort_and_order() {
         title: "ZZZ Project".to_string(),
         description: Some("First project".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -397,7 +398,7 @@ async fn test_list_projects_with_sort_and_order() {
         title: "AAA Project".to_string(),
         description: Some("Second project".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -410,7 +411,7 @@ async fn test_list_projects_with_sort_and_order() {
         title: "MMM Project".to_string(),
         description: Some("Third project".to_string()),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -516,7 +517,7 @@ async fn test_create_project_with_external_ref() {
             title: "GitHub Linked Project".to_string(),
             description: Some("Project linked to GitHub".to_string()),
             tags: None,
-            external_ref: Some("owner/repo#123".to_string()),
+            external_refs: Some(vec!["owner/repo#123".to_string()]),
         }))
         .await;
     assert!(result.is_ok());
@@ -531,7 +532,7 @@ async fn test_create_project_with_external_ref() {
 
     let project_json: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(project_json["title"], "GitHub Linked Project");
-    assert_eq!(project_json["external_ref"], "owner/repo#123");
+    assert_eq!(project_json["external_refs"], json!(["owner/repo#123"]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -546,7 +547,7 @@ async fn test_update_project_external_ref() {
         title: "Project Without Ref".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -566,7 +567,7 @@ async fn test_update_project_external_ref() {
             title: Some("Project With Ref".to_string()),
             description: None,
             tags: None,
-            external_ref: Some("JIRA-456".to_string()),
+            external_refs: Some(vec!["JIRA-456".to_string()]),
         }))
         .await;
     assert!(result.is_ok());
@@ -581,5 +582,5 @@ async fn test_update_project_external_ref() {
 
     let project_json: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(project_json["title"], "Project With Ref");
-    assert_eq!(project_json["external_ref"], "JIRA-456");
+    assert_eq!(project_json["external_refs"], json!(["JIRA-456"]));
 }

@@ -33,7 +33,7 @@ fn make_task_list(id: &str, title: &str) -> TaskList {
         description: None,
         notes: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: "test0000".to_string(), // Test project (created by setup_db)
@@ -53,7 +53,7 @@ fn make_task(id: &str, list_id: &str, title: &str) -> Task {
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         started_at: None,
         completed_at: None,
@@ -80,7 +80,7 @@ async fn task_timestamps_are_optional() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-15 10:00:00".to_string()),
         started_at: None,
         completed_at: None,
@@ -111,7 +111,7 @@ async fn task_timestamps_are_optional() {
         status: TaskStatus::Todo,
         priority: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: None,
         started_at: None,
         completed_at: None,
@@ -151,7 +151,7 @@ async fn task_create_and_get() {
         status: TaskStatus::InProgress,
         priority: Some(2),
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         started_at: Some("2025-01-02 09:00:00".to_string()),
         completed_at: None,
@@ -373,7 +373,7 @@ async fn task_create_with_tags() {
         status: TaskStatus::Backlog,
         priority: None,
         tags: vec!["rust".to_string(), "backend".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         started_at: None,
         completed_at: None,
@@ -462,7 +462,7 @@ async fn task_update_status_to_done_sets_completed_at() {
             description: None,
             notes: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
@@ -486,7 +486,7 @@ async fn task_update_status_to_done_sets_completed_at() {
             status: TaskStatus::Todo,
             priority: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             created_at: None,
             started_at: None,
             completed_at: None,
@@ -524,7 +524,7 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             description: None,
             notes: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
@@ -547,7 +547,7 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             status: TaskStatus::Todo,
             priority: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             created_at: None,
             started_at: None,
             completed_at: None,
@@ -591,7 +591,7 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             description: None,
             notes: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
@@ -615,7 +615,7 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             status: TaskStatus::Backlog,
             priority: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             created_at: None,
             started_at: None,
             completed_at: None,
@@ -653,7 +653,7 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
             description: None,
             notes: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
@@ -677,7 +677,7 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
             status: TaskStatus::Done,
             priority: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             created_at: None,
             started_at: None,
             completed_at: Some("2025-01-01 12:00:00".to_string()),
@@ -715,7 +715,7 @@ async fn task_update_other_fields_preserves_timestamps() {
             description: None,
             notes: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
@@ -739,7 +739,7 @@ async fn task_update_other_fields_preserves_timestamps() {
             status: TaskStatus::InProgress,
             priority: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             created_at: None,
             started_at: Some("2025-01-01 10:00:00".to_string()),
             completed_at: None,
@@ -1494,15 +1494,21 @@ async fn task_create_with_github_external_ref() {
         .expect("Create list");
 
     let mut task = make_task("task0001", &list.id, "Task with GitHub issue");
-    task.external_ref = Some("ck3mp3r/context#42".to_string());
+    task.external_refs = vec!["ck3mp3r/context#42".to_string()];
 
     let created = db.tasks().create(&task).await.expect("Create task");
 
-    assert_eq!(created.external_ref, Some("ck3mp3r/context#42".to_string()));
+    assert_eq!(
+        created.external_refs,
+        vec!["ck3mp3r/context#42".to_string()]
+    );
 
     // Verify it's persisted
     let fetched = db.tasks().get(&created.id).await.expect("Get task");
-    assert_eq!(fetched.external_ref, Some("ck3mp3r/context#42".to_string()));
+    assert_eq!(
+        fetched.external_refs,
+        vec!["ck3mp3r/context#42".to_string()]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1515,15 +1521,15 @@ async fn task_create_with_jira_external_ref() {
         .expect("Create list");
 
     let mut task = make_task("task0001", &list.id, "Task with Jira ticket");
-    task.external_ref = Some("BACKEND-456".to_string());
+    task.external_refs = vec!["BACKEND-456".to_string()];
 
     let created = db.tasks().create(&task).await.expect("Create task");
 
-    assert_eq!(created.external_ref, Some("BACKEND-456".to_string()));
+    assert_eq!(created.external_refs, vec!["BACKEND-456".to_string()]);
 
     // Verify it's persisted
     let fetched = db.tasks().get(&created.id).await.expect("Get task");
-    assert_eq!(fetched.external_ref, Some("BACKEND-456".to_string()));
+    assert_eq!(fetched.external_refs, vec!["BACKEND-456".to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1535,26 +1541,26 @@ async fn task_update_external_ref() {
         .await
         .expect("Create list");
 
-    // Create task without external_ref
+    // Create task without external_refs
     let task = make_task("task0001", &list.id, "Task");
     let created = db.tasks().create(&task).await.expect("Create task");
-    assert_eq!(created.external_ref, None);
+    assert_eq!(created.external_refs, Vec::<String>::new());
 
-    // Update to add external_ref
+    // Update to add external_refs
     let mut updated_task = created.clone();
-    updated_task.external_ref = Some("ck3mp3r/context#123".to_string());
+    updated_task.external_refs = vec!["ck3mp3r/context#123".to_string()];
     db.tasks().update(&updated_task).await.expect("Update task");
     let fetched = db.tasks().get(&updated_task.id).await.expect("Get task");
     assert_eq!(
-        fetched.external_ref,
-        Some("ck3mp3r/context#123".to_string())
+        fetched.external_refs,
+        vec!["ck3mp3r/context#123".to_string()]
     );
 
-    // Update to change external_ref
-    updated_task.external_ref = Some("PROJ-789".to_string());
+    // Update to change external_refs
+    updated_task.external_refs = vec!["PROJ-789".to_string()];
     db.tasks().update(&updated_task).await.expect("Update task");
     let fetched2 = db.tasks().get(&updated_task.id).await.expect("Get task");
-    assert_eq!(fetched2.external_ref, Some("PROJ-789".to_string()));
+    assert_eq!(fetched2.external_refs, vec!["PROJ-789".to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1566,20 +1572,23 @@ async fn task_remove_external_ref() {
         .await
         .expect("Create list");
 
-    // Create task with external_ref
+    // Create task with external_refs
     let mut task = make_task("task0001", &list.id, "Task");
-    task.external_ref = Some("ck3mp3r/context#42".to_string());
+    task.external_refs = vec!["ck3mp3r/context#42".to_string()];
     let created = db.tasks().create(&task).await.expect("Create task");
-    assert_eq!(created.external_ref, Some("ck3mp3r/context#42".to_string()));
+    assert_eq!(
+        created.external_refs,
+        vec!["ck3mp3r/context#42".to_string()]
+    );
 
-    // Remove external_ref by setting to None
+    // Remove external_refs by setting to empty vec
     let mut updated_task = created.clone();
-    updated_task.external_ref = None;
+    updated_task.external_refs = vec![];
     db.tasks().update(&updated_task).await.expect("Update task");
 
     // Verify it's persisted
     let fetched = db.tasks().get(&updated_task.id).await.expect("Get task");
-    assert_eq!(fetched.external_ref, None);
+    assert_eq!(fetched.external_refs, Vec::<String>::new());
 }
 
 // ============================================================================

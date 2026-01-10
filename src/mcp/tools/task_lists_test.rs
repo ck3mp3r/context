@@ -60,7 +60,7 @@ async fn test_create_and_get_task_list() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -75,7 +75,7 @@ async fn test_create_and_get_task_list() {
         description: Some("First sprint".to_string()),
         notes: Some("Planning notes".to_string()),
         tags: Some(vec!["work".to_string()]),
-        external_ref: Some("JIRA-123".to_string()),
+        external_refs: Some(vec!["JIRA-123".to_string()]),
         repo_ids: None,
         project_id: created_project.id.clone(),
     };
@@ -95,7 +95,7 @@ async fn test_create_and_get_task_list() {
     assert_eq!(created.description, Some("First sprint".to_string()));
     assert_eq!(created.notes, Some("Planning notes".to_string()));
     assert_eq!(created.tags, vec!["work".to_string()]);
-    assert_eq!(created.external_ref, Some("JIRA-123".to_string()));
+    assert_eq!(created.external_refs, vec!["JIRA-123".to_string()]);
     assert_eq!(created.status, TaskListStatus::Active);
     assert_eq!(created.project_id, created_project.id);
     assert!(created.archived_at.is_none());
@@ -134,7 +134,7 @@ async fn test_update_task_list() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -150,7 +150,7 @@ async fn test_update_task_list() {
         description: None,
         notes: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
@@ -167,7 +167,7 @@ async fn test_update_task_list() {
         description: Some("Updated description".to_string()),
         notes: Some("Updated notes".to_string()),
         tags: Some(vec!["updated".to_string()]),
-        external_ref: Some("JIRA-456".to_string()),
+        external_refs: Some(vec!["JIRA-456".to_string()]),
         status: Some("archived".to_string()),
         repo_ids: None,
         project_id: None,
@@ -189,7 +189,7 @@ async fn test_update_task_list() {
     assert_eq!(updated.description, Some("Updated description".to_string()));
     assert_eq!(updated.notes, Some("Updated notes".to_string()));
     assert_eq!(updated.tags, vec!["updated".to_string()]);
-    assert_eq!(updated.external_ref, Some("JIRA-456".to_string()));
+    assert_eq!(updated.external_refs, vec!["JIRA-456".to_string()]);
     assert_eq!(updated.status, TaskListStatus::Archived);
     assert!(updated.archived_at.is_some());
 }
@@ -207,7 +207,7 @@ async fn test_delete_task_list() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -223,7 +223,7 @@ async fn test_delete_task_list() {
         description: None,
         notes: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
@@ -268,7 +268,7 @@ async fn test_list_task_lists_with_filters() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -284,7 +284,7 @@ async fn test_list_task_lists_with_filters() {
         description: None,
         notes: None,
         tags: vec!["work".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
@@ -300,7 +300,7 @@ async fn test_list_task_lists_with_filters() {
         description: None,
         notes: None,
         tags: vec!["personal".to_string()],
-        external_ref: None,
+        external_refs: vec![],
         status: TaskListStatus::Archived,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
@@ -389,7 +389,7 @@ async fn test_get_task_list_stats() {
         title: "Test Project".to_string(),
         description: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
@@ -405,7 +405,7 @@ async fn test_get_task_list_stats() {
         description: None,
         notes: None,
         tags: vec![],
-        external_ref: None,
+        external_refs: vec![],
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
@@ -434,7 +434,7 @@ async fn test_get_task_list_stats() {
             status,
             priority: None,
             tags: vec![],
-            external_ref: None,
+            external_refs: vec![],
             created_at: None,
             started_at: None,
             completed_at: None,
