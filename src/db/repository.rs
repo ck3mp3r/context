@@ -52,6 +52,11 @@ pub trait TaskListRepository: Send + Sync {
         &self,
         query: Option<&TaskListQuery>,
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&TaskListQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn link_project(
