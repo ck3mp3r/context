@@ -914,11 +914,15 @@ pub fn TaskDetailContent(
                         }
                     })}
 
-                    // External reference link (if present)
-                    {task.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
+                    // External reference links (if present)
+                    {(!task.external_refs.is_empty()).then(|| {
                         view! {
-                            <div class="mt-2">
-                                <ExternalRefLink external_ref=ext_ref.clone() />
+                            <div class="mt-2 flex flex-wrap gap-1">
+                                {task.external_refs.iter().map(|ext_ref| {
+                                    view! {
+                                        <ExternalRefLink external_ref=ext_ref.clone() />
+                                    }
+                                }).collect::<Vec<_>>()}
                             </div>
                         }
                     })}
@@ -1114,11 +1118,15 @@ pub fn TaskListCard(
                     }
                 })}
 
-            // External reference link (if present)
-            {task_list.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
+            // External reference links (if present)
+            {(!task_list.external_refs.is_empty()).then(|| {
                 view! {
-                    <div class="mb-3">
-                        <ExternalRefLink external_ref=ext_ref.clone() />
+                    <div class="mb-3 flex flex-wrap gap-1">
+                        {task_list.external_refs.iter().map(|ext_ref| {
+                            view! {
+                                <ExternalRefLink external_ref=ext_ref.clone() />
+                            }
+                        }).collect::<Vec<_>>()}
                     </div>
                 }
             })}
@@ -1290,11 +1298,15 @@ pub fn TaskListDetailModal(
                                                     }
                                                 })}
 
-                                                // External reference link (if present)
-                                                {tl.external_ref.as_ref().filter(|s| !s.is_empty()).map(|ext_ref| {
+                                                // External reference links (if present)
+                                                {(!tl.external_refs.is_empty()).then(|| {
                                                     view! {
-                                                        <div class="mt-2">
-                                                            <ExternalRefLink external_ref=ext_ref.clone() />
+                                                        <div class="mt-2 flex flex-wrap gap-1">
+                                                            {tl.external_refs.iter().map(|ext_ref| {
+                                                                view! {
+                                                                    <ExternalRefLink external_ref=ext_ref.clone() />
+                                                                }
+                                                            }).collect::<Vec<_>>()}
                                                         </div>
                                                     }
                                                 })}

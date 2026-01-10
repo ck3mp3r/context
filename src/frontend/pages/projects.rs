@@ -76,7 +76,7 @@ pub fn Projects() -> impl IntoView {
                                         let project_title = project.title.clone();
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
-                                        let project_external_ref = project.external_ref.clone();
+                                        let project_external_refs = project.external_refs.clone();
                                         view! {
                                             <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
@@ -121,12 +121,18 @@ pub fn Projects() -> impl IntoView {
                                                         }
                                                     })}
 
-                                                {project_external_ref
-                                                    .as_ref()
-                                                    .map(|ext_ref| {
+                                                {(!project_external_refs.is_empty())
+                                                    .then(|| {
                                                         view! {
-                                                            <div class="mt-2">
-                                                                <ExternalRefLink external_ref=ext_ref.clone()/>
+                                                            <div class="mt-2 flex flex-wrap gap-1">
+                                                                {project_external_refs
+                                                                    .iter()
+                                                                    .map(|ext_ref| {
+                                                                        view! {
+                                                                            <ExternalRefLink external_ref=ext_ref.clone()/>
+                                                                        }
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
                                                             </div>
                                                         }
                                                     })}

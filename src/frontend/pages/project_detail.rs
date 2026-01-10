@@ -259,11 +259,21 @@ pub fn ProjectDetail() -> impl IntoView {
                                         }
                                     })}
 
-                                {project
-                                    .external_ref
-                                    .as_ref()
-                                    .map(|ext_ref| {
-                                        view! { <ExternalRefLink external_ref=ext_ref.clone()/> }
+                                {(!project.external_refs.is_empty())
+                                    .then(|| {
+                                        view! {
+                                            <div class="flex flex-wrap gap-1">
+                                                {project
+                                                    .external_refs
+                                                    .iter()
+                                                    .map(|ext_ref| {
+                                                        view! {
+                                                            <ExternalRefLink external_ref=ext_ref.clone()/>
+                                                        }
+                                                    })
+                                                    .collect::<Vec<_>>()}
+                                            </div>
+                                        }
                                     })}
 
                             </div>
