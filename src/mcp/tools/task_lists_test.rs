@@ -7,7 +7,7 @@ use crate::db::{
 };
 use crate::mcp::tools::task_lists::{
     CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,
-    ListTaskListsParams, SearchTaskListsParams, TaskListTools, UpdateTaskListParams,
+    ListTaskListsParams, TaskListTools, UpdateTaskListParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, RawContent};
