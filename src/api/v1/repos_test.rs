@@ -875,3 +875,251 @@ async fn delete_repo_broadcasts_notification() {
         _ => panic!("Expected RepoDeleted message, got {:?}", msg),
     }
 }
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_repos_by_remote_url() {
+    let app = test_app().await;
+
+    // Create repos with different remote URLs
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/rust-lang/rust.git",
+                        "path": "/home/user/rust",
+                        "tags": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/python/cpython.git",
+                        "path": "/home/user/python",
+                        "tags": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search for "rust"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos?q=rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+    assert!(
+        body["items"][0]["remote"]
+            .as_str()
+            .unwrap()
+            .contains("rust-lang")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_repos_by_path() {
+    let app = test_app().await;
+
+    // Create repos with different paths
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/example/backend.git",
+                        "path": "/srv/projects/backend-api",
+                        "tags": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/example/frontend.git",
+                        "path": "/srv/projects/frontend-app",
+                        "tags": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search by path containing "backend" - NEW FTS5 capability!
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos?q=backend")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    // Should find repo with "backend" in path AND remote
+    assert!(body["total"].as_u64().unwrap() >= 1);
+
+    // Verify at least one result has "backend" in path or remote
+    let items = body["items"].as_array().unwrap();
+    let has_backend = items.iter().any(|item| {
+        let remote = item["remote"].as_str().unwrap_or("");
+        let path = item["path"].as_str().unwrap_or("");
+        remote.contains("backend") || path.contains("backend")
+    });
+    assert!(has_backend);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_repos_boolean_operators() {
+    let app = test_app().await;
+
+    // Create repos
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/company/api-backend.git",
+                        "path": "/srv/api",
+                        "tags": ["api", "production"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/company/web-frontend.git",
+                        "path": "/srv/web",
+                        "tags": ["frontend", "production"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Search with AND operator: "api AND production"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos?q=api%20AND%20production")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert!(
+        body["items"][0]["remote"]
+            .as_str()
+            .unwrap()
+            .contains("api-backend")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_repos_empty_query_returns_all() {
+    let app = test_app().await;
+
+    // Create a repo
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/test/repo.git",
+                        "path": null,
+                        "tags": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Empty search query should return all repos
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos?q=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+}
