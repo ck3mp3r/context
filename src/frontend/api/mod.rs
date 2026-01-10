@@ -64,10 +64,25 @@ async fn handle_response<T: DeserializeOwned>(
 pub mod projects {
     use super::*;
 
-    pub async fn list(limit: Option<usize>, offset: Option<usize>) -> Result<Paginated<Project>> {
+    pub async fn list(
+        limit: Option<usize>,
+        offset: Option<usize>,
+        search_query: Option<String>,
+    ) -> Result<Paginated<Project>> {
         let mut url = format!("{}/projects", API_BASE);
         let mut query_params = vec![];
 
+        if let Some(q) = search_query
+            && !q.trim().is_empty()
+        {
+            // Simple URL encoding for search query
+            let encoded = q
+                .replace(' ', "+")
+                .replace('&', "%26")
+                .replace('=', "%3D")
+                .replace('#', "%23");
+            query_params.push(format!("q={}", encoded));
+        }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
         }
