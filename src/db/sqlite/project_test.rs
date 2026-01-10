@@ -394,3 +394,304 @@ async fn test_update_project_external_ref() {
         vec!["gh:owner/repo#123".to_string()]
     );
 }
+
+// =============================================================================
+// FTS5 SEARCH TESTS
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_project_by_title() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00001".to_string(),
+        title: "Rust Backend Project".to_string(),
+        description: Some("Building a backend service".to_string()),
+        tags: vec!["backend".to_string()],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Project {
+        id: "fts00002".to_string(),
+        title: "Python Data Science".to_string(),
+        description: Some("ML and analytics".to_string()),
+        tags: vec!["ml".to_string()],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:01".to_string(),
+        updated_at: "2025-01-01 00:00:01".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Search for "Rust" in title
+    let results = repo
+        .search("Rust", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should find 1 project with 'Rust'");
+    assert_eq!(results.items[0].id, "fts00001");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_project_by_description() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00003".to_string(),
+        title: "Project Alpha".to_string(),
+        description: Some("Authentication and authorization system".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Project {
+        id: "fts00004".to_string(),
+        title: "Project Beta".to_string(),
+        description: Some("Frontend UI components".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:01".to_string(),
+        updated_at: "2025-01-01 00:00:01".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Search for "authentication" in description
+    let results = repo
+        .search("authentication", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        1,
+        "Should find 1 project with 'authentication'"
+    );
+    assert_eq!(results.items[0].id, "fts00003");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_project_by_tags() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00005".to_string(),
+        title: "Microservices".to_string(),
+        description: None,
+        tags: vec!["backend".to_string(), "kubernetes".to_string()],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Search for "kubernetes" in tags
+    let results = repo
+        .search("kubernetes", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        1,
+        "Should find 1 project with 'kubernetes' tag"
+    );
+    assert_eq!(results.items[0].id, "fts00005");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_project_by_external_refs() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00006".to_string(),
+        title: "GitHub Integration".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec!["owner/repo#123".to_string(), "JIRA-456".to_string()],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Search for GitHub issue
+    let results = repo
+        .search("owner/repo#123", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(
+        results.items.len(),
+        1,
+        "Should find project by external_refs"
+    );
+    assert_eq!(results.items[0].id, "fts00006");
+
+    // Search for JIRA ticket
+    let results = repo
+        .search("JIRA-456", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should find project by JIRA ticket");
+    assert_eq!(results.items[0].id, "fts00006");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_operators() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00007".to_string(),
+        title: "Rust Backend API".to_string(),
+        description: Some("RESTful service".to_string()),
+        tags: vec!["rust".to_string()],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Project {
+        id: "fts00008".to_string(),
+        title: "Python Backend API".to_string(),
+        description: Some("GraphQL service".to_string()),
+        tags: vec!["python".to_string()],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:01".to_string(),
+        updated_at: "2025-01-01 00:00:01".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // AND operator
+    let results = repo
+        .search("Rust AND API", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should find Rust + API");
+    assert_eq!(results.items[0].id, "fts00007");
+
+    // OR operator
+    let results = repo
+        .search("RESTful OR GraphQL", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 2, "Should find both with OR");
+
+    // NOT operator
+    let results = repo
+        .search("Backend NOT Python", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should exclude Python");
+    assert_eq!(results.items[0].id, "fts00007");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_phrase_query() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00009".to_string(),
+        title: "Machine Learning Platform".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Project {
+        id: "fts00010".to_string(),
+        title: "Learning Management System".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:01".to_string(),
+        updated_at: "2025-01-01 00:00:01".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Phrase search should match exact phrase
+    let results = repo
+        .search("\"Machine Learning\"", None)
+        .await
+        .expect("Search should succeed");
+    assert_eq!(results.items.len(), 1, "Should find exact phrase");
+    assert_eq!(results.items[0].id, "fts00009");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_special_characters() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&Project {
+        id: "fts00011".to_string(),
+        title: "Test Project".to_string(),
+        description: Some("Using {curly} [brackets] (parens)".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    })
+    .await
+    .unwrap();
+
+    // Should sanitize special chars and not error
+    let results = repo
+        .search("{curly}", None)
+        .await
+        .expect("Search should not error on special chars");
+    assert_eq!(results.items.len(), 1, "Should find despite special chars");
+}

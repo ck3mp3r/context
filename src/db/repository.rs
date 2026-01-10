@@ -25,6 +25,11 @@ pub trait ProjectRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
     fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        query: &str,
+        project_query: Option<&ProjectQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
 }
 
 /// Repository for Repo operations.
