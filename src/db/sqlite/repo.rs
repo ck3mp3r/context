@@ -112,60 +112,106 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
 
-        // Decide on table alias usage
-        let (select_cols, from_clause, order_field_prefix) = if needs_json_each
-            || needs_project_join
-        {
-            // Need aliases when doing JOINs
-            let mut from = "FROM repo r".to_string();
+        // Sanitize and prepare FTS5 query if search is requested
+        let fts_query = if has_search {
+            let search_term = query.search_query.as_ref().unwrap();
 
-            if needs_project_join {
-                from.push_str("\nINNER JOIN project_repo pr ON r.id = pr.repo_id");
-                where_conditions.push("pr.project_id = ?".to_string());
-                bind_values.push(query.project_id.as_ref().unwrap().clone());
+            // Sanitize FTS5 query (same pattern as task.rs, task_list.rs, project.rs)
+            let cleaned = search_term
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric()
+                        || c == '_'
+                        || c == '"'
+                        || c.is_whitespace()
+                        || !c.is_ascii()
+                    {
+                        c
+                    } else {
+                        ' '
+                    }
+                })
+                .collect::<String>();
+
+            // Handle unbalanced quotes (FTS5 syntax error)
+            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
+            let cleaned = if quote_count % 2 == 0 {
+                cleaned
+            } else {
+                cleaned.replace('"', "")
+            };
+
+            // Detect advanced search features
+            let has_boolean =
+                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
+            let has_phrase = cleaned.contains('"');
+
+            // Apply query transformation
+            if has_boolean || has_phrase {
+                Some(cleaned)
+            } else {
+                // Simple mode - add prefix matching for each term
+                let terms: Vec<String> = cleaned
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|term| format!("{}*", term))
+                    .collect();
+
+                if terms.is_empty() {
+                    None // Empty query after sanitization
+                } else {
+                    Some(terms.join(" "))
+                }
             }
-
-            if needs_json_each {
-                from.push_str(", json_each(r.tags)");
-                let tags = query.tags.as_ref().unwrap();
-                let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
-                where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
-                bind_values.extend(tags.clone());
-            }
-
-            // Add search condition if present
-            if has_search {
-                let search_term = format!("%{}%", query.search_query.as_ref().unwrap());
-                where_conditions.push(
-                    "(LOWER(r.remote) LIKE LOWER(?) OR EXISTS (SELECT 1 FROM json_each(r.tags) WHERE LOWER(json_each.value) LIKE LOWER(?)))".to_string()
-                );
-                bind_values.push(search_term.clone());
-                bind_values.push(search_term);
-            }
-
-            (
-                "DISTINCT r.id, r.remote, r.path, r.tags, r.created_at",
-                from,
-                "r.",
-            )
         } else {
-            // No joins, simple query
-            // Add search condition if present (no alias needed)
-            if has_search {
-                let search_term = format!("%{}%", query.search_query.as_ref().unwrap());
-                where_conditions.push(
-                    "(LOWER(remote) LIKE LOWER(?) OR EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) LIKE LOWER(?)))".to_string()
-                );
-                bind_values.push(search_term.clone());
-                bind_values.push(search_term);
-            }
-
-            (
-                "id, remote, path, tags, created_at",
-                "FROM repo".to_string(),
-                "",
-            )
+            None
         };
+
+        // Decide on table alias usage
+        let (select_cols, from_clause, order_field_prefix) =
+            if needs_json_each || needs_project_join || fts_query.is_some() {
+                // Need aliases when doing JOINs or FTS5
+                let mut from = "FROM repo r".to_string();
+
+                // Add FTS5 join if searching
+                if fts_query.is_some() {
+                    from.push_str("\nINNER JOIN repo_fts ON r.id = repo_fts.id");
+                }
+
+                if needs_project_join {
+                    from.push_str("\nINNER JOIN project_repo pr ON r.id = pr.repo_id");
+                    where_conditions.push("pr.project_id = ?".to_string());
+                    bind_values.push(query.project_id.as_ref().unwrap().clone());
+                }
+
+                if needs_json_each {
+                    from.push_str(", json_each(r.tags)");
+                    let tags = query.tags.as_ref().unwrap();
+                    let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+                    where_conditions
+                        .push(format!("json_each.value IN ({})", placeholders.join(", ")));
+                    bind_values.extend(tags.clone());
+                }
+
+                // Add FTS5 search condition
+                if let Some(ref query_str) = fts_query {
+                    where_conditions.push("repo_fts MATCH ?".to_string());
+                    bind_values.push(query_str.clone());
+                }
+
+                (
+                    "DISTINCT r.id, r.remote, r.path, r.tags, r.created_at",
+                    from,
+                    "r.",
+                )
+            } else {
+                // No joins, simple query (no search)
+                (
+                    "id, remote, path, tags, created_at",
+                    "FROM repo".to_string(),
+                    "",
+                )
+            };
 
         // Build WHERE clause
         let where_clause = if !where_conditions.is_empty() {
@@ -198,13 +244,13 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             select_cols, from_clause, where_clause, order_clause, limit_clause
         );
 
-        let count_sql = if needs_json_each || needs_project_join {
+        let count_sql = if needs_json_each || needs_project_join || fts_query.is_some() {
             format!(
                 "SELECT COUNT(DISTINCT r.id) {} {}",
                 from_clause, where_clause
             )
         } else if !where_clause.is_empty() {
-            // Simple query but with WHERE clause (e.g., search only)
+            // Simple query but with WHERE clause (no joins)
             format!("SELECT COUNT(*) FROM repo {}", where_clause)
         } else {
             "SELECT COUNT(*) FROM repo".to_string()
