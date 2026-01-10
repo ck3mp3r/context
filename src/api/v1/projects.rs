@@ -156,6 +156,9 @@ pub struct ErrorResponse {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListProjectsQuery {
+    /// FTS5 search query (optional)
+    #[param(example = "rust backend")]
+    pub q: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -224,19 +227,29 @@ pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
         tags,
     };
 
-    let result = state
-        .db()
-        .projects()
-        .list(Some(&db_query))
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    // Use search if query provided, otherwise list
+    let result = if let Some(ref search_query) = query.q {
+        if !search_query.trim().is_empty() {
+            state
+                .db()
+                .projects()
+                .search(search_query, Some(&db_query))
+                .await
+        } else {
+            // Empty query - fall back to list
+            state.db().projects().list(Some(&db_query)).await
+        }
+    } else {
+        state.db().projects().list(Some(&db_query)).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     let items: Vec<ProjectResponse> = result
         .items
