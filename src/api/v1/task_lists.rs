@@ -150,6 +150,9 @@ impl PatchTaskListRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListTaskListsQuery {
+    /// FTS5 search query (optional)
+    #[param(example = "rust backend")]
+    pub q: Option<String>,
     /// Filter by tags (comma-separated)
     #[param(example = "work,urgent")]
     pub tags: Option<String>,
@@ -259,19 +262,28 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
         project_id: query.project_id.clone(),
     };
 
-    let result = state
-        .db()
-        .task_lists()
-        .list(Some(&db_query))
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    // Use search if query provided, otherwise list
+    let result = if let Some(ref search_query) = query.q {
+        if !search_query.trim().is_empty() {
+            state
+                .db()
+                .task_lists()
+                .search(search_query, Some(&db_query))
+                .await
+        } else {
+            state.db().task_lists().list(Some(&db_query)).await
+        }
+    } else {
+        state.db().task_lists().list(Some(&db_query)).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     let items: Vec<TaskListResponse> = result
         .items
