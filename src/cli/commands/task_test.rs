@@ -175,6 +175,7 @@ fn test_create_request_serialization() {
     let req = CreateTaskRequest {
         title: "Test task".to_string(),
         description: Some("Test description".to_string()),
+        parent_id: None,
         priority: Some(3),
         tags: Some(vec!["urgent".to_string()]),
         external_refs: None,
@@ -194,6 +195,7 @@ fn test_update_request_serialization() {
         description: Some("Updated description".to_string()),
         status: Some("in_progress".to_string()),
         priority: Some(2),
+        parent_id: None,
         tags: Some(vec!["important".to_string()]),
         external_refs: None,
     };
@@ -232,4 +234,38 @@ fn test_task_with_all_fields() {
         task.tags,
         Some(vec!["tag1".to_string(), "tag2".to_string()])
     );
+}
+
+#[test]
+fn test_create_request_with_parent_id_serialization() {
+    let req = CreateTaskRequest {
+        title: "Subtask".to_string(),
+        description: Some("Child task".to_string()),
+        parent_id: Some("parent123".to_string()),
+        priority: Some(2),
+        tags: Some(vec!["subtask".to_string()]),
+        external_refs: None,
+    };
+
+    let json = serde_json::to_string(&req).unwrap();
+    assert!(json.contains("Subtask"));
+    assert!(json.contains("parent123"));
+    assert!(json.contains("parent_id"));
+}
+
+#[test]
+fn test_create_request_without_parent_id_omits_field() {
+    let req = CreateTaskRequest {
+        title: "Top-level task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+
+    let json = serde_json::to_string(&req).unwrap();
+    assert!(json.contains("Top-level task"));
+    // parent_id should be omitted when None
+    assert!(!json.contains("parent_id"));
 }

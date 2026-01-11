@@ -14,6 +14,9 @@ pub mod mcp;
 pub mod sync;
 
 #[cfg(feature = "backend")]
+pub mod serde_utils;
+
+#[cfg(feature = "backend")]
 pub fn init() {
     // Install ring as the default crypto provider for rustls
     // This must be called before any reqwest Client is created

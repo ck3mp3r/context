@@ -97,6 +97,15 @@ enum TaskCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Filter by parent task ID (for listing subtasks)
+        #[arg(long)]
+        parent_id: Option<String>,
+        /// Filter by status (comma-separated: backlog, todo, in_progress, review, done, cancelled)
+        #[arg(long)]
+        status: Option<String>,
+        /// Filter by tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
     },
     /// Get a task by ID
     Get {
@@ -117,6 +126,9 @@ enum TaskCommands {
         /// Task description (optional, detailed information)
         #[arg(long)]
         description: Option<String>,
+        /// Parent task ID for creating subtasks (optional)
+        #[arg(long)]
+        parent_id: Option<String>,
         /// Priority (1-5, where 1 is highest)
         #[arg(long)]
         priority: Option<i32>,
@@ -149,6 +161,9 @@ enum TaskCommands {
         /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-456' for Jira)
         #[arg(long)]
         external_ref: Option<String>,
+        /// Parent task ID (for converting to/from subtask). Use empty string to remove parent.
+        #[arg(long)]
+        parent_id: Option<String>,
     },
     /// Delete a task
     Delete {
@@ -172,6 +187,9 @@ enum NoteCommands {
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Filter by parent note ID (for listing subnotes)
+        #[arg(long)]
+        parent_id: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -195,6 +213,12 @@ enum NoteCommands {
         /// Tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Parent note ID (for creating subnotes)
+        #[arg(long)]
+        parent_id: Option<String>,
+        /// Index for manual ordering (lower values first)
+        #[arg(long)]
+        idx: Option<i32>,
     },
     /// Update a note
     Update {
@@ -209,6 +233,12 @@ enum NoteCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Parent note ID (for converting to/from subnote). Use empty string to remove parent.
+        #[arg(long)]
+        parent_id: Option<String>,
+        /// Index for manual ordering (lower values first)
+        #[arg(long)]
+        idx: Option<i32>,
     },
     /// Delete a note
     Delete {
@@ -636,11 +666,17 @@ pub async fn run() -> Result<()> {
             }
         },
         Some(Commands::Task { command }) => match command {
-            TaskCommands::List { list_id, json } => {
+            TaskCommands::List {
+                list_id,
+                json,
+                parent_id,
+                status,
+                tags,
+            } => {
                 let filter = commands::task::ListTasksFilter {
-                    status: None,
-                    parent_id: None,
-                    tags: None,
+                    status: status.as_deref(),
+                    parent_id: parent_id.as_deref(),
+                    tags: tags.as_deref(),
                     limit: None,
                     offset: None,
                 };
@@ -663,6 +699,7 @@ pub async fn run() -> Result<()> {
                 list_id,
                 title,
                 description,
+                parent_id,
                 priority,
                 tags,
                 external_ref,
@@ -675,6 +712,7 @@ pub async fn run() -> Result<()> {
                     priority,
                     tags.as_deref(),
                     external_ref.as_deref(),
+                    parent_id.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
@@ -687,6 +725,7 @@ pub async fn run() -> Result<()> {
                 priority,
                 tags,
                 external_ref,
+                parent_id,
             } => {
                 let params = commands::task::UpdateTaskParams {
                     title: title.as_deref(),
@@ -695,6 +734,7 @@ pub async fn run() -> Result<()> {
                     priority,
                     tags: tags.as_deref(),
                     external_refs: external_ref.as_deref(),
+                    parent_id: parent_id.as_deref(),
                 };
                 let output = commands::task::update_task(&api_client, &id, params).await?;
                 println!("{}", output);
@@ -709,10 +749,15 @@ pub async fn run() -> Result<()> {
             }
         },
         Some(Commands::Note { command }) => match command {
-            NoteCommands::List { tags, json } => {
+            NoteCommands::List {
+                tags,
+                parent_id,
+                json,
+            } => {
                 let output = commands::note::list_notes(
                     &api_client,
                     tags.as_deref(),
+                    parent_id.as_deref(),
                     None,
                     None,
                     if json { "json" } else { "table" },
@@ -730,10 +775,18 @@ pub async fn run() -> Result<()> {
                 title,
                 content,
                 tags,
+                parent_id,
+                idx,
             } => {
-                let output =
-                    commands::note::create_note(&api_client, &title, &content, tags.as_deref())
-                        .await?;
+                let output = commands::note::create_note(
+                    &api_client,
+                    &title,
+                    &content,
+                    tags.as_deref(),
+                    parent_id.as_deref(),
+                    idx,
+                )
+                .await?;
                 println!("{}", output);
             }
             NoteCommands::Update {
@@ -741,6 +794,8 @@ pub async fn run() -> Result<()> {
                 title,
                 content,
                 tags,
+                parent_id,
+                idx,
             } => {
                 let output = commands::note::update_note(
                     &api_client,
@@ -748,6 +803,8 @@ pub async fn run() -> Result<()> {
                     title.as_deref(),
                     content.as_deref(),
                     tags.as_deref(),
+                    parent_id.as_deref(),
+                    idx,
                 )
                 .await?;
                 println!("{}", output);

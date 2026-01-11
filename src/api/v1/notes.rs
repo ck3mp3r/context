@@ -124,9 +124,11 @@ pub struct PatchNoteRequest {
     pub tags: Option<Vec<String>>,
     /// Parent note ID for hierarchical notes
     #[schema(example = "parent123")]
+    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
     pub parent_id: Option<Option<String>>,
     /// Index for manual ordering (lower values first)
     #[schema(example = 10)]
+    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
     pub idx: Option<Option<i32>>,
     /// Linked repository IDs (M:N relationship via note_repo)
     #[schema(example = json!(["repo123a", "repo456b"]))]

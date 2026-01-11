@@ -26,6 +26,8 @@ pub(crate) struct CreateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
@@ -43,6 +45,8 @@ pub(crate) struct UpdateTaskRequest {
     pub(crate) status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) priority: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) parent_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,6 +180,9 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
             builder.push_record(["Field", "Value"]);
             builder.push_record(["ID", &task.id]);
             builder.push_record(["List ID", &task.list_id]);
+            if let Some(parent_id) = &task.parent_id {
+                builder.push_record(["Parent ID", parent_id]);
+            }
             builder.push_record(["Title", &task.title]);
             if let Some(desc) = &task.description {
                 builder.push_record(["Description", desc]);
@@ -204,6 +211,7 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
 }
 
 /// Create a new task
+#[allow(clippy::too_many_arguments)]
 pub async fn create_task(
     api_client: &ApiClient,
     list_id: &str,
@@ -212,10 +220,12 @@ pub async fn create_task(
     priority: Option<i32>,
     tags: Option<&str>,
     external_refs: Option<&str>,
+    parent_id: Option<&str>,
 ) -> CliResult<String> {
     let request_body = CreateTaskRequest {
         title: title.to_string(),
         description: description.map(|s| s.to_string()),
+        parent_id: parent_id.map(|s| s.to_string()),
         priority,
         tags: parse_tags(tags),
         external_refs: parse_tags(external_refs),
@@ -237,6 +247,7 @@ pub struct UpdateTaskParams<'a> {
     pub description: Option<&'a str>,
     pub status: Option<&'a str>,
     pub priority: Option<i32>,
+    pub parent_id: Option<&'a str>,
     pub tags: Option<&'a str>,
     pub external_refs: Option<&'a str>,
 }
@@ -252,6 +263,13 @@ pub async fn update_task(
         description: params.description.map(|s| s.to_string()),
         status: params.status.map(|s| s.to_string()),
         priority: params.priority,
+        parent_id: params.parent_id.map(|s| {
+            if s.is_empty() {
+                None // Empty string means remove parent
+            } else {
+                Some(s.to_string())
+            }
+        }),
         tags: parse_tags(params.tags),
         external_refs: parse_tags(params.external_refs),
     };

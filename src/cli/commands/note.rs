@@ -76,6 +76,7 @@ struct NoteListResponse {
 pub async fn list_notes(
     api_client: &ApiClient,
     tags: Option<&str>,
+    parent_id: Option<&str>,
     limit: Option<u32>,
     offset: Option<u32>,
     format: &str,
@@ -84,6 +85,9 @@ pub async fn list_notes(
 
     if let Some(tag_str) = tags {
         request = request.query(&[("tags", tag_str)]);
+    }
+    if let Some(p) = parent_id {
+        request = request.query(&[("parent_id", p)]);
     }
     if let Some(l) = limit {
         request = request.query(&[("limit", l.to_string())]);
@@ -145,6 +149,12 @@ pub async fn get_note(api_client: &ApiClient, id: &str, format: &str) -> CliResu
             builder.push_record(["Field", "Value"]);
             builder.push_record(["ID", &note.id]);
             builder.push_record(["Title", &note.title]);
+            if let Some(parent_id) = &note.parent_id {
+                builder.push_record(["Parent ID", parent_id]);
+            }
+            if let Some(idx) = note.idx {
+                builder.push_record(["Index", &idx.to_string()]);
+            }
             builder.push_record(["Content", &truncate_with_ellipsis(&note.content, 200)]);
             builder.push_record(["Tags", &format_tags(Some(&note.tags))]);
             builder.push_record(["Created", &note.created_at]);
@@ -163,13 +173,15 @@ pub async fn create_note(
     title: &str,
     content: &str,
     tags: Option<&str>,
+    parent_id: Option<&str>,
+    idx: Option<i32>,
 ) -> CliResult<String> {
     let request_body = CreateNoteRequest {
         title: title.to_string(),
         content: content.to_string(),
         tags: parse_tags(tags),
-        parent_id: None,
-        idx: None,
+        parent_id: parent_id.map(|s| s.to_string()),
+        idx,
     };
 
     let response = api_client
@@ -189,13 +201,21 @@ pub async fn update_note(
     title: Option<&str>,
     content: Option<&str>,
     tags: Option<&str>,
+    parent_id: Option<&str>,
+    idx: Option<i32>,
 ) -> CliResult<String> {
     let request_body = UpdateNoteRequest {
         title: title.map(|s| s.to_string()),
         content: content.map(|s| s.to_string()),
         tags: parse_tags(tags),
-        parent_id: None,
-        idx: None,
+        parent_id: parent_id.map(|s| {
+            if s.is_empty() {
+                None // Empty string means remove parent
+            } else {
+                Some(s.to_string())
+            }
+        }),
+        idx: idx.map(Some),
     };
 
     let response = api_client
