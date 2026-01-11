@@ -4,8 +4,8 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, notes, projects, repos, task_lists};
 use crate::components::{
-    CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, TaskListCard,
-    TaskListDetailModal,
+    CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
+    TaskListCard, TaskListDetailModal,
 };
 use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -23,9 +23,10 @@ pub fn ProjectDetail() -> impl IntoView {
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
 
     // Search/filter state for each tab
-    let task_list_filter = RwSignal::new(String::new()); // TODO: Add debouncing
-    let note_filter_input = RwSignal::new(String::new()); // Raw input
-    let note_filter = RwSignal::new(String::new()); // Debounced (uses backend FTS5 API)
+    let (task_list_filter_input, set_task_list_filter_input) = signal(String::new()); // Raw input
+    let (task_list_filter, set_task_list_filter) = signal(String::new()); // Debounced (uses backend FTS5 API)
+    let (note_filter_input, set_note_filter_input) = signal(String::new()); // Raw input
+    let (note_filter, set_note_filter) = signal(String::new()); // Debounced (uses backend FTS5 API)
     let repo_filter = RwSignal::new(String::new()); // TODO: Add debouncing
 
     // Pagination state for task lists
@@ -54,6 +55,23 @@ pub fn ProjectDetail() -> impl IntoView {
 
     // WebSocket updates
     let ws_updates = use_websocket_updates();
+
+    // Callbacks for SearchInput components
+    let on_task_list_immediate_change = Callback::new(move |value: String| {
+        set_task_list_filter_input.set(value);
+    });
+    let on_task_list_debounced_change = Callback::new(move |value: String| {
+        set_task_list_filter.set(value);
+        set_task_list_page.set(0); // Reset to first page on new search
+    });
+
+    let on_note_immediate_change = Callback::new(move |value: String| {
+        set_note_filter_input.set(value);
+    });
+    let on_note_debounced_change = Callback::new(move |value: String| {
+        set_note_filter.set(value);
+        set_note_page.set(0); // Reset to first page on new search
+    });
 
     // Triggers to force refetch
     let (note_refetch_trigger, set_note_refetch_trigger) = signal(0u32);
@@ -112,49 +130,36 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Debounce search inputs (300ms delay)
-    Effect::new(move || {
-        let input = note_filter_input.get();
-        use wasm_bindgen::JsCast;
-        use wasm_bindgen::prelude::*;
-        let callback = Closure::once(move || {
-            note_filter.set(input.clone());
-        });
-        web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                callback.as_ref().unchecked_ref(),
-                300,
-            )
-            .unwrap();
-        callback.forget();
-    });
-
     // Reset pagination when archived toggle changes
     Effect::new(move || {
         show_archived_task_lists.get();
         set_task_list_page.set(0);
     });
 
-    // Reset note pagination when search filter changes
-    Effect::new(move || {
-        note_filter.get();
-        set_note_page.set(0);
-    });
-
-    // Fetch task lists for this project (with archived toggle and pagination)
+    // Fetch task lists for this project (with archived toggle, search, and pagination)
     Effect::new(move || {
         let id = project_id();
         let show_archived = show_archived_task_lists.get();
+        let search_query = task_list_filter.get();
         let current_page = task_list_page.get();
         let _ = task_list_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let status = if show_archived { None } else { Some("active") };
                 let offset = current_page * TASK_LIST_PAGE_SIZE;
-                let result =
-                    task_lists::list(Some(TASK_LIST_PAGE_SIZE), Some(offset), Some(id), status)
-                        .await;
+                let search_opt = if search_query.trim().is_empty() {
+                    None
+                } else {
+                    Some(search_query)
+                };
+                let result = task_lists::list(
+                    Some(TASK_LIST_PAGE_SIZE),
+                    Some(offset),
+                    Some(id),
+                    status,
+                    search_opt,
+                )
+                .await;
                 set_task_lists_data.set(Some(result));
             });
         }
@@ -331,35 +336,14 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "task-lists" => {
                                             view! {
                                                 <div>
-                                                    // Filter input with clear button
-                                                    <div class="mb-4 relative">
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Filter task lists..."
-                                                            prop:value=move || task_list_filter.get()
-                                                            on:input=move |ev| {
-                                                                task_list_filter.set(event_target_value(&ev));
-                                                            }
-
-                                                            class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                    // Search input
+                                                    <div class="mb-4">
+                                                        <SearchInput
+                                                            value=task_list_filter_input
+                                                            on_change=on_task_list_debounced_change
+                                                            on_immediate_change=on_task_list_immediate_change
+                                                            placeholder="Search task lists..."
                                                         />
-                                                        {move || {
-                                                            if !task_list_filter.get().is_empty() {
-                                                                Some(
-                                                                    view! {
-                                                                        <button
-                                                                            on:click=move |_| task_list_filter.set(String::new())
-                                                                            class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
-                                                                        >
-                                                                            "×"
-                                                                        </button>
-                                                                    },
-                                                                )
-                                                            } else {
-                                                                None
-                                                            }
-                                                        }}
-
                                                     </div>
 
                                                     // Show archived toggle
@@ -383,28 +367,16 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
-                                                            let search = task_list_filter.get().to_lowercase();
-                                                            let filtered: Vec<TaskList> = paginated
-                                                                .items
-                                                                .iter()
-                                                        .filter(|list| {
-                                                            search.is_empty()
-                                                                || list.title.to_lowercase().contains(&search)
-                                                                || list
-                                                                    .description
-                                                                    .as_ref()
-                                                                    .map(|d| d.to_lowercase().contains(&search))
-                                                                    .unwrap_or(false)
-                                                        })
-                                                                .cloned()
-                                                                .collect();
-
                                                             let total_pages = paginated.total.div_ceil(TASK_LIST_PAGE_SIZE);
 
-                                                            if filtered.is_empty() {
+                                                            if paginated.items.is_empty() {
                                                                 view! {
                                                                 <p class="text-ctp-subtext0">
-                                                                    "No task lists for this project yet"
+                                                                    {if task_list_filter.get().trim().is_empty() {
+                                                                        "No task lists for this project yet"
+                                                                    } else {
+                                                                        "No task lists found matching your search"
+                                                                    }}
                                                                 </p>
                                                             }
                                                                 .into_any()
@@ -412,7 +384,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 view! {
                                                                     <div>
                                                                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
-                                                                             {filtered
+                                                                             {paginated.items
                                                                                 .into_iter()
                                                                                 .map(|task_list| {
                                                                                     let tl_clone = task_list.clone();
@@ -472,38 +444,14 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "notes" => {
                                             view! {
                                                 <div>
-                                                    // Filter input with clear button
-                                                    <div class="mb-4 relative">
-                                                        <input
-                                                            type="text"
+                                                    // Search input
+                                                    <div class="mb-4">
+                                                        <SearchInput
+                                                            value=note_filter_input
+                                                            on_change=on_note_debounced_change
+                                                            on_immediate_change=on_note_immediate_change
                                                             placeholder="Search notes..."
-                                                            prop:value=move || note_filter_input.get()
-                                                            on:input=move |ev| {
-                                                                note_filter_input.set(event_target_value(&ev));
-                                                            }
-
-                                                            class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue"
                                                         />
-                                                        {move || {
-                                                            if !note_filter_input.get().is_empty() {
-                                                                Some(
-                                                                    view! {
-                                                                        <button
-                                                                            on:click=move |_| {
-                                                                                note_filter_input.set(String::new());
-                                                                                note_filter.set(String::new());
-                                                                            }
-                                                                            class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
-                                                                        >
-                                                                            "×"
-                                                                        </button>
-                                                                    },
-                                                                )
-                                                            } else {
-                                                                None
-                                                            }
-                                                        }}
-
                                                     </div>
 
                                                     {move || match notes_data.get() {

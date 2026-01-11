@@ -195,6 +195,7 @@ pub mod task_lists {
         offset: Option<usize>,
         project_id: Option<String>,
         status: Option<&str>,
+        search_query: Option<String>,
     ) -> Result<Paginated<TaskList>> {
         let mut url = format!("{}/task-lists", API_BASE);
         let mut query_params = vec![];
@@ -204,6 +205,12 @@ pub mod task_lists {
         }
         if let Some(stat) = status {
             query_params.push(format!("status={}", stat));
+        }
+        if let Some(query) = search_query {
+            if !query.trim().is_empty() {
+                // Note: gloo-net's Request will handle URL encoding
+                query_params.push(format!("q={}", query));
+            }
         }
         if let Some(lim) = limit {
             query_params.push(format!("limit={}", lim));
