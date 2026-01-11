@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, projects};
-use crate::components::{CopyableId, ExternalRefLink, Pagination};
+use crate::components::{CopyableId, ExternalRefLink, Pagination, SearchInput};
 use crate::models::{Paginated, Project, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -38,42 +38,15 @@ pub fn Projects() -> impl IntoView {
         }
     });
 
-    // Store the timeout ID so we can cancel it
-    let debounce_timeout = RwSignal::new(None::<i32>);
+    // Callbacks for SearchInput component
+    let on_immediate_change = Callback::new(move |value: String| {
+        set_search_input.set(value);
+    });
 
-    // Handle search input change with proper debouncing
-    let on_search = move |ev: web_sys::Event| {
-        let value = event_target_value(&ev);
-        set_search_input.set(value.clone());
-
-        use wasm_bindgen::JsCast;
-        use wasm_bindgen::prelude::*;
-
-        // Cancel the previous timeout if it exists
-        if let Some(timeout_id) = debounce_timeout.get() {
-            web_sys::window()
-                .unwrap()
-                .clear_timeout_with_handle(timeout_id);
-        }
-
-        // Set new timeout
-        let callback = Closure::once(move || {
-            set_search_query.set(value.clone());
-            set_page.set(0); // Reset to first page on new search
-            debounce_timeout.set(None); // Clear timeout ID after it fires
-        });
-
-        let timeout_id = web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                callback.as_ref().unchecked_ref(),
-                500,
-            )
-            .unwrap();
-
-        debounce_timeout.set(Some(timeout_id));
-        callback.forget();
-    };
+    let on_debounced_change = Callback::new(move |value: String| {
+        set_search_query.set(value);
+        set_page.set(0); // Reset to first page on new search
+    });
 
     // Fetch projects when dependencies change
     Effect::new(move || {
@@ -110,12 +83,11 @@ pub fn Projects() -> impl IntoView {
 
             // Search bar
             <div class="mb-6">
-                <input
-                    type="text"
+                <SearchInput
+                    value=search_input
+                    on_change=on_debounced_change
+                    on_immediate_change=on_immediate_change
                     placeholder="Search projects..."
-                    value=move || search_input.get()
-                    on:input=on_search
-                    class="w-full px-4 py-2 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue"
                 />
             </div>
 
