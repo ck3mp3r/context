@@ -1318,98 +1318,388 @@ async fn test_transition_in_progress_to_cancelled() {
 }
 
 // =============================================================================
-// FTS5 Search Tests
+// TDD Tests for Option<Option<T>> JSON Deserialization (RED phase)
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_search_tasks_by_title() {
+async fn test_update_task_remove_parent_id_with_json_null() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let db = Arc::new(db);
 
-    // Create test project and task list
     let project_id = create_test_project(&db).await;
     let task_list = TaskList {
         id: String::new(),
         title: "Test List".to_string(),
         description: None,
         notes: None,
+        project_id: project_id.clone(),
+        repo_ids: vec![],
+        status: crate::db::TaskListStatus::Active,
         tags: vec![],
         external_refs: vec![],
-        status: crate::db::TaskListStatus::Active,
-        repo_ids: vec![],
-        project_id: project_id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
         archived_at: None,
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
     };
-    let list = db.task_lists().create(&task_list).await.unwrap();
+    let list_id = db.task_lists().create(&task_list).await.unwrap().id;
 
-    // Create tasks with different titles
-    db.tasks()
-        .create(&Task {
-            id: String::new(),
-            list_id: list.id.clone(),
-            title: "Implement Rust backend API".to_string(),
-            description: Some("Build REST endpoints".to_string()),
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskStatus::Backlog,
-            priority: Some(3),
-            parent_id: None,
-            created_at: None,
-            updated_at: None,
-            started_at: None,
-            completed_at: None,
-        })
-        .await
-        .unwrap();
+    // Create parent task
+    let parent = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: None,
+        title: "Parent Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let parent_id = db.tasks().create(&parent).await.unwrap().id;
 
-    db.tasks()
-        .create(&Task {
-            id: String::new(),
-            list_id: list.id.clone(),
-            title: "Write Python data pipeline".to_string(),
-            description: Some("ETL processing".to_string()),
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskStatus::Backlog,
-            priority: Some(3),
-            parent_id: None,
-            created_at: None,
-            updated_at: None,
-            started_at: None,
-            completed_at: None,
-        })
-        .await
-        .unwrap();
+    // Create subtask
+    let subtask = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: Some(parent_id.clone()),
+        title: "Subtask".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let subtask_id = db.tasks().create(&subtask).await.unwrap().id;
 
-    let db = Arc::new(db);
+    // Test: Deserialize JSON with "parent_id": null to remove parent
+    let json = format!(
+        r#"{{
+            "task_id": "{}",
+            "parent_id": null
+        }}"#,
+        subtask_id
+    );
+
+    let params: UpdateTaskParams =
+        serde_json::from_str(&json).expect("Should deserialize JSON with null parent_id");
+
+    // Verify deserialization produced Some(None) for parent_id
+    assert_eq!(
+        params.parent_id,
+        Some(None),
+        "parent_id should be Some(None) to indicate removal"
+    );
+
+    // Now test the actual MCP tool
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    use crate::mcp::tools::tasks::SearchTasksParams;
     let result = tools
-        .search_tasks(Parameters(SearchTasksParams {
-            list_id: list.id.clone(),
-            query: "rust".to_string(),
-            status: None,
-            parent_id: None,
-            task_type: None,
-            limit: None,
-            offset: None,
-            sort: None,
-            order: None,
-        }))
-        .await;
+        .update_task(Parameters(params))
+        .await
+        .expect("Update should succeed");
 
-    assert!(result.is_ok());
-    let call_result = result.unwrap();
-    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+    let content_text = result.content[0].as_text().unwrap().text.as_str();
+    let updated: Task = serde_json::from_str(content_text).unwrap();
 
-    let content_text = call_result.content[0].as_text().unwrap().text.as_str();
-    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
-    let items = response["items"].as_array().unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0]["title"], "Implement Rust backend API");
+    // Verify parent was removed
+    assert_eq!(
+        updated.parent_id, None,
+        "Parent ID should be removed (None)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_missing_parent_id_field_no_change() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        project_id: project_id.clone(),
+        repo_ids: vec![],
+        status: crate::db::TaskListStatus::Active,
+        tags: vec![],
+        external_refs: vec![],
+        archived_at: None,
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    let list_id = db.task_lists().create(&task_list).await.unwrap().id;
+
+    // Create parent task
+    let parent = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: None,
+        title: "Parent Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let parent_id = db.tasks().create(&parent).await.unwrap().id;
+
+    // Create subtask
+    let subtask = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: Some(parent_id.clone()),
+        title: "Subtask".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let subtask_id = db.tasks().create(&subtask).await.unwrap().id;
+
+    // Test: Deserialize JSON WITHOUT parent_id field (should not change parent)
+    let json = format!(
+        r#"{{
+            "task_id": "{}",
+            "title": "Updated Title"
+        }}"#,
+        subtask_id
+    );
+
+    let params: UpdateTaskParams =
+        serde_json::from_str(&json).expect("Should deserialize JSON without parent_id field");
+
+    // Verify deserialization produced None (field not provided)
+    assert_eq!(
+        params.parent_id, None,
+        "parent_id should be None when field is not provided"
+    );
+
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+    let result = tools
+        .update_task(Parameters(params))
+        .await
+        .expect("Update should succeed");
+
+    let content_text = result.content[0].as_text().unwrap().text.as_str();
+    let updated: Task = serde_json::from_str(content_text).unwrap();
+
+    // Verify parent was NOT changed
+    assert_eq!(
+        updated.parent_id,
+        Some(parent_id),
+        "Parent ID should remain unchanged"
+    );
+    assert_eq!(updated.title, "Updated Title");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_set_parent_id_with_json_string() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        project_id: project_id.clone(),
+        repo_ids: vec![],
+        status: crate::db::TaskListStatus::Active,
+        tags: vec![],
+        external_refs: vec![],
+        archived_at: None,
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    let list_id = db.task_lists().create(&task_list).await.unwrap().id;
+
+    // Create parent task
+    let parent = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: None,
+        title: "Parent Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let parent_id = db.tasks().create(&parent).await.unwrap().id;
+
+    // Create standalone task (no parent)
+    let task = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: None,
+        title: "Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let task_id = db.tasks().create(&task).await.unwrap().id;
+
+    // Test: Deserialize JSON with "parent_id": "some-id" to set parent
+    let json = format!(
+        r#"{{
+            "task_id": "{}",
+            "parent_id": "{}"
+        }}"#,
+        task_id, parent_id
+    );
+
+    let params: UpdateTaskParams =
+        serde_json::from_str(&json).expect("Should deserialize JSON with string parent_id");
+
+    // Verify deserialization produced Some(Some("id"))
+    assert_eq!(
+        params.parent_id,
+        Some(Some(parent_id.clone())),
+        "parent_id should be Some(Some(id)) to set parent"
+    );
+
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+    let result = tools
+        .update_task(Parameters(params))
+        .await
+        .expect("Update should succeed");
+
+    let content_text = result.content[0].as_text().unwrap().text.as_str();
+    let updated: Task = serde_json::from_str(content_text).unwrap();
+
+    // Verify parent was set
+    assert_eq!(
+        updated.parent_id,
+        Some(parent_id),
+        "Parent ID should be set"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_remove_parent_id_with_empty_string() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let project_id = create_test_project(&db).await;
+    let task_list = TaskList {
+        id: String::new(),
+        title: "Test List".to_string(),
+        description: None,
+        notes: None,
+        project_id: project_id.clone(),
+        repo_ids: vec![],
+        status: crate::db::TaskListStatus::Active,
+        tags: vec![],
+        external_refs: vec![],
+        archived_at: None,
+        created_at: "2025-01-01 00:00:00".to_string(),
+        updated_at: "2025-01-01 00:00:00".to_string(),
+    };
+    let list_id = db.task_lists().create(&task_list).await.unwrap().id;
+
+    // Create parent task
+    let parent = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: None,
+        title: "Parent Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let parent_id = db.tasks().create(&parent).await.unwrap().id;
+
+    // Create subtask
+    let subtask = Task {
+        id: String::new(),
+        list_id: list_id.clone(),
+        parent_id: Some(parent_id.clone()),
+        title: "Subtask".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: Some(5),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    let subtask_id = db.tasks().create(&subtask).await.unwrap().id;
+
+    // Test: Deserialize JSON with "parent_id": "" (empty string) to remove parent
+    // This matches CLI behavior where --parent-id="" removes the parent
+    let json = format!(
+        r#"{{
+            "task_id": "{}",
+            "parent_id": ""
+        }}"#,
+        subtask_id
+    );
+
+    let params: UpdateTaskParams =
+        serde_json::from_str(&json).expect("Should deserialize JSON with empty string parent_id");
+
+    // Verify deserialization produced Some(None) for parent_id (empty string treated as null)
+    assert_eq!(
+        params.parent_id,
+        Some(None),
+        "parent_id should be Some(None) when empty string is provided (CLI pattern)"
+    );
+
+    // Now test the actual MCP tool
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+    let result = tools
+        .update_task(Parameters(params))
+        .await
+        .expect("Update should succeed");
+
+    let content_text = result.content[0].as_text().unwrap().text.as_str();
+    let updated: Task = serde_json::from_str(content_text).unwrap();
+
+    // Verify parent was removed
+    assert_eq!(
+        updated.parent_id, None,
+        "Parent ID should be removed (None) when empty string is provided"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

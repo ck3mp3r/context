@@ -143,7 +143,11 @@ pub struct UpdateTaskParams {
     #[schemars(description = "Tags (optional). Replaces all existing tags when provided.")]
     pub tags: Option<Vec<String>>,
     #[schemars(
-        description = "Parent task ID (optional). Set to change task hierarchy - convert to/from subtask. Use null to remove parent."
+        description = "Parent task ID (optional). Set to change task hierarchy - convert to/from subtask. Use empty string \"\" or null to remove parent."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
     )]
     pub parent_id: Option<Option<String>>,
     #[schemars(

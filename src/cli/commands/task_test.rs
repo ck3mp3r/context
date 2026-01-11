@@ -269,3 +269,97 @@ fn test_create_request_without_parent_id_omits_field() {
     // parent_id should be omitted when None
     assert!(!json.contains("parent_id"));
 }
+
+// Tests for empty string parent_id handling (CLI pattern: --parent-id="" removes parent)
+
+#[test]
+fn test_update_request_empty_string_parent_id_converts_to_none() {
+    // Simulate CLI logic: empty string should convert to Some(None) to remove parent
+    let parent_id_input = Some("".to_string());
+
+    let parent_id = parent_id_input.map(|s| {
+        if s.is_empty() {
+            None // Empty string means remove parent
+        } else {
+            Some(s.to_string())
+        }
+    });
+
+    let req = UpdateTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        parent_id,
+        tags: None,
+        external_refs: None,
+    };
+
+    // parent_id should be Some(None) - explicitly removing the parent
+    assert_eq!(req.parent_id, Some(None));
+
+    // Serialize and verify it includes "parent_id": null
+    let json = serde_json::to_string(&req).unwrap();
+    assert!(json.contains("\"parent_id\":null"));
+}
+
+#[test]
+fn test_update_request_non_empty_parent_id_sets_value() {
+    // CLI: --parent-id="parent123" should set parent
+    let parent_id_input = Some("parent123".to_string());
+
+    let parent_id = parent_id_input.map(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    });
+
+    let req = UpdateTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        parent_id,
+        tags: None,
+        external_refs: None,
+    };
+
+    // parent_id should be Some(Some("parent123"))
+    assert_eq!(req.parent_id, Some(Some("parent123".to_string())));
+
+    let json = serde_json::to_string(&req).unwrap();
+    assert!(json.contains("\"parent_id\":\"parent123\""));
+}
+
+#[test]
+fn test_update_request_missing_parent_id_field_is_none() {
+    // CLI: not providing --parent-id at all should be None (no change)
+    let parent_id_input: Option<String> = None;
+
+    let parent_id = parent_id_input.map(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    });
+
+    let req = UpdateTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        parent_id,
+        tags: None,
+        external_refs: None,
+    };
+
+    // parent_id should be None - field not included in update
+    assert_eq!(req.parent_id, None);
+
+    // Serialize and verify parent_id is omitted (skip_serializing_if)
+    let json = serde_json::to_string(&req).unwrap();
+    assert!(!json.contains("parent_id"));
+}
