@@ -638,7 +638,7 @@ async fn test_update_task_parent_id() {
         priority: None,
         tags: None,
         list_id: None,
-        parent_id: Some(created_parent.id.clone()),
+        parent_id: Some(Some(created_parent.id.clone())),
         external_refs: None,
     };
 
@@ -666,7 +666,7 @@ async fn test_update_task_parent_id() {
         priority: None,
         tags: None,
         list_id: None,
-        parent_id: Some(String::new()), // Empty string = remove parent
+        parent_id: Some(None), // Some(None) = remove parent
         external_refs: None,
     };
 
