@@ -167,19 +167,31 @@ impl<G: GitOps> SyncManager<G> {
     /// - `remote`: If true, push to remote after commit (requires remote configured)
     ///
     /// # Idempotency
+    /// This operation is fully idempotent and safe to run multiple times:
     /// - ALWAYS exports database to JSONL files
     /// - ALWAYS commits changes (handles "nothing to commit" gracefully)
-    /// - If `remote=true`: pushes to remote (safe to run multiple times)
+    /// - If `remote=true`: pushes to remote (handles "already up to date" gracefully)
     ///
-    /// # Examples
+    /// # Workflows
+    ///
+    /// **Local backup workflow:**
     /// ```ignore
-    /// // Local only
+    /// // Quick local snapshot
     /// manager.export(&db, None, false).await?;
+    /// ```
     ///
-    /// // Export and push
-    /// manager.export(&db, None, true).await?;
+    /// **Review then share workflow:**
+    /// ```ignore
+    /// // 1. Export locally
+    /// manager.export(&db, None, false).await?;
+    /// // 2. Review changes with git log
+    /// // 3. Push to remote when ready
+    /// manager.export(&db, Some("Reviewed changes".into()), true).await?;
+    /// ```
     ///
-    /// // Retry after network error (idempotent)
+    /// **Retry after network error:**
+    /// ```ignore
+    /// // Safe to retry - idempotent
     /// manager.export(&db, None, true).await?;
     /// ```
     pub async fn export<D: Database>(
@@ -261,19 +273,35 @@ impl<G: GitOps> SyncManager<G> {
     /// - `remote`: If true, pull from remote before import (requires remote configured)
     ///
     /// # Idempotency
+    /// This operation is fully idempotent and safe to run multiple times:
     /// - If `remote=true`: pulls from remote FIRST (handles "already up to date" gracefully)
-    /// - ALWAYS imports JSONL files to database (upsert behavior - safe to run multiple times)
+    /// - ALWAYS imports JSONL files to database (upsert behavior - no duplicates)
     ///
-    /// # Examples
+    /// # Workflows
+    ///
+    /// **Local import only:**
     /// ```ignore
-    /// // Import from local files only
+    /// // Import from local JSONL files
     /// manager.import(&db, false).await?;
+    /// ```
     ///
-    /// // Pull then import
+    /// **Pull team changes:**
+    /// ```ignore
+    /// // Get latest from remote and import
+    /// manager.import(&db, true).await?;
+    /// // Safe to run again - idempotent
+    /// manager.import(&db, true).await?;
+    /// ```
+    ///
+    /// **Mixed workflows (all valid):**
+    /// ```ignore
+    /// // Local then remote
+    /// manager.import(&db, false).await?;
     /// manager.import(&db, true).await?;
     ///
-    /// // Retry after network error (idempotent)
+    /// // Remote then local
     /// manager.import(&db, true).await?;
+    /// manager.import(&db, false).await?;
     /// ```
     pub async fn import<D: Database>(
         &self,

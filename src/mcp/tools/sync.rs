@@ -52,6 +52,12 @@ pub struct SyncParams {
     pub message: Option<String>,
 
     /// Use remote for sync operations (push on export, pull on import)
+    ///
+    /// When true:
+    /// - For export: pushes to remote after local commit
+    /// - For import: pulls from remote before importing
+    ///
+    /// Idempotent - safe to run multiple times. Handles "already up to date" gracefully.
     #[schemars(
         description = "Use remote: push after export or pull before import (optional, default: false)"
     )]
