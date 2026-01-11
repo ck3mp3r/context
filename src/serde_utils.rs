@@ -54,3 +54,30 @@ where
         _inner: PhantomData,
     })
 }
+
+/// Deserialize `Option<Option<String>>` with empty string handling.
+/// Treats empty strings the same as null (removes/clears the field).
+/// This matches CLI behavior where `--parent-id=""` removes the parent.
+///
+/// - Missing field → `None` (no change)
+/// - Field is `null` → `Some(None)` (remove/clear)
+/// - Field is `""` → `Some(None)` (remove/clear, CLI pattern)
+/// - Field has value → `Some(Some(value))` (set)
+///
+/// Usage:
+/// ```ignore
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Example {
+///     #[serde(default, deserialize_with = "crate::serde_utils::double_option_string_or_empty")]
+///     parent_id: Option<Option<String>>,
+/// }
+/// ```
+pub fn double_option_string_or_empty<'de, D>(de: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let result = double_option(de)?;
+    Ok(result.map(|inner| inner.filter(|s: &String| !s.is_empty())))
+}

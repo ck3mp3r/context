@@ -100,9 +100,16 @@ pub struct UpdateNoteParams {
         description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
     )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Parent note ID for hierarchical notes (optional)")]
+    #[schemars(
+        description = "Parent note ID for hierarchical notes (optional). Use empty string \"\" or null to remove parent."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
+    )]
     pub parent_id: Option<Option<String>>,
     #[schemars(description = "Index for manual ordering (optional)")]
+    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
     pub idx: Option<Option<i32>>,
     #[schemars(
         description = "Repository IDs to link (optional). Associate with relevant repos for context."
