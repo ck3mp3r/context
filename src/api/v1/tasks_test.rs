@@ -2094,3 +2094,86 @@ async fn search_tasks_empty_query_lists_all() {
 
     assert_eq!(tasks.len(), 2);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_task_remove_parent_id() {
+    let app = test_app().await;
+    let list_id = create_task_list(&app).await;
+
+    // Create parent task
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent Task"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(parent_response.status(), StatusCode::CREATED);
+    let parent = json_body(parent_response).await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Create subtask with parent_id
+    let subtask_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Subtask",
+                        "parent_id": parent_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(subtask_response.status(), StatusCode::CREATED);
+    let subtask = json_body(subtask_response).await;
+    let subtask_id = subtask["id"].as_str().unwrap();
+    assert_eq!(subtask["parent_id"], parent_id);
+
+    // Remove parent_id by setting it to null via PATCH with Some(None)
+    let patch_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", subtask_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "parent_id": null
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+    let patched_task = json_body(patch_response).await;
+
+    // Verify parent_id is now null
+    assert!(
+        patched_task["parent_id"].is_null(),
+        "parent_id should be null after removal, got: {:?}",
+        patched_task["parent_id"]
+    );
+}

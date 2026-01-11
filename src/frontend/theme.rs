@@ -2,13 +2,14 @@ use serde::{Deserialize, Serialize};
 use thaw::Theme as ThawTheme;
 
 /// Catppuccin theme variants
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum CatppuccinTheme {
     Latte,     // Light theme
     Frappe,    // Dark pastel
     Macchiato, // Dark warm
-    Mocha,     // Dark (original)
+    #[default]
+    Mocha, // Dark (original)
 }
 
 impl CatppuccinTheme {
@@ -50,7 +51,7 @@ impl CatppuccinTheme {
     }
 
     /// Get the corresponding Thaw UI theme
-    pub fn to_thaw_theme(&self) -> ThawTheme {
+    pub fn to_thaw_theme(self) -> ThawTheme {
         if self.is_light() {
             ThawTheme::light()
         } else {
@@ -66,12 +67,6 @@ impl CatppuccinTheme {
             CatppuccinTheme::Macchiato => ThemeColors::MACCHIATO,
             CatppuccinTheme::Mocha => ThemeColors::MOCHA,
         }
-    }
-}
-
-impl Default for CatppuccinTheme {
-    fn default() -> Self {
-        CatppuccinTheme::Mocha
     }
 }
 
@@ -297,10 +292,10 @@ pub fn apply_theme(theme: CatppuccinTheme) {
     theme.colors().apply_to_document();
 
     // Update data-theme attribute on root element
-    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-        if let Some(root) = document.document_element() {
-            let _ = root.set_attribute("data-theme", theme.as_str());
-        }
+    if let Some(document) = web_sys::window().and_then(|w| w.document())
+        && let Some(root) = document.document_element()
+    {
+        let _ = root.set_attribute("data-theme", theme.as_str());
     }
 
     // Save to localStorage
