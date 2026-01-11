@@ -208,7 +208,13 @@ pub async fn update_note(
         title: title.map(|s| s.to_string()),
         content: content.map(|s| s.to_string()),
         tags: parse_tags(tags),
-        parent_id: parent_id.map(|s| Some(s.to_string())),
+        parent_id: parent_id.map(|s| {
+            if s.is_empty() {
+                None // Empty string means remove parent
+            } else {
+                Some(s.to_string())
+            }
+        }),
         idx: idx.map(Some),
     };
 

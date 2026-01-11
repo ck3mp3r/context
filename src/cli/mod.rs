@@ -161,7 +161,7 @@ enum TaskCommands {
         /// External reference (e.g., 'owner/repo#123' for GitHub, 'PROJ-456' for Jira)
         #[arg(long)]
         external_ref: Option<String>,
-        /// Parent task ID (for converting to/from subtask)
+        /// Parent task ID (for converting to/from subtask). Use empty string to remove parent.
         #[arg(long)]
         parent_id: Option<String>,
     },
@@ -233,7 +233,7 @@ enum NoteCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
-        /// Parent note ID (for converting to/from subnote)
+        /// Parent note ID (for converting to/from subnote). Use empty string to remove parent.
         #[arg(long)]
         parent_id: Option<String>,
         /// Index for manual ordering (lower values first)
