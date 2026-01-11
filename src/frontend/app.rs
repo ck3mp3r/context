@@ -17,7 +17,10 @@ pub fn App() -> impl IntoView {
     // Load saved theme from localStorage or use default (Mocha)
     let catppuccin_theme = RwSignal::new(load_theme_from_storage());
 
-    // Apply theme on mount
+    // Apply initial theme immediately (before rendering)
+    apply_theme(catppuccin_theme.get_untracked());
+
+    // Sync theme changes
     Effect::new(move || {
         let theme = catppuccin_theme.get();
         apply_theme(theme);

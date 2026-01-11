@@ -50,7 +50,7 @@
         trunk
         wasm-bindgen-cli
         nodejs
-        nodePackages.tailwindcss
+        tailwindcss_4
       ];
 
       buildPhase = ''

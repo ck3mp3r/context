@@ -18,7 +18,7 @@
     pkgs.trunk
     pkgs.wasm-bindgen-cli
     pkgs.nodejs
-    pkgs.nodePackages.tailwindcss
+    pkgs.tailwindcss_4
     pkgs.act # GitHub Actions local testing
   ];
 

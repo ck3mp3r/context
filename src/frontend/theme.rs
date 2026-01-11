@@ -13,6 +13,7 @@ pub enum CatppuccinTheme {
 
 impl CatppuccinTheme {
     /// Get all available themes
+    #[allow(dead_code)]
     pub fn all() -> &'static [CatppuccinTheme] {
         &[
             CatppuccinTheme::Latte,
@@ -33,6 +34,7 @@ impl CatppuccinTheme {
     }
 
     /// Get the display name for the theme
+    #[allow(dead_code)]
     pub fn display_name(&self) -> &'static str {
         match self {
             CatppuccinTheme::Latte => "Latte (Light)",
@@ -237,12 +239,13 @@ impl ThemeColors {
             .document_element()
             .expect("should have root element");
 
+        // Get the style attribute directly
         let style = root
             .dyn_ref::<web_sys::HtmlElement>()
             .expect("root should be HtmlElement")
             .style();
 
-        // Apply all CSS variables
+        // Apply all CSS variables using set_property with higher priority
         let _ = style.set_property("--ctp-base", self.base);
         let _ = style.set_property("--ctp-mantle", self.mantle);
         let _ = style.set_property("--ctp-crust", self.crust);
