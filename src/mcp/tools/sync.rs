@@ -50,6 +50,18 @@ pub struct SyncParams {
     /// Custom commit message (for export operation)
     #[schemars(description = "Commit message (optional, for export operation)")]
     pub message: Option<String>,
+
+    /// Use remote for sync operations (push on export, pull on import)
+    ///
+    /// When true:
+    /// - For export: pushes to remote after local commit
+    /// - For import: pulls from remote before importing
+    ///
+    /// Idempotent - safe to run multiple times. Handles "already up to date" gracefully.
+    #[schemars(
+        description = "Use remote: push after export or pull before import (optional, default: false)"
+    )]
+    pub remote: Option<bool>,
 }
 
 /// Sync tools for git-based synchronization.
@@ -171,8 +183,9 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
             }
 
             SyncOperation::Export => {
+                let remote = params.remote.unwrap_or(false);
                 let summary = manager
-                    .export(&*self.db, params.message)
+                    .export(&*self.db, params.message, remote)
                     .await
                     .map_err(map_sync_error)?;
 
@@ -191,7 +204,11 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
             }
 
             SyncOperation::Import => {
-                let summary = manager.import(&*self.db).await.map_err(map_sync_error)?;
+                let remote = params.remote.unwrap_or(false);
+                let summary = manager
+                    .import(&*self.db, remote)
+                    .await
+                    .map_err(map_sync_error)?;
 
                 serde_json::json!({
                     "status": "success",

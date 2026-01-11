@@ -95,23 +95,30 @@ Status: ✓ Clean
 
 ## Usage
 
-### Export (Push Changes)
+### Export (Local Backup or Push to Remote)
 
-Export local database and push to remote:
-
+**Local backup (no network required):**
 ```sh
-c5t sync export -m "Update from laptop"
+c5t sync export -m "End of day backup"
 ```
 
 This:
-1. Pulls latest changes from remote
-2. Exports database to JSONL files
-3. Commits changes with your message
-4. Pushes to remote
+1. Exports database to JSONL files
+2. Commits changes locally with your message
+
+**Share with remote:**
+```sh
+c5t sync export -m "Update from laptop" --remote
+```
+
+This:
+1. Exports database to JSONL files
+2. Commits changes locally
+3. **Pushes to remote** (requires network)
 
 Output:
 ```
-✓ Successfully exported and pushed to remote
+✓ Export completed
 
 ╭─────────────┬───────╮
 │ Item        │ Count │
@@ -125,20 +132,49 @@ Output:
 ╰─────────────┴───────╯
 ```
 
-### Import (Pull Changes)
+### Import (From Local or Pull from Remote)
 
-Import changes from another machine:
-
+**Import from local files:**
 ```sh
 c5t sync import
 ```
 
 This:
-1. Pulls latest changes from remote
+1. Imports JSONL files to database
+2. Uses last-write-wins for conflicts
+
+**Pull from remote:**
+```sh
+c5t sync import --remote
+```
+
+This:
+1. **Pulls latest changes from remote** (requires network)
 2. Imports JSONL files to database
 3. Uses last-write-wins for conflicts
 
 Output shows count of imported items (same format as export).
+
+### Idempotency
+
+**All sync commands are idempotent** - safe to run multiple times:
+
+```sh
+# Safe to run repeatedly
+c5t sync export              # Creates new commit if data changed
+c5t sync export              # "nothing to commit" - still succeeds
+
+# Safe to retry after network error
+c5t sync export --remote     # Network fails during push
+c5t sync export --remote     # Safe to retry - re-exports and pushes
+
+# Mixed workflows - all valid
+c5t sync export              # Local backup
+c5t sync export --remote     # Later push to remote (works!)
+
+c5t sync import --remote     # Pull from remote
+c5t sync import              # Import again from local files (works!)
+```
 
 ### Check Status
 
@@ -154,7 +190,7 @@ Returns:
 
 ## Sync Workflow
 
-### Single Machine Setup
+### Single Machine Setup (Local Backup)
 
 ```sh
 # 1. Initialize with your private git repo
@@ -163,8 +199,11 @@ c5t sync init git@github.com:user/c5t-sync.git
 # 2. Work normally (create tasks, notes, etc.)
 c5t task create --list-id abc123 --content "Fix bug"
 
-# 3. Export when done for the day
+# 3. Local backup (offline-safe)
 c5t sync export -m "End of day backup"
+
+# 4. Later push to remote when online
+c5t sync export --remote
 ```
 
 ### Multi-Machine Setup
@@ -173,30 +212,53 @@ c5t sync export -m "End of day backup"
 ```sh
 # Initialize and push existing data
 c5t sync init git@github.com:user/c5t-sync.git
-c5t sync export -m "Initial sync from Machine A"
+c5t sync export -m "Initial sync" --remote
 ```
 
 **Machine B** (new machine):
 ```sh
 # Initialize and pull data from Machine A
 c5t sync init git@github.com:user/c5t-sync.git
-c5t sync import
+c5t sync import --remote
 
 # Work normally
 c5t task create --list-id abc123 --content "New feature"
 
-# Push changes
+# Review changes locally first
 c5t sync export -m "Work from Machine B"
+c5t sync status
+
+# Push when ready
+c5t sync export --remote
 ```
 
 **Back on Machine A**:
 ```sh
 # Pull changes from Machine B
-c5t sync import
+c5t sync import --remote
 
 # Continue working
 c5t task update abc123 --status done
-c5t sync export -m "Updates from Machine A"
+
+# Push changes
+c5t sync export -m "Updates" --remote
+```
+
+### Recommended Workflow (Review Before Sharing)
+
+```sh
+# 1. Make changes
+c5t task create --list-id abc123 --content "New task"
+
+# 2. Export locally (quick, offline)
+c5t sync export -m "Added new task"
+
+# 3. Review changes
+c5t sync status
+git -C ~/.local/share/c5t/sync log -1
+
+# 4. Push when satisfied
+c5t sync export --remote
 ```
 
 ## JSONL Format
@@ -347,10 +409,12 @@ This is expected with last-write-wins:
 ## Best Practices
 
 1. **Sync frequently** - Reduces conflicts
-2. **Export before shutting down** - Ensures latest data is backed up
-3. **Import when starting work** - Gets latest from other machines
-4. **One sync repo per user** - Don't share sync repos between users
-5. **Regular backups** - Use `export_data()` for local backups
+2. **Export locally often** - Quick backups without network: `c5t sync export`
+3. **Review before pushing** - Use `c5t sync status` and `git log` before `--remote`
+4. **Import with --remote when starting work** - Gets latest: `c5t sync import --remote`
+5. **One sync repo per user** - Don't share sync repos between users
+6. **Offline work supported** - Export locally, push later with `--remote`
+7. **Safe to retry** - All commands are idempotent
 
 ## Limitations
 

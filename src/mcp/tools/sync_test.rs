@@ -40,6 +40,7 @@ async fn test_sync_status_not_initialized_with_temp_dir() {
         operation: SyncOperation::Status,
         remote_url: None,
         message: None,
+        remote: None,
     };
 
     let result = tools.sync(Parameters(params)).await.unwrap();
