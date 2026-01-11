@@ -211,6 +211,7 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
 }
 
 /// Create a new task
+#[allow(clippy::too_many_arguments)]
 pub async fn create_task(
     api_client: &ApiClient,
     list_id: &str,
