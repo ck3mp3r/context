@@ -7,6 +7,7 @@ mod app;
 mod components;
 mod models;
 mod pages;
+mod theme;
 mod websocket;
 
 #[wasm_bindgen(start)]
