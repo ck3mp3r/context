@@ -7,34 +7,53 @@ use leptos_router::{
 use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
+use crate::components::ThemeSwitcher;
 use crate::pages::{Notes, ProjectDetail, Projects, Repos};
+use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
 #[component]
 pub fn App() -> impl IntoView {
-    // Set dark theme for Thaw UI components
-    let theme = RwSignal::new(Theme::dark());
+    // Load saved theme from localStorage or use default (Mocha)
+    let catppuccin_theme = RwSignal::new(load_theme_from_storage());
+
+    // Apply initial theme immediately (before rendering)
+    apply_theme(catppuccin_theme.get_untracked());
+
+    // Sync theme changes
+    Effect::new(move || {
+        let theme = catppuccin_theme.get();
+        apply_theme(theme);
+    });
+
+    // Map Catppuccin theme to Thaw UI theme
+    let thaw_theme = RwSignal::new(catppuccin_theme.get_untracked().to_thaw_theme());
+
+    // Sync Catppuccin theme changes to Thaw theme
+    Effect::new(move || {
+        thaw_theme.set(catppuccin_theme.get().to_thaw_theme());
+    });
 
     view! {
-        <ConfigProvider theme>
+        <ConfigProvider theme=thaw_theme>
             <WebSocketProvider>
-            <AppContent/>
+            <AppContent catppuccin_theme/>
             </WebSocketProvider>
         </ConfigProvider>
     }
 }
 
 #[component]
-fn AppContent() -> impl IntoView {
+fn AppContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     view! {
         <Router>
-            <NavAndContent/>
+            <NavAndContent catppuccin_theme/>
         </Router>
     }
 }
 
 #[component]
-fn NavAndContent() -> impl IntoView {
+fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     // WebSocket connection status (from context)
     let ws_state = use_websocket_connection();
     let location = use_location();
@@ -76,34 +95,37 @@ fn NavAndContent() -> impl IntoView {
                             {env!("CARGO_PKG_VERSION")}
                         </span>
                     </a>
-                    <div class="flex gap-2 items-center">
-                        <a href="/"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            class:bg-ctp-surface2=move || is_active("/")
-                            class:text-ctp-text=move || is_active("/")
-                            class:text-ctp-subtext1=move || !is_active("/")
-                            class:hover:bg-ctp-surface1=move || !is_active("/")
-                            class:hover:text-ctp-text=move || !is_active("/")>
-                            "Projects"
-                        </a>
-                        <a href="/notes"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            class:bg-ctp-surface2=move || is_active("/notes")
-                            class:text-ctp-text=move || is_active("/notes")
-                            class:text-ctp-subtext1=move || !is_active("/notes")
-                            class:hover:bg-ctp-surface1=move || !is_active("/notes")
-                            class:hover:text-ctp-text=move || !is_active("/notes")>
-                            "Notes"
-                        </a>
-                        <a href="/repos"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            class:bg-ctp-surface2=move || is_active("/repos")
-                            class:text-ctp-text=move || is_active("/repos")
-                            class:text-ctp-subtext1=move || !is_active("/repos")
-                            class:hover:bg-ctp-surface1=move || !is_active("/repos")
-                            class:hover:text-ctp-text=move || !is_active("/repos")>
-                            "Repos"
-                        </a>
+                    <div class="flex gap-4 items-center">
+                        <div class="flex gap-2 items-center">
+                            <a href="/"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                class:bg-ctp-surface2=move || is_active("/")
+                                class:text-ctp-text=move || is_active("/")
+                                class:text-ctp-subtext1=move || !is_active("/")
+                                class:hover:bg-ctp-surface1=move || !is_active("/")
+                                class:hover:text-ctp-text=move || !is_active("/")>
+                                "Projects"
+                            </a>
+                            <a href="/notes"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                class:bg-ctp-surface2=move || is_active("/notes")
+                                class:text-ctp-text=move || is_active("/notes")
+                                class:text-ctp-subtext1=move || !is_active("/notes")
+                                class:hover:bg-ctp-surface1=move || !is_active("/notes")
+                                class:hover:text-ctp-text=move || !is_active("/notes")>
+                                "Notes"
+                            </a>
+                            <a href="/repos"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                class:bg-ctp-surface2=move || is_active("/repos")
+                                class:text-ctp-text=move || is_active("/repos")
+                                class:text-ctp-subtext1=move || !is_active("/repos")
+                                class:hover:bg-ctp-surface1=move || !is_active("/repos")
+                                class:hover:text-ctp-text=move || !is_active("/repos")>
+                                "Repos"
+                            </a>
+                        </div>
+                        <ThemeSwitcher theme=catppuccin_theme/>
                     </div>
                 </div>
             </nav>

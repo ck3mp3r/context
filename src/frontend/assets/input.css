@@ -1,10 +1,62 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-:root[data-theme="mocha"] {
+:root {
+  /* Default theme (Mocha) - will be overridden by JS */
   --ctp-base: #1e1e2e;
+  --ctp-mantle: #181825;
+  --ctp-crust: #11111b;
   --ctp-text: #cdd6f4;
+  --ctp-subtext1: #bac2de;
+  --ctp-subtext0: #a6adc8;
+  --ctp-overlay0: #6c7086;
+  --ctp-overlay1: #7f849c;
+  --ctp-overlay2: #9399b2;
+  --ctp-surface0: #313244;
+  --ctp-surface1: #45475a;
+  --ctp-surface2: #585b70;
+  --ctp-rosewater: #f5e0dc;
+  --ctp-flamingo: #f2cdcd;
+  --ctp-pink: #f5c2e7;
+  --ctp-mauve: #cba6f7;
+  --ctp-red: #f38ba8;
+  --ctp-maroon: #eba0ac;
+  --ctp-peach: #fab387;
+  --ctp-yellow: #f9e2af;
+  --ctp-green: #a6e3a1;
+  --ctp-teal: #94e2d5;
+  --ctp-sky: #89dceb;
+  --ctp-sapphire: #74c7ec;
+  --ctp-blue: #89b4fa;
+  --ctp-lavender: #b4befe;
+}
+
+@theme inline {
+  --color-ctp-base: var(--ctp-base);
+  --color-ctp-mantle: var(--ctp-mantle);
+  --color-ctp-crust: var(--ctp-crust);
+  --color-ctp-text: var(--ctp-text);
+  --color-ctp-subtext1: var(--ctp-subtext1);
+  --color-ctp-subtext0: var(--ctp-subtext0);
+  --color-ctp-overlay0: var(--ctp-overlay0);
+  --color-ctp-overlay1: var(--ctp-overlay1);
+  --color-ctp-overlay2: var(--ctp-overlay2);
+  --color-ctp-surface0: var(--ctp-surface0);
+  --color-ctp-surface1: var(--ctp-surface1);
+  --color-ctp-surface2: var(--ctp-surface2);
+  --color-ctp-rosewater: var(--ctp-rosewater);
+  --color-ctp-flamingo: var(--ctp-flamingo);
+  --color-ctp-pink: var(--ctp-pink);
+  --color-ctp-mauve: var(--ctp-mauve);
+  --color-ctp-red: var(--ctp-red);
+  --color-ctp-maroon: var(--ctp-maroon);
+  --color-ctp-peach: var(--ctp-peach);
+  --color-ctp-yellow: var(--ctp-yellow);
+  --color-ctp-green: var(--ctp-green);
+  --color-ctp-teal: var(--ctp-teal);
+  --color-ctp-sky: var(--ctp-sky);
+  --color-ctp-sapphire: var(--ctp-sapphire);
+  --color-ctp-blue: var(--ctp-blue);
+  --color-ctp-lavender: var(--ctp-lavender);
 }
 
 body {
@@ -15,7 +67,7 @@ body {
 
 /* Markdown content styling */
 .prose {
-  color: #cdd6f4;
+  color: var(--ctp-text);
 }
 
 .prose h1,
@@ -24,7 +76,7 @@ body {
 .prose h4,
 .prose h5,
 .prose h6 {
-  color: #cdd6f4;
+  color: var(--ctp-text);
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -40,16 +92,16 @@ body {
 }
 
 .prose a {
-  color: #89b4fa;
+  color: var(--ctp-blue);
   text-decoration: underline;
 }
 
 .prose a:hover {
-  color: #b4befe;
+  color: var(--ctp-lavender);
 }
 
 .prose code {
-  background-color: #313244;
+  background-color: var(--ctp-surface0);
   padding: 0.2em 0.4em;
   border-radius: 0.25rem;
   font-size: 0.875em;
@@ -57,7 +109,7 @@ body {
 }
 
 .prose pre {
-  background-color: #313244;
+  background-color: var(--ctp-surface0);
   padding: 1em;
   border-radius: 0.5rem;
   overflow-x: auto;
@@ -83,9 +135,9 @@ body {
 }
 
 .prose blockquote {
-  border-left: 4px solid #89b4fa;
+  border-left: 4px solid var(--ctp-blue);
   padding-left: 1em;
-  color: #a6adc8;
+  color: var(--ctp-subtext0);
   font-style: italic;
   margin-top: 1em;
   margin-bottom: 1em;
@@ -100,19 +152,19 @@ body {
 
 .prose th,
 .prose td {
-  border: 1px solid #45475a;
+  border: 1px solid var(--ctp-surface1);
   padding: 0.5em;
   text-align: left;
 }
 
 .prose th {
-  background-color: #313244;
+  background-color: var(--ctp-surface0);
   font-weight: 600;
 }
 
 .prose hr {
   border: none;
-  border-top: 1px solid #45475a;
+  border-top: 1px solid var(--ctp-surface1);
   margin-top: 2em;
   margin-bottom: 2em;
 }
@@ -145,19 +197,19 @@ body {
   max-width: 95vw !important;
 }
 
-/* Dark theme for drawer - Catppuccin Mocha colors */
+/* Theme-aware drawer styling */
 .thaw-overlay-drawer {
-  background-color: #1e1e2e !important; /* ctp-base */
+  background-color: var(--ctp-base) !important;
 }
 
 .thaw-drawer-header {
-  background-color: #181825 !important; /* ctp-mantle */
-  border-bottom: 1px solid #313244 !important; /* ctp-surface0 */
+  background-color: var(--ctp-mantle) !important;
+  border-bottom: 1px solid var(--ctp-surface0) !important;
 }
 
 .thaw-drawer-body {
-  background-color: #1e1e2e !important; /* ctp-base */
-  color: #cdd6f4 !important; /* ctp-text */
+  background-color: var(--ctp-base) !important;
+  color: var(--ctp-text) !important;
 }
 
 /* Task Card Stacked Effect - indicates parent task with subtasks */
@@ -205,7 +257,7 @@ body {
   font-size: 0.875rem; /* Same as parent text-sm */
   font-weight: 600;
   margin: 0.25em 0;
-  color: #bac2de; /* Slightly brighter than subtext0 */
+  color: var(--ctp-subtext1);
 }
 
 .note-preview p {
@@ -235,7 +287,7 @@ body {
 }
 
 .note-preview code {
-  background-color: #313244;
+  background-color: var(--ctp-surface0);
   padding: 0.125em 0.25em;
   border-radius: 0.25rem;
   font-size: 0.8125rem;
@@ -247,21 +299,21 @@ body {
 }
 
 .note-preview blockquote {
-  border-left: 2px solid #89b4fa;
+  border-left: 2px solid var(--ctp-blue);
   padding-left: 0.5em;
   margin: 0.25em 0 0.25em 0.5em;
   font-style: italic;
 }
 
 .note-preview a {
-  color: #89b4fa;
+  color: var(--ctp-blue);
   text-decoration: none;
 }
 
 .note-preview strong,
 .note-preview b {
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--ctp-text);
 }
 
 .note-preview em,
@@ -286,8 +338,8 @@ body {
 /* Note Stack Card Selection - CSS-only, no reactive classes */
 .note-stack-card {
   /* Base styles - unselected */
-  background-color: #313244; /* ctp-surface0 */
-  border: 1px solid #45475a; /* ctp-surface1 */
+  background-color: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
   /* Prevent focus/scroll behavior */
   outline: none;
   -webkit-tap-highlight-color: transparent;
@@ -296,10 +348,11 @@ body {
 }
 
 .note-stack-card:hover {
-  background-color: rgba(49, 50, 68, 0.8); /* ctp-surface0/80 */
+  background-color: var(--ctp-surface0);
+  opacity: 0.8;
 }
 
 .note-stack-card[data-selected="true"] {
-  background-color: rgba(137, 180, 250, 0.2); /* ctp-blue/20 */
-  border: 2px solid #89b4fa; /* ctp-blue */
+  background-color: var(--ctp-surface1);
+  border: 2px solid var(--ctp-blue);
 }
