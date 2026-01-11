@@ -132,8 +132,9 @@ pub struct PatchTaskRequest {
     pub status: Option<String>,
     /// Priority level
     pub priority: Option<i32>,
-    /// Parent task ID (for subtasks)
-    pub parent_id: Option<String>,
+    /// Parent task ID (for subtasks). Use Some(None) to remove parent.
+    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
+    pub parent_id: Option<Option<String>>,
     /// Tags for categorization
     #[schema(example = json!(["urgent", "bug-fix"]))]
     pub tags: Option<Vec<String>>,
@@ -162,7 +163,7 @@ impl PatchTaskRequest {
             target.priority = Some(priority);
         }
         if let Some(parent_id) = self.parent_id {
-            target.parent_id = Some(parent_id);
+            target.parent_id = parent_id;
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
