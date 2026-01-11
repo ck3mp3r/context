@@ -117,6 +117,9 @@ enum TaskCommands {
         /// Task description (optional, detailed information)
         #[arg(long)]
         description: Option<String>,
+        /// Parent task ID for creating subtasks (optional)
+        #[arg(long)]
+        parent_id: Option<String>,
         /// Priority (1-5, where 1 is highest)
         #[arg(long)]
         priority: Option<i32>,
@@ -663,6 +666,7 @@ pub async fn run() -> Result<()> {
                 list_id,
                 title,
                 description,
+                parent_id,
                 priority,
                 tags,
                 external_ref,
@@ -675,6 +679,7 @@ pub async fn run() -> Result<()> {
                     priority,
                     tags.as_deref(),
                     external_ref.as_deref(),
+                    parent_id.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
