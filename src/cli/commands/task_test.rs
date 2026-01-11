@@ -195,6 +195,7 @@ fn test_update_request_serialization() {
         description: Some("Updated description".to_string()),
         status: Some("in_progress".to_string()),
         priority: Some(2),
+        parent_id: None,
         tags: Some(vec!["important".to_string()]),
         external_refs: None,
     };

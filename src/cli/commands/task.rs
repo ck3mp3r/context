@@ -46,6 +46,8 @@ pub(crate) struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) external_refs: Option<Vec<String>>,
@@ -244,6 +246,7 @@ pub struct UpdateTaskParams<'a> {
     pub description: Option<&'a str>,
     pub status: Option<&'a str>,
     pub priority: Option<i32>,
+    pub parent_id: Option<&'a str>,
     pub tags: Option<&'a str>,
     pub external_refs: Option<&'a str>,
 }
@@ -259,6 +262,7 @@ pub async fn update_task(
         description: params.description.map(|s| s.to_string()),
         status: params.status.map(|s| s.to_string()),
         priority: params.priority,
+        parent_id: params.parent_id.map(|s| s.to_string()),
         tags: parse_tags(params.tags),
         external_refs: parse_tags(params.external_refs),
     };
