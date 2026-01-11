@@ -15,6 +15,13 @@ struct InitSyncRequest {
 #[derive(Debug, Serialize)]
 struct ExportSyncRequest {
     message: Option<String>,
+    remote: bool,
+}
+
+/// Request to import sync
+#[derive(Debug, Serialize)]
+struct ImportSyncRequest {
+    remote: bool,
 }
 
 /// Response from sync operations
@@ -79,8 +86,12 @@ struct SyncCountRow {
 }
 
 /// Export database to sync
-pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResult<String> {
-    let req = ExportSyncRequest { message };
+pub async fn export(
+    api_client: &ApiClient,
+    message: Option<String>,
+    remote: bool,
+) -> CliResult<String> {
+    let req = ExportSyncRequest { message, remote };
 
     let response = api_client
         .post("/api/v1/sync/export")
@@ -172,9 +183,12 @@ pub async fn export(api_client: &ApiClient, message: Option<String>) -> CliResul
 }
 
 /// Import from sync to database
-pub async fn import(api_client: &ApiClient) -> CliResult<String> {
+pub async fn import(api_client: &ApiClient, remote: bool) -> CliResult<String> {
+    let req = ImportSyncRequest { remote };
+
     let response = api_client
         .post("/api/v1/sync/import")
+        .json(&req)
         .send()
         .await
         .map_err(|e| CliError::ConnectionFailed { source: e })?;

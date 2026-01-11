@@ -270,9 +270,16 @@ enum SyncCommands {
         /// Commit message
         #[arg(short, long)]
         message: Option<String>,
+        /// Push to remote after export
+        #[arg(long)]
+        remote: bool,
     },
     /// Import from sync to database
-    Import,
+    Import {
+        /// Pull from remote before import
+        #[arg(long)]
+        remote: bool,
+    },
     /// Show sync status
     Status,
 }
@@ -828,12 +835,12 @@ pub async fn run() -> Result<()> {
                 let output = commands::sync::init(&api_client, remote_url).await?;
                 println!("{}", output);
             }
-            SyncCommands::Export { message } => {
-                let output = commands::sync::export(&api_client, message).await?;
+            SyncCommands::Export { message, remote } => {
+                let output = commands::sync::export(&api_client, message, remote).await?;
                 println!("{}", output);
             }
-            SyncCommands::Import => {
-                let output = commands::sync::import(&api_client).await?;
+            SyncCommands::Import { remote } => {
+                let output = commands::sync::import(&api_client, remote).await?;
                 println!("{}", output);
             }
             SyncCommands::Status => {

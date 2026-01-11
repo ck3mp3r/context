@@ -26,6 +26,20 @@ pub struct ExportSyncRequest {
     /// Commit message (optional)
     #[schema(example = "Update from laptop")]
     pub message: Option<String>,
+
+    /// Push to remote after export (optional, default: false)
+    #[serde(default)]
+    #[schema(example = false)]
+    pub remote: bool,
+}
+
+/// Request to import sync data
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ImportSyncRequest {
+    /// Pull from remote before import (optional, default: false)
+    #[serde(default)]
+    #[schema(example = false)]
+    pub remote: bool,
 }
 
 /// Response from sync operations
@@ -106,7 +120,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
     let summary = state
         .sync_manager()
-        .export(state.db(), req.message)
+        .export(state.db(), req.message, req.remote)
         .await
         .map_err(|e| {
             (
@@ -138,6 +152,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
     post,
     path = "/api/v1/sync/import",
     tag = "sync",
+    request_body = ImportSyncRequest,
     responses(
         (status = 200, description = "Import completed successfully", body = SyncResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -145,15 +160,20 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
 )]
 pub async fn import_sync<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
+    Json(req): Json<ImportSyncRequest>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let summary = state.sync_manager().import(state.db()).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    let summary = state
+        .sync_manager()
+        .import(state.db(), req.remote)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
     Ok(Json(SyncResponse {
         status: "success".to_string(),

@@ -159,24 +159,40 @@ impl<G: GitOps> SyncManager<G> {
         Ok(result)
     }
 
-    /// Export database to JSONL and push to remote.
+    /// Export database to JSONL and optionally push to remote.
+    ///
+    /// # Parameters
+    /// - `db`: Database to export from
+    /// - `message`: Optional commit message
+    /// - `remote`: If true, push to remote after commit (requires remote configured)
+    ///
+    /// # Idempotency
+    /// - ALWAYS exports database to JSONL files
+    /// - ALWAYS commits changes (handles "nothing to commit" gracefully)
+    /// - If `remote=true`: pushes to remote (safe to run multiple times)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Local only
+    /// manager.export(&db, None, false).await?;
+    ///
+    /// // Export and push
+    /// manager.export(&db, None, true).await?;
+    ///
+    /// // Retry after network error (idempotent)
+    /// manager.export(&db, None, true).await?;
+    /// ```
     pub async fn export<D: Database>(
         &self,
         db: &D,
         message: Option<String>,
+        remote: bool,
     ) -> Result<ExportSummary, SyncError> {
-        tracing::info!("Starting export operation");
+        tracing::info!(remote = remote, "Starting export operation");
 
         if !self.is_initialized() {
             tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
-        }
-
-        // Pull latest changes first
-        if self.has_remote()? {
-            tracing::debug!("Pulling latest changes from remote");
-            // Only pull if remote exists, ignore errors (might be first push)
-            let _ = self.git.pull(&self.sync_dir, "origin", "main");
         }
 
         // Export to JSONL using sync repository
@@ -213,8 +229,8 @@ impl<G: GitOps> SyncManager<G> {
         match self.git.commit(&self.sync_dir, &commit_msg) {
             Ok(_) => {
                 tracing::info!("Changes committed successfully");
-                // Push if remote exists
-                if self.has_remote()? {
+                // Push if requested and remote exists
+                if remote && self.has_remote()? {
                     tracing::info!("Pushing to remote");
                     self.git.push(&self.sync_dir, "origin", "main")?;
                     tracing::info!("Push complete");
@@ -225,6 +241,12 @@ impl<G: GitOps> SyncManager<G> {
                     || output.contains("nothing added to commit") =>
             {
                 tracing::info!("No changes to commit - data already synced");
+                // Still push if requested and remote exists (idempotent)
+                if remote && self.has_remote()? {
+                    tracing::info!("Pushing to remote (no new commits)");
+                    self.git.push(&self.sync_dir, "origin", "main")?;
+                    tracing::info!("Push complete");
+                }
             }
             Err(e) => return Err(e.into()),
         }
@@ -232,17 +254,41 @@ impl<G: GitOps> SyncManager<G> {
         Ok(summary)
     }
 
-    /// Pull from remote and import JSONL to database.
-    pub async fn import<D: Database>(&self, db: &D) -> Result<ImportSummary, SyncError> {
-        tracing::info!("Starting import operation");
+    /// Import JSONL to database, optionally pulling from remote first.
+    ///
+    /// # Parameters
+    /// - `db`: Database to import into
+    /// - `remote`: If true, pull from remote before import (requires remote configured)
+    ///
+    /// # Idempotency
+    /// - If `remote=true`: pulls from remote FIRST (handles "already up to date" gracefully)
+    /// - ALWAYS imports JSONL files to database (upsert behavior - safe to run multiple times)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Import from local files only
+    /// manager.import(&db, false).await?;
+    ///
+    /// // Pull then import
+    /// manager.import(&db, true).await?;
+    ///
+    /// // Retry after network error (idempotent)
+    /// manager.import(&db, true).await?;
+    /// ```
+    pub async fn import<D: Database>(
+        &self,
+        db: &D,
+        remote: bool,
+    ) -> Result<ImportSummary, SyncError> {
+        tracing::info!(remote = remote, "Starting import operation");
 
         if !self.is_initialized() {
             tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
         }
 
-        // Pull latest changes
-        if self.has_remote()? {
+        // Pull latest changes if requested
+        if remote && self.has_remote()? {
             tracing::info!("Pulling latest changes from remote");
             self.git.pull(&self.sync_dir, "origin", "main")?;
             tracing::info!("Pull complete");
