@@ -1,9 +1,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::ApiClientError;
-use crate::api::repos;
-use crate::components::{Pagination, RepoCard, SearchInput};
+use crate::api::{ApiClientError, QueryBuilder};
+use crate::components::{Pagination, RepoCard, SearchInput, SortControls};
 use crate::models::{Paginated, Repo, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -22,6 +21,8 @@ fn ReposList() -> impl IntoView {
     let (page, set_page) = signal(0usize);
     let (search_input, set_search_input) = signal(String::new()); // Raw input
     let (search_query, set_search_query) = signal(String::new()); // Debounced search
+    let (sort_field, set_sort_field) = signal("created_at".to_string());
+    let (sort_order, set_sort_order) = signal("desc".to_string());
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
 
     // WebSocket updates
@@ -54,10 +55,23 @@ fn ReposList() -> impl IntoView {
         set_page.set(0); // Reset to first page on new search
     });
 
+    // Sort callbacks
+    let on_sort_change = Callback::new(move |field: String| {
+        set_sort_field.set(field);
+        set_page.set(0);
+    });
+
+    let on_order_change = Callback::new(move |order: String| {
+        set_sort_order.set(order);
+        set_page.set(0);
+    });
+
     // Use Effect to fetch when dependencies change (including WebSocket updates)
     Effect::new(move || {
         let current_page = page.get();
         let current_query = search_query.get();
+        let current_sort = sort_field.get();
+        let current_order = sort_order.get();
         let _ = refetch_trigger.get(); // Track refetch trigger
 
         // Reset to loading state immediately
@@ -65,13 +79,18 @@ fn ReposList() -> impl IntoView {
 
         spawn_local(async move {
             let offset = current_page * PAGE_SIZE;
-            let search_opt = if current_query.trim().is_empty() {
-                None
-            } else {
-                Some(current_query)
-            };
 
-            let result = repos::list(Some(PAGE_SIZE), Some(offset), search_opt, None).await;
+            let mut builder = QueryBuilder::<Repo>::new()
+                .limit(PAGE_SIZE)
+                .offset(offset)
+                .sort(current_sort)
+                .order(current_order);
+
+            if !current_query.trim().is_empty() {
+                builder = builder.search(current_query);
+            }
+
+            let result = builder.fetch().await;
             set_repos_data.set(Some(result));
         });
     });
@@ -87,13 +106,26 @@ fn ReposList() -> impl IntoView {
                 <h2 class="text-3xl font-bold text-ctp-text">"Repositories"</h2>
             </div>
 
-            // Search bar
-            <div class="mb-6">
-                <SearchInput
-                    value=search_input
-                    on_change=on_debounced_change
-                    on_immediate_change=on_immediate_change
-                    placeholder="Search repositories by remote URL or tags..."
+            // Search bar and sort controls
+            <div class="mb-6 flex gap-4 items-center">
+                <div class="flex-1">
+                    <SearchInput
+                        value=search_input
+                        on_change=on_debounced_change
+                        on_immediate_change=on_immediate_change
+                        placeholder="Search repositories by remote URL or tags..."
+                    />
+                </div>
+                <SortControls
+                    sort_field=sort_field
+                    sort_order=sort_order
+                    on_sort_change=on_sort_change
+                    on_order_change=on_order_change
+                    fields=vec![
+                        ("remote".to_string(), "Remote".to_string()),
+                        ("path".to_string(), "Path".to_string()),
+                        ("created_at".to_string(), "Created".to_string()),
+                    ]
                 />
             </div>
 

@@ -1,9 +1,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::ApiClientError;
-use crate::api::notes;
-use crate::components::{NoteCard, NoteDetailModal, Pagination, SearchInput};
+use crate::api::{ApiClientError, QueryBuilder};
+use crate::components::{NoteCard, NoteDetailModal, Pagination, SearchInput, SortControls};
 use crate::models::{Note, Paginated, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -22,6 +21,8 @@ fn NotesList() -> impl IntoView {
     let (page, set_page) = signal(0usize);
     let (search_input, set_search_input) = signal(String::new()); // Raw input
     let (search_query, set_search_query) = signal(String::new()); // Debounced search
+    let (sort_field, set_sort_field) = signal("last_activity_at".to_string());
+    let (sort_order, set_sort_order) = signal("desc".to_string());
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
     // Note detail modal state
@@ -59,17 +60,30 @@ fn NotesList() -> impl IntoView {
         set_page.set(0); // Reset to first page on new search
     });
 
+    // Sort callbacks
+    let on_sort_change = Callback::new(move |field: String| {
+        set_sort_field.set(field);
+        set_page.set(0);
+    });
+
+    let on_order_change = Callback::new(move |order: String| {
+        set_sort_order.set(order);
+        set_page.set(0);
+    });
+
     // Use Effect to fetch when dependencies change (including WebSocket updates)
     Effect::new(move || {
         let current_page = page.get();
         let current_query = search_query.get();
+        let current_sort = sort_field.get();
+        let current_order = sort_order.get();
         let trigger = refetch_trigger.get();
 
         // Log for debugging with all dependency values
         web_sys::console::log_1(
             &format!(
-                "FETCH TRIGGERED: page={}, query='{}', trigger={}",
-                current_page, current_query, trigger
+                "FETCH TRIGGERED: page={}, query='{}', sort={}, order={}, trigger={}",
+                current_page, current_query, current_sort, current_order, trigger
             )
             .into(),
         );
@@ -79,25 +93,23 @@ fn NotesList() -> impl IntoView {
 
         spawn_local(async move {
             let offset = current_page * PAGE_SIZE;
-            let query_opt = if current_query.trim().is_empty() {
-                None
-            } else {
-                Some(current_query)
-            };
 
             web_sys::console::log_1(
                 &format!("API call: offset={}, limit={}", offset, PAGE_SIZE).into(),
             );
 
-            let result = notes::list(
-                Some(PAGE_SIZE),
-                Some(offset),
-                query_opt,
-                None,
-                Some("note"),
-                None,
-            )
-            .await;
+            let mut builder = QueryBuilder::<Note>::new()
+                .limit(PAGE_SIZE)
+                .offset(offset)
+                .sort(current_sort)
+                .order(current_order)
+                .param("type", "note");
+
+            if !current_query.trim().is_empty() {
+                builder = builder.search(current_query);
+            }
+
+            let result = builder.fetch().await;
 
             match &result {
                 Ok(data) => web_sys::console::log_1(
@@ -121,13 +133,26 @@ fn NotesList() -> impl IntoView {
                 <h2 class="text-3xl font-bold text-ctp-text">"Notes"</h2>
             </div>
 
-            // Search bar
-            <div class="mb-6">
-                <SearchInput
-                    value=search_input
-                    on_change=on_debounced_change
-                    on_immediate_change=on_immediate_change
-                    placeholder="Search notes..."
+            // Search bar and sort controls
+            <div class="mb-6 flex gap-4 items-center">
+                <div class="flex-1">
+                    <SearchInput
+                        value=search_input
+                        on_change=on_debounced_change
+                        on_immediate_change=on_immediate_change
+                        placeholder="Search notes..."
+                    />
+                </div>
+                <SortControls
+                    sort_field=sort_field
+                    sort_order=sort_order
+                    on_sort_change=on_sort_change
+                    on_order_change=on_order_change
+                    fields=vec![
+                        ("title".to_string(), "Title".to_string()),
+                        ("created_at".to_string(), "Created".to_string()),
+                        ("last_activity_at".to_string(), "Updated".to_string()),
+                    ]
                 />
             </div>
 

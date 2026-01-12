@@ -2,10 +2,10 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
-use crate::api::{ApiClientError, notes, projects, repos, task_lists};
+use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
     CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
-    TaskListCard, TaskListDetailModal,
+    SortControls, TaskListCard, TaskListDetailModal,
 };
 use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -41,6 +41,18 @@ pub fn ProjectDetail() -> impl IntoView {
     let (repo_page, set_repo_page) = signal(0usize);
     const REPO_PAGE_SIZE: usize = 12;
 
+    // Sort state for task lists
+    let (task_list_sort_field, set_task_list_sort_field) = signal("updated_at".to_string());
+    let (task_list_sort_order, set_task_list_sort_order) = signal("desc".to_string());
+
+    // Sort state for notes
+    let (note_sort_field, set_note_sort_field) = signal("last_activity_at".to_string());
+    let (note_sort_order, set_note_sort_order) = signal("desc".to_string());
+
+    // Sort state for repos
+    let (repo_sort_field, set_repo_sort_field) = signal("created_at".to_string());
+    let (repo_sort_order, set_repo_sort_order) = signal("desc".to_string());
+
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
 
@@ -71,6 +83,36 @@ pub fn ProjectDetail() -> impl IntoView {
     let on_note_debounced_change = Callback::new(move |value: String| {
         set_note_filter.set(value);
         set_note_page.set(0); // Reset to first page on new search
+    });
+
+    // Sort callbacks for task lists
+    let on_task_list_sort_change = Callback::new(move |field: String| {
+        set_task_list_sort_field.set(field);
+        set_task_list_page.set(0);
+    });
+    let on_task_list_order_change = Callback::new(move |order: String| {
+        set_task_list_sort_order.set(order);
+        set_task_list_page.set(0);
+    });
+
+    // Sort callbacks for notes
+    let on_note_sort_change = Callback::new(move |field: String| {
+        set_note_sort_field.set(field);
+        set_note_page.set(0);
+    });
+    let on_note_order_change = Callback::new(move |order: String| {
+        set_note_sort_order.set(order);
+        set_note_page.set(0);
+    });
+
+    // Sort callbacks for repos
+    let on_repo_sort_change = Callback::new(move |field: String| {
+        set_repo_sort_field.set(field);
+        set_repo_page.set(0);
+    });
+    let on_repo_order_change = Callback::new(move |order: String| {
+        set_repo_sort_order.set(order);
+        set_repo_page.set(0);
     });
 
     // Triggers to force refetch
@@ -142,6 +184,8 @@ pub fn ProjectDetail() -> impl IntoView {
         let show_archived = show_archived_task_lists.get();
         let search_query = task_list_filter.get();
         let current_page = task_list_page.get();
+        let current_sort = task_list_sort_field.get();
+        let current_order = task_list_sort_order.get();
         let _ = task_list_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
@@ -152,14 +196,22 @@ pub fn ProjectDetail() -> impl IntoView {
                 } else {
                     Some(search_query)
                 };
-                let result = task_lists::list(
-                    Some(TASK_LIST_PAGE_SIZE),
-                    Some(offset),
-                    Some(id),
-                    status,
-                    search_opt,
-                )
-                .await;
+                let mut builder = QueryBuilder::<TaskList>::new()
+                    .limit(TASK_LIST_PAGE_SIZE)
+                    .offset(offset)
+                    .sort(current_sort)
+                    .order(current_order)
+                    .param("project_id", id);
+
+                if let Some(stat) = status {
+                    builder = builder.param("status", stat);
+                }
+
+                if let Some(search) = search_opt {
+                    builder = builder.search(search);
+                }
+
+                let result = builder.fetch().await;
                 set_task_lists_data.set(Some(result));
             });
         }
@@ -170,6 +222,8 @@ pub fn ProjectDetail() -> impl IntoView {
         let id = project_id();
         let search = note_filter.get();
         let current_page = note_page.get();
+        let current_sort = note_sort_field.get();
+        let current_order = note_sort_order.get();
         let _ = note_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
@@ -179,15 +233,20 @@ pub fn ProjectDetail() -> impl IntoView {
                     Some(search)
                 };
                 let offset = current_page * NOTE_PAGE_SIZE;
-                let result = notes::list(
-                    Some(NOTE_PAGE_SIZE),
-                    Some(offset),
-                    search_query,
-                    Some(id),
-                    Some("note"),
-                    None,
-                )
-                .await;
+
+                let mut builder = QueryBuilder::<Note>::new()
+                    .limit(NOTE_PAGE_SIZE)
+                    .offset(offset)
+                    .sort(current_sort)
+                    .order(current_order)
+                    .param("project_id", id)
+                    .param("type", "note");
+
+                if let Some(search) = search_query {
+                    builder = builder.search(search);
+                }
+
+                let result = builder.fetch().await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -197,11 +256,20 @@ pub fn ProjectDetail() -> impl IntoView {
     Effect::new(move || {
         let id = project_id();
         let current_page = repo_page.get();
+        let current_sort = repo_sort_field.get();
+        let current_order = repo_sort_order.get();
         let _ = repo_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
                 let offset = current_page * REPO_PAGE_SIZE;
-                let result = repos::list(Some(REPO_PAGE_SIZE), Some(offset), None, Some(id)).await;
+                let result = QueryBuilder::<Repo>::new()
+                    .limit(REPO_PAGE_SIZE)
+                    .offset(offset)
+                    .sort(current_sort)
+                    .order(current_order)
+                    .param("project_id", id)
+                    .fetch()
+                    .await;
                 set_repos_data.set(Some(result));
             });
         }
@@ -336,13 +404,27 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "task-lists" => {
                                             view! {
                                                 <div>
-                                                    // Search input
-                                                    <div class="mb-4">
-                                                        <SearchInput
-                                                            value=task_list_filter_input
-                                                            on_change=on_task_list_debounced_change
-                                                            on_immediate_change=on_task_list_immediate_change
-                                                            placeholder="Search task lists..."
+                                                    // Search input and sort controls
+                                                    <div class="mb-4 flex gap-4 items-center">
+                                                        <div class="flex-1">
+                                                            <SearchInput
+                                                                value=task_list_filter_input
+                                                                on_change=on_task_list_debounced_change
+                                                                on_immediate_change=on_task_list_immediate_change
+                                                                placeholder="Search task lists..."
+                                                            />
+                                                        </div>
+                                                        <SortControls
+                                                            sort_field=task_list_sort_field
+                                                            sort_order=task_list_sort_order
+                                                            on_sort_change=on_task_list_sort_change
+                                                            on_order_change=on_task_list_order_change
+                                                            fields=vec![
+                                                                ("title".to_string(), "Title".to_string()),
+                                                                ("status".to_string(), "Status".to_string()),
+                                                                ("created_at".to_string(), "Created".to_string()),
+                                                                ("updated_at".to_string(), "Updated".to_string()),
+                                                            ]
                                                         />
                                                     </div>
 
@@ -444,13 +526,26 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "notes" => {
                                             view! {
                                                 <div>
-                                                    // Search input
-                                                    <div class="mb-4">
-                                                        <SearchInput
-                                                            value=note_filter_input
-                                                            on_change=on_note_debounced_change
-                                                            on_immediate_change=on_note_immediate_change
-                                                            placeholder="Search notes..."
+                                                    // Search input and sort controls
+                                                    <div class="mb-4 flex gap-4 items-center">
+                                                        <div class="flex-1">
+                                                            <SearchInput
+                                                                value=note_filter_input
+                                                                on_change=on_note_debounced_change
+                                                                on_immediate_change=on_note_immediate_change
+                                                                placeholder="Search notes..."
+                                                            />
+                                                        </div>
+                                                        <SortControls
+                                                            sort_field=note_sort_field
+                                                            sort_order=note_sort_order
+                                                            on_sort_change=on_note_sort_change
+                                                            on_order_change=on_note_order_change
+                                                            fields=vec![
+                                                                ("title".to_string(), "Title".to_string()),
+                                                                ("created_at".to_string(), "Created".to_string()),
+                                                                ("last_activity_at".to_string(), "Updated".to_string()),
+                                                            ]
                                                         />
                                                     </div>
 
@@ -533,35 +628,46 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "repos" => {
                                             view! {
                                                 <div>
-                                                    // Filter input with clear button
-                                                    <div class="mb-4 relative">
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Filter repos..."
-                                                            prop:value=move || repo_filter.get()
-                                                            on:input=move |ev| {
-                                                                repo_filter.set(event_target_value(&ev));
-                                                            }
-
-                                                            class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text focus:outline-none focus:border-ctp-blue"
+                                                    // Filter input and sort controls
+                                                    <div class="mb-4 flex gap-4 items-center">
+                                                        <div class="flex-1 relative">
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Filter repos..."
+                                                                prop:value=move || repo_filter.get()
+                                                                on:input=move |ev| {
+                                                                    repo_filter.set(event_target_value(&ev));
+                                                                }
+                                                                class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-subtext0 focus:outline-none focus:border-ctp-blue"
+                                                            />
+                                                            {move || {
+                                                                if !repo_filter.get().is_empty() {
+                                                                    Some(
+                                                                        view! {
+                                                                            <button
+                                                                                on:click=move |_| repo_filter.set(String::new())
+                                                                                class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
+                                                                            >
+                                                                                "×"
+                                                                            </button>
+                                                                        },
+                                                                    )
+                                                                } else {
+                                                                    None
+                                                                }
+                                                            }}
+                                                        </div>
+                                                        <SortControls
+                                                            sort_field=repo_sort_field
+                                                            sort_order=repo_sort_order
+                                                            on_sort_change=on_repo_sort_change
+                                                            on_order_change=on_repo_order_change
+                                                            fields=vec![
+                                                                ("remote".to_string(), "Remote".to_string()),
+                                                                ("path".to_string(), "Path".to_string()),
+                                                                ("created_at".to_string(), "Created".to_string()),
+                                                            ]
                                                         />
-                                                        {move || {
-                                                            if !repo_filter.get().is_empty() {
-                                                                Some(
-                                                                    view! {
-                                                                        <button
-                                                                            on:click=move |_| repo_filter.set(String::new())
-                                                                            class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
-                                                                        >
-                                                                            "×"
-                                                                        </button>
-                                                                    },
-                                                                )
-                                                            } else {
-                                                                None
-                                                            }
-                                                        }}
-
                                                     </div>
 
                                                     {move || match repos_data.get() {
