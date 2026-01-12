@@ -628,8 +628,35 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "repos" => {
                                             view! {
                                                 <div>
-                                                    // Sort controls only (no search - repos tab has simple local filter)
-                                                    <div class="mb-4 flex justify-end">
+                                                    // Filter input and sort controls
+                                                    <div class="mb-4 flex gap-4 items-center">
+                                                        <div class="flex-1 relative">
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Filter repos..."
+                                                                prop:value=move || repo_filter.get()
+                                                                on:input=move |ev| {
+                                                                    repo_filter.set(event_target_value(&ev));
+                                                                }
+                                                                class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-subtext0 focus:outline-none focus:border-ctp-blue"
+                                                            />
+                                                            {move || {
+                                                                if !repo_filter.get().is_empty() {
+                                                                    Some(
+                                                                        view! {
+                                                                            <button
+                                                                                on:click=move |_| repo_filter.set(String::new())
+                                                                                class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
+                                                                            >
+                                                                                "×"
+                                                                            </button>
+                                                                        },
+                                                                    )
+                                                                } else {
+                                                                    None
+                                                                }
+                                                            }}
+                                                        </div>
                                                         <SortControls
                                                             sort_field=repo_sort_field
                                                             sort_order=repo_sort_order
