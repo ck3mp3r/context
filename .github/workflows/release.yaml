@@ -171,7 +171,7 @@ jobs:
           open Formula/context.rb | update-homebrew-formula $version "context" $architectures | save --force Formula/context.rb
 
           # Commit the formula update
-          "Formula/context.rb" | commit-files $"Update Homebrew formula for ($version)"
+          ["Formula/context.rb"] | commit-files $"Update Homebrew formula for ($version)"
 
           # Merge and cleanup
           merge-and-cleanup $version
