@@ -253,7 +253,7 @@ features = ["csr"]
 optional = true
 
 [dependencies.leptos-use]
-version = "0.17"
+version = "0.18"
 features = ["use_websocket"]
 optional = true
 
