@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
 use thaw::*;
 
-use crate::api::notes;
+use crate::api::{QueryBuilder, notes};
 use crate::components::CopyableId;
 use crate::models::{Note, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -162,15 +162,13 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
         let _ = refetch_trigger.get(); // Track refetch trigger
         let parent_id = parent_id_for_fetch.clone();
         spawn_local(async move {
-            let result = notes::list(
-                Some(12),        // limit
-                Some(0),         // offset
-                None,            // search_query
-                None,            // project_id
-                Some("subnote"), // note_type
-                Some(parent_id), // parent_id
-            )
-            .await;
+            let result = QueryBuilder::<Note>::new()
+                .limit(12)
+                .offset(0)
+                .param("type", "subnote")
+                .param("parent_id", parent_id)
+                .fetch()
+                .await;
 
             if let Ok(paginated) = result {
                 set_subnotes.set(paginated.items);
@@ -187,15 +185,13 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
         let new_offset = current_offset + 12;
 
         spawn_local(async move {
-            let result = notes::list(
-                Some(12),
-                Some(new_offset),
-                None,
-                None,
-                Some("subnote"),
-                Some(parent_id),
-            )
-            .await;
+            let result = QueryBuilder::<Note>::new()
+                .limit(12)
+                .offset(new_offset)
+                .param("type", "subnote")
+                .param("parent_id", parent_id)
+                .fetch()
+                .await;
 
             if let Ok(paginated) = result {
                 set_subnotes.update(|notes| notes.extend(paginated.items));

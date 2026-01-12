@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::{ApiClientError, projects};
+use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{CopyableId, ExternalRefLink, Pagination, SearchInput};
 use crate::models::{Paginated, Project, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -59,13 +59,16 @@ pub fn Projects() -> impl IntoView {
 
         spawn_local(async move {
             let offset = current_page * PAGE_SIZE;
-            let query_opt = if current_query.trim().is_empty() {
-                None
-            } else {
-                Some(current_query)
-            };
 
-            let result = projects::list(Some(PAGE_SIZE), Some(offset), query_opt).await;
+            let mut builder = QueryBuilder::<Project>::new()
+                .limit(PAGE_SIZE)
+                .offset(offset);
+
+            if !current_query.trim().is_empty() {
+                builder = builder.search(current_query);
+            }
+
+            let result = builder.fetch().await;
             set_projects_data.set(Some(result));
         });
     });

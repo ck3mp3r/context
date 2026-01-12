@@ -1,8 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::ApiClientError;
-use crate::api::notes;
+use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{NoteCard, NoteDetailModal, Pagination, SearchInput};
 use crate::models::{Note, Paginated, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -79,25 +78,21 @@ fn NotesList() -> impl IntoView {
 
         spawn_local(async move {
             let offset = current_page * PAGE_SIZE;
-            let query_opt = if current_query.trim().is_empty() {
-                None
-            } else {
-                Some(current_query)
-            };
 
             web_sys::console::log_1(
                 &format!("API call: offset={}, limit={}", offset, PAGE_SIZE).into(),
             );
 
-            let result = notes::list(
-                Some(PAGE_SIZE),
-                Some(offset),
-                query_opt,
-                None,
-                Some("note"),
-                None,
-            )
-            .await;
+            let mut builder = QueryBuilder::<Note>::new()
+                .limit(PAGE_SIZE)
+                .offset(offset)
+                .param("type", "note");
+
+            if !current_query.trim().is_empty() {
+                builder = builder.search(current_query);
+            }
+
+            let result = builder.fetch().await;
 
             match &result {
                 Ok(data) => web_sys::console::log_1(

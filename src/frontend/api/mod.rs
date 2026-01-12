@@ -5,6 +5,8 @@ use gloo_net::http::Request;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use std::marker::PhantomData;
+
 use crate::models::{ApiError, Note, Paginated, Project, Repo, Task, TaskList, TaskStats};
 
 // Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
@@ -14,6 +16,140 @@ const API_BASE: &str = "/dev/api/v1";
 // Production: Direct calls to backend at /api/v1/*
 #[cfg(not(debug_assertions))]
 const API_BASE: &str = "/api/v1";
+
+/// Trait for types that have a list endpoint
+pub trait ListEndpoint: DeserializeOwned {
+    fn endpoint() -> &'static str;
+}
+
+impl ListEndpoint for Project {
+    fn endpoint() -> &'static str {
+        "projects"
+    }
+}
+
+impl ListEndpoint for Repo {
+    fn endpoint() -> &'static str {
+        "repos"
+    }
+}
+
+impl ListEndpoint for Note {
+    fn endpoint() -> &'static str {
+        "notes"
+    }
+}
+
+impl ListEndpoint for TaskList {
+    fn endpoint() -> &'static str {
+        "task-lists"
+    }
+}
+
+/// Generic query builder for list endpoints
+pub struct QueryBuilder<T: ListEndpoint> {
+    limit: Option<usize>,
+    offset: Option<usize>,
+    search: Option<String>,
+    sort: Option<String>,
+    order: Option<String>,
+    params: Vec<(String, String)>,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ListEndpoint> QueryBuilder<T> {
+    pub fn new() -> Self {
+        Self {
+            limit: None,
+            offset: None,
+            search: None,
+            sort: None,
+            order: None,
+            params: Vec::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn offset(mut self, offset: usize) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub fn search(mut self, query: impl Into<String>) -> Self {
+        self.search = Some(query.into());
+        self
+    }
+
+    pub fn sort(mut self, field: impl Into<String>) -> Self {
+        self.sort = Some(field.into());
+        self
+    }
+
+    pub fn order(mut self, order: impl Into<String>) -> Self {
+        self.order = Some(order.into());
+        self
+    }
+
+    pub fn param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.params.push((key.into(), value.into()));
+        self
+    }
+
+    pub async fn fetch(self) -> Result<Paginated<T>> {
+        let mut url = format!("{}/{}", API_BASE, T::endpoint());
+        let mut query_params = vec![];
+
+        // Add custom params first
+        for (key, value) in self.params {
+            query_params.push(format!("{}={}", key, value));
+        }
+
+        // Add search query with encoding
+        if let Some(q) = self.search
+            && !q.trim().is_empty()
+        {
+            let encoded = q
+                .replace(' ', "+")
+                .replace('&', "%26")
+                .replace('=', "%3D")
+                .replace('#', "%23");
+            query_params.push(format!("q={}", encoded));
+        }
+
+        // Add pagination
+        if let Some(lim) = self.limit {
+            query_params.push(format!("limit={}", lim));
+        }
+        if let Some(off) = self.offset {
+            query_params.push(format!("offset={}", off));
+        }
+
+        // Add sorting
+        if let Some(s) = self.sort {
+            query_params.push(format!("sort={}", s));
+        }
+        if let Some(o) = self.order {
+            query_params.push(format!("order={}", o));
+        }
+
+        if !query_params.is_empty() {
+            url = format!("{}?{}", url, query_params.join("&"));
+        }
+
+        handle_response(Request::get(&url)).await
+    }
+}
+
+impl<T: ListEndpoint> Default for QueryBuilder<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// API client error type
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,39 +200,6 @@ async fn handle_response<T: DeserializeOwned>(
 pub mod projects {
     use super::*;
 
-    pub async fn list(
-        limit: Option<usize>,
-        offset: Option<usize>,
-        search_query: Option<String>,
-    ) -> Result<Paginated<Project>> {
-        let mut url = format!("{}/projects", API_BASE);
-        let mut query_params = vec![];
-
-        if let Some(q) = search_query
-            && !q.trim().is_empty()
-        {
-            // Simple URL encoding for search query
-            let encoded = q
-                .replace(' ', "+")
-                .replace('&', "%26")
-                .replace('=', "%3D")
-                .replace('#', "%23");
-            query_params.push(format!("q={}", encoded));
-        }
-        if let Some(lim) = limit {
-            query_params.push(format!("limit={}", lim));
-        }
-        if let Some(off) = offset {
-            query_params.push(format!("offset={}", off));
-        }
-
-        if !query_params.is_empty() {
-            url = format!("{}?{}", url, query_params.join("&"));
-        }
-
-        handle_response(Request::get(&url)).await
-    }
-
     pub async fn get(id: &str) -> Result<Project> {
         let url = format!("{}/projects/{}", API_BASE, id);
         handle_response(Request::get(&url)).await
@@ -125,43 +228,6 @@ pub mod projects {
 pub mod repos {
     use super::*;
 
-    pub async fn list(
-        limit: Option<usize>,
-        offset: Option<usize>,
-        search_query: Option<String>,
-        project_id: Option<String>,
-    ) -> Result<Paginated<Repo>> {
-        let mut url = format!("{}/repos", API_BASE);
-        let mut query_params = vec![];
-
-        if let Some(proj_id) = project_id {
-            query_params.push(format!("project_id={}", proj_id));
-        }
-        if let Some(q) = search_query
-            && !q.trim().is_empty()
-        {
-            // Simple URL encoding for search query
-            let encoded = q
-                .replace(' ', "+")
-                .replace('&', "%26")
-                .replace('=', "%3D")
-                .replace('#', "%23");
-            query_params.push(format!("q={}", encoded));
-        }
-        if let Some(lim) = limit {
-            query_params.push(format!("limit={}", lim));
-        }
-        if let Some(off) = offset {
-            query_params.push(format!("offset={}", off));
-        }
-
-        if !query_params.is_empty() {
-            url = format!("{}?{}", url, query_params.join("&"));
-        }
-
-        handle_response(Request::get(&url)).await
-    }
-
     pub async fn get(id: &str) -> Result<Repo> {
         let url = format!("{}/repos/{}", API_BASE, id);
         handle_response(Request::get(&url)).await
@@ -189,42 +255,6 @@ pub mod repos {
 /// Task Lists API
 pub mod task_lists {
     use super::*;
-
-    pub async fn list(
-        limit: Option<usize>,
-        offset: Option<usize>,
-        project_id: Option<String>,
-        status: Option<&str>,
-        search_query: Option<String>,
-    ) -> Result<Paginated<TaskList>> {
-        let mut url = format!("{}/task-lists", API_BASE);
-        let mut query_params = vec![];
-
-        if let Some(proj_id) = project_id {
-            query_params.push(format!("project_id={}", proj_id));
-        }
-        if let Some(stat) = status {
-            query_params.push(format!("status={}", stat));
-        }
-        if let Some(query) = search_query {
-            if !query.trim().is_empty() {
-                // Note: gloo-net's Request will handle URL encoding
-                query_params.push(format!("q={}", query));
-            }
-        }
-        if let Some(lim) = limit {
-            query_params.push(format!("limit={}", lim));
-        }
-        if let Some(off) = offset {
-            query_params.push(format!("offset={}", off));
-        }
-
-        if !query_params.is_empty() {
-            url = format!("{}?{}", url, query_params.join("&"));
-        }
-
-        handle_response(Request::get(&url)).await
-    }
 
     pub async fn get(id: &str) -> Result<TaskList> {
         let url = format!("{}/task-lists/{}", API_BASE, id);
@@ -293,59 +323,6 @@ pub mod tasks {
 /// Notes API
 pub mod notes {
     use super::*;
-
-    pub async fn list(
-        limit: Option<usize>,
-        offset: Option<usize>,
-        search_query: Option<String>,
-        project_id: Option<String>,
-        note_type: Option<&str>,
-        parent_id: Option<String>,
-    ) -> Result<Paginated<Note>> {
-        let mut url = format!("{}/notes", API_BASE);
-        let mut query_params = vec![];
-
-        if let Some(proj_id) = project_id {
-            query_params.push(format!("project_id={}", proj_id));
-        }
-        if let Some(q) = search_query
-            && !q.trim().is_empty()
-        {
-            // Simple URL encoding for search query
-            let encoded = q
-                .replace(' ', "+")
-                .replace('&', "%26")
-                .replace('=', "%3D")
-                .replace('#', "%23");
-            query_params.push(format!("q={}", encoded));
-        }
-        if let Some(note_type_val) = note_type {
-            query_params.push(format!("type={}", note_type_val));
-        }
-        if let Some(parent) = parent_id {
-            query_params.push(format!("parent_id={}", parent));
-        }
-        if let Some(lim) = limit {
-            query_params.push(format!("limit={}", lim));
-        }
-        if let Some(off) = offset {
-            query_params.push(format!("offset={}", off));
-        }
-
-        // Only set default sort if not filtering by type (let backend use its defaults)
-        // When type=note, backend defaults to last_activity_at DESC
-        // When type=subnote, backend defaults to idx ASC, updated_at DESC
-        if note_type.is_none() {
-            query_params.push("sort=updated_at".to_string());
-            query_params.push("order=desc".to_string());
-        }
-
-        if !query_params.is_empty() {
-            url = format!("{}?{}", url, query_params.join("&"));
-        }
-
-        handle_response(Request::get(&url)).await
-    }
 
     pub async fn get(id: &str) -> Result<Note> {
         let url = format!("{}/notes/{}", API_BASE, id);

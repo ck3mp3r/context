@@ -1,8 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::ApiClientError;
-use crate::api::repos;
+use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{Pagination, RepoCard, SearchInput};
 use crate::models::{Paginated, Repo, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -65,13 +64,14 @@ fn ReposList() -> impl IntoView {
 
         spawn_local(async move {
             let offset = current_page * PAGE_SIZE;
-            let search_opt = if current_query.trim().is_empty() {
-                None
-            } else {
-                Some(current_query)
-            };
 
-            let result = repos::list(Some(PAGE_SIZE), Some(offset), search_opt, None).await;
+            let mut builder = QueryBuilder::<Repo>::new().limit(PAGE_SIZE).offset(offset);
+
+            if !current_query.trim().is_empty() {
+                builder = builder.search(current_query);
+            }
+
+            let result = builder.fetch().await;
             set_repos_data.set(Some(result));
         });
     });

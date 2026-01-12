@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
-use crate::api::{ApiClientError, notes, projects, repos, task_lists};
+use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
     CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
     TaskListCard, TaskListDetailModal,
@@ -152,14 +152,20 @@ pub fn ProjectDetail() -> impl IntoView {
                 } else {
                     Some(search_query)
                 };
-                let result = task_lists::list(
-                    Some(TASK_LIST_PAGE_SIZE),
-                    Some(offset),
-                    Some(id),
-                    status,
-                    search_opt,
-                )
-                .await;
+                let mut builder = QueryBuilder::<TaskList>::new()
+                    .limit(TASK_LIST_PAGE_SIZE)
+                    .offset(offset)
+                    .param("project_id", id);
+
+                if let Some(stat) = status {
+                    builder = builder.param("status", stat);
+                }
+
+                if let Some(search) = search_opt {
+                    builder = builder.search(search);
+                }
+
+                let result = builder.fetch().await;
                 set_task_lists_data.set(Some(result));
             });
         }
@@ -179,15 +185,18 @@ pub fn ProjectDetail() -> impl IntoView {
                     Some(search)
                 };
                 let offset = current_page * NOTE_PAGE_SIZE;
-                let result = notes::list(
-                    Some(NOTE_PAGE_SIZE),
-                    Some(offset),
-                    search_query,
-                    Some(id),
-                    Some("note"),
-                    None,
-                )
-                .await;
+
+                let mut builder = QueryBuilder::<Note>::new()
+                    .limit(NOTE_PAGE_SIZE)
+                    .offset(offset)
+                    .param("project_id", id)
+                    .param("type", "note");
+
+                if let Some(search) = search_query {
+                    builder = builder.search(search);
+                }
+
+                let result = builder.fetch().await;
                 set_notes_data.set(Some(result));
             });
         }
@@ -201,7 +210,12 @@ pub fn ProjectDetail() -> impl IntoView {
         if !id.is_empty() {
             spawn_local(async move {
                 let offset = current_page * REPO_PAGE_SIZE;
-                let result = repos::list(Some(REPO_PAGE_SIZE), Some(offset), None, Some(id)).await;
+                let result = QueryBuilder::<Repo>::new()
+                    .limit(REPO_PAGE_SIZE)
+                    .offset(offset)
+                    .param("project_id", id)
+                    .fetch()
+                    .await;
                 set_repos_data.set(Some(result));
             });
         }
