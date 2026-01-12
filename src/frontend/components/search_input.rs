@@ -72,7 +72,7 @@ pub fn SearchInput(
             placeholder=placeholder
             prop:value=move || value.get()
             on:input=on_input
-            class="w-full rounded-lg border-gray-600 bg-gray-700 px-4 py-2 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+            class="w-full rounded-lg border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none"
         />
     }
 }
