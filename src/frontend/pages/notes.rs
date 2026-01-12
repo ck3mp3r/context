@@ -21,7 +21,7 @@ fn NotesList() -> impl IntoView {
     let (page, set_page) = signal(0usize);
     let (search_input, set_search_input) = signal(String::new()); // Raw input
     let (search_query, set_search_query) = signal(String::new()); // Debounced search
-    let (sort_field, set_sort_field) = signal("updated_at".to_string());
+    let (sort_field, set_sort_field) = signal("last_activity_at".to_string());
     let (sort_order, set_sort_order) = signal("desc".to_string());
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
@@ -151,8 +151,7 @@ fn NotesList() -> impl IntoView {
                     fields=vec![
                         ("title".to_string(), "Title".to_string()),
                         ("created_at".to_string(), "Created".to_string()),
-                        ("updated_at".to_string(), "Updated".to_string()),
-                        ("last_activity_at".to_string(), "Activity".to_string()),
+                        ("last_activity_at".to_string(), "Updated".to_string()),
                     ]
                 />
             </div>
