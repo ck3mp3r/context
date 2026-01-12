@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 
-/// A reusable component for sorting controls (field selection + order toggle).
+/// A reusable component for sorting controls with integrated direction toggle.
 ///
-/// Provides a dropdown for selecting sort field and a button for toggling asc/desc order.
-/// Designed to be compact and inline.
+/// Click a field once to sort by that field (ascending). Click again to reverse order (descending).
+/// Visual indicator shows current sort field and direction with arrow icons.
 ///
 /// # Props
 /// - `sort_field`: ReadSignal<String> - The current sort field value
@@ -24,70 +24,79 @@ pub fn SortControls(
     /// Available fields as (value, label) pairs
     fields: Vec<(String, String)>,
 ) -> impl IntoView {
-    // Handle field selection change
-    let on_field_change = move |ev: web_sys::Event| {
-        let value = event_target_value(&ev);
-        on_sort_change.run(value);
-    };
-
-    // Toggle between asc and desc
-    let on_order_toggle = move |_| {
-        let current = sort_order.get();
-        let new_order = if current == "asc" {
-            "desc".to_string()
-        } else {
-            "asc".to_string()
-        };
-        on_order_change.run(new_order);
-    };
-
     view! {
         <div class="flex items-center gap-3 text-sm">
             <span class="text-ctp-subtext0">"Sort by:"</span>
 
-            // Sort field dropdown
-            <select
-                class="px-3 py-1.5 rounded-lg border-gray-600 bg-gray-700 text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                on:change=on_field_change
-            >
+            // Radio toggle buttons with integrated direction
+            <div class="flex gap-1 bg-ctp-surface0 p-1 rounded-lg border border-ctp-surface1">
                 {fields
                     .into_iter()
                     .map(|(value, label)| {
-                        let value_clone = value.clone();
-                        let is_selected = move || sort_field.get() == value_clone;
+                        let value_for_click = value.clone();
+                        let value_for_class = value.clone();
+                        let value_for_title = value.clone();
+                        let value_for_content = value.clone();
+
+                        let on_click = move |_| {
+                            let current_field = sort_field.get();
+                            let current_order = sort_order.get();
+
+                            if current_field == value_for_click {
+                                // Same field clicked - toggle order
+                                let new_order = if current_order == "asc" {
+                                    "desc".to_string()
+                                } else {
+                                    "asc".to_string()
+                                };
+                                on_order_change.run(new_order);
+                            } else {
+                                // Different field clicked - change field (reset to asc)
+                                on_sort_change.run(value_for_click.clone());
+                                on_order_change.run("asc".to_string());
+                            }
+                        };
+
                         view! {
-                            <option value=value selected=is_selected>
-                                {label}
-                            </option>
+                            <button
+                                on:click=on_click
+                                class=move || {
+                                    if sort_field.get() == value_for_class {
+                                        "px-3 py-1.5 rounded bg-ctp-blue text-ctp-base font-medium transition-colors flex items-center gap-1"
+                                    } else {
+                                        "px-3 py-1.5 rounded text-ctp-text hover:bg-ctp-surface1 transition-colors"
+                                    }
+                                }
+                                title=move || {
+                                    if sort_field.get() == value_for_title {
+                                        if sort_order.get() == "asc" {
+                                            "Click to sort descending"
+                                        } else {
+                                            "Click to sort ascending"
+                                        }
+                                    } else {
+                                        "Click to sort by this field"
+                                    }
+                                }
+                            >
+                                {move || {
+                                    if sort_field.get() == value_for_content {
+                                        let arrow = if sort_order.get() == "asc" { "↑" } else { "↓" };
+                                        view! {
+                                            <>
+                                                <span>{label.clone()}</span>
+                                                <span class="text-base leading-none">{arrow}</span>
+                                            </>
+                                        }.into_any()
+                                    } else {
+                                        view! { <span>{label.clone()}</span> }.into_any()
+                                    }
+                                }}
+                            </button>
                         }
                     })
                     .collect::<Vec<_>>()}
-            </select>
-
-            // Order toggle button
-            <button
-                on:click=on_order_toggle
-                class="px-3 py-1.5 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors border border-gray-600 flex items-center gap-1.5"
-                title="Toggle sort order"
-            >
-                {move || {
-                    if sort_order.get() == "asc" {
-                        view! {
-                            <>
-                                <span class="text-lg leading-none">"↑"</span>
-                                <span>"Asc"</span>
-                            </>
-                        }
-                    } else {
-                        view! {
-                            <>
-                                <span class="text-lg leading-none">"↓"</span>
-                                <span>"Desc"</span>
-                            </>
-                        }
-                    }
-                }}
-            </button>
+            </div>
         </div>
     }
 }

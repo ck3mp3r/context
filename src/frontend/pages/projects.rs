@@ -14,7 +14,7 @@ pub fn Projects() -> impl IntoView {
     let (page, set_page) = signal(0usize);
     let (search_input, set_search_input) = signal(String::new()); // Raw input
     let (search_query, set_search_query) = signal(String::new()); // Debounced search
-    let (sort_field, set_sort_field) = signal("created_at".to_string());
+    let (sort_field, set_sort_field) = signal("updated_at".to_string());
     let (sort_order, set_sort_order) = signal("desc".to_string());
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
