@@ -93,6 +93,7 @@ pub(crate) fn format_table(task_lists: &[TaskList]) -> String {
 }
 
 /// List task lists with optional filtering
+#[allow(clippy::too_many_arguments)]
 pub async fn list_task_lists(
     api_client: &ApiClient,
     query: Option<&str>,

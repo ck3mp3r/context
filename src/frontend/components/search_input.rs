@@ -45,9 +45,6 @@ pub fn SearchInput(
                 .clear_timeout_with_handle(timeout_id);
         }
 
-        // Clone what we need for the closure
-        let on_change = on_change.clone();
-
         // Set new timeout for debounced callback
         let callback = Closure::once(move || {
             on_change.run(value);

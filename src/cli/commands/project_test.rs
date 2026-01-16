@@ -55,7 +55,7 @@ async fn test_list_projects() {
     let (url, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    let result = list_projects(&api_client, None, None, None, "json").await;
+    let result = list_projects(&api_client, None, None, None, None, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -85,7 +85,7 @@ async fn test_create_and_get_project() {
     assert!(output.contains("Created project"));
 
     // List shows our new project
-    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -117,7 +117,7 @@ async fn test_create_project_with_external_refs() {
     assert!(output.contains("Created project"));
 
     // List and verify external_refs is present
-    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -144,7 +144,7 @@ async fn test_update_project_external_refs() {
     assert!(create_result.is_ok());
 
     // Get project ID from list
-    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     let project_id = parsed[0]["id"].as_str().unwrap();
@@ -162,7 +162,7 @@ async fn test_update_project_external_refs() {
     assert!(update_result.is_ok());
 
     // Verify external_refs was added
-    let list_result = list_projects(&api_client, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed[0]["external_refs"], json!(["JIRA-456"]));
