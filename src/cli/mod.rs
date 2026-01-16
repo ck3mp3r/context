@@ -97,6 +97,9 @@ enum TaskCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by parent task ID (for listing subtasks)
         #[arg(long)]
         parent_id: Option<String>,
@@ -178,12 +181,22 @@ enum TaskCommands {
         /// Task ID to complete
         id: String,
     },
+    /// Transition task between statuses with validation
+    Transition {
+        /// Task ID to transition
+        id: String,
+        /// Target status (backlog, todo, in_progress, review, done, cancelled)
+        status: String,
+    },
 }
 
 #[derive(Subcommand)]
 enum NoteCommands {
     /// List notes
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
@@ -248,14 +261,6 @@ enum NoteCommands {
         #[arg(long)]
         force: bool,
     },
-    /// Search notes using FTS5
-    Search {
-        /// Search query
-        query: String,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
 }
 
 #[derive(Subcommand)]
@@ -288,6 +293,9 @@ enum SyncCommands {
 enum ProjectCommands {
     /// List all projects
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
@@ -410,6 +418,9 @@ enum RepoCommands {
 enum TaskListCommands {
     /// List all task lists
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by project ID
         #[arg(long)]
         project_id: Option<String>,
@@ -477,6 +488,14 @@ enum TaskListCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Get task statistics for a task list
+    Stats {
+        /// Task list ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub async fn run() -> Result<()> {
@@ -494,9 +513,15 @@ pub async fn run() -> Result<()> {
             commands::api::run(host, port, home, verbose, docs).await?;
         }
         Some(Commands::Project { command }) => match command {
-            ProjectCommands::List { tags, limit, json } => {
+            ProjectCommands::List {
+                query,
+                tags,
+                limit,
+                json,
+            } => {
                 let output = commands::project::list_projects(
                     &api_client,
+                    query.as_deref(),
                     tags.as_deref(),
                     limit,
                     None,
@@ -604,6 +629,7 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::TaskList { command }) => match command {
             TaskListCommands::List {
+                query,
                 project_id,
                 status,
                 tags,
@@ -612,6 +638,7 @@ pub async fn run() -> Result<()> {
             } => {
                 let output = commands::task_list::list_task_lists(
                     &api_client,
+                    query.as_deref(),
                     project_id.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
@@ -671,16 +698,27 @@ pub async fn run() -> Result<()> {
                 let output = commands::task_list::delete_task_list(&api_client, &id, force).await?;
                 println!("{}", output);
             }
+            TaskListCommands::Stats { id, json } => {
+                let output = commands::task_list::get_task_list_stats(
+                    &api_client,
+                    &id,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
         },
         Some(Commands::Task { command }) => match command {
             TaskCommands::List {
                 list_id,
                 json,
+                query,
                 parent_id,
                 status,
                 tags,
             } => {
                 let filter = commands::task::ListTasksFilter {
+                    query: query.as_deref(),
                     status: status.as_deref(),
                     parent_id: parent_id.as_deref(),
                     tags: tags.as_deref(),
@@ -754,15 +792,21 @@ pub async fn run() -> Result<()> {
                 let output = commands::task::complete_task(&api_client, &id).await?;
                 println!("{}", output);
             }
+            TaskCommands::Transition { id, status } => {
+                let output = commands::task::transition_task(&api_client, &id, &status).await?;
+                println!("{}", output);
+            }
         },
         Some(Commands::Note { command }) => match command {
             NoteCommands::List {
+                query,
                 tags,
                 parent_id,
                 json,
             } => {
                 let output = commands::note::list_notes(
                     &api_client,
+                    query.as_deref(),
                     tags.as_deref(),
                     parent_id.as_deref(),
                     None,
@@ -818,15 +862,6 @@ pub async fn run() -> Result<()> {
             }
             NoteCommands::Delete { id, force } => {
                 let output = commands::note::delete_note(&api_client, &id, force).await?;
-                println!("{}", output);
-            }
-            NoteCommands::Search { query, json } => {
-                let output = commands::note::search_notes(
-                    &api_client,
-                    &query,
-                    if json { "json" } else { "table" },
-                )
-                .await?;
                 println!("{}", output);
             }
         },

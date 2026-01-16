@@ -89,6 +89,7 @@ struct TaskListResponse {
 
 /// Filter parameters for listing tasks
 pub struct ListTasksFilter<'a> {
+    pub query: Option<&'a str>,
     pub status: Option<&'a str>,
     pub parent_id: Option<&'a str>,
     pub tags: Option<&'a str>,
@@ -105,6 +106,9 @@ pub async fn list_tasks(
 ) -> CliResult<String> {
     let mut request = api_client.get(&format!("/api/v1/task-lists/{}/tasks", list_id));
 
+    if let Some(q) = filter.query {
+        request = request.query(&[("q", q)]);
+    }
     if let Some(s) = filter.status {
         request = request.query(&[("status", s)]);
     }
@@ -142,24 +146,44 @@ pub(crate) fn format_table(tasks: &[Task]) -> String {
 
 /// Mark a task as complete
 pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<String> {
-    let response = api_client
-        .post(&format!("/api/v1/tasks/{}/complete", task_id))
-        .send()
-        .await?;
+    // Use existing update_task with status="done" via PATCH endpoint
+    update_task(
+        api_client,
+        task_id,
+        UpdateTaskParams {
+            title: None,
+            description: None,
+            status: Some("done"),
+            priority: None,
+            parent_id: None,
+            tags: None,
+            external_refs: None,
+        },
+    )
+    .await
+}
 
-    if response.status().is_success() {
-        Ok(format!("✓ Task {} marked as complete", task_id))
-    } else {
-        let status = response.status().as_u16();
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        Err(CliError::ApiError {
-            status,
-            message: error_text,
-        })
-    }
+/// Transition a task to a new status
+pub async fn transition_task(
+    api_client: &ApiClient,
+    task_id: &str,
+    status: &str,
+) -> CliResult<String> {
+    // Use existing update_task with the target status via PATCH endpoint
+    update_task(
+        api_client,
+        task_id,
+        UpdateTaskParams {
+            title: None,
+            description: None,
+            status: Some(status),
+            priority: None,
+            parent_id: None,
+            tags: None,
+            external_refs: None,
+        },
+    )
+    .await
 }
 
 /// Get a single task by ID

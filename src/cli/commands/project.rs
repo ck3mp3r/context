@@ -76,6 +76,7 @@ impl From<&Project> for ProjectDisplay {
 /// List projects with optional filtering
 pub async fn list_projects(
     api_client: &ApiClient,
+    query: Option<&str>,
     tags: Option<&str>,
     limit: Option<u32>,
     offset: Option<u32>,
@@ -83,6 +84,9 @@ pub async fn list_projects(
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/projects");
 
+    if let Some(q) = query {
+        request = request.query(&[("q", q)]);
+    }
     if let Some(t) = tags {
         request = request.query(&[("tags", t)]);
     }
