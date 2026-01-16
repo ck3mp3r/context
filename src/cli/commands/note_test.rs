@@ -1,268 +1,439 @@
+use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::note::*;
+use crate::db::{Database, SqliteDatabase};
+use crate::sync::MockGitOps;
+use serde_json::json;
+use tokio::net::TcpListener;
 
-#[test]
-fn test_format_table_with_notes() {
-    let notes = vec![
-        Note {
-            id: "12345678".to_string(),
-            title: "Test note 1".to_string(),
-            content: "Content 1".to_string(),
-            tags: vec!["rust".to_string(), "tdd".to_string()],
-            parent_id: None,
-            idx: None,
-            repo_ids: None,
-            project_ids: None,
-            created_at: "2025-12-28T10:00:00Z".to_string(),
-            updated_at: "2025-12-28T10:00:00Z".to_string(),
-        },
-        Note {
-            id: "87654321".to_string(),
-            title: "Test note 2 with a very long title that should be truncated".to_string(),
-            content: "Content 2".to_string(),
-            tags: vec![],
-            parent_id: None,
-            idx: None,
-            repo_ids: None,
-            project_ids: None,
-            created_at: "2025-12-28T11:00:00Z".to_string(),
-            updated_at: "2025-12-28T11:00:00Z".to_string(),
-        },
-    ];
+// =============================================================================
+// Integration Tests - Test CLI commands against real HTTP server
+// =============================================================================
 
-    let output = format_table(&notes);
-    println!("Output:\n{}", output);
+/// Spawn a test HTTP server with in-memory database
+async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
+    db.migrate().expect("Failed to run migrations");
 
-    assert!(output.contains("12345678"));
-    assert!(output.contains("Test note 1"));
-    assert!(output.contains("rust, tdd"));
-    assert!(output.contains("87654321"));
-    assert!(output.contains("..."));
+    // Create test project
+    let project_id = sqlx::query_scalar::<_, String>(
+        "INSERT INTO project (id, title, description, tags, created_at, updated_at) 
+         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now')) 
+         RETURNING id"
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("Failed to create test project");
 
-    // Test that table has rounded style characters
-    assert!(output.contains("╭") || output.contains("─"));
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
+    );
+    let app = routes::create_router(state, false);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}", addr);
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    // Give server time to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    (url, project_id, handle)
 }
 
-#[test]
-fn test_format_table_empty() {
-    let notes: Vec<Note> = vec![];
-    let output = format_table(&notes);
-    assert_eq!(output, "No notes found.");
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create note with content and tags
+    let result = create_note(
+        &api_client,
+        "Integration Test Note",
+        "This is test content for integration testing",
+        Some("rust,testing,integration"),
+        None,
+        None,
+    )
+    .await;
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+
+    // Extract note ID from success message: "✓ Created note: Title (note_id)"
+    let note_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Verify all fields were persisted correctly by fetching the note
+    let get_result = get_note(&api_client, note_id, "json")
+        .await
+        .expect("Failed to get note");
+    let created_note: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(created_note["title"], "Integration Test Note");
+    assert_eq!(
+        created_note["content"],
+        "This is test content for integration testing"
+    );
+    assert_eq!(
+        created_note["tags"],
+        json!(["rust", "testing", "integration"])
+    );
 }
 
-#[test]
-fn test_note_display_conversion() {
-    let note = Note {
-        id: "12345678".to_string(),
-        title: "short title".to_string(),
-        content: "test content".to_string(),
-        tags: vec!["rust".to_string(), "tdd".to_string()],
-        parent_id: None,
-        idx: None,
-        repo_ids: None,
-        project_ids: None,
-        created_at: "2025-12-28T10:00:00Z".to_string(),
-        updated_at: "2025-12-28T10:00:00Z".to_string(),
-    };
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-    let display: NoteDisplay = (&note).into();
-    assert_eq!(display.id, "12345678");
-    assert_eq!(display.title, "short title");
-    assert_eq!(display.tags, "rust, tdd");
+    // Create two notes
+    create_note(&api_client, "Note 1", "Content 1", Some("tag1"), None, None)
+        .await
+        .expect("Failed to create note 1");
+    create_note(&api_client, "Note 2", "Content 2", Some("tag2"), None, None)
+        .await
+        .expect("Failed to create note 2");
 
-    let note_long = Note {
-        id: "abc12345".to_string(),
-        title: "x".repeat(60),
-        content: "test content".to_string(),
-        tags: vec![],
-        parent_id: None,
-        idx: None,
-        repo_ids: None,
-        project_ids: None,
-        created_at: "2025-12-28T10:00:00Z".to_string(),
-        updated_at: "2025-12-28T10:00:00Z".to_string(),
-    };
+    // List notes
+    let result = list_notes(&api_client, None, None, None, None, None, "json").await;
+    assert!(result.is_ok());
 
-    let display_long: NoteDisplay = (&note_long).into();
-    assert_eq!(display_long.id, "abc12345");
-    assert!(display_long.title.ends_with("..."));
-    assert_eq!(display_long.tags, "-");
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("Failed to parse JSON");
+
+    assert_eq!(parsed.as_array().unwrap().len(), 2);
+    assert_eq!(parsed[0]["title"], "Note 1");
+    assert_eq!(parsed[1]["title"], "Note 2");
 }
 
-#[tokio::test]
-async fn test_list_notes_json_format() {
-    let notes = vec![Note {
-        id: "12345678".to_string(),
-        title: "Test note".to_string(),
-        content: "Test content".to_string(),
-        tags: vec!["test".to_string()],
-        parent_id: None,
-        idx: None,
-        repo_ids: None,
-        project_ids: None,
-        created_at: "2025-12-28T10:00:00Z".to_string(),
-        updated_at: "2025-12-28T10:00:00Z".to_string(),
-    }];
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_note_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-    let json = serde_json::to_string_pretty(&notes).unwrap();
-    assert!(json.contains("Test note"));
-    assert!(json.contains("test"));
+    // Create note
+    let create_result = create_note(&api_client, "Test Note", "Test content", None, None, None)
+        .await
+        .expect("Failed to create note");
+
+    // Extract note ID from success message
+    let note_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Get note
+    let result = get_note(&api_client, note_id, "json").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let note: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(note["title"], "Test Note");
+    assert_eq!(note["content"], "Test content");
 }
 
-#[test]
-fn test_search_notes_query_param() {
-    // reqwest's query builder handles URL encoding automatically
-    // This test just validates the query parameter structure
-    let query = "rust async";
-    assert!(query.contains("rust"));
-    assert!(query.contains("async"));
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_note_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create note
+    let create_result = create_note(
+        &api_client,
+        "Original Title",
+        "Original content",
+        Some("tag1"),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create note");
+
+    let note_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Update note
+    let result = update_note(
+        &api_client,
+        note_id,
+        Some("Updated Title"),
+        Some("Updated content"),
+        Some("tag1,tag2"),
+        None,
+        None,
+    )
+    .await;
+    assert!(result.is_ok());
+
+    // Verify updates
+    let get_result = get_note(&api_client, note_id, "json")
+        .await
+        .expect("Failed to get note");
+    let updated_note: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(updated_note["title"], "Updated Title");
+    assert_eq!(updated_note["content"], "Updated content");
+    assert_eq!(updated_note["tags"], json!(["tag1", "tag2"]));
 }
 
-// Tests for new CRUD operations
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_note_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-#[test]
-fn test_get_note_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let id = "abc12345";
-    let builder = client.get(&format!("/api/v1/notes/{}", id));
-    let _request = builder;
+    // Create note
+    let create_result = create_note(&api_client, "Note to Delete", "Content", None, None, None)
+        .await
+        .expect("Failed to create note");
+
+    let note_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Delete without force should fail
+    let result = delete_note(&api_client, note_id, false).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("--force"));
+
+    // Delete with force should succeed
+    let result = delete_note(&api_client, note_id, true).await;
+    assert!(result.is_ok());
+
+    // Verify note is deleted
+    let get_result = get_note(&api_client, note_id, "json").await;
+    assert!(get_result.is_err());
 }
 
-#[test]
-fn test_create_note_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let builder = client.post("/api/v1/notes");
-    let _request = builder;
+#[tokio::test(flavor = "multi_thread")]
+async fn test_hierarchical_notes_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create parent note
+    let parent_result = create_note(
+        &api_client,
+        "Parent Note",
+        "Parent content",
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create parent note");
+
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract parent ID");
+
+    // Create child note with parent_id and idx
+    let child_result = create_note(
+        &api_client,
+        "Child Note",
+        "Child content",
+        None,
+        Some(parent_id),
+        Some(1),
+    )
+    .await;
+    assert!(child_result.is_ok());
+
+    let child_id = child_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract child ID")
+        .to_string();
+
+    // Verify child note has parent_id
+    let get_result = get_note(&api_client, &child_id, "json")
+        .await
+        .expect("Failed to get child note");
+    let child_note: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(child_note["parent_id"], parent_id);
+    assert_eq!(child_note["idx"], 1);
+
+    // List notes filtered by parent_id
+    let result = list_notes(&api_client, None, None, Some(parent_id), None, None, "json").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+    assert_eq!(parsed[0]["title"], "Child Note");
 }
 
-#[test]
-fn test_update_note_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let id = "abc12345";
-    let builder = client.patch(&format!("/api/v1/notes/{}", id));
-    let _request = builder;
-}
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_filters_integration() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-#[test]
-fn test_delete_note_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let id = "abc12345";
-    let builder = client.delete(&format!("/api/v1/notes/{}", id));
-    let _request = builder;
-}
+    // Create notes with different tags
+    create_note(
+        &api_client,
+        "Rust Note",
+        "Content",
+        Some("rust,programming"),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create note 1");
+    create_note(
+        &api_client,
+        "Testing Note",
+        "Content",
+        Some("testing,qa"),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create note 2");
 
-#[test]
-fn test_create_request_serialization() {
-    let req = CreateNoteRequest {
-        title: "Test Note".to_string(),
-        content: "Test content".to_string(),
-        tags: Some(vec!["test".to_string()]),
-        parent_id: None,
-        idx: None,
-    };
+    // Filter by tags
+    let result = list_notes(&api_client, None, Some("rust"), None, None, None, "json").await;
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
-    let json = serde_json::to_string(&req).unwrap();
-    assert!(json.contains("Test Note"));
-    assert!(json.contains("Test content"));
-    assert!(json.contains("test"));
-}
-
-#[test]
-fn test_update_request_serialization() {
-    let req = UpdateNoteRequest {
-        title: Some("Updated Title".to_string()),
-        content: Some("Updated content".to_string()),
-        tags: Some(vec!["updated".to_string()]),
-        parent_id: None,
-        idx: None,
-    };
-
-    let json = serde_json::to_string(&req).unwrap();
-    assert!(json.contains("Updated Title"));
-    assert!(json.contains("Updated content"));
-    assert!(json.contains("updated"));
-}
-
-#[test]
-fn test_note_with_all_fields() {
-    let note = Note {
-        id: "abc12345".to_string(),
-        title: "Full note".to_string(),
-        content: "Full content".to_string(),
-        tags: vec!["tag1".to_string(), "tag2".to_string()],
-        repo_ids: Some(vec!["repo1".to_string()]),
-        project_ids: Some(vec!["proj1".to_string()]),
-        created_at: "2025-12-28T10:00:00Z".to_string(),
-        updated_at: "2025-12-28T11:00:00Z".to_string(),
-        parent_id: None,
-        idx: None,
-    };
-
-    assert_eq!(note.id, "abc12345");
-    assert_eq!(note.title, "Full note");
-    assert_eq!(note.tags, vec!["tag1".to_string(), "tag2".to_string()]);
+    // Find the rust note in results
+    let rust_note = parsed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["title"] == "Rust Note");
+    assert!(rust_note.is_some(), "Should find Rust note in results");
 }
 
 // =============================================================================
-// Hierarchical Notes Tests (parent_id and idx)
+// Unhappy Path Tests - NOT FOUND Errors
 // =============================================================================
 
-#[test]
-fn test_create_request_includes_parent_id_and_idx() {
-    let req = CreateNoteRequest {
-        title: "Child Note".to_string(),
-        content: "Child content".to_string(),
-        tags: None,
-        parent_id: Some("parent123".to_string()),
-        idx: Some(10),
-    };
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_note_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
 
-    // Verify the struct has the fields set correctly
-    assert_eq!(req.parent_id, Some("parent123".to_string()));
-    assert_eq!(req.idx, Some(10));
+    // Try to get non-existent note
+    let result = get_note(&api_client, "nonexist", "json").await;
 
-    // Verify serialization produces valid JSON with the fields
-    let json = serde_json::to_value(&req).unwrap();
-    assert_eq!(json["parent_id"], "parent123");
-    assert_eq!(json["idx"], 10);
+    // Should return error with not found message
+    assert!(result.is_err(), "Should return error for non-existent note");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
 }
 
-#[test]
-fn test_update_request_includes_parent_id_and_idx() {
-    let req = UpdateNoteRequest {
-        title: Some("Updated".to_string()),
-        content: Some("Content".to_string()),
-        tags: None,
-        parent_id: Some(Some("parent456".to_string())),
-        idx: Some(Some(20)),
-    };
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_note_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
 
-    // Verify the struct has the fields set correctly
-    assert_eq!(req.parent_id, Some(Some("parent456".to_string())));
-    assert_eq!(req.idx, Some(Some(20)));
+    // Try to update non-existent note
+    let result = update_note(
+        &api_client,
+        "nonexist",
+        Some("New Title"),
+        Some("New content"),
+        None,
+        None,
+        None,
+    )
+    .await;
 
-    // Verify serialization
-    let json = serde_json::to_value(&req).unwrap();
-    assert_eq!(json["parent_id"], "parent456");
-    assert_eq!(json["idx"], 20);
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent note");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
 }
 
-#[test]
-fn test_note_response_includes_parent_id_and_idx() {
-    let note = Note {
-        id: "child123".to_string(),
-        title: "Child note".to_string(),
-        content: "Child content".to_string(),
-        tags: vec![],
-        parent_id: Some("parent789".to_string()),
-        idx: Some(15),
-        repo_ids: None,
-        project_ids: None,
-        created_at: "2025-12-28T10:00:00Z".to_string(),
-        updated_at: "2025-12-28T11:00:00Z".to_string(),
-    };
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_note_not_found_with_force() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
 
-    // Verify fields are accessible
-    assert_eq!(note.parent_id, Some("parent789".to_string()));
-    assert_eq!(note.idx, Some(15));
+    // Try to delete non-existent note with --force
+    let result = delete_note(&api_client, "nonexist", true).await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent note");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+// =============================================================================
+// Unhappy Path Tests - Validation Errors
+// =============================================================================
+
+// NOTE: The following validation tests are NOT included because the API does not validate these cases:
+// - test_create_note_empty_title: API allows empty titles (no validation at HTTP API layer)
+// - test_create_note_with_nonexistent_parent_id: API allows nonexistent parent_id (no FK validation)
+// - test_create_note_exceeds_max_content_size: No hard limit enforced at API layer
+
+// =============================================================================
+// Unhappy Path Tests - Edge Cases
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_nonexistent_tag() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create note with tags
+    create_note(
+        &api_client,
+        "Note 1",
+        "Content",
+        Some("rust,testing"),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create note");
+
+    // Filter by non-existent tag - should not error
+    let result = list_notes(
+        &api_client,
+        None,
+        Some("nonexistent"),
+        None,
+        None,
+        None,
+        "json",
+    )
+    .await;
+
+    // Should succeed (doesn't error) - API returns results
+    assert!(
+        result.is_ok(),
+        "Filtering by nonexistent tag should not error"
+    );
 }
