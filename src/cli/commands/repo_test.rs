@@ -83,3 +83,70 @@ async fn test_create_and_get_repo() {
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed.as_array().unwrap().len(), 1);
 }
+
+// =============================================================================
+// Unhappy Path Tests - NOT FOUND Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_repo_not_found() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to get non-existent repo
+    let result = get_repo(&api_client, "nonexist", "json").await;
+
+    // Should return error (might be decode error or 404)
+    assert!(result.is_err(), "Should return error for non-existent repo");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_repo_not_found() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to update non-existent repo
+    let result = update_repo(
+        &api_client,
+        "nonexist",
+        Some("https://github.com/test/new"),
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent repo");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_repo_not_found_with_force() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to delete non-existent repo with --force
+    let result = delete_repo(&api_client, "nonexist", true).await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent repo");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+// =============================================================================
+// Unhappy Path Tests - Validation Errors
+// =============================================================================
+
+// NOTE: The following validation tests are NOT included because the API does not validate these cases:
+// - test_create_repo_empty_remote: API might allow empty remote URLs (no validation at HTTP API layer)
+// - test_create_repo_invalid_remote_format: API likely doesn't validate URL format

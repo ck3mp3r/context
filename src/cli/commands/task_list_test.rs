@@ -251,3 +251,95 @@ async fn test_task_list_stats_integration() {
     assert_eq!(stats["total"], 2);
     assert_eq!(stats["backlog"], 2);
 }
+
+// =============================================================================
+// Unhappy Path Tests - NOT FOUND Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_list_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to get non-existent task_list
+    let result = get_task_list(&api_client, "nonexist", "json").await;
+
+    // Should return error with not found message
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent task_list"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_list_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to update non-existent task_list
+    let result = update_task_list(
+        &api_client,
+        "nonexist",
+        Some("New Title"),
+        Some("New desc"),
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent task_list"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+// NOTE: Stats endpoint does not return 404 for nonexistent lists (returns empty stats instead)
+// - test_get_task_list_stats_not_found: Not included - API returns empty/zero stats instead of error
+
+// =============================================================================
+// Unhappy Path Tests - Validation Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_list_with_nonexistent_project_id() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to create task_list with non-existent project_id
+    let result =
+        create_task_list(&api_client, "Task List Title", "nonexist", None, None, None).await;
+
+    // Should return error (foreign key constraint)
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent project_id"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found")
+            || error.contains("404")
+            || error.contains("project")
+            || error.contains("foreign key")
+            || error.contains("constraint"),
+        "Error should mention project or foreign key, got: {}",
+        error
+    );
+}
+
+// NOTE: The following validation tests are NOT included because the API does not validate these cases:
+// - test_create_task_list_empty_title: API allows empty titles (no validation at HTTP API layer)
+// - test_create_task_list_without_project_id: This is a CLI-level check - API requires project_id field,
+//   but CLI always provides it (might be empty string which API would accept)

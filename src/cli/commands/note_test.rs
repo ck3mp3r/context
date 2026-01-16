@@ -321,3 +321,79 @@ async fn test_list_notes_with_filters_integration() {
         .find(|n| n["title"] == "Rust Note");
     assert!(rust_note.is_some(), "Should find Rust note in results");
 }
+
+// =============================================================================
+// Unhappy Path Tests - NOT FOUND Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_note_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to get non-existent note
+    let result = get_note(&api_client, "nonexist", "json").await;
+
+    // Should return error with not found message
+    assert!(result.is_err(), "Should return error for non-existent note");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_note_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to update non-existent note
+    let result = update_note(
+        &api_client,
+        "nonexist",
+        Some("New Title"),
+        Some("New content"),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent note");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_note_not_found_with_force() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to delete non-existent note with --force
+    let result = delete_note(&api_client, "nonexist", true).await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent note");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+// =============================================================================
+// Unhappy Path Tests - Validation Errors
+// =============================================================================
+
+// NOTE: The following validation tests are NOT included because the API does not validate these cases:
+// - test_create_note_empty_title: API allows empty titles (no validation at HTTP API layer)
+// - test_create_note_with_nonexistent_parent_id: API allows nonexistent parent_id (no FK validation)
+// - test_create_note_exceeds_max_content_size: No hard limit enforced at API layer

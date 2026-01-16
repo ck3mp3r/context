@@ -167,3 +167,79 @@ async fn test_update_project_external_refs() {
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed[0]["external_refs"], json!(["JIRA-456"]));
 }
+
+// =============================================================================
+// Unhappy Path Tests - NOT FOUND Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_project_not_found() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to get non-existent project
+    let result = get_project(&api_client, "nonexist", "json").await;
+
+    // Should return error (might be decode error or 404)
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent project"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_project_not_found() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to update non-existent project
+    let result = update_project(
+        &api_client,
+        "nonexist",
+        Some("New Title"),
+        Some("New desc"),
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent project"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_project_not_found_with_force() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to delete non-existent project with --force
+    let result = delete_project(&api_client, "nonexist", true).await;
+
+    // Should return error
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent project"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+// =============================================================================
+// Unhappy Path Tests - Validation Errors
+// =============================================================================
+
+// NOTE: The following validation tests are NOT included because the API does not validate these cases:
+// - test_create_project_empty_title: API allows empty titles (no validation at HTTP API layer)

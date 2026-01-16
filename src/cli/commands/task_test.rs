@@ -597,3 +597,276 @@ async fn test_list_tasks_with_filters_integration() {
     );
     assert_eq!(feature_task.unwrap()["tags"], json!(["feature"]));
 }
+
+// =============================================================================
+// Unhappy Path Tests - NOT FOUND Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to get non-existent task
+    let result = get_task(&api_client, "nonexist", "json").await;
+
+    // Should return error with not found message
+    assert!(result.is_err(), "Should return error for non-existent task");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to update non-existent task
+    let result = update_task(
+        &api_client,
+        "nonexist",
+        UpdateTaskParams {
+            title: Some("New Title"),
+            description: None,
+            status: None,
+            priority: None,
+            parent_id: None,
+            tags: None,
+            external_refs: None,
+        },
+    )
+    .await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent task");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_task_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to delete non-existent task (with force=true as required by signature)
+    let result = delete_task(&api_client, "nonexist", true).await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent task");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_complete_task_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to complete non-existent task
+    let result = complete_task(&api_client, "nonexist").await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent task");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transition_task_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to transition non-existent task
+    let result = transition_task(&api_client, "nonexist", "todo").await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent task");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
+
+// =============================================================================
+// Unhappy Path Tests - Validation Errors
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_invalid_priority_zero() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to create task with priority 0 (invalid: must be 1-5)
+    let result = create_task(
+        &api_client,
+        &list_id,
+        "Invalid Priority Task",
+        None,
+        Some(0),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error with validation message
+    assert!(result.is_err(), "Should return error for priority 0");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("priority") || error.contains("1") || error.contains("5"),
+        "Error should mention priority validation, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_invalid_priority_six() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to create task with priority 6 (invalid: must be 1-5)
+    let result = create_task(
+        &api_client,
+        &list_id,
+        "Invalid Priority Task",
+        None,
+        Some(6),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for priority 6");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("priority") || error.contains("1") || error.contains("5"),
+        "Error should mention priority validation, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_invalid_priority_negative() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to create task with priority -1 (invalid)
+    let result = create_task(
+        &api_client,
+        &list_id,
+        "Invalid Priority Task",
+        None,
+        Some(-1),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for priority -1");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("priority") || error.contains("1") || error.contains("5"),
+        "Error should mention priority validation, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_nonexistent_list_id() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to create task with non-existent list_id
+    let result = create_task(
+        &api_client,
+        "nonexist",
+        "Task Title",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Should return error (foreign key constraint)
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent list_id"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found")
+            || error.contains("404")
+            || error.contains("foreign key")
+            || error.contains("constraint"),
+        "Error should mention foreign key or not found, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_nonexistent_parent_id() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to create subtask with non-existent parent_id
+    let result = create_task(
+        &api_client,
+        &list_id,
+        "Subtask",
+        None,
+        None,
+        None,
+        None,
+        Some("nonexist"),
+    )
+    .await;
+
+    // Should return error (foreign key constraint)
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent parent_id"
+    );
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found")
+            || error.contains("404")
+            || error.contains("parent")
+            || error.contains("foreign key")
+            || error.contains("constraint"),
+        "Error should mention parent or foreign key, got: {}",
+        error
+    );
+}
+
+// NOTE: The following tests are NOT included because the API does not validate these cases:
+// - test_transition_task_invalid_backlog_to_done: API PATCH /tasks/{id} allows any status transition
+//   (validation only exists in MCP tool layer, not HTTP API)
+// - test_create_task_empty_title: API allows empty titles (no validation at HTTP API layer)
