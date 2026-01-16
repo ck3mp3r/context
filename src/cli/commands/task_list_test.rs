@@ -1,142 +1,237 @@
+use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task_list::*;
-use crate::cli::utils::parse_tags;
+use crate::db::{Database, SqliteDatabase};
+use crate::sync::MockGitOps;
+use tokio::net::TcpListener;
 
-// Test helper functions
-#[test]
-fn test_parse_tags_helper() {
-    let tags = parse_tags(Some("tag1,tag2"));
-    assert_eq!(tags, Some(vec!["tag1".to_string(), "tag2".to_string()]));
+// =============================================================================
+// Integration Tests - Test CLI commands against real HTTP server
+// =============================================================================
 
-    let empty = parse_tags(None);
-    assert_eq!(empty, None);
+/// Spawn a test HTTP server with in-memory database
+async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
+    db.migrate().expect("Failed to run migrations");
+
+    // Create test project
+    let project_id = sqlx::query_scalar::<_, String>(
+        "INSERT INTO project (id, title, description, tags, created_at, updated_at) 
+         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now')) 
+         RETURNING id"
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("Failed to create test project");
+
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
+    );
+    let app = routes::create_router(state, false);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}", addr);
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    // Give server time to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    (url, project_id, handle)
 }
 
-#[test]
-fn test_parse_repo_ids() {
-    let ids = "abc12345,def67890";
-    let result: Vec<String> = ids.split(',').map(|s| s.trim().to_string()).collect();
-    assert_eq!(result, vec!["abc12345".to_string(), "def67890".to_string()]);
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_list_integration() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task list
+    let result = create_task_list(
+        &api_client,
+        "Integration Test List",
+        &project_id,
+        Some("Test description"),
+        Some("testing,integration"),
+        None,
+    )
+    .await;
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+
+    // Output is success message
+    assert!(output.contains("Integration Test List"));
+    assert!(output.contains("Created task list"));
 }
 
-#[test]
-fn test_task_list_display_from() {
-    let task_list = TaskList {
-        id: "abc12345".to_string(),
-        title: "Test Task List".to_string(),
-        description: Some("Description".to_string()),
-        notes: None,
-        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
-        external_refs: vec![],
-        status: "active".to_string(),
-        repo_ids: None,
-        project_id: "proj1234".to_string(),
-        created_at: "2025-01-01T00:00:00Z".to_string(),
-        updated_at: "2025-01-01T00:00:00Z".to_string(),
-        archived_at: None,
-    };
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_task_lists_integration() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-    let display = TaskListDisplay::from(&task_list);
-    assert_eq!(display.id, "abc12345");
-    assert_eq!(display.title, "Test Task List");
-    assert_eq!(display.project_id, "proj1234");
-    assert_eq!(display.status, "active");
-    assert_eq!(display.tags, "tag1, tag2");
+    // Create two task lists
+    create_task_list(&api_client, "List 1", &project_id, None, Some("tag1"), None)
+        .await
+        .expect("Failed to create list 1");
+    create_task_list(&api_client, "List 2", &project_id, None, Some("tag2"), None)
+        .await
+        .expect("Failed to create list 2");
+
+    // List task lists
+    let result = list_task_lists(&api_client, None, None, None, None, None, None, "json").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("Failed to parse JSON");
+
+    assert_eq!(parsed.as_array().unwrap().len(), 2);
+    assert_eq!(parsed[0]["title"], "List 1");
+    assert_eq!(parsed[1]["title"], "List 2");
 }
 
-#[test]
-fn test_format_table_empty() {
-    let result = format_table(&[]);
-    assert_eq!(result, "No task lists found.");
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_list_integration() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create task list
+    let create_result = create_task_list(
+        &api_client,
+        "Test List",
+        &project_id,
+        Some("Description"),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create task list");
+
+    // Extract list ID from success message
+    let list_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
+
+    // Get task list
+    let result = get_task_list(&api_client, list_id, "json").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let task_list: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(task_list["title"], "Test List");
+    assert_eq!(task_list["description"], "Description");
 }
 
-#[test]
-fn test_format_table_with_data() {
-    let task_lists = vec![TaskList {
-        id: "abc12345".to_string(),
-        title: "Test".to_string(),
-        description: None,
-        notes: None,
-        tags: None,
-        external_refs: vec![],
-        status: "active".to_string(),
-        repo_ids: None,
-        project_id: "proj1234".to_string(),
-        created_at: "2025-01-01T00:00:00Z".to_string(),
-        updated_at: "2025-01-01T00:00:00Z".to_string(),
-        archived_at: None,
-    }];
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_list_integration() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-    let result = format_table(&task_lists);
-    assert!(result.contains("abc12345"));
-    assert!(result.contains("Test"));
-    assert!(result.contains("active"));
+    // Create task list
+    let create_result = create_task_list(
+        &api_client,
+        "Original Title",
+        &project_id,
+        Some("Original desc"),
+        Some("tag1"),
+        None,
+    )
+    .await
+    .expect("Failed to create task list");
+
+    let list_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
+
+    // Update task list
+    let result = update_task_list(
+        &api_client,
+        list_id,
+        Some("Updated Title"),
+        Some("Updated description"),
+        None,
+        Some("tag1,tag2"),
+    )
+    .await;
+    assert!(result.is_ok());
+
+    // Verify updates
+    let get_result = get_task_list(&api_client, list_id, "json")
+        .await
+        .expect("Failed to get task list");
+    let updated_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(updated_list["title"], "Updated Title");
+    assert_eq!(updated_list["description"], "Updated description");
 }
 
-// API client tests (smoke tests for URL building)
-#[test]
-fn test_list_task_lists_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let builder = client.get("/api/v1/task-lists");
-    let _request = builder;
-}
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_stats_integration() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-#[test]
-fn test_get_task_list_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let id = "abc12345";
-    let builder = client.get(&format!("/api/v1/task-lists/{}", id));
-    let _request = builder;
-}
+    // Create task list
+    let create_result = create_task_list(
+        &api_client,
+        "Stats Test List",
+        &project_id,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create task list");
 
-#[test]
-fn test_create_task_list_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let builder = client.post("/api/v1/task-lists");
-    let _request = builder;
-}
+    let list_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
 
-#[test]
-fn test_update_task_list_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let id = "abc12345";
-    let builder = client.patch(&format!("/api/v1/task-lists/{}", id));
-    let _request = builder;
-}
+    // Create some tasks in the list
+    crate::cli::commands::task::create_task(
+        &api_client,
+        list_id,
+        "Task 1",
+        None,
+        Some(1),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create task 1");
 
-#[test]
-fn test_delete_task_list_builds_correct_url() {
-    let client = ApiClient::new(None);
-    let id = "abc12345";
-    let builder = client.delete(&format!("/api/v1/task-lists/{}", id));
-    let _request = builder;
-}
+    crate::cli::commands::task::create_task(
+        &api_client,
+        list_id,
+        "Task 2",
+        None,
+        Some(2),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create task 2");
 
-#[test]
-fn test_create_request_serialization() {
-    let req = CreateTaskListRequest {
-        title: "Test".to_string(),
-        project_id: "proj1234".to_string(),
-        description: Some("Desc".to_string()),
-        tags: Some(vec!["tag1".to_string()]),
-        repo_ids: Some(vec!["repo1".to_string()]),
-    };
+    // Get stats
+    let result = get_task_list_stats(&api_client, list_id, "json").await;
+    assert!(result.is_ok());
 
-    let json = serde_json::to_string(&req).unwrap();
-    assert!(json.contains("Test"));
-    assert!(json.contains("proj1234"));
-}
+    let output = result.unwrap();
+    let stats: serde_json::Value = serde_json::from_str(&output).unwrap();
 
-#[test]
-fn test_update_request_serialization() {
-    let req = UpdateTaskListRequest {
-        title: "Updated".to_string(),
-        description: Some("New desc".to_string()),
-        status: Some("archived".to_string()),
-        tags: Some(vec!["tag2".to_string()]),
-    };
-
-    let json = serde_json::to_string(&req).unwrap();
-    assert!(json.contains("Updated"));
-    assert!(json.contains("archived"));
+    // Both tasks should be in backlog status by default
+    assert_eq!(stats["total"], 2);
+    assert_eq!(stats["backlog"], 2);
 }
