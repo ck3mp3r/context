@@ -397,3 +397,43 @@ async fn test_delete_note_not_found_with_force() {
 // - test_create_note_empty_title: API allows empty titles (no validation at HTTP API layer)
 // - test_create_note_with_nonexistent_parent_id: API allows nonexistent parent_id (no FK validation)
 // - test_create_note_exceeds_max_content_size: No hard limit enforced at API layer
+
+// =============================================================================
+// Unhappy Path Tests - Edge Cases
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_nonexistent_tag() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create note with tags
+    create_note(
+        &api_client,
+        "Note 1",
+        "Content",
+        Some("rust,testing"),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create note");
+
+    // Filter by non-existent tag - should not error
+    let result = list_notes(
+        &api_client,
+        None,
+        Some("nonexistent"),
+        None,
+        None,
+        None,
+        "json",
+    )
+    .await;
+
+    // Should succeed (doesn't error) - API returns results
+    assert!(
+        result.is_ok(),
+        "Filtering by nonexistent tag should not error"
+    );
+}
