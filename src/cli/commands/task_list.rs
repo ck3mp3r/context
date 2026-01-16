@@ -95,6 +95,7 @@ pub(crate) fn format_table(task_lists: &[TaskList]) -> String {
 /// List task lists with optional filtering
 pub async fn list_task_lists(
     api_client: &ApiClient,
+    query: Option<&str>,
     project_id: Option<&str>,
     status: Option<&str>,
     tags: Option<&str>,
@@ -104,6 +105,9 @@ pub async fn list_task_lists(
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/task-lists");
 
+    if let Some(q) = query {
+        request = request.query(&[("q", q)]);
+    }
     if let Some(p) = project_id {
         request = request.query(&[("project_id", p)]);
     }
@@ -270,5 +274,40 @@ pub async fn delete_task_list(api_client: &ApiClient, id: &str, force: bool) -> 
             status,
             message: error_text,
         })
+    }
+}
+
+/// Get task statistics for a task list
+pub async fn get_task_list_stats(
+    api_client: &ApiClient,
+    id: &str,
+    format: &str,
+) -> CliResult<String> {
+    let response = api_client
+        .get(&format!("/api/v1/task-lists/{}/stats", id))
+        .send()
+        .await?;
+
+    let stats: serde_json::Value = ApiClient::handle_response(response).await?;
+
+    match format {
+        "json" => Ok(serde_json::to_string_pretty(&stats)?),
+        _ => {
+            use tabled::builder::Builder;
+
+            let mut builder = Builder::default();
+            builder.push_record(["Metric", "Count"]);
+            builder.push_record(["Total", &stats["total"].to_string()]);
+            builder.push_record(["Backlog", &stats["backlog"].to_string()]);
+            builder.push_record(["Todo", &stats["todo"].to_string()]);
+            builder.push_record(["In Progress", &stats["in_progress"].to_string()]);
+            builder.push_record(["Review", &stats["review"].to_string()]);
+            builder.push_record(["Done", &stats["done"].to_string()]);
+            builder.push_record(["Cancelled", &stats["cancelled"].to_string()]);
+
+            let mut table = builder.build();
+            crate::cli::utils::apply_table_style(&mut table);
+            Ok(table.to_string())
+        }
     }
 }

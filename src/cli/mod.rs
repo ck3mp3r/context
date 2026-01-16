@@ -298,6 +298,9 @@ enum SyncCommands {
 enum ProjectCommands {
     /// List all projects
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
@@ -420,6 +423,9 @@ enum RepoCommands {
 enum TaskListCommands {
     /// List all task lists
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by project ID
         #[arg(long)]
         project_id: Option<String>,
@@ -487,6 +493,14 @@ enum TaskListCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Get task statistics for a task list
+    Stats {
+        /// Task list ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub async fn run() -> Result<()> {
@@ -504,9 +518,15 @@ pub async fn run() -> Result<()> {
             commands::api::run(host, port, home, verbose, docs).await?;
         }
         Some(Commands::Project { command }) => match command {
-            ProjectCommands::List { tags, limit, json } => {
+            ProjectCommands::List {
+                query,
+                tags,
+                limit,
+                json,
+            } => {
                 let output = commands::project::list_projects(
                     &api_client,
+                    query.as_deref(),
                     tags.as_deref(),
                     limit,
                     None,
@@ -614,6 +634,7 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::TaskList { command }) => match command {
             TaskListCommands::List {
+                query,
                 project_id,
                 status,
                 tags,
@@ -622,6 +643,7 @@ pub async fn run() -> Result<()> {
             } => {
                 let output = commands::task_list::list_task_lists(
                     &api_client,
+                    query.as_deref(),
                     project_id.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
@@ -679,6 +701,15 @@ pub async fn run() -> Result<()> {
             }
             TaskListCommands::Delete { id, force } => {
                 let output = commands::task_list::delete_task_list(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            TaskListCommands::Stats { id, json } => {
+                let output = commands::task_list::get_task_list_stats(
+                    &api_client,
+                    &id,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
                 println!("{}", output);
             }
         },
