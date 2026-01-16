@@ -3,6 +3,7 @@ use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task_list::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
+use serde_json::json;
 use tokio::net::TcpListener;
 
 // =============================================================================
@@ -52,7 +53,7 @@ async fn test_create_task_list_integration() {
     let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    // Create task list
+    // Create task list with description and tags
     let result = create_task_list(
         &api_client,
         "Integration Test List",
@@ -66,9 +67,24 @@ async fn test_create_task_list_integration() {
     assert!(result.is_ok());
     let output = result.unwrap();
 
-    // Output is success message
-    assert!(output.contains("Integration Test List"));
-    assert!(output.contains("Created task list"));
+    // Extract list ID from success message: "✓ Created task list: Title (list_id)"
+    let list_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
+
+    // Verify all fields were persisted correctly by fetching the task list
+    let get_result = get_task_list(&api_client, list_id, "json")
+        .await
+        .expect("Failed to get task list");
+    let created_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(created_list["title"], "Integration Test List");
+    assert_eq!(created_list["description"], "Test description");
+    assert_eq!(created_list["tags"], json!(["testing", "integration"]));
+    assert_eq!(created_list["project_id"], project_id);
+    assert_eq!(created_list["status"], "active");
 }
 
 #[tokio::test(flavor = "multi_thread")]

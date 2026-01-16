@@ -171,7 +171,7 @@ async fn test_create_task_integration() {
     let list_id = create_test_task_list(&url, &project_id).await;
     let api_client = ApiClient::new(Some(url));
 
-    // Create task
+    // Create task with all fields
     let result = create_task(
         &api_client,
         &list_id,
@@ -187,9 +187,117 @@ async fn test_create_task_integration() {
     assert!(result.is_ok());
     let output = result.unwrap();
 
-    // Output is success message, not JSON
-    assert!(output.contains("Integration Test Task"));
-    assert!(output.contains("Created task"));
+    // Extract task ID from success message: "✓ Created task: Title (task_id)"
+    let task_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract task ID");
+
+    // Verify all fields were persisted correctly by fetching the task
+    let get_result = get_task(&api_client, task_id, "json")
+        .await
+        .expect("Failed to get task");
+    let created_task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(created_task["title"], "Integration Test Task");
+    assert_eq!(created_task["description"], "Test description");
+    assert_eq!(created_task["priority"], 3);
+    assert_eq!(created_task["tags"], json!(["bug", "urgent"]));
+    assert_eq!(created_task["status"], "backlog");
+    assert_eq!(created_task["list_id"], list_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_minimal_defaults_to_p5() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task with only required fields (title)
+    let result = create_task(
+        &api_client,
+        &list_id,
+        "Minimal Task",
+        None, // no description
+        None, // no priority
+        None, // no tags
+        None,
+        None,
+    )
+    .await;
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+
+    let task_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract task ID");
+
+    // Verify defaults: priority should be 5 (lowest)
+    let get_result = get_task(&api_client, task_id, "json")
+        .await
+        .expect("Failed to get task");
+    let created_task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(created_task["title"], "Minimal Task");
+    assert_eq!(created_task["priority"], 5, "Default priority should be P5");
+    assert_eq!(
+        created_task["status"], "backlog",
+        "Default status should be backlog"
+    );
+    assert_eq!(
+        created_task["tags"],
+        json!([]),
+        "Tags should be empty array"
+    );
+    assert!(
+        created_task["description"].is_null() || created_task["description"] == "",
+        "Description should be null or empty"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_external_refs() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task with external refs (GitHub issue and Jira ticket)
+    let result = create_task(
+        &api_client,
+        &list_id,
+        "Task with external refs",
+        None,
+        None,
+        None,
+        Some("owner/repo#123,PROJ-456"),
+        None,
+    )
+    .await;
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+
+    let task_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract task ID");
+
+    // Verify external refs were persisted
+    let get_result = get_task(&api_client, task_id, "json")
+        .await
+        .expect("Failed to get task");
+    let created_task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(created_task["title"], "Task with external refs");
+    assert_eq!(
+        created_task["external_refs"],
+        json!(["owner/repo#123", "PROJ-456"])
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

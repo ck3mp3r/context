@@ -53,7 +53,7 @@ async fn test_create_note_integration() {
     let (url, _project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    // Create note
+    // Create note with content and tags
     let result = create_note(
         &api_client,
         "Integration Test Note",
@@ -67,9 +67,28 @@ async fn test_create_note_integration() {
     assert!(result.is_ok());
     let output = result.unwrap();
 
-    // Output is success message
-    assert!(output.contains("Integration Test Note"));
-    assert!(output.contains("Created note"));
+    // Extract note ID from success message: "✓ Created note: Title (note_id)"
+    let note_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Verify all fields were persisted correctly by fetching the note
+    let get_result = get_note(&api_client, note_id, "json")
+        .await
+        .expect("Failed to get note");
+    let created_note: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(created_note["title"], "Integration Test Note");
+    assert_eq!(
+        created_note["content"],
+        "This is test content for integration testing"
+    );
+    assert_eq!(
+        created_note["tags"],
+        json!(["rust", "testing", "integration"])
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
