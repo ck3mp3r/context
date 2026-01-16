@@ -194,6 +194,9 @@ enum TaskCommands {
 enum NoteCommands {
     /// List notes
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
@@ -257,14 +260,6 @@ enum NoteCommands {
         /// Force deletion without confirmation
         #[arg(long)]
         force: bool,
-    },
-    /// Search notes using FTS5
-    Search {
-        /// Search query
-        query: String,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
     },
 }
 
@@ -804,12 +799,14 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::Note { command }) => match command {
             NoteCommands::List {
+                query,
                 tags,
                 parent_id,
                 json,
             } => {
                 let output = commands::note::list_notes(
                     &api_client,
+                    query.as_deref(),
                     tags.as_deref(),
                     parent_id.as_deref(),
                     None,
@@ -865,15 +862,6 @@ pub async fn run() -> Result<()> {
             }
             NoteCommands::Delete { id, force } => {
                 let output = commands::note::delete_note(&api_client, &id, force).await?;
-                println!("{}", output);
-            }
-            NoteCommands::Search { query, json } => {
-                let output = commands::note::search_notes(
-                    &api_client,
-                    &query,
-                    if json { "json" } else { "table" },
-                )
-                .await?;
                 println!("{}", output);
             }
         },

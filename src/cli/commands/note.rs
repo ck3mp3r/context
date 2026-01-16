@@ -75,6 +75,7 @@ struct NoteListResponse {
 /// List notes with optional filtering
 pub async fn list_notes(
     api_client: &ApiClient,
+    query: Option<&str>,
     tags: Option<&str>,
     parent_id: Option<&str>,
     limit: Option<u32>,
@@ -83,6 +84,9 @@ pub async fn list_notes(
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/notes");
 
+    if let Some(q) = query {
+        request = request.query(&[("q", q)]);
+    }
     if let Some(tag_str) = tags {
         request = request.query(&[("tags", tag_str)]);
     }
@@ -113,22 +117,6 @@ pub(crate) fn format_table(notes: &[Note]) -> String {
     let mut table = Table::new(display_notes);
     apply_table_style(&mut table);
     table.to_string()
-}
-
-/// Search notes using FTS5 full-text search
-pub async fn search_notes(api_client: &ApiClient, query: &str, format: &str) -> CliResult<String> {
-    let response: NoteListResponse = api_client
-        .get("/api/v1/notes/search")
-        .query(&[("query", query)])
-        .send()
-        .await?
-        .json()
-        .await?;
-
-    match format {
-        "json" => Ok(serde_json::to_string_pretty(&response.items)?),
-        _ => Ok(format_table(&response.items)),
-    }
 }
 
 /// Get a single note by ID
