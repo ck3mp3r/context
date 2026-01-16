@@ -80,6 +80,8 @@ pub struct CreateTaskListRequest {
     pub external_refs: Vec<String>,
     /// Project ID this task list belongs to (REQUIRED - one project per task list)
     pub project_id: String,
+    #[serde(default)]
+    pub repo_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -362,7 +364,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
         tags: req.tags,
         external_refs: req.external_refs,
         status: TaskListStatus::Active,
-        repo_ids: vec![],
+        repo_ids: req.repo_ids,
         project_id: req.project_id,
         created_at: String::new(), // Repository will generate this
         updated_at: String::new(), // Repository will generate this

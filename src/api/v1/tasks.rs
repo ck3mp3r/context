@@ -96,6 +96,9 @@ pub struct CreateTaskRequest {
     /// Priority: 1 (highest) to 5 (lowest). Defaults to 5 (P5) if not provided.
     #[schema(example = 2)]
     pub priority: Option<i32>,
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// External references (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
     #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
     #[serde(default)]
@@ -353,7 +356,7 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         description: req.description,
         status: TaskStatus::Backlog,
         priority: req.priority.or(Some(5)), // Default to P5 (lowest priority)
-        tags: vec![],
+        tags: req.tags,
         external_refs: req.external_refs,
         created_at: None, // Repository will generate this
         started_at: None,

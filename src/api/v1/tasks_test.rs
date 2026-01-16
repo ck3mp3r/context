@@ -1747,7 +1747,6 @@ async fn search_tasks_by_description() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "FTS5 tag search in API tests has issues with in-memory DB migration order - works in DB layer tests"]
 async fn search_tasks_by_tags() {
     let app = test_app().await;
     let list_id = create_task_list(&app).await;
