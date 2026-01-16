@@ -97,6 +97,9 @@ enum TaskCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by parent task ID (for listing subtasks)
         #[arg(long)]
         parent_id: Option<String>,
@@ -683,11 +686,13 @@ pub async fn run() -> Result<()> {
             TaskCommands::List {
                 list_id,
                 json,
+                query,
                 parent_id,
                 status,
                 tags,
             } => {
                 let filter = commands::task::ListTasksFilter {
+                    query: query.as_deref(),
                     status: status.as_deref(),
                     parent_id: parent_id.as_deref(),
                     tags: tags.as_deref(),

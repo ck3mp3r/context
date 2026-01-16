@@ -89,6 +89,7 @@ struct TaskListResponse {
 
 /// Filter parameters for listing tasks
 pub struct ListTasksFilter<'a> {
+    pub query: Option<&'a str>,
     pub status: Option<&'a str>,
     pub parent_id: Option<&'a str>,
     pub tags: Option<&'a str>,
@@ -105,6 +106,9 @@ pub async fn list_tasks(
 ) -> CliResult<String> {
     let mut request = api_client.get(&format!("/api/v1/task-lists/{}/tasks", list_id));
 
+    if let Some(q) = filter.query {
+        request = request.query(&[("q", q)]);
+    }
     if let Some(s) = filter.status {
         request = request.query(&[("status", s)]);
     }
