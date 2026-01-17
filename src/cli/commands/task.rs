@@ -93,6 +93,7 @@ pub struct ListTasksFilter<'a> {
     pub status: Option<&'a str>,
     pub parent_id: Option<&'a str>,
     pub tags: Option<&'a str>,
+    pub r#type: Option<&'a str>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
     pub sort: Option<&'a str>,
@@ -119,6 +120,9 @@ pub async fn list_tasks(
     }
     if let Some(t) = filter.tags {
         request = request.query(&[("tags", t)]);
+    }
+    if let Some(typ) = filter.r#type {
+        request = request.query(&[("type", typ)]);
     }
     if let Some(l) = filter.limit {
         request = request.query(&[("limit", l.to_string())]);

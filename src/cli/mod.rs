@@ -111,6 +111,12 @@ enum TaskCommands {
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Filter by task type (task, subtask)
+        #[arg(long)]
+        r#type: Option<String>,
+        /// Maximum number of tasks to return
+        #[arg(long)]
+        limit: Option<u32>,
         /// Number of items to skip (for pagination)
         #[arg(long)]
         offset: Option<u32>,
@@ -824,6 +830,8 @@ pub async fn run() -> Result<()> {
                 parent_id,
                 status,
                 tags,
+                r#type,
+                limit,
                 offset,
                 sort,
                 order,
@@ -833,7 +841,8 @@ pub async fn run() -> Result<()> {
                     status: status.as_deref(),
                     parent_id: parent_id.as_deref(),
                     tags: tags.as_deref(),
-                    limit: None,
+                    r#type: r#type.as_deref(),
+                    limit,
                     offset,
                     sort: sort.as_deref(),
                     order: order.as_deref(),
