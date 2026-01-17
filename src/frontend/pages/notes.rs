@@ -3,6 +3,7 @@ use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{NoteCard, NoteDetailModal, Pagination, SearchInput, SortControls};
+use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -17,12 +18,19 @@ pub fn Notes() -> impl IntoView {
 fn NotesList() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
 
-    // State management
-    let (page, set_page) = signal(0usize);
-    let (search_input, set_search_input) = signal(String::new()); // Raw input
-    let (search_query, set_search_query) = signal(String::new()); // Debounced search
-    let (sort_field, set_sort_field) = signal("last_activity_at".to_string());
-    let (sort_order, set_sort_order) = signal("desc".to_string());
+    // Hooks for search, sort, and pagination
+    let pagination = use_pagination();
+    let search = use_search(Callback::new(move |_| {
+        pagination.set_page.set(0);
+    }));
+    let sort = use_sort(
+        "last_activity_at",
+        "desc",
+        Callback::new(move |_| {
+            pagination.set_page.set(0);
+        }),
+    );
+
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
     // Note detail modal state
@@ -32,8 +40,6 @@ fn NotesList() -> impl IntoView {
 
     // WebSocket updates
     let ws_updates = use_websocket_updates();
-
-    // Trigger to force refetch (increments when we need to refresh)
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
 
     // Watch for WebSocket updates and trigger refetch when notes change
@@ -45,38 +51,16 @@ fn NotesList() -> impl IntoView {
         ) = ws_updates.get()
         {
             web_sys::console::log_1(&"Note updated via WebSocket, refetching...".into());
-            // Trigger refetch by incrementing counter
             set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 
-    // Callbacks for SearchInput component
-    let on_immediate_change = Callback::new(move |value: String| {
-        set_search_input.set(value);
-    });
-
-    let on_debounced_change = Callback::new(move |value: String| {
-        set_search_query.set(value);
-        set_page.set(0); // Reset to first page on new search
-    });
-
-    // Sort callbacks
-    let on_sort_change = Callback::new(move |field: String| {
-        set_sort_field.set(field);
-        set_page.set(0);
-    });
-
-    let on_order_change = Callback::new(move |order: String| {
-        set_sort_order.set(order);
-        set_page.set(0);
-    });
-
     // Use Effect to fetch when dependencies change (including WebSocket updates)
     Effect::new(move || {
-        let current_page = page.get();
-        let current_query = search_query.get();
-        let current_sort = sort_field.get();
-        let current_order = sort_order.get();
+        let current_page = pagination.page.get();
+        let current_query = search.search_query.get();
+        let current_sort = sort.sort_field.get();
+        let current_order = sort.sort_order.get();
         let trigger = refetch_trigger.get();
 
         // Log for debugging with all dependency values
@@ -122,11 +106,6 @@ fn NotesList() -> impl IntoView {
         });
     });
 
-    // Pagination handlers
-    let go_to_page = move |new_page: usize| {
-        set_page.set(new_page);
-    };
-
     view! {
         <div class="container mx-auto p-6">
             <div class="flex justify-between items-center mb-6">
@@ -137,17 +116,17 @@ fn NotesList() -> impl IntoView {
             <div class="mb-6 flex gap-4 items-center">
                 <div class="flex-1">
                     <SearchInput
-                        value=search_input
-                        on_change=on_debounced_change
-                        on_immediate_change=on_immediate_change
+                        value=search.search_input
+                        on_change=search.on_debounced_change
+                        on_immediate_change=search.on_immediate_change
                         placeholder="Search notes..."
                     />
                 </div>
                 <SortControls
-                    sort_field=sort_field
-                    sort_order=sort_order
-                    on_sort_change=on_sort_change
-                    on_order_change=on_order_change
+                    sort_field=sort.sort_field
+                    sort_order=sort.sort_order
+                    on_sort_change=sort.on_sort_change
+                    on_order_change=sort.on_order_change
                     fields=vec![
                         ("title".to_string(), "Title".to_string()),
                         ("created_at".to_string(), "Created".to_string()),
@@ -167,7 +146,7 @@ fn NotesList() -> impl IntoView {
                                 if paginated.items.is_empty() {
                                     view! {
                                         <p class="text-ctp-subtext0">
-                                            {if search_query.get().trim().is_empty() {
+                                            {if search.search_query.get().trim().is_empty() {
                                                 "No notes found. Create one to get started!"
                                             } else {
                                                 "No notes found matching your search."
@@ -203,20 +182,10 @@ fn NotesList() -> impl IntoView {
 
                                             // Pagination
                                             <Pagination
-                                                current_page=page
+                                                current_page=pagination.page
                                                 total_pages=total_pages
-                                                on_prev=Callback::new(move |_| {
-                                                    let current = page.get();
-                                                    if current > 0 {
-                                                        go_to_page(current - 1);
-                                                    }
-                                                })
-                                                on_next=Callback::new(move |_| {
-                                                    let current = page.get();
-                                                    if current < total_pages - 1 {
-                                                        go_to_page(current + 1);
-                                                    }
-                                                })
+                                                on_prev=pagination.on_prev
+                                                on_next=pagination.on_next
                                                 show_summary=true
                                                 total_items=paginated.total
                                                 page_size=PAGE_SIZE

@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 mod api;
 mod app;
 mod components;
+mod hooks;
 mod models;
 mod pages;
 mod theme;
