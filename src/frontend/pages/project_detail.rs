@@ -7,6 +7,7 @@ use crate::components::{
     CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
     SortControls, TaskListCard, TaskListDetailModal,
 };
+use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -22,36 +23,48 @@ pub fn ProjectDetail() -> impl IntoView {
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
 
-    // Search/filter state for each tab
-    let (task_list_filter_input, set_task_list_filter_input) = signal(String::new()); // Raw input
-    let (task_list_filter, set_task_list_filter) = signal(String::new()); // Debounced (uses backend FTS5 API)
-    let (note_filter_input, set_note_filter_input) = signal(String::new()); // Raw input
-    let (note_filter, set_note_filter) = signal(String::new()); // Debounced (uses backend FTS5 API)
-    let repo_filter = RwSignal::new(String::new()); // TODO: Add debouncing
-
-    // Pagination state for task lists
-    let (task_list_page, set_task_list_page) = signal(0usize);
     const TASK_LIST_PAGE_SIZE: usize = 12;
-
-    // Pagination state for notes
-    let (note_page, set_note_page) = signal(0usize);
     const NOTE_PAGE_SIZE: usize = 12;
-
-    // Pagination state for repos
-    let (repo_page, set_repo_page) = signal(0usize);
     const REPO_PAGE_SIZE: usize = 12;
 
-    // Sort state for task lists
-    let (task_list_sort_field, set_task_list_sort_field) = signal("updated_at".to_string());
-    let (task_list_sort_order, set_task_list_sort_order) = signal("desc".to_string());
+    // Hooks for task lists tab
+    let task_list_pagination = use_pagination();
+    let task_list_search = use_search(Callback::new(move |_| {
+        task_list_pagination.set_page.set(0);
+    }));
+    let task_list_sort = use_sort(
+        "updated_at",
+        "desc",
+        Callback::new(move |_| {
+            task_list_pagination.set_page.set(0);
+        }),
+    );
 
-    // Sort state for notes
-    let (note_sort_field, set_note_sort_field) = signal("last_activity_at".to_string());
-    let (note_sort_order, set_note_sort_order) = signal("desc".to_string());
+    // Hooks for notes tab
+    let note_pagination = use_pagination();
+    let note_search = use_search(Callback::new(move |_| {
+        note_pagination.set_page.set(0);
+    }));
+    let note_sort = use_sort(
+        "last_activity_at",
+        "desc",
+        Callback::new(move |_| {
+            note_pagination.set_page.set(0);
+        }),
+    );
 
-    // Sort state for repos
-    let (repo_sort_field, set_repo_sort_field) = signal("created_at".to_string());
-    let (repo_sort_order, set_repo_sort_order) = signal("desc".to_string());
+    // Hooks for repos tab
+    let repo_pagination = use_pagination();
+    let repo_search = use_search(Callback::new(move |_| {
+        repo_pagination.set_page.set(0);
+    }));
+    let repo_sort = use_sort(
+        "created_at",
+        "desc",
+        Callback::new(move |_| {
+            repo_pagination.set_page.set(0);
+        }),
+    );
 
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
@@ -67,53 +80,6 @@ pub fn ProjectDetail() -> impl IntoView {
 
     // WebSocket updates
     let ws_updates = use_websocket_updates();
-
-    // Callbacks for SearchInput components
-    let on_task_list_immediate_change = Callback::new(move |value: String| {
-        set_task_list_filter_input.set(value);
-    });
-    let on_task_list_debounced_change = Callback::new(move |value: String| {
-        set_task_list_filter.set(value);
-        set_task_list_page.set(0); // Reset to first page on new search
-    });
-
-    let on_note_immediate_change = Callback::new(move |value: String| {
-        set_note_filter_input.set(value);
-    });
-    let on_note_debounced_change = Callback::new(move |value: String| {
-        set_note_filter.set(value);
-        set_note_page.set(0); // Reset to first page on new search
-    });
-
-    // Sort callbacks for task lists
-    let on_task_list_sort_change = Callback::new(move |field: String| {
-        set_task_list_sort_field.set(field);
-        set_task_list_page.set(0);
-    });
-    let on_task_list_order_change = Callback::new(move |order: String| {
-        set_task_list_sort_order.set(order);
-        set_task_list_page.set(0);
-    });
-
-    // Sort callbacks for notes
-    let on_note_sort_change = Callback::new(move |field: String| {
-        set_note_sort_field.set(field);
-        set_note_page.set(0);
-    });
-    let on_note_order_change = Callback::new(move |order: String| {
-        set_note_sort_order.set(order);
-        set_note_page.set(0);
-    });
-
-    // Sort callbacks for repos
-    let on_repo_sort_change = Callback::new(move |field: String| {
-        set_repo_sort_field.set(field);
-        set_repo_page.set(0);
-    });
-    let on_repo_order_change = Callback::new(move |order: String| {
-        set_repo_sort_order.set(order);
-        set_repo_page.set(0);
-    });
 
     // Triggers to force refetch
     let (note_refetch_trigger, set_note_refetch_trigger) = signal(0u32);
@@ -175,18 +141,18 @@ pub fn ProjectDetail() -> impl IntoView {
     // Reset pagination when archived toggle changes
     Effect::new(move || {
         show_archived_task_lists.get();
-        set_task_list_page.set(0);
+        task_list_pagination.set_page.set(0);
     });
 
     // Fetch task lists for this project (with archived toggle, search, and pagination)
     Effect::new(move || {
         let id = project_id();
         let show_archived = show_archived_task_lists.get();
-        let search_query = task_list_filter.get();
-        let current_page = task_list_page.get();
-        let current_sort = task_list_sort_field.get();
-        let current_order = task_list_sort_order.get();
-        let _ = task_list_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
+        let search_query = task_list_search.search_query.get();
+        let current_page = task_list_pagination.page.get();
+        let current_sort = task_list_sort.sort_field.get();
+        let current_order = task_list_sort.sort_order.get();
+        let _ = task_list_refetch_trigger.get();
         if !id.is_empty() {
             spawn_local(async move {
                 let status = if show_archived { None } else { Some("active") };
@@ -220,11 +186,11 @@ pub fn ProjectDetail() -> impl IntoView {
     // Fetch notes for this project (with FTS5 search support and pagination)
     Effect::new(move || {
         let id = project_id();
-        let search = note_filter.get();
-        let current_page = note_page.get();
-        let current_sort = note_sort_field.get();
-        let current_order = note_sort_order.get();
-        let _ = note_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
+        let search = note_search.search_query.get();
+        let current_page = note_pagination.page.get();
+        let current_sort = note_sort.sort_field.get();
+        let current_order = note_sort.sort_order.get();
+        let _ = note_refetch_trigger.get();
         if !id.is_empty() {
             spawn_local(async move {
                 let search_query = if search.trim().is_empty() {
@@ -255,21 +221,27 @@ pub fn ProjectDetail() -> impl IntoView {
     // Fetch repos for this project (with pagination)
     Effect::new(move || {
         let id = project_id();
-        let current_page = repo_page.get();
-        let current_sort = repo_sort_field.get();
-        let current_order = repo_sort_order.get();
-        let _ = repo_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
+        let current_page = repo_pagination.page.get();
+        let current_sort = repo_sort.sort_field.get();
+        let current_order = repo_sort.sort_order.get();
+        let current_search = repo_search.search_query.get();
+        let _ = repo_refetch_trigger.get();
         if !id.is_empty() {
             spawn_local(async move {
                 let offset = current_page * REPO_PAGE_SIZE;
-                let result = QueryBuilder::<Repo>::new()
+
+                let mut builder = QueryBuilder::<Repo>::new()
                     .limit(REPO_PAGE_SIZE)
                     .offset(offset)
                     .sort(current_sort)
                     .order(current_order)
-                    .param("project_id", id)
-                    .fetch()
-                    .await;
+                    .param("project_id", id);
+
+                if !current_search.trim().is_empty() {
+                    builder = builder.search(current_search);
+                }
+
+                let result = builder.fetch().await;
                 set_repos_data.set(Some(result));
             });
         }
@@ -408,20 +380,19 @@ pub fn ProjectDetail() -> impl IntoView {
                                                     <div class="mb-4 flex gap-4 items-center">
                                                         <div class="flex-1">
                                                             <SearchInput
-                                                                value=task_list_filter_input
-                                                                on_change=on_task_list_debounced_change
-                                                                on_immediate_change=on_task_list_immediate_change
+                                                                value=task_list_search.search_input
+                                                                on_change=task_list_search.on_debounced_change
+                                                                on_immediate_change=task_list_search.on_immediate_change
                                                                 placeholder="Search task lists..."
                                                             />
                                                         </div>
                                                         <SortControls
-                                                            sort_field=task_list_sort_field
-                                                            sort_order=task_list_sort_order
-                                                            on_sort_change=on_task_list_sort_change
-                                                            on_order_change=on_task_list_order_change
+                                                            sort_field=task_list_sort.sort_field
+                                                            sort_order=task_list_sort.sort_order
+                                                            on_sort_change=task_list_sort.on_sort_change
+                                                            on_order_change=task_list_sort.on_order_change
                                                             fields=vec![
                                                                 ("title".to_string(), "Title".to_string()),
-                                                                ("status".to_string(), "Status".to_string()),
                                                                 ("created_at".to_string(), "Created".to_string()),
                                                                 ("updated_at".to_string(), "Updated".to_string()),
                                                             ]
@@ -454,7 +425,7 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             if paginated.items.is_empty() {
                                                                 view! {
                                                                 <p class="text-ctp-subtext0">
-                                                                    {if task_list_filter.get().trim().is_empty() {
+                                                                    {if task_list_search.search_query.get().trim().is_empty() {
                                                                         "No task lists for this project yet"
                                                                     } else {
                                                                         "No task lists found matching your search"
@@ -485,20 +456,10 @@ pub fn ProjectDetail() -> impl IntoView {
 
                                                                         // Pagination
                                                                         <Pagination
-                                                                            current_page=task_list_page
+                                                                            current_page=task_list_pagination.page
                                                                             total_pages=total_pages
-                                                                            on_prev=Callback::new(move |_| {
-                                                                                let current = task_list_page.get();
-                                                                                if current > 0 {
-                                                                                    set_task_list_page.set(current - 1);
-                                                                                }
-                                                                            })
-                                                                            on_next=Callback::new(move |_| {
-                                                                                let current = task_list_page.get();
-                                                                                if current < total_pages - 1 {
-                                                                                    set_task_list_page.set(current + 1);
-                                                                                }
-                                                                            })
+                                                                            on_prev=task_list_pagination.on_prev
+                                                                            on_next=task_list_pagination.on_next
                                                                             show_summary=true
                                                                             total_items=paginated.total
                                                                             page_size=TASK_LIST_PAGE_SIZE
@@ -530,17 +491,17 @@ pub fn ProjectDetail() -> impl IntoView {
                                                     <div class="mb-4 flex gap-4 items-center">
                                                         <div class="flex-1">
                                                             <SearchInput
-                                                                value=note_filter_input
-                                                                on_change=on_note_debounced_change
-                                                                on_immediate_change=on_note_immediate_change
+                                                                value=note_search.search_input
+                                                                on_change=note_search.on_debounced_change
+                                                                on_immediate_change=note_search.on_immediate_change
                                                                 placeholder="Search notes..."
                                                             />
                                                         </div>
                                                         <SortControls
-                                                            sort_field=note_sort_field
-                                                            sort_order=note_sort_order
-                                                            on_sort_change=on_note_sort_change
-                                                            on_order_change=on_note_order_change
+                                                            sort_field=note_sort.sort_field
+                                                            sort_order=note_sort.sort_order
+                                                            on_sort_change=note_sort.on_sort_change
+                                                            on_order_change=note_sort.on_order_change
                                                             fields=vec![
                                                                 ("title".to_string(), "Title".to_string()),
                                                                 ("created_at".to_string(), "Created".to_string()),
@@ -587,20 +548,10 @@ pub fn ProjectDetail() -> impl IntoView {
 
                                                                         // Pagination
                                                                         <Pagination
-                                                                            current_page=note_page
+                                                                            current_page=note_pagination.page
                                                                             total_pages=total_pages
-                                                                            on_prev=Callback::new(move |_| {
-                                                                                let current = note_page.get();
-                                                                                if current > 0 {
-                                                                                    set_note_page.set(current - 1);
-                                                                                }
-                                                                            })
-                                                                            on_next=Callback::new(move |_| {
-                                                                                let current = note_page.get();
-                                                                                if current < total_pages - 1 {
-                                                                                    set_note_page.set(current + 1);
-                                                                                }
-                                                                            })
+                                                                            on_prev=note_pagination.on_prev
+                                                                            on_next=note_pagination.on_next
                                                                             show_summary=true
                                                                             total_items=paginated.total
                                                                             page_size=NOTE_PAGE_SIZE
@@ -628,40 +579,21 @@ pub fn ProjectDetail() -> impl IntoView {
                                         "repos" => {
                                             view! {
                                                 <div>
-                                                    // Filter input and sort controls
+                                                    // Search input and sort controls
                                                     <div class="mb-4 flex gap-4 items-center">
-                                                        <div class="flex-1 relative">
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Filter repos..."
-                                                                prop:value=move || repo_filter.get()
-                                                                on:input=move |ev| {
-                                                                    repo_filter.set(event_target_value(&ev));
-                                                                }
-                                                                class="w-full px-4 py-2 pr-10 bg-ctp-surface0 border border-ctp-surface1 rounded-lg text-ctp-text placeholder-ctp-subtext0 focus:outline-none focus:border-ctp-blue"
+                                                        <div class="flex-1">
+                                                            <SearchInput
+                                                                value=repo_search.search_input
+                                                                on_change=repo_search.on_debounced_change
+                                                                on_immediate_change=repo_search.on_immediate_change
+                                                                placeholder="Search repositories by remote URL or tags..."
                                                             />
-                                                            {move || {
-                                                                if !repo_filter.get().is_empty() {
-                                                                    Some(
-                                                                        view! {
-                                                                            <button
-                                                                                on:click=move |_| repo_filter.set(String::new())
-                                                                                class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ctp-overlay0 hover:bg-ctp-overlay1 flex items-center justify-center text-ctp-base text-xs"
-                                                                            >
-                                                                                "×"
-                                                                            </button>
-                                                                        },
-                                                                    )
-                                                                } else {
-                                                                    None
-                                                                }
-                                                            }}
                                                         </div>
                                                         <SortControls
-                                                            sort_field=repo_sort_field
-                                                            sort_order=repo_sort_order
-                                                            on_sort_change=on_repo_sort_change
-                                                            on_order_change=on_repo_order_change
+                                                            sort_field=repo_sort.sort_field
+                                                            sort_order=repo_sort.sort_order
+                                                            on_sort_change=repo_sort.on_sort_change
+                                                            on_order_change=repo_sort.on_order_change
                                                             fields=vec![
                                                                 ("remote".to_string(), "Remote".to_string()),
                                                                 ("path".to_string(), "Path".to_string()),
@@ -675,25 +607,24 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             view! { <p class="text-ctp-subtext0">"Loading repos..."</p> }.into_any()
                                                         }
                                                         Some(Ok(paginated)) => {
-                                                            let search = repo_filter.get().to_lowercase();
-                                                            let filtered: Vec<Repo> = paginated
-                                                                .items
-                                                                .iter()
-                                                                .filter(|repo| {
-                                                                    search.is_empty()
-                                                                        || repo.remote.to_lowercase().contains(&search)
-                                                                })
-                                                                .cloned()
-                                                                .collect();
-                                                            if filtered.is_empty() {
-                                                                view! { <p class="text-ctp-subtext0">"No repos linked to this project"</p> }
+                                                            if paginated.items.is_empty() {
+                                                                view! {
+                                                                    <p class="text-ctp-subtext0">
+                                                                        {if repo_search.search_query.get().trim().is_empty() {
+                                                                            "No repositories found. Add one to get started!"
+                                                                        } else {
+                                                                            "No repositories found matching your search."
+                                                                        }}
+                                                                    </p>
+                                                                }
                                                                     .into_any()
                                                             } else {
                                                                 let total_pages = paginated.total.div_ceil(REPO_PAGE_SIZE);
                                                                 view! {
                                                                     <div>
                                                                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
-                                                                            {filtered
+                                                                            {paginated
+                                                                                .items
                                                                                 .iter()
                                                                                 .map(|repo| {
                                                                                     view! { <RepoCard repo=repo.clone()/> }
@@ -702,20 +633,10 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                         </div>
 
                                                                         <Pagination
-                                                                            current_page=repo_page
+                                                                            current_page=repo_pagination.page
                                                                             total_pages=total_pages
-                                                                            on_prev=Callback::new(move |_| {
-                                                                                let current = repo_page.get();
-                                                                                if current > 0 {
-                                                                                    set_repo_page.set(current - 1);
-                                                                                }
-                                                                            })
-                                                                            on_next=Callback::new(move |_| {
-                                                                                let current = repo_page.get();
-                                                                                if current < total_pages - 1 {
-                                                                                    set_repo_page.set(current + 1);
-                                                                                }
-                                                                            })
+                                                                            on_prev=repo_pagination.on_prev
+                                                                            on_next=repo_pagination.on_next
                                                                             show_summary=true
                                                                             total_items=paginated.total
                                                                             page_size=REPO_PAGE_SIZE
