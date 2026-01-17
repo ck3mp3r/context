@@ -101,7 +101,19 @@ async fn test_list_task_lists_integration() {
         .expect("Failed to create list 2");
 
     // List task lists
-    let result = list_task_lists(&api_client, None, None, None, None, None, None, "json").await;
+    let result = list_task_lists(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "json",
+    )
+    .await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -343,3 +355,107 @@ async fn test_create_task_list_with_nonexistent_project_id() {
 // - test_create_task_list_empty_title: API allows empty titles (no validation at HTTP API layer)
 // - test_create_task_list_without_project_id: This is a CLI-level check - API requires project_id field,
 //   but CLI always provides it (might be empty string which API would accept)
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_task_lists_with_offset() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create 3 task lists
+    for i in 1..=3 {
+        let _ = create_task_list(
+            &api_client,
+            &format!("List {}", i),
+            &project_id,
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // List with offset=1 (skip first list)
+    let result = list_task_lists(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(1),
+        None,
+        None,
+        "json",
+    )
+    .await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 lists after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_task_lists_with_sort_and_order() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create lists with different titles
+    let _ = create_task_list(&api_client, "Zebra List", &project_id, None, None, None).await;
+    let _ = create_task_list(&api_client, "Alpha List", &project_id, None, None, None).await;
+    let _ = create_task_list(&api_client, "Beta List", &project_id, None, None, None).await;
+
+    // List sorted by title ascending
+    let result = list_task_lists(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("title"),
+        Some("asc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let lists = parsed.as_array().unwrap();
+
+    assert_eq!(lists.len(), 3);
+    assert_eq!(lists[0]["title"], "Alpha List");
+    assert_eq!(lists[1]["title"], "Beta List");
+    assert_eq!(lists[2]["title"], "Zebra List");
+
+    // List sorted by title descending
+    let result = list_task_lists(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("title"),
+        Some("desc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let lists = parsed.as_array().unwrap();
+
+    assert_eq!(lists.len(), 3);
+    assert_eq!(lists[0]["title"], "Zebra List");
+    assert_eq!(lists[1]["title"], "Beta List");
+    assert_eq!(lists[2]["title"], "Alpha List");
+}

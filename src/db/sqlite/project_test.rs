@@ -695,3 +695,52 @@ async fn fts5_search_handles_special_characters() {
         .expect("Search should not error on special chars");
     assert_eq!(results.items.len(), 1, "Should find despite special chars");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_projects_with_offset_without_limit() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    // Create 3 projects
+    for i in 1..=3 {
+        repo.create(&Project {
+            id: format!("offset{:02}", i),
+            title: format!("Project {}", i),
+            description: Some(format!("Description {}", i)),
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: format!("2025-01-01 00:00:{:02}", i),
+            updated_at: format!("2025-01-01 00:00:{:02}", i),
+        })
+        .await
+        .unwrap();
+    }
+
+    // List with offset=1 but NO limit
+    // SQL requires LIMIT when using OFFSET, so this should work
+    let query = ProjectQuery {
+        page: crate::db::PageSort {
+            limit: None,
+            offset: Some(1),
+            sort_by: None,
+            sort_order: None,
+        },
+        tags: None,
+    };
+
+    let result = repo
+        .list(Some(&query))
+        .await
+        .expect("List with offset should succeed");
+    assert_eq!(
+        result.items.len(),
+        2,
+        "Should return 2 projects after skipping 1"
+    );
+    assert_eq!(result.total, 3, "Total should still be 3");
+    assert_eq!(result.items[0].title, "Project 2");
+    assert_eq!(result.items[1].title, "Project 3");
+}

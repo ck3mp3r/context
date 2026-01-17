@@ -95,6 +95,8 @@ pub struct ListTasksFilter<'a> {
     pub tags: Option<&'a str>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    pub sort: Option<&'a str>,
+    pub order: Option<&'a str>,
 }
 
 /// List tasks from a task list with optional filtering
@@ -123,6 +125,12 @@ pub async fn list_tasks(
     }
     if let Some(o) = filter.offset {
         request = request.query(&[("offset", o.to_string())]);
+    }
+    if let Some(s) = filter.sort {
+        request = request.query(&[("sort", s)]);
+    }
+    if let Some(ord) = filter.order {
+        request = request.query(&[("order", ord)]);
     }
 
     let response: TaskListResponse = request.send().await?.json().await?;

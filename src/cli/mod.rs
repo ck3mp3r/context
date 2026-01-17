@@ -109,6 +109,15 @@ enum TaskCommands {
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, status, priority, created_at, updated_at, completed_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
     },
     /// Get a task by ID
     Get {
@@ -203,6 +212,15 @@ enum NoteCommands {
         /// Filter by parent note ID (for listing subnotes)
         #[arg(long)]
         parent_id: Option<String>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, created_at, updated_at, last_activity_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -302,6 +320,15 @@ enum ProjectCommands {
         /// Maximum number of projects to return
         #[arg(long)]
         limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, created_at, updated_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -366,6 +393,15 @@ enum RepoCommands {
         /// Maximum number of repositories to return
         #[arg(long)]
         limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (remote, path, created_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -439,6 +475,15 @@ enum TaskListCommands {
         /// Maximum number of task lists to return
         #[arg(long)]
         limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, status, created_at, updated_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -523,6 +568,9 @@ pub async fn run() -> Result<()> {
                 query,
                 tags,
                 limit,
+                offset,
+                sort,
+                order,
                 json,
             } => {
                 let output = commands::project::list_projects(
@@ -530,7 +578,9 @@ pub async fn run() -> Result<()> {
                     query.as_deref(),
                     tags.as_deref(),
                     limit,
-                    None,
+                    offset,
+                    sort.as_deref(),
+                    order.as_deref(),
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -585,12 +635,21 @@ pub async fn run() -> Result<()> {
             }
         },
         Some(Commands::Repo { command }) => match command {
-            RepoCommands::List { tags, limit, json } => {
+            RepoCommands::List {
+                tags,
+                limit,
+                offset,
+                sort,
+                order,
+                json,
+            } => {
                 let output = commands::repo::list_repos(
                     &api_client,
                     tags.as_deref(),
                     limit,
-                    None,
+                    offset,
+                    sort.as_deref(),
+                    order.as_deref(),
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -648,6 +707,9 @@ pub async fn run() -> Result<()> {
                 status,
                 tags,
                 limit,
+                offset,
+                sort,
+                order,
                 json,
             } => {
                 let output = commands::task_list::list_task_lists(
@@ -657,7 +719,9 @@ pub async fn run() -> Result<()> {
                     status.as_deref(),
                     tags.as_deref(),
                     limit,
-                    None,
+                    offset,
+                    sort.as_deref(),
+                    order.as_deref(),
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -730,6 +794,9 @@ pub async fn run() -> Result<()> {
                 parent_id,
                 status,
                 tags,
+                offset,
+                sort,
+                order,
             } => {
                 let filter = commands::task::ListTasksFilter {
                     query: query.as_deref(),
@@ -737,7 +804,9 @@ pub async fn run() -> Result<()> {
                     parent_id: parent_id.as_deref(),
                     tags: tags.as_deref(),
                     limit: None,
-                    offset: None,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
                 };
                 let output = commands::task::list_tasks(
                     &api_client,
@@ -816,6 +885,9 @@ pub async fn run() -> Result<()> {
                 query,
                 tags,
                 parent_id,
+                offset,
+                sort,
+                order,
                 json,
             } => {
                 let output = commands::note::list_notes(
@@ -824,7 +896,9 @@ pub async fn run() -> Result<()> {
                     tags.as_deref(),
                     parent_id.as_deref(),
                     None,
-                    None,
+                    offset,
+                    sort.as_deref(),
+                    order.as_deref(),
                     if json { "json" } else { "table" },
                 )
                 .await?;

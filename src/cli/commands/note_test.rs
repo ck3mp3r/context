@@ -105,7 +105,18 @@ async fn test_list_notes_integration() {
         .expect("Failed to create note 2");
 
     // List notes
-    let result = list_notes(&api_client, None, None, None, None, None, "json").await;
+    let result = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "json",
+    )
+    .await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -271,7 +282,18 @@ async fn test_hierarchical_notes_integration() {
     assert_eq!(child_note["idx"], 1);
 
     // List notes filtered by parent_id
-    let result = list_notes(&api_client, None, None, Some(parent_id), None, None, "json").await;
+    let result = list_notes(
+        &api_client,
+        None,
+        None,
+        Some(parent_id),
+        None,
+        None,
+        None,
+        None,
+        "json",
+    )
+    .await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -308,7 +330,18 @@ async fn test_list_notes_with_filters_integration() {
     .expect("Failed to create note 2");
 
     // Filter by tags
-    let result = list_notes(&api_client, None, Some("rust"), None, None, None, "json").await;
+    let result = list_notes(
+        &api_client,
+        None,
+        Some("rust"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        "json",
+    )
+    .await;
     assert!(result.is_ok());
     let output = result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
@@ -427,6 +460,8 @@ async fn test_list_notes_with_nonexistent_tag() {
         None,
         None,
         None,
+        None,
+        None,
         "json",
     )
     .await;
@@ -436,4 +471,105 @@ async fn test_list_notes_with_nonexistent_tag() {
         result.is_ok(),
         "Filtering by nonexistent tag should not error"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_offset() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create 3 notes
+    for i in 1..=3 {
+        let _ = create_note(
+            &api_client,
+            &format!("Note {}", i),
+            &format!("Content {}", i),
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // List with offset=1 (skip first note)
+    let result = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        Some(1),
+        None,
+        None,
+        "json",
+    )
+    .await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 notes after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_sort_and_order() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create notes with different titles
+    let _ = create_note(&api_client, "Zebra Note", "Content", None, None, None).await;
+    let _ = create_note(&api_client, "Alpha Note", "Content", None, None, None).await;
+    let _ = create_note(&api_client, "Beta Note", "Content", None, None, None).await;
+
+    // List sorted by title ascending
+    let result = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("title"),
+        Some("asc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let notes = parsed.as_array().unwrap();
+
+    assert_eq!(notes.len(), 3);
+    assert_eq!(notes[0]["title"], "Alpha Note");
+    assert_eq!(notes[1]["title"], "Beta Note");
+    assert_eq!(notes[2]["title"], "Zebra Note");
+
+    // List sorted by title descending
+    let result = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("title"),
+        Some("desc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let notes = parsed.as_array().unwrap();
+
+    assert_eq!(notes.len(), 3);
+    assert_eq!(notes[0]["title"], "Zebra Note");
+    assert_eq!(notes[1]["title"], "Beta Note");
+    assert_eq!(notes[2]["title"], "Alpha Note");
 }

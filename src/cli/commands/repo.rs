@@ -78,6 +78,8 @@ pub async fn list_repos(
     tags: Option<&str>,
     limit: Option<u32>,
     offset: Option<u32>,
+    sort: Option<&str>,
+    order: Option<&str>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/repos");
@@ -90,6 +92,12 @@ pub async fn list_repos(
     }
     if let Some(o) = offset {
         request = request.query(&[("offset", o.to_string())]);
+    }
+    if let Some(s) = sort {
+        request = request.query(&[("sort", s)]);
+    }
+    if let Some(ord) = order {
+        request = request.query(&[("order", ord)]);
     }
 
     let response: ListReposResponse = request.send().await?.json().await?;

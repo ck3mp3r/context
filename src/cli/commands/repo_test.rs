@@ -53,7 +53,7 @@ async fn test_list_repos() {
     let (url, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    let result = list_repos(&api_client, None, None, None, "json").await;
+    let result = list_repos(&api_client, None, None, None, None, None, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -83,7 +83,7 @@ async fn test_create_and_get_repo() {
 
     // Extract ID from output (contains ID in message)
     // For now just verify list shows the repo
-    let list_result = list_repos(&api_client, None, None, None, "json").await;
+    let list_result = list_repos(&api_client, None, None, None, None, None, "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -323,4 +323,89 @@ async fn test_create_repo_with_multiple_project_ids() {
     assert_eq!(repo.project_ids.len(), 2);
     assert!(repo.project_ids.contains(&project1_id.to_string()));
     assert!(repo.project_ids.contains(&project2_id.to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_repos_with_offset() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create 3 repos
+    for i in 1..=3 {
+        let _ = create_repo(
+            &api_client,
+            &format!("https://github.com/test/repo{}", i),
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // List with offset=1 (skip first repo)
+    let result = list_repos(&api_client, None, None, Some(1), None, None, "json").await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 repos after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_repos_with_sort_and_order() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create repos with different remote URLs
+    let _ = create_repo(&api_client, "https://github.com/z/zebra", None, None, None).await;
+    let _ = create_repo(&api_client, "https://github.com/a/alpha", None, None, None).await;
+    let _ = create_repo(&api_client, "https://github.com/b/beta", None, None, None).await;
+
+    // List sorted by remote ascending
+    let result = list_repos(
+        &api_client,
+        None,
+        None,
+        None,
+        Some("remote"),
+        Some("asc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let repos = parsed.as_array().unwrap();
+
+    assert_eq!(repos.len(), 3);
+    assert!(repos[0]["remote"].as_str().unwrap().contains("alpha"));
+    assert!(repos[1]["remote"].as_str().unwrap().contains("beta"));
+    assert!(repos[2]["remote"].as_str().unwrap().contains("zebra"));
+
+    // List sorted by remote descending
+    let result = list_repos(
+        &api_client,
+        None,
+        None,
+        None,
+        Some("remote"),
+        Some("desc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let repos = parsed.as_array().unwrap();
+
+    assert_eq!(repos.len(), 3);
+    assert!(repos[0]["remote"].as_str().unwrap().contains("zebra"));
+    assert!(repos[1]["remote"].as_str().unwrap().contains("beta"));
+    assert!(repos[2]["remote"].as_str().unwrap().contains("alpha"));
 }

@@ -1,6 +1,7 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task::*;
+use crate::cli::commands::task_list::create_task_list;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
@@ -343,6 +344,8 @@ async fn test_list_tasks_integration() {
             tags: None,
             limit: None,
             offset: None,
+            sort: None,
+            order: None,
         },
         "json",
     )
@@ -556,6 +559,8 @@ async fn test_list_tasks_with_filters_integration() {
             tags: None,
             limit: None,
             offset: None,
+            sort: None,
+            order: None,
         },
         "json",
     )
@@ -577,6 +582,8 @@ async fn test_list_tasks_with_filters_integration() {
             tags: Some("feature"),
             limit: None,
             offset: None,
+            sort: None,
+            order: None,
         },
         "json",
     )
@@ -906,6 +913,8 @@ async fn test_list_tasks_with_nonexistent_tag() {
             tags: Some("nonexistent"),
             limit: None,
             offset: None,
+            sort: None,
+            order: None,
         },
         "json",
     )
@@ -920,3 +929,170 @@ async fn test_list_tasks_with_nonexistent_tag() {
 
 // NOTE: Offset pagination edge case test removed - API may reject or handle differently
 // Future improvement: verify actual API behavior and add appropriate test
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_offset() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task list
+    let list_result =
+        create_task_list(&api_client, "Test List", &project_id, None, None, None).await;
+    let list_id = list_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create 3 tasks
+    for i in 1..=3 {
+        let _ = create_task(
+            &api_client,
+            &list_id,
+            &format!("Task {}", i),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // List with offset=1 (skip first task)
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            limit: None,
+            offset: Some(1),
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 tasks after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_sort_and_order() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task list
+    let list_result =
+        create_task_list(&api_client, "Test List", &project_id, None, None, None).await;
+    let list_id = list_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create tasks with different titles
+    let _ = create_task(
+        &api_client,
+        &list_id,
+        "Zebra Task",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    let _ = create_task(
+        &api_client,
+        &list_id,
+        "Alpha Task",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    let _ = create_task(
+        &api_client,
+        &list_id,
+        "Beta Task",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // List sorted by title ascending
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            limit: None,
+            offset: None,
+            sort: Some("title"),
+            order: Some("asc"),
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+
+    assert_eq!(tasks.len(), 3);
+    assert_eq!(tasks[0]["title"], "Alpha Task");
+    assert_eq!(tasks[1]["title"], "Beta Task");
+    assert_eq!(tasks[2]["title"], "Zebra Task");
+
+    // List sorted by title descending
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            limit: None,
+            offset: None,
+            sort: Some("title"),
+            order: Some("desc"),
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+
+    assert_eq!(tasks.len(), 3);
+    assert_eq!(tasks[0]["title"], "Zebra Task");
+    assert_eq!(tasks[1]["title"], "Beta Task");
+    assert_eq!(tasks[2]["title"], "Alpha Task");
+}

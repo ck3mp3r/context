@@ -55,7 +55,7 @@ async fn test_list_projects() {
     let (url, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    let result = list_projects(&api_client, None, None, None, None, "json").await;
+    let result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -85,7 +85,7 @@ async fn test_create_and_get_project() {
     assert!(output.contains("Created project"));
 
     // List shows our new project
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -117,7 +117,7 @@ async fn test_create_project_with_external_refs() {
     assert!(output.contains("Created project"));
 
     // List and verify external_refs is present
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -144,7 +144,7 @@ async fn test_update_project_external_refs() {
     assert!(create_result.is_ok());
 
     // Get project ID from list
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     let project_id = parsed[0]["id"].as_str().unwrap();
@@ -162,7 +162,7 @@ async fn test_update_project_external_refs() {
     assert!(update_result.is_ok());
 
     // Verify external_refs was added
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed[0]["external_refs"], json!(["JIRA-456"]));
@@ -243,3 +243,100 @@ async fn test_delete_project_not_found_with_force() {
 
 // NOTE: The following validation tests are NOT included because the API does not validate these cases:
 // - test_create_project_empty_title: API allows empty titles (no validation at HTTP API layer)
+
+// =============================================================================
+// List Parameters Tests (offset, sort, order)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_projects_with_offset() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create 3 projects
+    for i in 1..=3 {
+        let result = create_project(
+            &api_client,
+            &format!("Project {}", i),
+            Some(&format!("Description {}", i)),
+            None,
+            None,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "Failed to create project {}: {:?}",
+            i,
+            result
+        );
+    }
+
+    // List with offset=1 (skip first project)
+    let result = list_projects(&api_client, None, None, None, Some(1), None, None, "json").await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 projects after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_projects_with_sort_and_order() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create projects with different titles
+    let _ = create_project(&api_client, "Zebra Project", None, None, None).await;
+    let _ = create_project(&api_client, "Alpha Project", None, None, None).await;
+    let _ = create_project(&api_client, "Beta Project", None, None, None).await;
+
+    // List sorted by title ascending
+    let result = list_projects(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        Some("title"),
+        Some("asc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let projects = parsed.as_array().unwrap();
+
+    assert_eq!(projects.len(), 3);
+    assert_eq!(projects[0]["title"], "Alpha Project");
+    assert_eq!(projects[1]["title"], "Beta Project");
+    assert_eq!(projects[2]["title"], "Zebra Project");
+
+    // List sorted by title descending
+    let result = list_projects(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        Some("title"),
+        Some("desc"),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let projects = parsed.as_array().unwrap();
+
+    assert_eq!(projects.len(), 3);
+    assert_eq!(projects[0]["title"], "Zebra Project");
+    assert_eq!(projects[1]["title"], "Beta Project");
+    assert_eq!(projects[2]["title"], "Alpha Project");
+}
