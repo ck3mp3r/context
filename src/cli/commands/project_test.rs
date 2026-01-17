@@ -1,5 +1,6 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::commands::project::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
@@ -55,7 +56,7 @@ async fn test_list_projects() {
     let (url, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    let result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
+    let result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -85,7 +86,7 @@ async fn test_create_and_get_project() {
     assert!(output.contains("Created project"));
 
     // List shows our new project
-    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -117,7 +118,7 @@ async fn test_create_project_with_external_refs() {
     assert!(output.contains("Created project"));
 
     // List and verify external_refs is present
-    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -144,7 +145,7 @@ async fn test_update_project_external_refs() {
     assert!(create_result.is_ok());
 
     // Get project ID from list
-    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     let project_id = parsed[0]["id"].as_str().unwrap();
@@ -162,7 +163,7 @@ async fn test_update_project_external_refs() {
     assert!(update_result.is_ok());
 
     // Verify external_refs was added
-    let list_result = list_projects(&api_client, None, None, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed[0]["external_refs"], json!(["JIRA-456"]));
@@ -272,7 +273,13 @@ async fn test_list_projects_with_offset() {
     }
 
     // List with offset=1 (skip first project)
-    let result = list_projects(&api_client, None, None, None, Some(1), None, None, "json").await;
+    let page = PageParams {
+        limit: None,
+        offset: Some(1),
+        sort: None,
+        order: None,
+    };
+    let result = list_projects(&api_client, None, None, page, "json").await;
     assert!(result.is_ok(), "List with offset should succeed");
 
     let output = result.unwrap();
@@ -295,17 +302,13 @@ async fn test_list_projects_with_sort_and_order() {
     let _ = create_project(&api_client, "Beta Project", None, None, None).await;
 
     // List sorted by title ascending
-    let result = list_projects(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        Some("title"),
-        Some("asc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("asc"),
+    };
+    let result = list_projects(&api_client, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -318,17 +321,13 @@ async fn test_list_projects_with_sort_and_order() {
     assert_eq!(projects[2]["title"], "Zebra Project");
 
     // List sorted by title descending
-    let result = list_projects(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        Some("title"),
-        Some("desc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("desc"),
+    };
+    let result = list_projects(&api_client, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();

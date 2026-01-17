@@ -1,5 +1,6 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::commands::repo::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
@@ -53,7 +54,7 @@ async fn test_list_repos() {
     let (url, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    let result = list_repos(&api_client, None, None, None, None, None, "json").await;
+    let result = list_repos(&api_client, None, None, None, PageParams::default(), "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -83,7 +84,8 @@ async fn test_create_and_get_repo() {
 
     // Extract ID from output (contains ID in message)
     // For now just verify list shows the repo
-    let list_result = list_repos(&api_client, None, None, None, None, None, "json").await;
+    let list_result =
+        list_repos(&api_client, None, None, None, PageParams::default(), "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -343,7 +345,13 @@ async fn test_list_repos_with_offset() {
     }
 
     // List with offset=1 (skip first repo)
-    let result = list_repos(&api_client, None, None, Some(1), None, None, "json").await;
+    let page = PageParams {
+        limit: None,
+        offset: Some(1),
+        sort: None,
+        order: None,
+    };
+    let result = list_repos(&api_client, None, None, None, page, "json").await;
     assert!(result.is_ok(), "List with offset should succeed");
 
     let output = result.unwrap();
@@ -366,16 +374,13 @@ async fn test_list_repos_with_sort_and_order() {
     let _ = create_repo(&api_client, "https://github.com/b/beta", None, None, None).await;
 
     // List sorted by remote ascending
-    let result = list_repos(
-        &api_client,
-        None,
-        None,
-        None,
-        Some("remote"),
-        Some("asc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("remote"),
+        order: Some("asc"),
+    };
+    let result = list_repos(&api_client, None, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -388,16 +393,13 @@ async fn test_list_repos_with_sort_and_order() {
     assert!(repos[2]["remote"].as_str().unwrap().contains("zebra"));
 
     // List sorted by remote descending
-    let result = list_repos(
-        &api_client,
-        None,
-        None,
-        None,
-        Some("remote"),
-        Some("desc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("remote"),
+        order: Some("desc"),
+    };
+    let result = list_repos(&api_client, None, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -408,4 +410,107 @@ async fn test_list_repos_with_sort_and_order() {
     assert!(repos[0]["remote"].as_str().unwrap().contains("zebra"));
     assert!(repos[1]["remote"].as_str().unwrap().contains("beta"));
     assert!(repos[2]["remote"].as_str().unwrap().contains("alpha"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_repos_with_query_search() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create repos with searchable content
+    let _ = create_repo(
+        &api_client,
+        "https://github.com/rust/cargo",
+        Some("/path/to/cargo"),
+        None,
+        None,
+    )
+    .await;
+    let _ = create_repo(
+        &api_client,
+        "https://github.com/nodejs/node",
+        Some("/path/to/node"),
+        None,
+        None,
+    )
+    .await;
+
+    // Search for "rust"
+    let result = list_repos(
+        &api_client,
+        Some("rust"),
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let repos = parsed.as_array().unwrap();
+
+    assert_eq!(repos.len(), 1, "Should find 1 repo matching 'rust'");
+    assert!(repos[0]["remote"].as_str().unwrap().contains("rust"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_repos_with_project_id_filter() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create a project
+    let project_result = crate::cli::commands::project::create_project(
+        &api_client,
+        "Test Project",
+        None,
+        None,
+        None,
+    )
+    .await;
+    let project_id = project_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create repos - one linked to project, one not
+    let _ = create_repo(
+        &api_client,
+        "https://github.com/linked/repo",
+        None,
+        None,
+        Some(&project_id),
+    )
+    .await;
+    let _ = create_repo(
+        &api_client,
+        "https://github.com/unlinked/repo",
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Filter by project_id
+    let result = list_repos(
+        &api_client,
+        None,
+        Some(&project_id),
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let repos = parsed.as_array().unwrap();
+
+    assert_eq!(repos.len(), 1, "Should find 1 repo linked to project");
+    assert!(repos[0]["remote"].as_str().unwrap().contains("linked"));
 }

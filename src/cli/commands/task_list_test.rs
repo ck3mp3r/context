@@ -1,5 +1,6 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::commands::task_list::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
@@ -107,10 +108,7 @@ async fn test_list_task_lists_integration() {
         None,
         None,
         None,
-        None,
-        None,
-        None,
-        None,
+        PageParams::default(),
         "json",
     )
     .await;
@@ -375,19 +373,13 @@ async fn test_list_task_lists_with_offset() {
     }
 
     // List with offset=1 (skip first list)
-    let result = list_task_lists(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(1),
-        None,
-        None,
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: Some(1),
+        sort: None,
+        order: None,
+    };
+    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
     assert!(result.is_ok(), "List with offset should succeed");
 
     let output = result.unwrap();
@@ -410,19 +402,13 @@ async fn test_list_task_lists_with_sort_and_order() {
     let _ = create_task_list(&api_client, "Beta List", &project_id, None, None, None).await;
 
     // List sorted by title ascending
-    let result = list_task_lists(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("title"),
-        Some("asc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("asc"),
+    };
+    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -435,19 +421,13 @@ async fn test_list_task_lists_with_sort_and_order() {
     assert_eq!(lists[2]["title"], "Zebra List");
 
     // List sorted by title descending
-    let result = list_task_lists(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("title"),
-        Some("desc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("desc"),
+    };
+    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();

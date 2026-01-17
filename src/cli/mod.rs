@@ -3,6 +3,8 @@ mod commands;
 pub mod error;
 pub mod utils;
 
+use commands::PageParams;
+
 #[cfg(test)]
 #[path = "utils_test.rs"]
 mod utils_test;
@@ -206,12 +208,21 @@ enum NoteCommands {
         /// Search query (FTS5 full-text search)
         #[arg(long, short = 'q')]
         query: Option<String>,
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
         /// Filter by parent note ID (for listing subnotes)
         #[arg(long)]
         parent_id: Option<String>,
+        /// Filter by note type (note, subnote)
+        #[arg(long)]
+        note_type: Option<String>,
+        /// Maximum number of notes to return
+        #[arg(long)]
+        limit: Option<u32>,
         /// Number of items to skip (for pagination)
         #[arg(long)]
         offset: Option<u32>,
@@ -387,6 +398,12 @@ enum ProjectCommands {
 enum RepoCommands {
     /// List all repositories
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
@@ -573,14 +590,17 @@ pub async fn run() -> Result<()> {
                 order,
                 json,
             } => {
+                let page = commands::PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::project::list_projects(
                     &api_client,
                     query.as_deref(),
                     tags.as_deref(),
-                    limit,
-                    offset,
-                    sort.as_deref(),
-                    order.as_deref(),
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -636,6 +656,8 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::Repo { command }) => match command {
             RepoCommands::List {
+                query,
+                project_id,
                 tags,
                 limit,
                 offset,
@@ -643,13 +665,18 @@ pub async fn run() -> Result<()> {
                 order,
                 json,
             } => {
-                let output = commands::repo::list_repos(
-                    &api_client,
-                    tags.as_deref(),
+                let page = PageParams {
                     limit,
                     offset,
-                    sort.as_deref(),
-                    order.as_deref(),
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
+                let output = commands::repo::list_repos(
+                    &api_client,
+                    query.as_deref(),
+                    project_id.as_deref(),
+                    tags.as_deref(),
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -712,16 +739,19 @@ pub async fn run() -> Result<()> {
                 order,
                 json,
             } => {
+                let page = PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::task_list::list_task_lists(
                     &api_client,
                     query.as_deref(),
                     project_id.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
-                    limit,
-                    offset,
-                    sort.as_deref(),
-                    order.as_deref(),
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -883,22 +913,30 @@ pub async fn run() -> Result<()> {
         Some(Commands::Note { command }) => match command {
             NoteCommands::List {
                 query,
+                project_id,
                 tags,
                 parent_id,
+                note_type,
+                limit,
                 offset,
                 sort,
                 order,
                 json,
             } => {
+                let page = commands::PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::note::list_notes(
                     &api_client,
                     query.as_deref(),
+                    project_id.as_deref(),
                     tags.as_deref(),
                     parent_id.as_deref(),
-                    None,
-                    offset,
-                    sort.as_deref(),
-                    order.as_deref(),
+                    note_type.as_deref(),
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;

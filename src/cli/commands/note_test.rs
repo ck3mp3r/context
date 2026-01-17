@@ -1,5 +1,6 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::commands::note::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
@@ -112,8 +113,7 @@ async fn test_list_notes_integration() {
         None,
         None,
         None,
-        None,
-        None,
+        PageParams::default(),
         "json",
     )
     .await;
@@ -286,11 +286,10 @@ async fn test_hierarchical_notes_integration() {
         &api_client,
         None,
         None,
+        None,
         Some(parent_id),
         None,
-        None,
-        None,
-        None,
+        PageParams::default(),
         "json",
     )
     .await;
@@ -333,12 +332,11 @@ async fn test_list_notes_with_filters_integration() {
     let result = list_notes(
         &api_client,
         None,
+        None,
         Some("rust"),
         None,
         None,
-        None,
-        None,
-        None,
+        PageParams::default(),
         "json",
     )
     .await;
@@ -456,12 +454,11 @@ async fn test_list_notes_with_nonexistent_tag() {
     let result = list_notes(
         &api_client,
         None,
+        None,
         Some("nonexistent"),
         None,
         None,
-        None,
-        None,
-        None,
+        PageParams::default(),
         "json",
     )
     .await;
@@ -492,18 +489,13 @@ async fn test_list_notes_with_offset() {
     }
 
     // List with offset=1 (skip first note)
-    let result = list_notes(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        Some(1),
-        None,
-        None,
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: Some(1),
+        sort: None,
+        order: None,
+    };
+    let result = list_notes(&api_client, None, None, None, None, None, page, "json").await;
     assert!(result.is_ok(), "List with offset should succeed");
 
     let output = result.unwrap();
@@ -526,18 +518,13 @@ async fn test_list_notes_with_sort_and_order() {
     let _ = create_note(&api_client, "Beta Note", "Content", None, None, None).await;
 
     // List sorted by title ascending
-    let result = list_notes(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("title"),
-        Some("asc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("asc"),
+    };
+    let result = list_notes(&api_client, None, None, None, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -550,18 +537,13 @@ async fn test_list_notes_with_sort_and_order() {
     assert_eq!(notes[2]["title"], "Zebra Note");
 
     // List sorted by title descending
-    let result = list_notes(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("title"),
-        Some("desc"),
-        "json",
-    )
-    .await;
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("desc"),
+    };
+    let result = list_notes(&api_client, None, None, None, None, None, page, "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();

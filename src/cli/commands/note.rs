@@ -1,4 +1,5 @@
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::error::{CliError, CliResult};
 use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
@@ -76,12 +77,11 @@ struct NoteListResponse {
 pub async fn list_notes(
     api_client: &ApiClient,
     query: Option<&str>,
+    project_id: Option<&str>,
     tags: Option<&str>,
     parent_id: Option<&str>,
-    limit: Option<u32>,
-    offset: Option<u32>,
-    sort: Option<&str>,
-    order: Option<&str>,
+    note_type: Option<&str>,
+    page: PageParams<'_>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/notes");
@@ -89,22 +89,28 @@ pub async fn list_notes(
     if let Some(q) = query {
         request = request.query(&[("q", q)]);
     }
+    if let Some(p) = project_id {
+        request = request.query(&[("project_id", p)]);
+    }
     if let Some(tag_str) = tags {
         request = request.query(&[("tags", tag_str)]);
     }
     if let Some(p) = parent_id {
         request = request.query(&[("parent_id", p)]);
     }
-    if let Some(l) = limit {
+    if let Some(nt) = note_type {
+        request = request.query(&[("note_type", nt)]);
+    }
+    if let Some(l) = page.limit {
         request = request.query(&[("limit", l.to_string())]);
     }
-    if let Some(o) = offset {
+    if let Some(o) = page.offset {
         request = request.query(&[("offset", o.to_string())]);
     }
-    if let Some(s) = sort {
+    if let Some(s) = page.sort {
         request = request.query(&[("sort", s)]);
     }
-    if let Some(ord) = order {
+    if let Some(ord) = page.order {
         request = request.query(&[("order", ord)]);
     }
 

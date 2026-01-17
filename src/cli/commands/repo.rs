@@ -1,4 +1,5 @@
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::error::CliResult;
 use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
@@ -75,28 +76,33 @@ impl From<&Repo> for RepoDisplay {
 /// List repos with optional filtering
 pub async fn list_repos(
     api_client: &ApiClient,
+    query: Option<&str>,
+    project_id: Option<&str>,
     tags: Option<&str>,
-    limit: Option<u32>,
-    offset: Option<u32>,
-    sort: Option<&str>,
-    order: Option<&str>,
+    page: PageParams<'_>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/repos");
 
+    if let Some(q) = query {
+        request = request.query(&[("q", q)]);
+    }
+    if let Some(p) = project_id {
+        request = request.query(&[("project_id", p)]);
+    }
     if let Some(t) = tags {
         request = request.query(&[("tags", t)]);
     }
-    if let Some(l) = limit {
+    if let Some(l) = page.limit {
         request = request.query(&[("limit", l.to_string())]);
     }
-    if let Some(o) = offset {
+    if let Some(o) = page.offset {
         request = request.query(&[("offset", o.to_string())]);
     }
-    if let Some(s) = sort {
+    if let Some(s) = page.sort {
         request = request.query(&[("sort", s)]);
     }
-    if let Some(ord) = order {
+    if let Some(ord) = page.order {
         request = request.query(&[("order", ord)]);
     }
 
