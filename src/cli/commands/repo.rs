@@ -19,6 +19,8 @@ struct CreateRepoRequest {
     path: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    project_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,6 +31,8 @@ struct PatchRepoRequest {
     path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -155,11 +159,13 @@ pub async fn create_repo(
     remote: &str,
     path: Option<&str>,
     tags: Option<&str>,
+    project_ids: Option<&str>,
 ) -> CliResult<String> {
     let request = CreateRepoRequest {
         remote: remote.to_string(),
         path: path.map(String::from),
         tags: parse_tags(tags).unwrap_or_default(),
+        project_ids: parse_tags(project_ids).unwrap_or_default(),
     };
 
     let response = api_client
@@ -182,11 +188,13 @@ pub async fn update_repo(
     remote: Option<&str>,
     path: Option<&str>,
     tags: Option<&str>,
+    project_ids: Option<&str>,
 ) -> CliResult<String> {
     let request = PatchRepoRequest {
         remote: remote.map(String::from),
         path: path.map(String::from),
         tags: parse_tags(tags),
+        project_ids: parse_tags(project_ids),
     };
 
     let response = api_client

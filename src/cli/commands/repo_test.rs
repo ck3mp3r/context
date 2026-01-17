@@ -68,7 +68,14 @@ async fn test_create_and_get_repo() {
     let api_client = ApiClient::new(Some(url));
 
     // Create
-    let create_result = create_repo(&api_client, "https://github.com/test/repo", None, None).await;
+    let create_result = create_repo(
+        &api_client,
+        "https://github.com/test/repo",
+        None,
+        None,
+        None,
+    )
+    .await;
     assert!(create_result.is_ok());
 
     let output = create_result.unwrap();
@@ -112,6 +119,7 @@ async fn test_update_repo_not_found() {
         Some("https://github.com/test/new"),
         None,
         None,
+        None,
     )
     .await;
 
@@ -150,3 +158,169 @@ async fn test_delete_repo_not_found_with_force() {
 // NOTE: The following validation tests are NOT included because the API does not validate these cases:
 // - test_create_repo_empty_remote: API might allow empty remote URLs (no validation at HTTP API layer)
 // - test_create_repo_invalid_remote_format: API likely doesn't validate URL format
+
+// =============================================================================
+// project_ids Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_repo_with_project_ids() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // First, create a project to link to
+    let project_payload = serde_json::json!({
+        "title": "Test Project for Repo Linking"
+    });
+    let project_response = api_client
+        .post("/api/v1/projects")
+        .json(&project_payload)
+        .send()
+        .await
+        .expect("Failed to create project");
+    let project: serde_json::Value = project_response.json().await.unwrap();
+    let project_id = project["id"].as_str().unwrap();
+
+    // Create repo with project_ids
+    let create_result = create_repo(
+        &api_client,
+        "https://github.com/test/repo-with-projects",
+        None,
+        None,
+        Some(project_id), // project_ids parameter
+    )
+    .await;
+    assert!(create_result.is_ok(), "Should create repo with project_ids");
+
+    // Get the repo ID from the create response
+    let output = create_result.unwrap();
+    // Extract ID from message like "✓ Created repository: https://github.com/test/repo-with-projects (abc123)"
+    let repo_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract repo ID from create output");
+
+    // Verify the repo has project_ids by fetching it with get (not list, since list doesn't load M:N relationships)
+    let get_result = get_repo(&api_client, repo_id, "json").await;
+    assert!(get_result.is_ok());
+
+    let repo: Repo = serde_json::from_str(&get_result.unwrap()).unwrap();
+    assert_eq!(repo.project_ids.len(), 1);
+    assert_eq!(repo.project_ids[0], project_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_repo_with_project_ids() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create a repo without project_ids
+    let create_result = create_repo(
+        &api_client,
+        "https://github.com/test/repo-to-update",
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(create_result.is_ok());
+
+    // Get the repo ID from the create response
+    let output = create_result.unwrap();
+    let repo_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract repo ID from create output");
+
+    // Create a project to link
+    let project_payload = serde_json::json!({
+        "title": "Project for Update Test"
+    });
+    let project_response = api_client
+        .post("/api/v1/projects")
+        .json(&project_payload)
+        .send()
+        .await
+        .expect("Failed to create project");
+    let project: serde_json::Value = project_response.json().await.unwrap();
+    let project_id = project["id"].as_str().unwrap();
+
+    // Update repo to add project_ids
+    let update_result = update_repo(
+        &api_client,
+        repo_id,
+        None,
+        None,
+        None,
+        Some(project_id), // project_ids parameter
+    )
+    .await;
+    assert!(update_result.is_ok(), "Should update repo with project_ids");
+
+    // Verify the update
+    let get_result = get_repo(&api_client, repo_id, "json").await;
+    assert!(get_result.is_ok());
+    let repo: Repo = serde_json::from_str(&get_result.unwrap()).unwrap();
+    assert_eq!(repo.project_ids.len(), 1);
+    assert_eq!(repo.project_ids[0], project_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_repo_with_multiple_project_ids() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create two projects
+    let project1_payload = serde_json::json!({"title": "Project 1"});
+    let project1_response = api_client
+        .post("/api/v1/projects")
+        .json(&project1_payload)
+        .send()
+        .await
+        .expect("Failed to create project 1");
+    let project1: serde_json::Value = project1_response.json().await.unwrap();
+    let project1_id = project1["id"].as_str().unwrap();
+
+    let project2_payload = serde_json::json!({"title": "Project 2"});
+    let project2_response = api_client
+        .post("/api/v1/projects")
+        .json(&project2_payload)
+        .send()
+        .await
+        .expect("Failed to create project 2");
+    let project2: serde_json::Value = project2_response.json().await.unwrap();
+    let project2_id = project2["id"].as_str().unwrap();
+
+    // Create repo with multiple project_ids (comma-separated)
+    let project_ids_str = format!("{},{}", project1_id, project2_id);
+    let create_result = create_repo(
+        &api_client,
+        "https://github.com/test/multi-project-repo",
+        None,
+        None,
+        Some(&project_ids_str),
+    )
+    .await;
+    assert!(
+        create_result.is_ok(),
+        "Should create repo with multiple project_ids"
+    );
+
+    // Get the repo ID from the create response
+    let output = create_result.unwrap();
+    let repo_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract repo ID from create output");
+
+    // Verify both projects are linked
+    let get_result = get_repo(&api_client, repo_id, "json").await;
+    assert!(get_result.is_ok());
+    let repo: Repo = serde_json::from_str(&get_result.unwrap()).unwrap();
+    assert_eq!(repo.project_ids.len(), 2);
+    assert!(repo.project_ids.contains(&project1_id.to_string()));
+    assert!(repo.project_ids.contains(&project2_id.to_string()));
+}
