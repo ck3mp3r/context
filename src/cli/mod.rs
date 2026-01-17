@@ -389,6 +389,9 @@ enum RepoCommands {
         /// Tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
     },
     /// Update a repository
     Update {
@@ -403,6 +406,9 @@ enum RepoCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// New project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
     },
     /// Delete a repository
     Delete {
@@ -596,12 +602,18 @@ pub async fn run() -> Result<()> {
                         .await?;
                 println!("{}", output);
             }
-            RepoCommands::Create { remote, path, tags } => {
+            RepoCommands::Create {
+                remote,
+                path,
+                tags,
+                project_ids,
+            } => {
                 let output = commands::repo::create_repo(
                     &api_client,
                     &remote,
                     path.as_deref(),
                     tags.as_deref(),
+                    project_ids.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
@@ -611,6 +623,7 @@ pub async fn run() -> Result<()> {
                 remote,
                 path,
                 tags,
+                project_ids,
             } => {
                 let output = commands::repo::update_repo(
                     &api_client,
@@ -618,6 +631,7 @@ pub async fn run() -> Result<()> {
                     remote.as_deref(),
                     path.as_deref(),
                     tags.as_deref(),
+                    project_ids.as_deref(),
                 )
                 .await?;
                 println!("{}", output);
