@@ -413,3 +413,217 @@ async fn test_delete_repo_force_flag_validation() {
         "Error should mention --force flag"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_repo_display_formats_and_filters() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Test 1: Empty list returns "No repositories found."
+    let empty_result = list_repos(
+        &api_client,
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "table",
+    )
+    .await;
+    assert!(empty_result.is_ok());
+    assert_eq!(
+        empty_result.unwrap(),
+        "No repositories found.",
+        "Should show empty message for table format"
+    );
+
+    // Create project for project_id filter test
+    let project_payload = serde_json::json!({
+        "title": "Infrastructure Project",
+        "description": "DevOps and infrastructure repositories"
+    });
+    let project_response = api_client
+        .post("/api/v1/projects")
+        .json(&project_payload)
+        .send()
+        .await
+        .expect("Failed to create project");
+    let project: serde_json::Value = project_response.json().await.unwrap();
+    let project_id = project["id"].as_str().unwrap();
+
+    // Create repos with comprehensive data for table display testing
+    let repo1 = CreateRepoRequest {
+        remote: "https://github.com/kubernetes/kubernetes".to_string(),
+        path: Some("/home/dev/k8s/kubernetes".to_string()),
+        tags: vec![
+            "infrastructure".to_string(),
+            "kubernetes".to_string(),
+            "production".to_string(),
+        ],
+        project_ids: vec![project_id.to_string()],
+    };
+    let create1 = create_repo(&api_client, repo1).await.unwrap();
+    let repo1_id = create1
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap();
+
+    let repo2 = CreateRepoRequest {
+        remote: "https://github.com/prometheus/prometheus".to_string(),
+        path: Some("/home/dev/monitoring/prometheus".to_string()),
+        tags: vec![
+            "monitoring".to_string(),
+            "metrics".to_string(),
+            "infrastructure".to_string(),
+        ],
+        project_ids: vec![project_id.to_string()],
+    };
+    create_repo(&api_client, repo2).await.unwrap();
+
+    let repo3 = CreateRepoRequest {
+        remote: "https://github.com/grafana/grafana".to_string(),
+        path: None, // Test None path display
+        tags: vec!["monitoring".to_string(), "visualization".to_string()],
+        project_ids: vec![],
+    };
+    create_repo(&api_client, repo3).await.unwrap();
+
+    // Test 2: Table format for list with data (tests RepoDisplay From impl, format_table)
+    let table_result = list_repos(
+        &api_client,
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "table",
+    )
+    .await;
+    assert!(table_result.is_ok());
+    let table_output = table_result.unwrap();
+    assert!(
+        table_output.contains("kubernetes"),
+        "Table should contain repo remote"
+    );
+    assert!(
+        table_output.contains("infrastructure"),
+        "Table should contain tags"
+    );
+    assert!(
+        table_output.contains("-"),
+        "Table should show '-' for None path"
+    );
+
+    // Test 3: Table format for get (tests format_repo_detail)
+    let detail_result = get_repo(&api_client, repo1_id, "table").await;
+    assert!(detail_result.is_ok());
+    let detail_output = detail_result.unwrap();
+    assert!(
+        detail_output.contains("Repo ID"),
+        "Detail should have Repo ID field"
+    );
+    assert!(
+        detail_output.contains("Remote"),
+        "Detail should have Remote field"
+    );
+    assert!(
+        detail_output.contains("Path"),
+        "Detail should have Path field"
+    );
+    assert!(
+        detail_output.contains("Tags"),
+        "Detail should have Tags field"
+    );
+    assert!(
+        detail_output.contains("Projects"),
+        "Detail should have Projects field"
+    );
+    assert!(
+        detail_output.contains("Created"),
+        "Detail should have Created field"
+    );
+    assert!(
+        detail_output.contains("kubernetes"),
+        "Detail should contain repo data"
+    );
+
+    // Test 4: Query filter
+    let query_result = list_repos(
+        &api_client,
+        Some("prometheus"),
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(query_result.is_ok());
+    let parsed: serde_json::Value = serde_json::from_str(&query_result.unwrap()).unwrap();
+    let repos = parsed.as_array().unwrap();
+    assert_eq!(repos.len(), 1, "Should find 1 repo matching 'prometheus'");
+    assert!(repos[0]["remote"].as_str().unwrap().contains("prometheus"));
+
+    // Test 5: Project ID filter
+    let project_filter_result = list_repos(
+        &api_client,
+        None,
+        Some(project_id),
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(project_filter_result.is_ok());
+    let parsed_proj: serde_json::Value =
+        serde_json::from_str(&project_filter_result.unwrap()).unwrap();
+    let repos_proj = parsed_proj.as_array().unwrap();
+    assert_eq!(repos_proj.len(), 2, "Should find 2 repos linked to project");
+
+    // Test 6: Tags filter
+    let tags_result = list_repos(
+        &api_client,
+        None,
+        None,
+        Some("monitoring"),
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(tags_result.is_ok());
+    let parsed_tags: serde_json::Value = serde_json::from_str(&tags_result.unwrap()).unwrap();
+    let repos_tags = parsed_tags.as_array().unwrap();
+    assert_eq!(
+        repos_tags.len(),
+        2,
+        "Should find 2 repos with 'monitoring' tag"
+    );
+
+    // Test 7: Detail view with empty optional fields (repo3 has no path, no projects)
+    let repo3_list = list_repos(
+        &api_client,
+        Some("grafana"),
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await
+    .unwrap();
+    let repo3_parsed: serde_json::Value = serde_json::from_str(&repo3_list).unwrap();
+    let repo3_id = repo3_parsed[0]["id"].as_str().unwrap();
+
+    let detail3_result = get_repo(&api_client, repo3_id, "table").await;
+    assert!(detail3_result.is_ok());
+    let detail3_output = detail3_result.unwrap();
+    assert!(
+        !detail3_output.contains("Path"),
+        "Detail should NOT show Path field when None"
+    );
+    assert!(
+        !detail3_output.contains("Projects"),
+        "Detail should NOT show Projects field when empty"
+    );
+    assert!(
+        detail3_output.contains("Tags"),
+        "Detail should show Tags when present"
+    );
+}
