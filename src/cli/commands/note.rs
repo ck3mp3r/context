@@ -1,6 +1,7 @@
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::error::{CliError, CliResult};
-use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
+use crate::cli::utils::{apply_table_style, format_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
 use tabled::{Table, Tabled};
 
@@ -19,29 +20,37 @@ pub struct Note {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct CreateNoteRequest {
-    pub(crate) title: String,
-    pub(crate) content: String,
+pub struct CreateNoteRequest {
+    pub title: String,
+    pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) parent_id: Option<String>,
+    pub parent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) idx: Option<i32>,
+    pub idx: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UpdateNoteRequest {
+pub struct UpdateNoteRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) title: Option<String>,
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) content: Option<String>,
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) parent_id: Option<Option<String>>,
+    pub parent_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) idx: Option<Option<i32>>,
+    pub idx: Option<Option<i32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_ids: Option<Vec<String>>,
 }
 
 #[derive(Tabled)]
@@ -76,10 +85,11 @@ struct NoteListResponse {
 pub async fn list_notes(
     api_client: &ApiClient,
     query: Option<&str>,
+    project_id: Option<&str>,
     tags: Option<&str>,
     parent_id: Option<&str>,
-    limit: Option<u32>,
-    offset: Option<u32>,
+    note_type: Option<&str>,
+    page: PageParams<'_>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/notes");
@@ -87,17 +97,29 @@ pub async fn list_notes(
     if let Some(q) = query {
         request = request.query(&[("q", q)]);
     }
+    if let Some(p) = project_id {
+        request = request.query(&[("project_id", p)]);
+    }
     if let Some(tag_str) = tags {
         request = request.query(&[("tags", tag_str)]);
     }
     if let Some(p) = parent_id {
         request = request.query(&[("parent_id", p)]);
     }
-    if let Some(l) = limit {
+    if let Some(nt) = note_type {
+        request = request.query(&[("note_type", nt)]);
+    }
+    if let Some(l) = page.limit {
         request = request.query(&[("limit", l.to_string())]);
     }
-    if let Some(o) = offset {
+    if let Some(o) = page.offset {
         request = request.query(&[("offset", o.to_string())]);
+    }
+    if let Some(s) = page.sort {
+        request = request.query(&[("sort", s)]);
+    }
+    if let Some(ord) = page.order {
+        request = request.query(&[("order", ord)]);
     }
 
     let response: NoteListResponse = request.send().await?.json().await?;
@@ -156,25 +178,10 @@ pub async fn get_note(api_client: &ApiClient, id: &str, format: &str) -> CliResu
 }
 
 /// Create a new note
-pub async fn create_note(
-    api_client: &ApiClient,
-    title: &str,
-    content: &str,
-    tags: Option<&str>,
-    parent_id: Option<&str>,
-    idx: Option<i32>,
-) -> CliResult<String> {
-    let request_body = CreateNoteRequest {
-        title: title.to_string(),
-        content: content.to_string(),
-        tags: parse_tags(tags),
-        parent_id: parent_id.map(|s| s.to_string()),
-        idx,
-    };
-
+pub async fn create_note(api_client: &ApiClient, request: CreateNoteRequest) -> CliResult<String> {
     let response = api_client
         .post("/api/v1/notes")
-        .json(&request_body)
+        .json(&request)
         .send()
         .await?;
 
@@ -186,29 +193,11 @@ pub async fn create_note(
 pub async fn update_note(
     api_client: &ApiClient,
     id: &str,
-    title: Option<&str>,
-    content: Option<&str>,
-    tags: Option<&str>,
-    parent_id: Option<&str>,
-    idx: Option<i32>,
+    request: UpdateNoteRequest,
 ) -> CliResult<String> {
-    let request_body = UpdateNoteRequest {
-        title: title.map(|s| s.to_string()),
-        content: content.map(|s| s.to_string()),
-        tags: parse_tags(tags),
-        parent_id: parent_id.map(|s| {
-            if s.is_empty() {
-                None // Empty string means remove parent
-            } else {
-                Some(s.to_string())
-            }
-        }),
-        idx: idx.map(Some),
-    };
-
     let response = api_client
         .patch(&format!("/api/v1/notes/{}", id))
-        .json(&request_body)
+        .json(&request)
         .send()
         .await?;
 

@@ -44,15 +44,24 @@ pub fn build_order_clause(page: &PageSort, allowed_fields: &[&str], default_fiel
 }
 
 /// Build LIMIT/OFFSET clause from PageSort parameters.
+/// Note: SQL requires LIMIT when using OFFSET. If offset is provided without limit,
+/// we use LIMIT -1 (SQLite's "no limit" value).
 pub fn build_limit_offset_clause(page: &PageSort) -> String {
     let mut clause = String::new();
+
+    let has_offset = page.offset.is_some_and(|o| o > 0);
+
     if let Some(limit) = page.limit {
         clause.push_str(&format!(" LIMIT {}", limit));
+    } else if has_offset {
+        // SQLite requires LIMIT when using OFFSET
+        // Use -1 to mean "no limit" in SQLite
+        clause.push_str(" LIMIT -1");
     }
-    if let Some(offset) = page.offset
-        && offset > 0
-    {
-        clause.push_str(&format!(" OFFSET {}", offset));
+
+    if has_offset {
+        clause.push_str(&format!(" OFFSET {}", page.offset.unwrap()));
     }
+
     clause
 }

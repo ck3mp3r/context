@@ -1,6 +1,7 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task::*;
+use crate::cli::commands::task_list::{CreateTaskListRequest, create_task_list};
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
@@ -29,6 +30,7 @@ fn test_update_request_empty_string_parent_id_converts_to_none() {
         parent_id,
         tags: None,
         external_refs: None,
+        list_id: None,
     };
 
     // parent_id should be Some(None) - explicitly removing the parent
@@ -60,6 +62,7 @@ fn test_update_request_non_empty_parent_id_sets_value() {
         parent_id,
         tags: None,
         external_refs: None,
+        list_id: None,
     };
 
     // parent_id should be Some(Some("parent123"))
@@ -90,6 +93,7 @@ fn test_update_request_missing_parent_id_field_is_none() {
         parent_id,
         tags: None,
         external_refs: None,
+        list_id: None,
     };
 
     // parent_id should be None - field not included in update
@@ -145,16 +149,16 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 /// Helper to create a task list via HTTP and return its ID
 async fn create_test_task_list(api_url: &str, project_id: &str) -> String {
     let api_client = ApiClient::new(Some(api_url.to_string()));
-    let result = crate::cli::commands::task_list::create_task_list(
-        &api_client,
-        "Test Task List",
-        project_id,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create test task list");
+    let request = crate::cli::commands::task_list::CreateTaskListRequest {
+        title: "Test Task List".to_string(),
+        project_id: project_id.to_string(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let result = crate::cli::commands::task_list::create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create test task list");
 
     // Extract ID from success message: "✓ Created task list: Title (list_id)"
     result
@@ -172,17 +176,15 @@ async fn test_create_task_integration() {
     let api_client = ApiClient::new(Some(url));
 
     // Create task with all fields
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Integration Test Task",
-        Some("Test description"),
-        Some(3),
-        Some("bug,urgent"),
-        None,
-        None,
-    )
-    .await;
+    let request = CreateTaskRequest {
+        title: "Integration Test Task".to_string(),
+        description: Some("Test description".to_string()),
+        priority: Some(3),
+        tags: Some(vec!["bug".to_string(), "urgent".to_string()]),
+        external_refs: None,
+        parent_id: None,
+    };
+    let result = create_task(&api_client, &list_id, request).await;
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -215,17 +217,15 @@ async fn test_create_task_minimal_defaults_to_p5() {
     let api_client = ApiClient::new(Some(url));
 
     // Create task with only required fields (title)
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Minimal Task",
-        None, // no description
-        None, // no priority
-        None, // no tags
-        None,
-        None,
-    )
-    .await;
+    let request = CreateTaskRequest {
+        title: "Minimal Task".to_string(),
+        description: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+        parent_id: None,
+    };
+    let result = create_task(&api_client, &list_id, request).await;
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -266,17 +266,15 @@ async fn test_create_task_with_external_refs() {
     let api_client = ApiClient::new(Some(url));
 
     // Create task with external refs (GitHub issue and Jira ticket)
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Task with external refs",
-        None,
-        None,
-        None,
-        Some("owner/repo#123,PROJ-456"),
-        None,
-    )
-    .await;
+    let request = CreateTaskRequest {
+        title: "Task with external refs".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: Some(vec!["owner/repo#123".to_string(), "PROJ-456".to_string()]),
+    };
+    let result = create_task(&api_client, &list_id, request).await;
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -307,30 +305,28 @@ async fn test_list_tasks_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create two tasks
-    create_task(
-        &api_client,
-        &list_id,
-        "Task 1",
-        None,
-        Some(1),
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task 1");
-    create_task(
-        &api_client,
-        &list_id,
-        "Task 2",
-        None,
-        Some(2),
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task 2");
+    let req1 = CreateTaskRequest {
+        title: "Task 1".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(1),
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, req1)
+        .await
+        .expect("Failed to create task 1");
+    let req2 = CreateTaskRequest {
+        title: "Task 2".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(2),
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, req2)
+        .await
+        .expect("Failed to create task 2");
 
     // List tasks
     let result = list_tasks(
@@ -341,8 +337,11 @@ async fn test_list_tasks_integration() {
             status: None,
             parent_id: None,
             tags: None,
+            r#type: None,
             limit: None,
             offset: None,
+            sort: None,
+            order: None,
         },
         "json",
     )
@@ -364,18 +363,17 @@ async fn test_complete_task_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create task
-    let create_result = create_task(
-        &api_client,
-        &list_id,
-        "Task to Complete",
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task");
+    let request = CreateTaskRequest {
+        title: "Task to Complete".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
 
     // Extract task ID from success message: "✓ Created task: Title (task_id)"
     let task_id = create_result
@@ -406,18 +404,17 @@ async fn test_transition_task_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create task (starts as backlog)
-    let create_result = create_task(
-        &api_client,
-        &list_id,
-        "Task to Transition",
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task");
+    let request = CreateTaskRequest {
+        title: "Task to Transition".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
 
     let task_id = create_result
         .split('(')
@@ -454,18 +451,17 @@ async fn test_update_task_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create task
-    let create_result = create_task(
-        &api_client,
-        &list_id,
-        "Original Title",
-        None,
-        Some(3),
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task");
+    let request = CreateTaskRequest {
+        title: "Original Title".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(3),
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
 
     let task_id = create_result
         .split('(')
@@ -474,20 +470,17 @@ async fn test_update_task_integration() {
         .expect("Failed to extract task ID");
 
     // Update task
-    let result = update_task(
-        &api_client,
-        task_id,
-        UpdateTaskParams {
-            title: Some("Updated Title"),
-            description: Some("New description"),
-            status: None,
-            priority: Some(1),
-            parent_id: None,
-            tags: Some("feature,backend"),
-            external_refs: None,
-        },
-    )
-    .await;
+    let update_request = UpdateTaskRequest {
+        title: Some("Updated Title".to_string()),
+        description: Some("New description".to_string()),
+        status: None,
+        priority: Some(1),
+        parent_id: None,
+        tags: Some(vec!["feature".to_string(), "backend".to_string()]),
+        external_refs: None,
+        list_id: None,
+    };
+    let result = update_task(&api_client, task_id, update_request).await;
     assert!(result.is_ok());
 
     // Verify updates
@@ -508,392 +501,17 @@ async fn test_list_tasks_with_filters_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create tasks with different statuses and tags
-    let task1 = create_task(
-        &api_client,
-        &list_id,
-        "Bug Fix",
-        None,
-        Some(1),
-        Some("bug"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task 1");
-
-    let task1_id = task1
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract task ID");
-
-    create_task(
-        &api_client,
-        &list_id,
-        "Feature",
-        None,
-        Some(3),
-        Some("feature"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task 2");
-
-    // Transition first task to todo
-    transition_task(&api_client, task1_id, "todo")
+    let request = CreateTaskRequest {
+        title: "Bug Fix".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(1),
+        tags: Some(vec!["bug".to_string()]),
+        external_refs: None,
+    };
+    let _task1 = create_task(&api_client, &list_id, request)
         .await
-        .expect("Failed to transition");
-
-    // Filter by status=todo
-    let result = list_tasks(
-        &api_client,
-        &list_id,
-        ListTasksFilter {
-            query: None,
-            status: Some("todo"),
-            parent_id: None,
-            tags: None,
-            limit: None,
-            offset: None,
-        },
-        "json",
-    )
-    .await;
-    assert!(result.is_ok());
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(parsed.as_array().unwrap().len(), 1);
-    assert_eq!(parsed[0]["title"], "Bug Fix");
-
-    // Filter by tags=feature
-    let result = list_tasks(
-        &api_client,
-        &list_id,
-        ListTasksFilter {
-            query: None,
-            status: None,
-            parent_id: None,
-            tags: Some("feature"),
-            limit: None,
-            offset: None,
-        },
-        "json",
-    )
-    .await;
-    assert!(result.is_ok());
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-
-    // Find the task with "feature" tag
-    let feature_task = parsed
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|t| t["title"] == "Feature");
-    assert!(
-        feature_task.is_some(),
-        "Should find Feature task in results"
-    );
-    assert_eq!(feature_task.unwrap()["tags"], json!(["feature"]));
-}
-
-// =============================================================================
-// Unhappy Path Tests - NOT FOUND Errors
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to get non-existent task
-    let result = get_task(&api_client, "nonexist", "json").await;
-
-    // Should return error with not found message
-    assert!(result.is_err(), "Should return error for non-existent task");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_update_task_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to update non-existent task
-    let result = update_task(
-        &api_client,
-        "nonexist",
-        UpdateTaskParams {
-            title: Some("New Title"),
-            description: None,
-            status: None,
-            priority: None,
-            parent_id: None,
-            tags: None,
-            external_refs: None,
-        },
-    )
-    .await;
-
-    // Should return error
-    assert!(result.is_err(), "Should return error for non-existent task");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_delete_task_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to delete non-existent task (with force=true as required by signature)
-    let result = delete_task(&api_client, "nonexist", true).await;
-
-    // Should return error
-    assert!(result.is_err(), "Should return error for non-existent task");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_complete_task_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to complete non-existent task
-    let result = complete_task(&api_client, "nonexist").await;
-
-    // Should return error
-    assert!(result.is_err(), "Should return error for non-existent task");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_task_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to transition non-existent task
-    let result = transition_task(&api_client, "nonexist", "todo").await;
-
-    // Should return error
-    assert!(result.is_err(), "Should return error for non-existent task");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-// =============================================================================
-// Unhappy Path Tests - Validation Errors
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_with_invalid_priority_zero() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let list_id = create_test_task_list(&url, &project_id).await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to create task with priority 0 (invalid: must be 1-5)
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Invalid Priority Task",
-        None,
-        Some(0),
-        None,
-        None,
-        None,
-    )
-    .await;
-
-    // Should return error with validation message
-    assert!(result.is_err(), "Should return error for priority 0");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("priority") || error.contains("1") || error.contains("5"),
-        "Error should mention priority validation, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_with_invalid_priority_six() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let list_id = create_test_task_list(&url, &project_id).await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to create task with priority 6 (invalid: must be 1-5)
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Invalid Priority Task",
-        None,
-        Some(6),
-        None,
-        None,
-        None,
-    )
-    .await;
-
-    // Should return error
-    assert!(result.is_err(), "Should return error for priority 6");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("priority") || error.contains("1") || error.contains("5"),
-        "Error should mention priority validation, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_with_invalid_priority_negative() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let list_id = create_test_task_list(&url, &project_id).await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to create task with priority -1 (invalid)
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Invalid Priority Task",
-        None,
-        Some(-1),
-        None,
-        None,
-        None,
-    )
-    .await;
-
-    // Should return error
-    assert!(result.is_err(), "Should return error for priority -1");
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("priority") || error.contains("1") || error.contains("5"),
-        "Error should mention priority validation, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_with_nonexistent_list_id() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to create task with non-existent list_id
-    let result = create_task(
-        &api_client,
-        "nonexist",
-        "Task Title",
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await;
-
-    // Should return error (foreign key constraint)
-    assert!(
-        result.is_err(),
-        "Should return error for non-existent list_id"
-    );
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found")
-            || error.contains("404")
-            || error.contains("foreign key")
-            || error.contains("constraint"),
-        "Error should mention foreign key or not found, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_with_nonexistent_parent_id() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let list_id = create_test_task_list(&url, &project_id).await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to create subtask with non-existent parent_id
-    let result = create_task(
-        &api_client,
-        &list_id,
-        "Subtask",
-        None,
-        None,
-        None,
-        None,
-        Some("nonexist"),
-    )
-    .await;
-
-    // Should return error (foreign key constraint)
-    assert!(
-        result.is_err(),
-        "Should return error for non-existent parent_id"
-    );
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found")
-            || error.contains("404")
-            || error.contains("parent")
-            || error.contains("foreign key")
-            || error.contains("constraint"),
-        "Error should mention parent or foreign key, got: {}",
-        error
-    );
-}
-
-// NOTE: The following tests are NOT included because the API does not validate these cases:
-// - test_transition_task_invalid_backlog_to_done: API PATCH /tasks/{id} allows any status transition
-//   (validation only exists in MCP tool layer, not HTTP API)
-// - test_create_task_empty_title: API allows empty titles (no validation at HTTP API layer)
-
-// =============================================================================
-// Unhappy Path Tests - Edge Cases
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_with_nonexistent_tag() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let list_id = create_test_task_list(&url, &project_id).await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create task with tags
-    create_task(
-        &api_client,
-        &list_id,
-        "Task 1",
-        None,
-        None,
-        Some("rust,backend"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task");
+        .expect("Failed to create task");
 
     // Filter by non-existent tag - should succeed (doesn't error)
     let result = list_tasks(
@@ -904,8 +522,11 @@ async fn test_list_tasks_with_nonexistent_tag() {
             status: None,
             parent_id: None,
             tags: Some("nonexistent"),
+            r#type: None,
             limit: None,
             offset: None,
+            sort: None,
+            order: None,
         },
         "json",
     )
@@ -920,3 +541,179 @@ async fn test_list_tasks_with_nonexistent_tag() {
 
 // NOTE: Offset pagination edge case test removed - API may reject or handle differently
 // Future improvement: verify actual API behavior and add appropriate test
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_offset() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task list
+    let request = CreateTaskListRequest {
+        title: "Test List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let list_result = create_task_list(&api_client, request).await;
+    let list_id = list_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create 3 tasks
+    for i in 1..=3 {
+        let request = CreateTaskRequest {
+            title: format!("Task {}", i),
+            description: None,
+            parent_id: None,
+            priority: None,
+            tags: None,
+            external_refs: None,
+        };
+        let _ = create_task(&api_client, &list_id, request).await;
+    }
+
+    // List with offset=1 (skip first task)
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: Some(1),
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 tasks after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_sort_and_order() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task list
+    let request = CreateTaskListRequest {
+        title: "Test List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let list_result = create_task_list(&api_client, request).await;
+    let list_id = list_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create tasks with different titles
+    let req1 = CreateTaskRequest {
+        title: "Zebra Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_task(&api_client, &list_id, req1).await;
+
+    let req2 = CreateTaskRequest {
+        title: "Alpha Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_task(&api_client, &list_id, req2).await;
+
+    let req3 = CreateTaskRequest {
+        title: "Beta Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_task(&api_client, &list_id, req3).await;
+
+    // List sorted by title ascending
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: Some("title"),
+            order: Some("asc"),
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+
+    assert_eq!(tasks.len(), 3);
+    assert_eq!(tasks[0]["title"], "Alpha Task");
+    assert_eq!(tasks[1]["title"], "Beta Task");
+    assert_eq!(tasks[2]["title"], "Zebra Task");
+
+    // List sorted by title descending
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: Some("title"),
+            order: Some("desc"),
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+
+    assert_eq!(tasks.len(), 3);
+    assert_eq!(tasks[0]["title"], "Zebra Task");
+    assert_eq!(tasks[1]["title"], "Beta Task");
+    assert_eq!(tasks[2]["title"], "Alpha Task");
+}

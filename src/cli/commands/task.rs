@@ -1,6 +1,6 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::error::{CliError, CliResult};
-use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
+use crate::cli::utils::{apply_table_style, format_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
 use tabled::{Table, Tabled};
 
@@ -21,36 +21,38 @@ pub struct Task {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct CreateTaskRequest {
-    pub(crate) title: String,
+pub struct CreateTaskRequest {
+    pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) parent_id: Option<String>,
+    pub parent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) priority: Option<i32>,
+    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) external_refs: Option<Vec<String>>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UpdateTaskRequest {
+pub struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) title: Option<String>,
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) status: Option<String>,
+    pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) priority: Option<i32>,
+    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) parent_id: Option<Option<String>>,
+    pub parent_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) external_refs: Option<Vec<String>>,
+    pub external_refs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_id: Option<String>,
 }
 
 #[derive(Tabled)]
@@ -93,8 +95,11 @@ pub struct ListTasksFilter<'a> {
     pub status: Option<&'a str>,
     pub parent_id: Option<&'a str>,
     pub tags: Option<&'a str>,
+    pub r#type: Option<&'a str>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    pub sort: Option<&'a str>,
+    pub order: Option<&'a str>,
 }
 
 /// List tasks from a task list with optional filtering
@@ -118,11 +123,20 @@ pub async fn list_tasks(
     if let Some(t) = filter.tags {
         request = request.query(&[("tags", t)]);
     }
+    if let Some(typ) = filter.r#type {
+        request = request.query(&[("type", typ)]);
+    }
     if let Some(l) = filter.limit {
         request = request.query(&[("limit", l.to_string())]);
     }
     if let Some(o) = filter.offset {
         request = request.query(&[("offset", o.to_string())]);
+    }
+    if let Some(s) = filter.sort {
+        request = request.query(&[("sort", s)]);
+    }
+    if let Some(ord) = filter.order {
+        request = request.query(&[("order", ord)]);
     }
 
     let response: TaskListResponse = request.send().await?.json().await?;
@@ -150,14 +164,15 @@ pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<S
     update_task(
         api_client,
         task_id,
-        UpdateTaskParams {
+        UpdateTaskRequest {
             title: None,
             description: None,
-            status: Some("done"),
+            status: Some("done".to_string()),
             priority: None,
             parent_id: None,
             tags: None,
             external_refs: None,
+            list_id: None,
         },
     )
     .await
@@ -173,14 +188,15 @@ pub async fn transition_task(
     update_task(
         api_client,
         task_id,
-        UpdateTaskParams {
+        UpdateTaskRequest {
             title: None,
             description: None,
-            status: Some(status),
+            status: Some(status.to_string()),
             priority: None,
             parent_id: None,
             tags: None,
             external_refs: None,
+            list_id: None,
         },
     )
     .await
@@ -239,25 +255,11 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
 pub async fn create_task(
     api_client: &ApiClient,
     list_id: &str,
-    title: &str,
-    description: Option<&str>,
-    priority: Option<i32>,
-    tags: Option<&str>,
-    external_refs: Option<&str>,
-    parent_id: Option<&str>,
+    request: CreateTaskRequest,
 ) -> CliResult<String> {
-    let request_body = CreateTaskRequest {
-        title: title.to_string(),
-        description: description.map(|s| s.to_string()),
-        parent_id: parent_id.map(|s| s.to_string()),
-        priority,
-        tags: parse_tags(tags),
-        external_refs: parse_tags(external_refs),
-    };
-
     let response = api_client
         .post(&format!("/api/v1/task-lists/{}/tasks", list_id))
-        .json(&request_body)
+        .json(&request)
         .send()
         .await?;
 
@@ -265,42 +267,15 @@ pub async fn create_task(
     Ok(format!("✓ Created task: {} ({})", task.title, task.id))
 }
 
-/// Parameters for updating a task
-pub struct UpdateTaskParams<'a> {
-    pub title: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub status: Option<&'a str>,
-    pub priority: Option<i32>,
-    pub parent_id: Option<&'a str>,
-    pub tags: Option<&'a str>,
-    pub external_refs: Option<&'a str>,
-}
-
 /// Update a task
 pub async fn update_task(
     api_client: &ApiClient,
     id: &str,
-    params: UpdateTaskParams<'_>,
+    request: UpdateTaskRequest,
 ) -> CliResult<String> {
-    let request_body = UpdateTaskRequest {
-        title: params.title.map(|s| s.to_string()),
-        description: params.description.map(|s| s.to_string()),
-        status: params.status.map(|s| s.to_string()),
-        priority: params.priority,
-        parent_id: params.parent_id.map(|s| {
-            if s.is_empty() {
-                None // Empty string means remove parent
-            } else {
-                Some(s.to_string())
-            }
-        }),
-        tags: parse_tags(params.tags),
-        external_refs: parse_tags(params.external_refs),
-    };
-
     let response = api_client
         .patch(&format!("/api/v1/tasks/{}", id))
-        .json(&request_body)
+        .json(&request)
         .send()
         .await?;
 

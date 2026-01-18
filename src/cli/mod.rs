@@ -3,6 +3,8 @@ mod commands;
 pub mod error;
 pub mod utils;
 
+use commands::PageParams;
+
 #[cfg(test)]
 #[path = "utils_test.rs"]
 mod utils_test;
@@ -109,6 +111,21 @@ enum TaskCommands {
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Filter by task type (task, subtask)
+        #[arg(long)]
+        r#type: Option<String>,
+        /// Maximum number of tasks to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, status, priority, created_at, updated_at, completed_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
     },
     /// Get a task by ID
     Get {
@@ -167,6 +184,9 @@ enum TaskCommands {
         /// Parent task ID (for converting to/from subtask). Use empty string to remove parent.
         #[arg(long)]
         parent_id: Option<String>,
+        /// Move task to different list (task list ID)
+        #[arg(long)]
+        list_id: Option<String>,
     },
     /// Delete a task
     Delete {
@@ -197,12 +217,30 @@ enum NoteCommands {
         /// Search query (FTS5 full-text search)
         #[arg(long, short = 'q')]
         query: Option<String>,
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
         /// Filter by parent note ID (for listing subnotes)
         #[arg(long)]
         parent_id: Option<String>,
+        /// Filter by note type (note, subnote)
+        #[arg(long)]
+        note_type: Option<String>,
+        /// Maximum number of notes to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, created_at, updated_at, last_activity_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -232,6 +270,12 @@ enum NoteCommands {
         /// Index for manual ordering (lower values first)
         #[arg(long)]
         idx: Option<i32>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+        /// Repository IDs to link (comma-separated)
+        #[arg(long)]
+        repo_ids: Option<String>,
     },
     /// Update a note
     Update {
@@ -252,6 +296,12 @@ enum NoteCommands {
         /// Index for manual ordering (lower values first)
         #[arg(long)]
         idx: Option<i32>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+        /// Repository IDs to link (comma-separated)
+        #[arg(long)]
+        repo_ids: Option<String>,
     },
     /// Delete a note
     Delete {
@@ -302,6 +352,15 @@ enum ProjectCommands {
         /// Maximum number of projects to return
         #[arg(long)]
         limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, created_at, updated_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -360,12 +419,27 @@ enum ProjectCommands {
 enum RepoCommands {
     /// List all repositories
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
         /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
         /// Maximum number of repositories to return
         #[arg(long)]
         limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (remote, path, created_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -439,6 +513,15 @@ enum TaskListCommands {
         /// Maximum number of task lists to return
         #[arg(long)]
         limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (title, status, created_at, updated_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -485,6 +568,12 @@ enum TaskListCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Relink to different project (project ID)
+        #[arg(long)]
+        project_id: Option<String>,
+        /// Update linked repositories (comma-separated IDs)
+        #[arg(long)]
+        repo_ids: Option<String>,
     },
     /// Delete a task list
     Delete {
@@ -523,14 +612,22 @@ pub async fn run() -> Result<()> {
                 query,
                 tags,
                 limit,
+                offset,
+                sort,
+                order,
                 json,
             } => {
+                let page = commands::PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::project::list_projects(
                     &api_client,
                     query.as_deref(),
                     tags.as_deref(),
-                    limit,
-                    None,
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -551,14 +648,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
             } => {
-                let output = commands::project::create_project(
-                    &api_client,
-                    &title,
-                    description.as_deref(),
-                    tags.as_deref(),
-                    external_ref.as_deref(),
-                )
-                .await?;
+                let request = commands::project::CreateProjectRequest {
+                    title,
+                    description,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: external_ref.map(|s| vec![s]),
+                };
+                let output = commands::project::create_project(&api_client, request).await?;
                 println!("{}", output);
             }
             ProjectCommands::Update {
@@ -568,15 +664,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
             } => {
-                let output = commands::project::update_project(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    description.as_deref(),
-                    tags.as_deref(),
-                    external_ref.as_deref(),
-                )
-                .await?;
+                let request = commands::project::UpdateProjectRequest {
+                    title,
+                    description,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: external_ref.map(|s| vec![s]),
+                };
+                let output = commands::project::update_project(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             ProjectCommands::Delete { id, force } => {
@@ -585,12 +679,28 @@ pub async fn run() -> Result<()> {
             }
         },
         Some(Commands::Repo { command }) => match command {
-            RepoCommands::List { tags, limit, json } => {
+            RepoCommands::List {
+                query,
+                project_id,
+                tags,
+                limit,
+                offset,
+                sort,
+                order,
+                json,
+            } => {
+                let page = PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::repo::list_repos(
                     &api_client,
+                    query.as_deref(),
+                    project_id.as_deref(),
                     tags.as_deref(),
-                    limit,
-                    None,
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -608,14 +718,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 project_ids,
             } => {
-                let output = commands::repo::create_repo(
-                    &api_client,
-                    &remote,
-                    path.as_deref(),
-                    tags.as_deref(),
-                    project_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::repo::CreateRepoRequest {
+                    remote,
+                    path,
+                    tags: utils::parse_tags(tags.as_deref()).unwrap_or_default(),
+                    project_ids: utils::parse_tags(project_ids.as_deref()).unwrap_or_default(),
+                };
+                let output = commands::repo::create_repo(&api_client, request).await?;
                 println!("{}", output);
             }
             RepoCommands::Update {
@@ -625,15 +734,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 project_ids,
             } => {
-                let output = commands::repo::update_repo(
-                    &api_client,
-                    &id,
-                    remote.as_deref(),
-                    path.as_deref(),
-                    tags.as_deref(),
-                    project_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::repo::UpdateRepoRequest {
+                    remote,
+                    path,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    project_ids: utils::parse_tags(project_ids.as_deref()),
+                };
+                let output = commands::repo::update_repo(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             RepoCommands::Delete { id, force } => {
@@ -648,16 +755,24 @@ pub async fn run() -> Result<()> {
                 status,
                 tags,
                 limit,
+                offset,
+                sort,
+                order,
                 json,
             } => {
+                let page = PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::task_list::list_task_lists(
                     &api_client,
                     query.as_deref(),
                     project_id.as_deref(),
                     status.as_deref(),
                     tags.as_deref(),
-                    limit,
-                    None,
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -679,15 +794,18 @@ pub async fn run() -> Result<()> {
                 tags,
                 repo_ids,
             } => {
-                let output = commands::task_list::create_task_list(
-                    &api_client,
-                    &title,
-                    &project_id,
-                    description.as_deref(),
-                    tags.as_deref(),
-                    repo_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::task_list::CreateTaskListRequest {
+                    title,
+                    project_id,
+                    description,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    repo_ids: repo_ids.map(|ids| {
+                        ids.split(',')
+                            .map(|s| s.trim().to_string())
+                            .collect::<Vec<_>>()
+                    }),
+                };
+                let output = commands::task_list::create_task_list(&api_client, request).await?;
                 println!("{}", output);
             }
             TaskListCommands::Update {
@@ -696,16 +814,19 @@ pub async fn run() -> Result<()> {
                 description,
                 status,
                 tags,
+                project_id,
+                repo_ids,
             } => {
-                let output = commands::task_list::update_task_list(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    description.as_deref(),
-                    status.as_deref(),
-                    tags.as_deref(),
-                )
-                .await?;
+                let request = commands::task_list::UpdateTaskListRequest {
+                    title: title.unwrap_or_default(), // Empty string triggers fetch of current title
+                    description,
+                    status,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    project_id,
+                    repo_ids: utils::parse_tags(repo_ids.as_deref()),
+                };
+                let output =
+                    commands::task_list::update_task_list(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             TaskListCommands::Delete { id, force } => {
@@ -730,14 +851,22 @@ pub async fn run() -> Result<()> {
                 parent_id,
                 status,
                 tags,
+                r#type,
+                limit,
+                offset,
+                sort,
+                order,
             } => {
                 let filter = commands::task::ListTasksFilter {
                     query: query.as_deref(),
                     status: status.as_deref(),
                     parent_id: parent_id.as_deref(),
                     tags: tags.as_deref(),
-                    limit: None,
-                    offset: None,
+                    r#type: r#type.as_deref(),
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
                 };
                 let output = commands::task::list_tasks(
                     &api_client,
@@ -763,17 +892,15 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
             } => {
-                let output = commands::task::create_task(
-                    &api_client,
-                    &list_id,
-                    &title,
-                    description.as_deref(),
+                let request = commands::task::CreateTaskRequest {
+                    title,
+                    description,
+                    parent_id,
                     priority,
-                    tags.as_deref(),
-                    external_ref.as_deref(),
-                    parent_id.as_deref(),
-                )
-                .await?;
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: utils::parse_tags(external_ref.as_deref()),
+                };
+                let output = commands::task::create_task(&api_client, &list_id, request).await?;
                 println!("{}", output);
             }
             TaskCommands::Update {
@@ -785,17 +912,25 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
                 parent_id,
+                list_id,
             } => {
-                let params = commands::task::UpdateTaskParams {
-                    title: title.as_deref(),
-                    description: description.as_deref(),
-                    status: status.as_deref(),
+                let request = commands::task::UpdateTaskRequest {
+                    title,
+                    description,
+                    status,
                     priority,
-                    tags: tags.as_deref(),
-                    external_refs: external_ref.as_deref(),
-                    parent_id: parent_id.as_deref(),
+                    parent_id: parent_id.map(|s| {
+                        if s.is_empty() {
+                            None // Empty string means remove parent
+                        } else {
+                            Some(s)
+                        }
+                    }),
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: utils::parse_tags(external_ref.as_deref()),
+                    list_id,
                 };
-                let output = commands::task::update_task(&api_client, &id, params).await?;
+                let output = commands::task::update_task(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             TaskCommands::Delete { id, force } => {
@@ -814,17 +949,30 @@ pub async fn run() -> Result<()> {
         Some(Commands::Note { command }) => match command {
             NoteCommands::List {
                 query,
+                project_id,
                 tags,
                 parent_id,
+                note_type,
+                limit,
+                offset,
+                sort,
+                order,
                 json,
             } => {
+                let page = commands::PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
                 let output = commands::note::list_notes(
                     &api_client,
                     query.as_deref(),
+                    project_id.as_deref(),
                     tags.as_deref(),
                     parent_id.as_deref(),
-                    None,
-                    None,
+                    note_type.as_deref(),
+                    page,
                     if json { "json" } else { "table" },
                 )
                 .await?;
@@ -842,16 +990,19 @@ pub async fn run() -> Result<()> {
                 tags,
                 parent_id,
                 idx,
+                project_ids,
+                repo_ids,
             } => {
-                let output = commands::note::create_note(
-                    &api_client,
-                    &title,
-                    &content,
-                    tags.as_deref(),
-                    parent_id.as_deref(),
+                let request = commands::note::CreateNoteRequest {
+                    title,
+                    content,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    parent_id,
                     idx,
-                )
-                .await?;
+                    project_ids: utils::parse_tags(project_ids.as_deref()),
+                    repo_ids: utils::parse_tags(repo_ids.as_deref()),
+                };
+                let output = commands::note::create_note(&api_client, request).await?;
                 println!("{}", output);
             }
             NoteCommands::Update {
@@ -861,17 +1012,25 @@ pub async fn run() -> Result<()> {
                 tags,
                 parent_id,
                 idx,
+                project_ids,
+                repo_ids,
             } => {
-                let output = commands::note::update_note(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    content.as_deref(),
-                    tags.as_deref(),
-                    parent_id.as_deref(),
-                    idx,
-                )
-                .await?;
+                let request = commands::note::UpdateNoteRequest {
+                    title,
+                    content,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    parent_id: parent_id.map(|s| {
+                        if s.is_empty() {
+                            None // Empty string means remove parent
+                        } else {
+                            Some(s)
+                        }
+                    }),
+                    idx: idx.map(Some),
+                    project_ids: utils::parse_tags(project_ids.as_deref()),
+                    repo_ids: utils::parse_tags(repo_ids.as_deref()),
+                };
+                let output = commands::note::update_note(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             NoteCommands::Delete { id, force } => {

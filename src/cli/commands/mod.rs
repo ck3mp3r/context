@@ -6,6 +6,15 @@ pub mod sync;
 pub mod task;
 pub mod task_list;
 
+/// Common pagination and sorting parameters for all list commands
+#[derive(Debug, Default)]
+pub struct PageParams<'a> {
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub sort: Option<&'a str>,
+    pub order: Option<&'a str>,
+}
+
 #[cfg(test)]
 #[path = "note_test.rs"]
 mod note_test;

@@ -1,6 +1,7 @@
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::error::CliResult;
-use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
+use crate::cli::utils::{apply_table_style, format_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
 use tabled::{Table, Tabled};
 
@@ -13,26 +14,26 @@ struct ListProjectsResponse {
 }
 
 #[derive(Debug, Serialize)]
-struct CreateProjectRequest {
-    title: String,
+pub struct CreateProjectRequest {
+    pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    external_refs: Option<Vec<String>>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
-struct UpdateProjectRequest {
+pub struct UpdateProjectRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    external_refs: Option<Vec<String>>,
+    pub external_refs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -78,8 +79,7 @@ pub async fn list_projects(
     api_client: &ApiClient,
     query: Option<&str>,
     tags: Option<&str>,
-    limit: Option<u32>,
-    offset: Option<u32>,
+    page: PageParams<'_>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/projects");
@@ -90,11 +90,17 @@ pub async fn list_projects(
     if let Some(t) = tags {
         request = request.query(&[("tags", t)]);
     }
-    if let Some(l) = limit {
+    if let Some(l) = page.limit {
         request = request.query(&[("limit", l.to_string())]);
     }
-    if let Some(o) = offset {
+    if let Some(o) = page.offset {
         request = request.query(&[("offset", o.to_string())]);
+    }
+    if let Some(s) = page.sort {
+        request = request.query(&[("sort", s)]);
+    }
+    if let Some(ord) = page.order {
+        request = request.query(&[("order", ord)]);
     }
 
     let response: ListProjectsResponse = request.send().await?.json().await?;
@@ -164,18 +170,8 @@ fn format_project_detail(project: &Project) -> String {
 /// Create a new project
 pub async fn create_project(
     api_client: &ApiClient,
-    title: &str,
-    description: Option<&str>,
-    tags: Option<&str>,
-    external_ref: Option<&str>,
+    request: CreateProjectRequest,
 ) -> CliResult<String> {
-    let request = CreateProjectRequest {
-        title: title.to_string(),
-        description: description.map(String::from),
-        tags: parse_tags(tags),
-        external_refs: external_ref.map(|s| vec![s.to_string()]),
-    };
-
     let response = api_client
         .post("/api/v1/projects")
         .json(&request)
@@ -193,18 +189,8 @@ pub async fn create_project(
 pub async fn update_project(
     api_client: &ApiClient,
     id: &str,
-    title: Option<&str>,
-    description: Option<&str>,
-    tags: Option<&str>,
-    external_ref: Option<&str>,
+    request: UpdateProjectRequest,
 ) -> CliResult<String> {
-    let request = UpdateProjectRequest {
-        title: title.map(String::from),
-        description: description.map(String::from),
-        tags: parse_tags(tags),
-        external_refs: external_ref.map(|s| vec![s.to_string()]),
-    };
-
     let response = api_client
         .patch(&format!("/api/v1/projects/{}", id))
         .json(&request)

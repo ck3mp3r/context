@@ -1,5 +1,6 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
+use crate::cli::commands::PageParams;
 use crate::cli::commands::project::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
@@ -55,7 +56,7 @@ async fn test_list_projects() {
     let (url, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    let result = list_projects(&api_client, None, None, None, None, "json").await;
+    let result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -71,21 +72,20 @@ async fn test_create_and_get_project() {
     let api_client = ApiClient::new(Some(url));
 
     // Create
-    let create_result = create_project(
-        &api_client,
-        "Test Project",
-        Some("Test desc"),
-        Some("tag1,tag2"),
-        None,
-    )
-    .await;
+    let request = CreateProjectRequest {
+        title: "Test Project".to_string(),
+        description: Some("Test desc".to_string()),
+        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+        external_refs: None,
+    };
+    let create_result = create_project(&api_client, request).await;
     assert!(create_result.is_ok());
 
     let output = create_result.unwrap();
     assert!(output.contains("Created project"));
 
     // List shows our new project
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -103,21 +103,20 @@ async fn test_create_project_with_external_refs() {
     let api_client = ApiClient::new(Some(url));
 
     // Create project with external_refs
-    let create_result = create_project(
-        &api_client,
-        "GitHub Project",
-        Some("Linked to GitHub issue"),
-        None,
-        Some("owner/repo#123"),
-    )
-    .await;
+    let request = CreateProjectRequest {
+        title: "GitHub Project".to_string(),
+        description: Some("Linked to GitHub issue".to_string()),
+        tags: None,
+        external_refs: Some(vec!["owner/repo#123".to_string()]),
+    };
+    let create_result = create_project(&api_client, request).await;
     assert!(create_result.is_ok());
 
     let output = create_result.unwrap();
     assert!(output.contains("Created project"));
 
     // List and verify external_refs is present
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     assert!(list_result.is_ok());
 
     let output = list_result.unwrap();
@@ -133,36 +132,33 @@ async fn test_update_project_external_refs() {
     let api_client = ApiClient::new(Some(url));
 
     // Create project without external_refs
-    let create_result = create_project(
-        &api_client,
-        "Project Without Ref",
-        Some("No external ref yet"),
-        None,
-        None,
-    )
-    .await;
+    let request = CreateProjectRequest {
+        title: "Project Without Ref".to_string(),
+        description: Some("No external ref yet".to_string()),
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_project(&api_client, request).await;
     assert!(create_result.is_ok());
 
     // Get project ID from list
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     let project_id = parsed[0]["id"].as_str().unwrap();
 
     // Update to add external_refs
-    let update_result = update_project(
-        &api_client,
-        project_id,
-        Some("Project With Ref"),
-        None,
-        None,
-        Some("JIRA-456"),
-    )
-    .await;
+    let update_request = UpdateProjectRequest {
+        title: Some("Project With Ref".to_string()),
+        description: None,
+        tags: None,
+        external_refs: Some(vec!["JIRA-456".to_string()]),
+    };
+    let update_result = update_project(&api_client, project_id, update_request).await;
     assert!(update_result.is_ok());
 
     // Verify external_refs was added
-    let list_result = list_projects(&api_client, None, None, None, None, "json").await;
+    let list_result = list_projects(&api_client, None, None, PageParams::default(), "json").await;
     let output = list_result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed[0]["external_refs"], json!(["JIRA-456"]));
@@ -193,15 +189,13 @@ async fn test_update_project_not_found() {
     let api_client = ApiClient::new(Some(url));
 
     // Try to update non-existent project
-    let result = update_project(
-        &api_client,
-        "nonexist",
-        Some("New Title"),
-        Some("New desc"),
-        None,
-        None,
-    )
-    .await;
+    let update_request = UpdateProjectRequest {
+        title: Some("New Title".to_string()),
+        description: Some("New desc".to_string()),
+        tags: None,
+        external_refs: None,
+    };
+    let result = update_project(&api_client, "nonexist", update_request).await;
 
     // Should return error
     assert!(
@@ -243,3 +237,117 @@ async fn test_delete_project_not_found_with_force() {
 
 // NOTE: The following validation tests are NOT included because the API does not validate these cases:
 // - test_create_project_empty_title: API allows empty titles (no validation at HTTP API layer)
+
+// =============================================================================
+// List Parameters Tests (offset, sort, order)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_projects_with_offset() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create 3 projects
+    for i in 1..=3 {
+        let request = CreateProjectRequest {
+            title: format!("Project {}", i),
+            description: Some(format!("Description {}", i)),
+            tags: None,
+            external_refs: None,
+        };
+        let result = create_project(&api_client, request).await;
+        assert!(
+            result.is_ok(),
+            "Failed to create project {}: {:?}",
+            i,
+            result
+        );
+    }
+
+    // List with offset=1 (skip first project)
+    let page = PageParams {
+        limit: None,
+        offset: Some(1),
+        sort: None,
+        order: None,
+    };
+    let result = list_projects(&api_client, None, None, page, "json").await;
+    assert!(result.is_ok(), "List with offset should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return 2 projects after skipping 1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_projects_with_sort_and_order() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create projects with different titles
+    let req1 = CreateProjectRequest {
+        title: "Zebra Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_project(&api_client, req1).await;
+
+    let req2 = CreateProjectRequest {
+        title: "Alpha Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_project(&api_client, req2).await;
+
+    let req3 = CreateProjectRequest {
+        title: "Beta Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_project(&api_client, req3).await;
+
+    // List sorted by title ascending
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("asc"),
+    };
+    let result = list_projects(&api_client, None, None, page, "json").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let projects = parsed.as_array().unwrap();
+
+    assert_eq!(projects.len(), 3);
+    assert_eq!(projects[0]["title"], "Alpha Project");
+    assert_eq!(projects[1]["title"], "Beta Project");
+    assert_eq!(projects[2]["title"], "Zebra Project");
+
+    // List sorted by title descending
+    let page = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("desc"),
+    };
+    let result = list_projects(&api_client, None, None, page, "json").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let projects = parsed.as_array().unwrap();
+
+    assert_eq!(projects.len(), 3);
+    assert_eq!(projects[0]["title"], "Zebra Project");
+    assert_eq!(projects[1]["title"], "Beta Project");
+    assert_eq!(projects[2]["title"], "Alpha Project");
+}
