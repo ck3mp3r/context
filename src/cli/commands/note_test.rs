@@ -51,10 +51,10 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_create_note_integration() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
+    let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    // Create note with content and tags
+    // Create note with content, tags, and project link
     let request = CreateNoteRequest {
         title: "Integration Test Note".to_string(),
         content: "This is test content for integration testing".to_string(),
@@ -65,7 +65,7 @@ async fn test_create_note_integration() {
         ]),
         parent_id: None,
         idx: None,
-        project_ids: None,
+        project_ids: Some(vec![project_id.clone()]),
         repo_ids: None,
     };
     let result = create_note(&api_client, request).await;
@@ -95,6 +95,7 @@ async fn test_create_note_integration() {
         created_note["tags"],
         json!(["rust", "testing", "integration"])
     );
+    assert_eq!(created_note["project_ids"], json!([project_id]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -189,10 +190,10 @@ async fn test_get_note_integration() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_update_note_integration() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
+    let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create note
+    // Create note without project link
     let request = CreateNoteRequest {
         title: "Original Title".to_string(),
         content: "Original content".to_string(),
@@ -212,20 +213,20 @@ async fn test_update_note_integration() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract note ID");
 
-    // Update note
+    // Update note to add project link
     let update_request = UpdateNoteRequest {
         title: Some("Updated Title".to_string()),
         content: Some("Updated content".to_string()),
         tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
         parent_id: None,
         idx: None,
-        project_ids: None,
+        project_ids: Some(vec![project_id.clone()]),
         repo_ids: None,
     };
     let result = update_note(&api_client, note_id, update_request).await;
     assert!(result.is_ok());
 
-    // Verify updates
+    // Verify updates including project link
     let get_result = get_note(&api_client, note_id, "json")
         .await
         .expect("Failed to get note");
@@ -233,6 +234,7 @@ async fn test_update_note_integration() {
     assert_eq!(updated_note["title"], "Updated Title");
     assert_eq!(updated_note["content"], "Updated content");
     assert_eq!(updated_note["tags"], json!(["tag1", "tag2"]));
+    assert_eq!(updated_note["project_ids"], json!([project_id]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -299,36 +301,48 @@ async fn test_hierarchical_notes_integration() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract parent ID");
 
-    // Create child note with parent_id and idx
-    let child_request = CreateNoteRequest {
-        title: "Child Note".to_string(),
-        content: "Child content".to_string(),
+    // Create multiple child notes with different idx values to test ordering
+    let child1_request = CreateNoteRequest {
+        title: "Child Note 1".to_string(),
+        content: "First child".to_string(),
+        tags: None,
+        parent_id: Some(parent_id.to_string()),
+        idx: Some(2),
+        project_ids: None,
+        repo_ids: None,
+    };
+    let child1_result = create_note(&api_client, child1_request).await;
+    assert!(child1_result.is_ok());
+
+    let child2_request = CreateNoteRequest {
+        title: "Child Note 2".to_string(),
+        content: "Second child".to_string(),
         tags: None,
         parent_id: Some(parent_id.to_string()),
         idx: Some(1),
         project_ids: None,
         repo_ids: None,
     };
-    let child_result = create_note(&api_client, child_request).await;
-    assert!(child_result.is_ok());
+    let child2_result = create_note(&api_client, child2_request).await;
+    assert!(child2_result.is_ok());
 
-    let child_id = child_result
+    let child2_id = child2_result
         .unwrap()
         .split('(')
         .nth(1)
         .and_then(|s| s.split(')').next())
-        .expect("Failed to extract child ID")
+        .expect("Failed to extract child2 ID")
         .to_string();
 
-    // Verify child note has parent_id
-    let get_result = get_note(&api_client, &child_id, "json")
+    // Verify child note has parent_id and idx
+    let get_result = get_note(&api_client, &child2_id, "json")
         .await
         .expect("Failed to get child note");
     let child_note: serde_json::Value = serde_json::from_str(&get_result).unwrap();
     assert_eq!(child_note["parent_id"], parent_id);
     assert_eq!(child_note["idx"], 1);
 
-    // List notes filtered by parent_id
+    // List notes filtered by parent_id - should be ordered by idx
     let result = list_notes(
         &api_client,
         None,
@@ -344,8 +358,12 @@ async fn test_hierarchical_notes_integration() {
 
     let output = result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(parsed.as_array().unwrap().len(), 1);
-    assert_eq!(parsed[0]["title"], "Child Note");
+    assert_eq!(parsed.as_array().unwrap().len(), 2);
+    // Verify ordering by idx: Child Note 2 (idx=1) should come before Child Note 1 (idx=2)
+    assert_eq!(parsed[0]["title"], "Child Note 2");
+    assert_eq!(parsed[0]["idx"], 1);
+    assert_eq!(parsed[1]["title"], "Child Note 1");
+    assert_eq!(parsed[1]["idx"], 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -403,6 +421,163 @@ async fn test_list_notes_with_filters_integration() {
         .iter()
         .find(|n| n["title"] == "Rust Note");
     assert!(rust_note.is_some(), "Should find Rust note in results");
+}
+
+// =============================================================================
+// Project and Repository Linking Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_multiple_project_ids() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create a second project
+    let project2_payload = serde_json::json!({"title": "Second Project"});
+    let project2_response = api_client
+        .post("/api/v1/projects")
+        .json(&project2_payload)
+        .send()
+        .await
+        .expect("Failed to create project 2");
+    let project2: serde_json::Value = project2_response.json().await.unwrap();
+    let project2_id = project2["id"].as_str().unwrap();
+
+    // Create note linked to multiple projects
+    let request = CreateNoteRequest {
+        title: "Note with Multiple Projects".to_string(),
+        content: "Linked to multiple projects".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        project_ids: Some(vec![project_id.clone(), project2_id.to_string()]),
+        repo_ids: None,
+    };
+    let create_result = create_note(&api_client, request).await;
+    assert!(
+        create_result.is_ok(),
+        "Should create note with multiple project_ids"
+    );
+
+    let output = create_result.unwrap();
+    let note_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Verify both projects are linked
+    let get_result = get_note(&api_client, note_id, "json").await;
+    assert!(get_result.is_ok());
+    let note: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
+    let project_ids_val = note["project_ids"].as_array().unwrap();
+    assert_eq!(project_ids_val.len(), 2);
+    assert!(project_ids_val.contains(&json!(project_id)));
+    assert!(project_ids_val.contains(&json!(project2_id)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_repo_ids() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create a repository
+    let repo_payload = serde_json::json!({
+        "remote": "https://github.com/test/repo-for-notes",
+        "tags": []
+    });
+    let repo_response = api_client
+        .post("/api/v1/repos")
+        .json(&repo_payload)
+        .send()
+        .await
+        .expect("Failed to create repo");
+    let repo: serde_json::Value = repo_response.json().await.unwrap();
+    let repo_id = repo["id"].as_str().unwrap();
+
+    // Create note with repo_ids
+    let request = CreateNoteRequest {
+        title: "Note with Repo Link".to_string(),
+        content: "This note is linked to a repository".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        project_ids: None,
+        repo_ids: Some(vec![repo_id.to_string()]),
+    };
+    let create_result = create_note(&api_client, request).await;
+    assert!(create_result.is_ok(), "Should create note with repo_ids");
+
+    let output = create_result.unwrap();
+    let note_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Verify repo link persists
+    let get_result = get_note(&api_client, note_id, "json").await;
+    assert!(get_result.is_ok());
+    let note: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
+    let repo_ids_val = note["repo_ids"].as_array().unwrap();
+    assert_eq!(repo_ids_val.len(), 1);
+    assert_eq!(repo_ids_val[0], json!(repo_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_both_project_and_repo_ids() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create a repository
+    let repo_payload = serde_json::json!({
+        "remote": "https://github.com/test/combo-repo",
+        "tags": []
+    });
+    let repo_response = api_client
+        .post("/api/v1/repos")
+        .json(&repo_payload)
+        .send()
+        .await
+        .expect("Failed to create repo");
+    let repo: serde_json::Value = repo_response.json().await.unwrap();
+    let repo_id = repo["id"].as_str().unwrap();
+
+    // Create note with both project_ids and repo_ids
+    let request = CreateNoteRequest {
+        title: "Note with Project and Repo".to_string(),
+        content: "Linked to both project and repository".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        project_ids: Some(vec![project_id.clone()]),
+        repo_ids: Some(vec![repo_id.to_string()]),
+    };
+    let create_result = create_note(&api_client, request).await;
+    assert!(
+        create_result.is_ok(),
+        "Should create note with both project_ids and repo_ids"
+    );
+
+    let output = create_result.unwrap();
+    let note_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract note ID");
+
+    // Verify both are linked
+    let get_result = get_note(&api_client, note_id, "json").await;
+    assert!(get_result.is_ok());
+    let note: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
+
+    let project_ids_val = note["project_ids"].as_array().unwrap();
+    assert_eq!(project_ids_val.len(), 1);
+    assert_eq!(project_ids_val[0], json!(project_id));
+
+    let repo_ids_val = note["repo_ids"].as_array().unwrap();
+    assert_eq!(repo_ids_val.len(), 1);
+    assert_eq!(repo_ids_val[0], json!(repo_id));
 }
 
 // =============================================================================
