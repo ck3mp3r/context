@@ -1,7 +1,7 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::PageParams;
 use crate::cli::error::CliResult;
-use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
+use crate::cli::utils::{apply_table_style, format_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
 use tabled::{Table, Tabled};
 
@@ -14,26 +14,26 @@ struct ListReposResponse {
 }
 
 #[derive(Debug, Serialize)]
-struct CreateRepoRequest {
-    remote: String,
+pub struct CreateRepoRequest {
+    pub remote: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
+    pub path: Option<String>,
     #[serde(default)]
-    tags: Vec<String>,
+    pub tags: Vec<String>,
     #[serde(default)]
-    project_ids: Vec<String>,
+    pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct PatchRepoRequest {
+pub struct UpdateRepoRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    remote: Option<String>,
+    pub remote: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
+    pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    project_ids: Option<Vec<String>>,
+    pub project_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -168,20 +168,7 @@ fn format_repo_detail(repo: &Repo) -> String {
 }
 
 /// Create a new repo
-pub async fn create_repo(
-    api_client: &ApiClient,
-    remote: &str,
-    path: Option<&str>,
-    tags: Option<&str>,
-    project_ids: Option<&str>,
-) -> CliResult<String> {
-    let request = CreateRepoRequest {
-        remote: remote.to_string(),
-        path: path.map(String::from),
-        tags: parse_tags(tags).unwrap_or_default(),
-        project_ids: parse_tags(project_ids).unwrap_or_default(),
-    };
-
+pub async fn create_repo(api_client: &ApiClient, request: CreateRepoRequest) -> CliResult<String> {
     let response = api_client
         .post("/api/v1/repos")
         .json(&request)
@@ -199,18 +186,8 @@ pub async fn create_repo(
 pub async fn update_repo(
     api_client: &ApiClient,
     id: &str,
-    remote: Option<&str>,
-    path: Option<&str>,
-    tags: Option<&str>,
-    project_ids: Option<&str>,
+    request: UpdateRepoRequest,
 ) -> CliResult<String> {
-    let request = PatchRepoRequest {
-        remote: remote.map(String::from),
-        path: path.map(String::from),
-        tags: parse_tags(tags),
-        project_ids: parse_tags(project_ids),
-    };
-
     let response = api_client
         .patch(&format!("/api/v1/repos/{}", id))
         .json(&request)

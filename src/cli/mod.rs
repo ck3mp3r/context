@@ -697,14 +697,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 project_ids,
             } => {
-                let output = commands::repo::create_repo(
-                    &api_client,
-                    &remote,
-                    path.as_deref(),
-                    tags.as_deref(),
-                    project_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::repo::CreateRepoRequest {
+                    remote,
+                    path,
+                    tags: utils::parse_tags(tags.as_deref()).unwrap_or_default(),
+                    project_ids: utils::parse_tags(project_ids.as_deref()).unwrap_or_default(),
+                };
+                let output = commands::repo::create_repo(&api_client, request).await?;
                 println!("{}", output);
             }
             RepoCommands::Update {
@@ -714,15 +713,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 project_ids,
             } => {
-                let output = commands::repo::update_repo(
-                    &api_client,
-                    &id,
-                    remote.as_deref(),
-                    path.as_deref(),
-                    tags.as_deref(),
-                    project_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::repo::UpdateRepoRequest {
+                    remote,
+                    path,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    project_ids: utils::parse_tags(project_ids.as_deref()),
+                };
+                let output = commands::repo::update_repo(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             RepoCommands::Delete { id, force } => {
