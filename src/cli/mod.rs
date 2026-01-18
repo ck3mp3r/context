@@ -627,14 +627,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
             } => {
-                let output = commands::project::create_project(
-                    &api_client,
-                    &title,
-                    description.as_deref(),
-                    tags.as_deref(),
-                    external_ref.as_deref(),
-                )
-                .await?;
+                let request = commands::project::CreateProjectRequest {
+                    title,
+                    description,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: external_ref.map(|s| vec![s]),
+                };
+                let output = commands::project::create_project(&api_client, request).await?;
                 println!("{}", output);
             }
             ProjectCommands::Update {
@@ -644,15 +643,13 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
             } => {
-                let output = commands::project::update_project(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    description.as_deref(),
-                    tags.as_deref(),
-                    external_ref.as_deref(),
-                )
-                .await?;
+                let request = commands::project::UpdateProjectRequest {
+                    title,
+                    description,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: external_ref.map(|s| vec![s]),
+                };
+                let output = commands::project::update_project(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             ProjectCommands::Delete { id, force } => {

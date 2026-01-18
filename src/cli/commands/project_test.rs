@@ -72,14 +72,13 @@ async fn test_create_and_get_project() {
     let api_client = ApiClient::new(Some(url));
 
     // Create
-    let create_result = create_project(
-        &api_client,
-        "Test Project",
-        Some("Test desc"),
-        Some("tag1,tag2"),
-        None,
-    )
-    .await;
+    let request = CreateProjectRequest {
+        title: "Test Project".to_string(),
+        description: Some("Test desc".to_string()),
+        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+        external_refs: None,
+    };
+    let create_result = create_project(&api_client, request).await;
     assert!(create_result.is_ok());
 
     let output = create_result.unwrap();
@@ -104,14 +103,13 @@ async fn test_create_project_with_external_refs() {
     let api_client = ApiClient::new(Some(url));
 
     // Create project with external_refs
-    let create_result = create_project(
-        &api_client,
-        "GitHub Project",
-        Some("Linked to GitHub issue"),
-        None,
-        Some("owner/repo#123"),
-    )
-    .await;
+    let request = CreateProjectRequest {
+        title: "GitHub Project".to_string(),
+        description: Some("Linked to GitHub issue".to_string()),
+        tags: None,
+        external_refs: Some(vec!["owner/repo#123".to_string()]),
+    };
+    let create_result = create_project(&api_client, request).await;
     assert!(create_result.is_ok());
 
     let output = create_result.unwrap();
@@ -134,14 +132,13 @@ async fn test_update_project_external_refs() {
     let api_client = ApiClient::new(Some(url));
 
     // Create project without external_refs
-    let create_result = create_project(
-        &api_client,
-        "Project Without Ref",
-        Some("No external ref yet"),
-        None,
-        None,
-    )
-    .await;
+    let request = CreateProjectRequest {
+        title: "Project Without Ref".to_string(),
+        description: Some("No external ref yet".to_string()),
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_project(&api_client, request).await;
     assert!(create_result.is_ok());
 
     // Get project ID from list
@@ -151,15 +148,13 @@ async fn test_update_project_external_refs() {
     let project_id = parsed[0]["id"].as_str().unwrap();
 
     // Update to add external_refs
-    let update_result = update_project(
-        &api_client,
-        project_id,
-        Some("Project With Ref"),
-        None,
-        None,
-        Some("JIRA-456"),
-    )
-    .await;
+    let update_request = UpdateProjectRequest {
+        title: Some("Project With Ref".to_string()),
+        description: None,
+        tags: None,
+        external_refs: Some(vec!["JIRA-456".to_string()]),
+    };
+    let update_result = update_project(&api_client, project_id, update_request).await;
     assert!(update_result.is_ok());
 
     // Verify external_refs was added
@@ -194,15 +189,13 @@ async fn test_update_project_not_found() {
     let api_client = ApiClient::new(Some(url));
 
     // Try to update non-existent project
-    let result = update_project(
-        &api_client,
-        "nonexist",
-        Some("New Title"),
-        Some("New desc"),
-        None,
-        None,
-    )
-    .await;
+    let update_request = UpdateProjectRequest {
+        title: Some("New Title".to_string()),
+        description: Some("New desc".to_string()),
+        tags: None,
+        external_refs: None,
+    };
+    let result = update_project(&api_client, "nonexist", update_request).await;
 
     // Should return error
     assert!(
@@ -256,14 +249,13 @@ async fn test_list_projects_with_offset() {
 
     // Create 3 projects
     for i in 1..=3 {
-        let result = create_project(
-            &api_client,
-            &format!("Project {}", i),
-            Some(&format!("Description {}", i)),
-            None,
-            None,
-        )
-        .await;
+        let request = CreateProjectRequest {
+            title: format!("Project {}", i),
+            description: Some(format!("Description {}", i)),
+            tags: None,
+            external_refs: None,
+        };
+        let result = create_project(&api_client, request).await;
         assert!(
             result.is_ok(),
             "Failed to create project {}: {:?}",
@@ -297,9 +289,29 @@ async fn test_list_projects_with_sort_and_order() {
     let api_client = ApiClient::new(Some(url));
 
     // Create projects with different titles
-    let _ = create_project(&api_client, "Zebra Project", None, None, None).await;
-    let _ = create_project(&api_client, "Alpha Project", None, None, None).await;
-    let _ = create_project(&api_client, "Beta Project", None, None, None).await;
+    let req1 = CreateProjectRequest {
+        title: "Zebra Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_project(&api_client, req1).await;
+
+    let req2 = CreateProjectRequest {
+        title: "Alpha Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_project(&api_client, req2).await;
+
+    let req3 = CreateProjectRequest {
+        title: "Beta Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let _ = create_project(&api_client, req3).await;
 
     // List sorted by title ascending
     let page = PageParams {

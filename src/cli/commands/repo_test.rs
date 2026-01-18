@@ -461,14 +461,14 @@ async fn test_list_repos_with_project_id_filter() {
     let api_client = ApiClient::new(Some(url));
 
     // Create a project
-    let project_result = crate::cli::commands::project::create_project(
-        &api_client,
-        "Test Project",
-        None,
-        None,
-        None,
-    )
-    .await;
+    let project_request = crate::cli::commands::project::CreateProjectRequest {
+        title: "Test Project".to_string(),
+        description: None,
+        tags: None,
+        external_refs: None,
+    };
+    let project_result =
+        crate::cli::commands::project::create_project(&api_client, project_request).await;
     let project_id = project_result
         .unwrap()
         .split('(')
