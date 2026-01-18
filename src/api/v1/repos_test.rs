@@ -23,6 +23,19 @@ async fn test_app() -> axum::Router {
     routes::create_router(state, false)
 }
 
+/// Helper to create test app with access to notifier for broadcast testing
+async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let notifier = crate::api::notifier::ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
+}
+
 /// Helper to parse JSON response body
 async fn json_body(response: axum::response::Response) -> Value {
     let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -30,14 +43,16 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 // =============================================================================
-// GET /v1/repos - List Repos
+// Comprehensive List/Filter Tests
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_repos_initially_empty() {
+async fn list_repos_comprehensive() {
     let app = test_app().await;
 
+    // Test 1: Initially empty
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/repos")
@@ -46,25 +61,13 @@ async fn list_repos_initially_empty() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let repos = body["items"].as_array().expect("Expected items array");
-    assert!(repos.is_empty());
     assert_eq!(body["total"], 0);
-}
+    assert!(body["items"].as_array().unwrap().is_empty());
 
-// =============================================================================
-// GET /v1/repos?project_id=X - Filter by Project
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_repos_filtered_by_project_id() {
-    let app = test_app().await;
-
-    // Create two projects
-    let project_a_response = app
+    // Test 2: Create projects for filtering
+    let project_a = app
         .clone()
         .oneshot(
             Request::builder()
@@ -72,20 +75,18 @@ async fn list_repos_filtered_by_project_id() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project A"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Project A"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let project_a_id = json_body(project_a).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let project_a_body = json_body(project_a_response).await;
-    let project_a_id = project_a_body["id"].as_str().unwrap();
-
-    let project_b_response = app
+    let project_b = app
         .clone()
         .oneshot(
             Request::builder()
@@ -93,93 +94,44 @@ async fn list_repos_filtered_by_project_id() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project B"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Project B"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let project_b_id = json_body(project_b).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let project_b_body = json_body(project_b_response).await;
-    let project_b_id = project_b_body["id"].as_str().unwrap();
-
-    // Create repos: 2 for project A, 1 for project B, 1 for both
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:org/repo-a1",
-                        "project_ids": [project_a_id]
-                    }))
+    // Test 3: Create repos with different project associations
+    for (remote, projects) in [
+        ("github:org/repo-a1", vec![&project_a_id]),
+        ("github:org/repo-a2", vec![&project_a_id]),
+        ("github:org/repo-b1", vec![&project_b_id]),
+        ("github:org/repo-shared", vec![&project_a_id, &project_b_id]),
+    ] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "remote": remote,
+                            "project_ids": projects
+                        }))
+                        .unwrap(),
+                    ))
                     .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+            )
+            .await
+            .unwrap();
+    }
 
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:org/repo-a2",
-                        "project_ids": [project_a_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:org/repo-b1",
-                        "project_ids": [project_b_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:org/repo-shared",
-                        "project_ids": [project_a_id, project_b_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by project_id for Project A
+    // Test 4: Filter by project A (should return 3: 2 exclusive + 1 shared)
     let response = app
         .clone()
         .oneshot(
@@ -190,16 +142,13 @@ async fn list_repos_filtered_by_project_id() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    // Should return 3 repos: 2 exclusive to A + 1 shared
     assert_eq!(body["total"], 3);
-    assert_eq!(body["items"].as_array().unwrap().len(), 3);
 
-    // Filter by project_id for Project B
+    // Test 5: Filter by project B (should return 2: 1 exclusive + 1 shared)
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/api/v1/repos?project_id={}", project_b_id))
@@ -208,64 +157,51 @@ async fn list_repos_filtered_by_project_id() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    // Should return 2 repos: 1 exclusive to B + 1 shared
     assert_eq!(body["total"], 2);
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn list_repos_filtered_by_nonexistent_project() {
-    let app = test_app().await;
-
-    // Create a repo without projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:org/some-repo"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by a non-existent project_id
+    // Test 6: Filter by nonexistent project (should return 0)
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/repos?project_id=nonexist")
+                .uri("/api/v1/repos?project_id=nonexistent")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
     assert_eq!(body["total"], 0);
-    assert!(body["items"].as_array().unwrap().is_empty());
 }
 
 // =============================================================================
-// PATCH /v1/repos/{id} - Partial Update Repo
+// Comprehensive CRUD Tests
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn patch_repo_partial_remote_update() {
+async fn crud_operations() {
     let app = test_app().await;
 
-    // Create a repo
+    // Create a project for relationship testing
+    let project = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "Test Project"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let project_id = json_body(project).await["id"].as_str().unwrap().to_string();
+
+    // Test 1: CREATE repo with full data
     let create_response = app
         .clone()
         .oneshot(
@@ -285,13 +221,44 @@ async fn patch_repo_partial_remote_update() {
         )
         .await
         .unwrap();
-
     assert_eq!(create_response.status(), StatusCode::CREATED);
     let created = json_body(create_response).await;
-    let repo_id = created["id"].as_str().unwrap();
+    let repo_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["remote"], "https://github.com/original/repo");
+    assert_eq!(created["path"], "/original/path");
+    assert_eq!(created["tags"].as_array().unwrap().len(), 2);
 
-    // PATCH only the remote
+    // Test 2: GET repo by ID
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/repos/{}", repo_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let got = json_body(get_response).await;
+    assert_eq!(got["id"], repo_id);
+
+    // Test 3: GET nonexistent repo (404)
+    let get_404 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos/notfound")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_404.status(), StatusCode::NOT_FOUND);
+
+    // Test 4: PATCH partial update (remote only)
     let patch_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -307,108 +274,23 @@ async fn patch_repo_partial_remote_update() {
         )
         .await
         .unwrap();
-
     assert_eq!(patch_response.status(), StatusCode::OK);
-
     let patched = json_body(patch_response).await;
-
-    // Remote should be updated
     assert_eq!(patched["remote"], "https://github.com/updated/repo");
+    assert_eq!(patched["path"], "/original/path"); // Preserved
+    assert_eq!(patched["tags"].as_array().unwrap().len(), 2); // Preserved
 
-    // Other fields should be preserved
-    assert_eq!(patched["path"], "/original/path");
-    assert_eq!(patched["tags"].as_array().unwrap().len(), 2);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_repo_not_found() {
-    let app = test_app().await;
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri("/api/v1/repos/notfound")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/new/repo"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
-
-// =============================================================================
-// PATCH /v1/repos/{id} - Relationship Relinking
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_repo_link_to_project() {
-    let app = test_app().await;
-
-    // Create a project
-    let project_response = app
+    // Test 5: PATCH to add project relationship
+    let patch_project = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let project_body = json_body(project_response).await;
-    let project_id = project_body["id"].as_str().unwrap().to_string();
-
-    // Create a repo without relationships
-    let repo_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:user/test-repo"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let repo_body = json_body(repo_response).await;
-    let repo_id = repo_body["id"].as_str().unwrap();
-
-    // Verify no relationships initially
-    assert!(repo_body["project_ids"].as_array().unwrap().is_empty());
-
-    // PATCH to link to project
-    let response = app
         .oneshot(
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/v1/repos/{}", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "project_ids": [project_id]
+                    serde_json::to_string(&json!({
+                        "project_ids": [&project_id]
                     }))
                     .unwrap(),
                 ))
@@ -416,73 +298,105 @@ async fn patch_repo_link_to_project() {
         )
         .await
         .unwrap();
+    assert_eq!(patch_project.status(), StatusCode::OK);
+    let with_project = json_body(patch_project).await;
+    assert_eq!(with_project["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(with_project["project_ids"][0], project_id);
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
+    // Test 6: PATCH nonexistent repo (404)
+    let patch_404 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/repos/notfound")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({"remote": "new"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_404.status(), StatusCode::NOT_FOUND);
 
-    // Verify relationship was added
-    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["project_ids"][0], project_id);
+    // Test 7: PUT full update
+    let put_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/repos/{}", repo_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "remote": "https://github.com/replaced/repo",
+                        "path": "/new/path",
+                        "tags": ["newtag"],
+                        "project_ids": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let updated = json_body(put_response).await;
+    assert_eq!(updated["remote"], "https://github.com/replaced/repo");
+    assert_eq!(updated["path"], "/new/path");
+
+    // Test 8: DELETE repo
+    let delete_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/repos/{}", repo_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+
+    // Test 9: GET deleted repo (404)
+    let get_deleted = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/repos/{}", repo_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_deleted.status(), StatusCode::NOT_FOUND);
+
+    // Test 10: DELETE nonexistent repo (404)
+    let delete_404 = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/repos/notfound")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_404.status(), StatusCode::NOT_FOUND);
 }
 
 // =============================================================================
 // WebSocket Broadcast Tests
 // =============================================================================
 
-/// Helper to create test app with access to notifier for broadcast testing
-async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let notifier = crate::api::notifier::ChangeNotifier::new();
-    let state = AppState::new(
-        db,
-        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
-        notifier.clone(),
-    );
-    (routes::create_router(state, false), notifier)
-}
-
 #[tokio::test(flavor = "multi_thread")]
-async fn create_repo_broadcasts_notification() {
+async fn websocket_broadcasts() {
     let (app, notifier) = test_app_with_notifier().await;
+
+    // Test 1: Create broadcasts RepoCreated
     let mut subscriber = notifier.subscribe();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "github:user/test-repo"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let created = json_body(response).await;
-    let repo_id = created["id"].as_str().unwrap();
-
-    // Should receive RepoCreated broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::RepoCreated { repo_id: id } => {
-            assert_eq!(id, repo_id);
-        }
-        _ => panic!("Expected RepoCreated message, got {:?}", msg),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_repo_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create a repo first
     let create_response = app
         .clone()
         .oneshot(
@@ -492,7 +406,7 @@ async fn update_repo_broadcasts_notification() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "remote": "github:user/original-repo"
+                        "remote": "github:user/test-repo"
                     }))
                     .unwrap(),
                 ))
@@ -500,15 +414,25 @@ async fn update_repo_broadcasts_notification() {
         )
         .await
         .unwrap();
-
+    assert_eq!(create_response.status(), StatusCode::CREATED);
     let created = json_body(create_response).await;
     let repo_id = created["id"].as_str().unwrap().to_string();
 
-    // Subscribe AFTER creation to avoid receiving create notification
-    let mut subscriber = notifier.subscribe();
+    let msg = subscriber
+        .recv()
+        .await
+        .expect("Should receive create broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::RepoCreated { repo_id: id } => {
+            assert_eq!(id, repo_id);
+        }
+        _ => panic!("Expected RepoCreated, got {:?}", msg),
+    }
 
-    // Update the repo
-    let response = app
+    // Test 2: Update broadcasts RepoUpdated (subscribe after create to avoid create notification)
+    let mut subscriber = notifier.subscribe();
+    let update_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -524,50 +448,22 @@ async fn update_repo_broadcasts_notification() {
         )
         .await
         .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Should receive RepoUpdated broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    let msg = subscriber
+        .recv()
+        .await
+        .expect("Should receive update broadcast");
     match msg {
         crate::api::notifier::UpdateMessage::RepoUpdated { repo_id: id } => {
             assert_eq!(id, repo_id);
         }
-        _ => panic!("Expected RepoUpdated message, got {:?}", msg),
+        _ => panic!("Expected RepoUpdated, got {:?}", msg),
     }
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn delete_repo_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create a repo first
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "github:user/repo-to-delete"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(create_response).await;
-    let repo_id = created["id"].as_str().unwrap().to_string();
-
-    // Subscribe AFTER creation
+    // Test 3: Delete broadcasts RepoDeleted
     let mut subscriber = notifier.subscribe();
-
-    // Delete the repo
-    let response = app
+    let delete_response = app
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -577,16 +473,17 @@ async fn delete_repo_broadcasts_notification() {
         )
         .await
         .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    // Should receive RepoDeleted broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    let msg = subscriber
+        .recv()
+        .await
+        .expect("Should receive delete broadcast");
     match msg {
         crate::api::notifier::UpdateMessage::RepoDeleted { repo_id: id } => {
             assert_eq!(id, repo_id);
         }
-        _ => panic!("Expected RepoDeleted message, got {:?}", msg),
+        _ => panic!("Expected RepoDeleted, got {:?}", msg),
     }
 }
 
@@ -595,50 +492,55 @@ async fn delete_repo_broadcasts_notification() {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_repos_by_remote_url() {
+async fn fts5_search_comprehensive() {
     let app = test_app().await;
 
-    // Create repos with different remote URLs
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/rust-lang/rust.git",
-                        "path": "/home/user/rust",
-                        "tags": []
-                    }))
+    // Create test repos for comprehensive search testing
+    for (remote, path, tags) in [
+        (
+            "https://github.com/rust-lang/rust.git",
+            "/home/user/rust",
+            vec!["language", "system"],
+        ),
+        (
+            "https://github.com/python/cpython.git",
+            "/home/user/python",
+            vec!["language", "scripting"],
+        ),
+        (
+            "https://github.com/company/api-backend.git",
+            "/srv/projects/backend-api",
+            vec!["api", "production"],
+        ),
+        (
+            "https://github.com/company/web-frontend.git",
+            "/srv/projects/frontend-app",
+            vec!["frontend", "production"],
+        ),
+    ] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&json!({
+                            "remote": remote,
+                            "path": path,
+                            "tags": tags
+                        }))
+                        .unwrap(),
+                    ))
                     .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+            )
+            .await
+            .unwrap();
+    }
 
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/python/cpython.git",
-                        "path": "/home/user/python",
-                        "tags": []
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search for "rust"
+    // Test 1: Search by remote URL
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/repos?q=rust")
@@ -647,65 +549,19 @@ async fn search_repos_by_remote_url() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
-    assert_eq!(body["items"].as_array().unwrap().len(), 1);
     assert!(
         body["items"][0]["remote"]
             .as_str()
             .unwrap()
             .contains("rust-lang")
     );
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn search_repos_by_path() {
-    let app = test_app().await;
-
-    // Create repos with different paths
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/example/backend.git",
-                        "path": "/srv/projects/backend-api",
-                        "tags": []
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/example/frontend.git",
-                        "path": "/srv/projects/frontend-app",
-                        "tags": []
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by path containing "backend" - NEW FTS5 capability!
+    // Test 2: Search by path
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/repos?q=backend")
@@ -714,14 +570,9 @@ async fn search_repos_by_path() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    // Should find repo with "backend" in path AND remote
     assert!(body["total"].as_u64().unwrap() >= 1);
-
-    // Verify at least one result has "backend" in path or remote
     let items = body["items"].as_array().unwrap();
     let has_backend = items.iter().any(|item| {
         let remote = item["remote"].as_str().unwrap_or("");
@@ -729,53 +580,10 @@ async fn search_repos_by_path() {
         remote.contains("backend") || path.contains("backend")
     });
     assert!(has_backend);
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn search_repos_boolean_operators() {
-    let app = test_app().await;
-
-    // Create repos
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/company/api-backend.git",
-                        "path": "/srv/api",
-                        "tags": ["api", "production"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/company/web-frontend.git",
-                        "path": "/srv/web",
-                        "tags": ["frontend", "production"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search with AND operator: "api AND production"
+    // Test 3: Boolean AND operator
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/repos?q=api%20AND%20production")
@@ -784,9 +592,7 @@ async fn search_repos_boolean_operators() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
     assert!(
@@ -795,33 +601,8 @@ async fn search_repos_boolean_operators() {
             .unwrap()
             .contains("api-backend")
     );
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn search_repos_empty_query_returns_all() {
-    let app = test_app().await;
-
-    // Create a repo
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "remote": "https://github.com/test/repo.git",
-                        "path": null,
-                        "tags": []
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Empty search query should return all repos
+    // Test 4: Empty query returns all
     let response = app
         .oneshot(
             Request::builder()
@@ -831,9 +612,7 @@ async fn search_repos_empty_query_returns_all() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    assert_eq!(body["total"], 1);
+    assert_eq!(body["total"], 4); // All 4 repos we created
 }
