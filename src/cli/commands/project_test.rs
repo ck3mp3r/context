@@ -293,3 +293,186 @@ async fn test_delete_project_force_flag_validation() {
         "Error should mention --force flag"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_project_display_formats_and_filters() {
+    let (url, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Test 1: Empty list returns "No projects found."
+    let empty_result = list_projects(&api_client, None, None, PageParams::default(), "table").await;
+    assert!(empty_result.is_ok());
+    assert_eq!(
+        empty_result.unwrap(),
+        "No projects found.",
+        "Should show empty message for table format"
+    );
+
+    // Create projects with comprehensive data for table display testing
+    let project1 = CreateProjectRequest {
+        title: "Infrastructure Modernization".to_string(),
+        description: Some(
+            "Upgrade cloud infrastructure to latest Kubernetes version and implement GitOps"
+                .to_string(),
+        ),
+        tags: Some(vec![
+            "infrastructure".to_string(),
+            "kubernetes".to_string(),
+            "gitops".to_string(),
+        ]),
+        external_refs: Some(vec![
+            "INFRA-2026".to_string(),
+            "github/acme/infra#123".to_string(),
+        ]),
+    };
+    let create1 = create_project(&api_client, project1).await.unwrap();
+    let project1_id = create1
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap();
+
+    let project2 = CreateProjectRequest {
+        title: "Mobile App Development".to_string(),
+        description: Some("Native iOS and Android applications with offline sync".to_string()),
+        tags: Some(vec![
+            "mobile".to_string(),
+            "ios".to_string(),
+            "android".to_string(),
+        ]),
+        external_refs: Some(vec!["MOBILE-456".to_string()]),
+    };
+    create_project(&api_client, project2).await.unwrap();
+
+    let project3 = CreateProjectRequest {
+        title: "Data Analytics Platform".to_string(),
+        description: None,   // Test None description display
+        tags: None,          // Test None tags display
+        external_refs: None, // Test None external_refs display
+    };
+    create_project(&api_client, project3).await.unwrap();
+
+    // Test 2: Table format for list with data (tests ProjectDisplay From impl, format_table)
+    let table_result = list_projects(&api_client, None, None, PageParams::default(), "table").await;
+    assert!(table_result.is_ok());
+    let table_output = table_result.unwrap();
+    assert!(
+        table_output.contains("Infrastructure Modernization"),
+        "Table should contain project title"
+    );
+    assert!(
+        table_output.contains("kubernetes"),
+        "Table should contain tags"
+    );
+    assert!(
+        table_output.contains("-"),
+        "Table should show '-' for None description/tags"
+    );
+
+    // Test 3: Table format for get (tests format_project_detail with all fields)
+    let detail_result = get_project(&api_client, project1_id, "table").await;
+    assert!(detail_result.is_ok());
+    let detail_output = detail_result.unwrap();
+    assert!(
+        detail_output.contains("Project ID"),
+        "Detail should have Project ID field"
+    );
+    assert!(
+        detail_output.contains("Title"),
+        "Detail should have Title field"
+    );
+    assert!(
+        detail_output.contains("Description"),
+        "Detail should have Description field"
+    );
+    assert!(
+        detail_output.contains("Tags"),
+        "Detail should have Tags field"
+    );
+    assert!(
+        detail_output.contains("External Refs"),
+        "Detail should have External Refs field"
+    );
+    assert!(
+        detail_output.contains("Created"),
+        "Detail should have Created field"
+    );
+    assert!(
+        detail_output.contains("Updated"),
+        "Detail should have Updated field"
+    );
+    assert!(
+        detail_output.contains("Infrastructure Modernization"),
+        "Detail should contain project data"
+    );
+
+    // Test 4: Query filter
+    let query_result = list_projects(
+        &api_client,
+        Some("Mobile"),
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(query_result.is_ok());
+    let parsed: serde_json::Value = serde_json::from_str(&query_result.unwrap()).unwrap();
+    let projects = parsed.as_array().unwrap();
+    assert_eq!(projects.len(), 1, "Should find 1 project matching 'Mobile'");
+    assert!(projects[0]["title"].as_str().unwrap().contains("Mobile"));
+
+    // Test 5: Tags filter
+    let tags_result = list_projects(
+        &api_client,
+        None,
+        Some("kubernetes"),
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(tags_result.is_ok());
+    let parsed_tags: serde_json::Value = serde_json::from_str(&tags_result.unwrap()).unwrap();
+    let projects_tags = parsed_tags.as_array().unwrap();
+    assert_eq!(
+        projects_tags.len(),
+        1,
+        "Should find 1 project with 'kubernetes' tag"
+    );
+
+    // Test 6: Detail view with empty optional fields (project3 has no description, tags, or external_refs)
+    let project3_list = list_projects(
+        &api_client,
+        Some("Analytics"),
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await
+    .unwrap();
+    let project3_parsed: serde_json::Value = serde_json::from_str(&project3_list).unwrap();
+    let project3_id = project3_parsed[0]["id"].as_str().unwrap();
+
+    let detail3_result = get_project(&api_client, project3_id, "table").await;
+    assert!(detail3_result.is_ok());
+    let detail3_output = detail3_result.unwrap();
+    assert!(
+        !detail3_output.contains("Description"),
+        "Detail should NOT show Description field when None"
+    );
+    assert!(
+        !detail3_output.contains("Tags"),
+        "Detail should NOT show Tags field when None or empty"
+    );
+    assert!(
+        !detail3_output.contains("External Refs"),
+        "Detail should NOT show External Refs field when empty"
+    );
+    assert!(
+        detail3_output.contains("Project ID"),
+        "Detail should always show Project ID"
+    );
+    assert!(
+        detail3_output.contains("Title"),
+        "Detail should always show Title"
+    );
+}
