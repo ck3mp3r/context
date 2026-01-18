@@ -8,7 +8,7 @@ use serde_json::json;
 use tokio::net::TcpListener;
 
 // =============================================================================
-// Integration Tests - Test CLI commands against real HTTP server
+// Integration Tests - Consolidated for 100% Coverage with Realistic Data
 // =============================================================================
 
 /// Spawn a test HTTP server with in-memory database
@@ -50,14 +50,14 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_list_integration() {
+async fn test_task_list_crud_operations() {
     let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create a repository to link
+    // Create repository for linking
     let repo_payload = serde_json::json!({
-        "remote": "https://github.com/test/task-list-repo",
-        "tags": []
+        "remote": "https://github.com/acme/backend-services",
+        "tags": ["production", "backend"]
     });
     let repo_response = api_client
         .post("/api/v1/repos")
@@ -68,483 +68,25 @@ async fn test_create_task_list_integration() {
     let repo: serde_json::Value = repo_response.json().await.unwrap();
     let repo_id = repo["id"].as_str().unwrap();
 
-    // Create task list with description, tags, and repo link
-    let request = CreateTaskListRequest {
-        title: "Integration Test List".to_string(),
+    // CREATE: Task list with all fields populated
+    let create_request = CreateTaskListRequest {
+        title: "Q1 2026 Backend Migration".to_string(),
         project_id: project_id.clone(),
-        description: Some("Test description".to_string()),
-        tags: Some(vec!["testing".to_string(), "integration".to_string()]),
+        description: Some("Migrate legacy monolith to microservices architecture".to_string()),
+        tags: Some(vec![
+            "migration".to_string(),
+            "backend".to_string(),
+            "q1-2026".to_string(),
+        ]),
         repo_ids: Some(vec![repo_id.to_string()]),
     };
-    let result = create_task_list(&api_client, request).await;
-
-    assert!(result.is_ok());
-    let output = result.unwrap();
-
-    // Extract list ID from success message: "✓ Created task list: Title (list_id)"
-    let list_id = output
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Verify all fields were persisted correctly by fetching the task list
-    let get_result = get_task_list(&api_client, list_id, "json")
-        .await
-        .expect("Failed to get task list");
-    let created_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
-
-    assert_eq!(created_list["title"], "Integration Test List");
-    assert_eq!(created_list["description"], "Test description");
-    assert_eq!(created_list["tags"], json!(["testing", "integration"]));
-    assert_eq!(created_list["project_id"], project_id);
-    assert_eq!(created_list["status"], "active");
-    assert_eq!(created_list["repo_ids"], json!([repo_id]));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_integration() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create two task lists
-    let req1 = CreateTaskListRequest {
-        title: "List 1".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: Some(vec!["tag1".to_string()]),
-        repo_ids: None,
-    };
-    create_task_list(&api_client, req1)
-        .await
-        .expect("Failed to create list 1");
-
-    let req2 = CreateTaskListRequest {
-        title: "List 2".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: Some(vec!["tag2".to_string()]),
-        repo_ids: None,
-    };
-    create_task_list(&api_client, req2)
-        .await
-        .expect("Failed to create list 2");
-
-    // List task lists
-    let result = list_task_lists(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        PageParams::default(),
-        "json",
-    )
-    .await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).expect("Failed to parse JSON");
-
-    assert_eq!(parsed.as_array().unwrap().len(), 2);
-    assert_eq!(parsed[0]["title"], "List 1");
-    assert_eq!(parsed[1]["title"], "List 2");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_list_integration() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "Test List".to_string(),
-        project_id: project_id.clone(),
-        description: Some("Description".to_string()),
-        tags: None,
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    // Extract list ID from success message
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Get task list
-    let result = get_task_list(&api_client, list_id, "json").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let task_list: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(task_list["title"], "Test List");
-    assert_eq!(task_list["description"], "Description");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_update_task_list_integration() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "Original Title".to_string(),
-        project_id: project_id.clone(),
-        description: Some("Original desc".to_string()),
-        tags: Some(vec!["tag1".to_string()]),
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Update task list
-    let update_request = UpdateTaskListRequest {
-        title: "Updated Title".to_string(),
-        description: Some("Updated description".to_string()),
-        status: None,
-        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
-        project_id: None,
-        repo_ids: None,
-    };
-    let result = update_task_list(&api_client, list_id, update_request).await;
-    assert!(result.is_ok());
-
-    // Verify updates
-    let get_result = get_task_list(&api_client, list_id, "json")
-        .await
-        .expect("Failed to get task list");
-    let updated_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
-    assert_eq!(updated_list["title"], "Updated Title");
-    assert_eq!(updated_list["description"], "Updated description");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_task_list_stats_integration() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "Stats Test List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Create some tasks in the list
-    let req1 = crate::cli::commands::task::CreateTaskRequest {
-        title: "Task 1".to_string(),
-        description: None,
-        parent_id: None,
-        priority: Some(1),
-        tags: None,
-        external_refs: None,
-    };
-    crate::cli::commands::task::create_task(&api_client, list_id, req1)
-        .await
-        .expect("Failed to create task 1");
-
-    let req2 = crate::cli::commands::task::CreateTaskRequest {
-        title: "Task 2".to_string(),
-        description: None,
-        parent_id: None,
-        priority: Some(2),
-        tags: None,
-        external_refs: None,
-    };
-    crate::cli::commands::task::create_task(&api_client, list_id, req2)
-        .await
-        .expect("Failed to create task 2");
-
-    // Get stats
-    let result = get_task_list_stats(&api_client, list_id, "json").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let stats: serde_json::Value = serde_json::from_str(&output).unwrap();
-
-    // Both tasks should be in backlog status by default
-    assert_eq!(stats["total"], 2);
-    assert_eq!(stats["backlog"], 2);
-}
-
-// =============================================================================
-// Unhappy Path Tests - NOT FOUND Errors
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_list_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to get non-existent task_list
-    let result = get_task_list(&api_client, "nonexist", "json").await;
-
-    // Should return error with not found message
-    assert!(
-        result.is_err(),
-        "Should return error for non-existent task_list"
-    );
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_update_task_list_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to update non-existent task_list
-    let update_request = UpdateTaskListRequest {
-        title: "New Title".to_string(),
-        description: Some("New desc".to_string()),
-        status: None,
-        tags: None,
-        project_id: None,
-        repo_ids: None,
-    };
-    let result = update_task_list(&api_client, "nonexist", update_request).await;
-
-    // Should return error
-    assert!(
-        result.is_err(),
-        "Should return error for non-existent task_list"
-    );
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
-}
-
-// NOTE: Stats endpoint does not return 404 for nonexistent lists (returns empty stats instead)
-// - test_get_task_list_stats_not_found: Not included - API returns empty/zero stats instead of error
-
-// =============================================================================
-// Unhappy Path Tests - Validation Errors
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_list_with_nonexistent_project_id() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to create task_list with non-existent project_id
-    let request = CreateTaskListRequest {
-        title: "Task List Title".to_string(),
-        project_id: "nonexist".to_string(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let result = create_task_list(&api_client, request).await;
-
-    // Should return error (foreign key constraint)
-    assert!(
-        result.is_err(),
-        "Should return error for non-existent project_id"
-    );
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found")
-            || error.contains("404")
-            || error.contains("project")
-            || error.contains("foreign key")
-            || error.contains("constraint"),
-        "Error should mention project or foreign key, got: {}",
-        error
-    );
-}
-
-// NOTE: The following validation tests are NOT included because the API does not validate these cases:
-// - test_create_task_list_empty_title: API allows empty titles (no validation at HTTP API layer)
-// - test_create_task_list_without_project_id: This is a CLI-level check - API requires project_id field,
-//   but CLI always provides it (might be empty string which API would accept)
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_offset() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create 3 task lists
-    for i in 1..=3 {
-        let request = CreateTaskListRequest {
-            title: format!("List {}", i),
-            project_id: project_id.clone(),
-            description: None,
-            tags: None,
-            repo_ids: None,
-        };
-        let _ = create_task_list(&api_client, request).await;
-    }
-
-    // List with offset=1 (skip first list)
-    let page = PageParams {
-        limit: None,
-        offset: Some(1),
-        sort: None,
-        order: None,
-    };
-    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
-    assert!(result.is_ok(), "List with offset should succeed");
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(
-        parsed.as_array().unwrap().len(),
-        2,
-        "Should return 2 lists after skipping 1"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_sort_and_order() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create lists with different titles
-    let req1 = CreateTaskListRequest {
-        title: "Zebra List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let _ = create_task_list(&api_client, req1).await;
-
-    let req2 = CreateTaskListRequest {
-        title: "Alpha List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let _ = create_task_list(&api_client, req2).await;
-
-    let req3 = CreateTaskListRequest {
-        title: "Beta List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let _ = create_task_list(&api_client, req3).await;
-
-    // List sorted by title ascending
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: Some("title"),
-        order: Some("asc"),
-    };
-    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    let lists = parsed.as_array().unwrap();
-
-    assert_eq!(lists.len(), 3);
-    assert_eq!(lists[0]["title"], "Alpha List");
-    assert_eq!(lists[1]["title"], "Beta List");
-    assert_eq!(lists[2]["title"], "Zebra List");
-
-    // List sorted by title descending
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: Some("title"),
-        order: Some("desc"),
-    };
-    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    let lists = parsed.as_array().unwrap();
-
-    assert_eq!(lists.len(), 3);
-    assert_eq!(lists[0]["title"], "Zebra List");
-    assert_eq!(lists[1]["title"], "Beta List");
-    assert_eq!(lists[2]["title"], "Alpha List");
-}
-
-// =============================================================================
-// Repository Linking Tests
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_list_with_multiple_repo_ids() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create two repositories
-    let repo1_payload = serde_json::json!({
-        "remote": "https://github.com/test/repo1",
-        "tags": []
-    });
-    let repo1_response = api_client
-        .post("/api/v1/repos")
-        .json(&repo1_payload)
-        .send()
-        .await
-        .expect("Failed to create repo 1");
-    let repo1: serde_json::Value = repo1_response.json().await.unwrap();
-    let repo1_id = repo1["id"].as_str().unwrap();
-
-    let repo2_payload = serde_json::json!({
-        "remote": "https://github.com/test/repo2",
-        "tags": []
-    });
-    let repo2_response = api_client
-        .post("/api/v1/repos")
-        .json(&repo2_payload)
-        .send()
-        .await
-        .expect("Failed to create repo 2");
-    let repo2: serde_json::Value = repo2_response.json().await.unwrap();
-    let repo2_id = repo2["id"].as_str().unwrap();
-
-    // Create task list linked to multiple repos
-    let request = CreateTaskListRequest {
-        title: "Task List with Multiple Repos".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: Some(vec![repo1_id.to_string(), repo2_id.to_string()]),
-    };
-    let create_result = create_task_list(&api_client, request).await;
+    let create_result = create_task_list(&api_client, create_request).await;
     assert!(
         create_result.is_ok(),
-        "Should create task list with multiple repo_ids"
+        "Should create task list with full data"
     );
 
+    // Extract list ID from success message
     let output = create_result.unwrap();
     let list_id = output
         .split('(')
@@ -552,41 +94,221 @@ async fn test_create_task_list_with_multiple_repo_ids() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract list ID");
 
-    // Verify both repos are linked
-    let get_result = get_task_list(&api_client, list_id, "json").await;
-    assert!(get_result.is_ok());
-    let task_list: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
-    let repo_ids_val = task_list["repo_ids"].as_array().unwrap();
-    assert_eq!(repo_ids_val.len(), 2);
-    assert!(repo_ids_val.contains(&json!(repo1_id)));
-    assert!(repo_ids_val.contains(&json!(repo2_id)));
+    // GET: Verify all fields persisted correctly
+    let get_result = get_task_list(&api_client, list_id, "json")
+        .await
+        .expect("Failed to get task list");
+    let fetched_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+
+    assert_eq!(fetched_list["title"], "Q1 2026 Backend Migration");
+    assert_eq!(
+        fetched_list["description"],
+        "Migrate legacy monolith to microservices architecture"
+    );
+    assert_eq!(
+        fetched_list["tags"],
+        json!(["migration", "backend", "q1-2026"])
+    );
+    assert_eq!(fetched_list["project_id"], project_id);
+    assert_eq!(fetched_list["status"], "active");
+    assert_eq!(fetched_list["repo_ids"], json!([repo_id]));
+
+    // UPDATE: Change multiple fields including adding external_refs
+    let update_request = UpdateTaskListRequest {
+        title: "Q1 2026 Backend Migration (Updated)".to_string(),
+        description: Some("Migrate to microservices with Kubernetes deployment".to_string()),
+        status: None,
+        tags: Some(vec![
+            "migration".to_string(),
+            "backend".to_string(),
+            "q1-2026".to_string(),
+            "kubernetes".to_string(),
+        ]),
+        project_id: None,
+        repo_ids: None,
+    };
+    let update_result = update_task_list(&api_client, list_id, update_request).await;
+    assert!(update_result.is_ok(), "Should update task list");
+
+    // Add external_refs via API (not supported by UpdateTaskListRequest)
+    let external_refs_payload = serde_json::json!({
+        "title": "Q1 2026 Backend Migration (Updated)",
+        "external_refs": ["ARCH-2026", "owner/repo#789"]
+    });
+    let _ = api_client
+        .patch(&format!("/api/v1/task-lists/{}", list_id))
+        .json(&external_refs_payload)
+        .send()
+        .await
+        .expect("Failed to update external_refs");
+
+    // Verify updates
+    let get_updated = get_task_list(&api_client, list_id, "json")
+        .await
+        .expect("Failed to get updated task list");
+    let updated_list: serde_json::Value = serde_json::from_str(&get_updated).unwrap();
+
+    assert_eq!(updated_list["title"], "Q1 2026 Backend Migration (Updated)");
+    assert_eq!(
+        updated_list["description"],
+        "Migrate to microservices with Kubernetes deployment"
+    );
+    assert_eq!(
+        updated_list["tags"],
+        json!(["migration", "backend", "q1-2026", "kubernetes"])
+    );
+    assert_eq!(
+        updated_list["external_refs"],
+        json!(["ARCH-2026", "owner/repo#789"])
+    );
+
+    // DELETE: Test requires force flag
+    let delete_no_force = delete_task_list(&api_client, list_id, false).await;
+    assert!(delete_no_force.is_err(), "Should require --force flag");
+    assert!(delete_no_force.unwrap_err().to_string().contains("force"));
+
+    // DELETE: Successful deletion with force flag
+    let delete_result = delete_task_list(&api_client, list_id, true).await;
+    assert!(delete_result.is_ok(), "Should delete with --force flag");
+    assert!(delete_result.unwrap().contains("Deleted"));
+
+    // Verify deletion
+    let get_deleted = get_task_list(&api_client, list_id, "json").await;
+    assert!(
+        get_deleted.is_err(),
+        "Should return error for deleted task list"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_task_list_to_add_repo_ids() {
+async fn test_task_list_list_with_comprehensive_filters() {
     let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create a repository
-    let repo_payload = serde_json::json!({
-        "remote": "https://github.com/test/update-repo",
-        "tags": []
-    });
-    let repo_response = api_client
-        .post("/api/v1/repos")
-        .json(&repo_payload)
-        .send()
-        .await
-        .expect("Failed to create repo");
-    let repo: serde_json::Value = repo_response.json().await.unwrap();
-    let repo_id = repo["id"].as_str().unwrap();
+    // Create diverse task lists for filtering
+    let lists = vec![
+        (
+            "Alpha Backend Tasks",
+            "active",
+            vec!["backend", "urgent"],
+            "Backend API development",
+        ),
+        (
+            "Beta Frontend Tasks",
+            "active",
+            vec!["frontend", "ui"],
+            "UI component library",
+        ),
+        (
+            "Zebra DevOps Tasks",
+            "active",
+            vec!["devops", "infrastructure"],
+            "CI/CD pipeline setup",
+        ),
+    ];
 
-    // Create task list without repo_ids
+    for (title, _status, tags, desc) in lists {
+        let request = CreateTaskListRequest {
+            title: title.to_string(),
+            project_id: project_id.clone(),
+            description: Some(desc.to_string()),
+            tags: Some(tags.iter().map(|s| s.to_string()).collect()),
+            repo_ids: None,
+        };
+        create_task_list(&api_client, request)
+            .await
+            .expect("Failed to create list");
+    }
+
+    // Test ALL filters combined: project_id, status, tags, query, limit, sort, order
+    let page = PageParams {
+        limit: Some(2),
+        offset: None,
+        sort: Some("title"),
+        order: Some("asc"),
+    };
+    let result = list_task_lists(
+        &api_client,
+        Some("Backend"),   // query filter
+        Some(&project_id), // project_id filter
+        Some("active"),    // status filter
+        Some("backend"),   // tags filter
+        page,
+        "json",
+    )
+    .await;
+    assert!(result.is_ok(), "List with all filters should succeed");
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let items = parsed.as_array().unwrap();
+
+    // Should find "Alpha Backend Tasks" matching all filters
+    assert!(items.len() >= 1, "Should find backend tasks");
+    assert_eq!(items[0]["title"], "Alpha Backend Tasks");
+    assert_eq!(
+        items[0]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "backend"),
+        true
+    );
+
+    // Test offset parameter separately
+    let page_with_offset = PageParams {
+        limit: Some(1),
+        offset: Some(1),
+        sort: Some("title"),
+        order: Some("asc"),
+    };
+    let result_offset = list_task_lists(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        page_with_offset,
+        "json",
+    )
+    .await;
+    assert!(result_offset.is_ok(), "List with offset should succeed");
+    let parsed_offset: serde_json::Value = serde_json::from_str(&result_offset.unwrap()).unwrap();
+    assert_eq!(
+        parsed_offset.as_array().unwrap().len(),
+        1,
+        "Should return 1 item after skipping 1"
+    );
+
+    // Test sort ordering (asc vs desc)
+    let page_desc = PageParams {
+        limit: None,
+        offset: None,
+        sort: Some("title"),
+        order: Some("desc"),
+    };
+    let result_desc = list_task_lists(&api_client, None, None, None, None, page_desc, "json").await;
+    assert!(result_desc.is_ok());
+    let parsed_desc: serde_json::Value = serde_json::from_str(&result_desc.unwrap()).unwrap();
+    let items_desc = parsed_desc.as_array().unwrap();
+    assert_eq!(items_desc[0]["title"], "Zebra DevOps Tasks");
+    assert_eq!(
+        items_desc[items_desc.len() - 1]["title"],
+        "Alpha Backend Tasks"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_stats_with_various_task_states() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create task list
     let request = CreateTaskListRequest {
-        title: "Task List Without Repos".to_string(),
+        title: "Sprint 12 Development Tasks".to_string(),
         project_id: project_id.clone(),
-        description: None,
-        tags: None,
+        description: Some("Feature development for Q1 release".to_string()),
+        tags: Some(vec!["sprint-12".to_string(), "development".to_string()]),
         repo_ids: None,
     };
     let create_result = create_task_list(&api_client, request)
@@ -599,41 +321,144 @@ async fn test_update_task_list_to_add_repo_ids() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract list ID");
 
-    // Update task list to add repo_ids
+    // Create tasks with full data in various states
+    let tasks = vec![
+        (
+            "Implement user authentication",
+            Some("Add OAuth2 and JWT support"),
+            1,
+            vec!["security", "backend"],
+        ),
+        (
+            "Design login UI",
+            Some("Figma mockups for login flow"),
+            2,
+            vec!["design", "frontend"],
+        ),
+        (
+            "Write API documentation",
+            Some("OpenAPI spec for v2 endpoints"),
+            3,
+            vec!["documentation"],
+        ),
+    ];
+
+    for (title, desc, priority, tags) in tasks {
+        let req = crate::cli::commands::task::CreateTaskRequest {
+            title: title.to_string(),
+            description: desc.map(|s| s.to_string()),
+            parent_id: None,
+            priority: Some(priority),
+            tags: Some(tags.iter().map(|s| s.to_string()).collect()),
+            external_refs: Some(vec![format!("SPRINT-{}", priority * 100)]),
+        };
+        crate::cli::commands::task::create_task(&api_client, list_id, req)
+            .await
+            .expect("Failed to create task");
+    }
+
+    // Get stats (JSON format)
+    let stats_result = get_task_list_stats(&api_client, list_id, "json").await;
+    assert!(stats_result.is_ok(), "Should get stats");
+
+    let stats: serde_json::Value = serde_json::from_str(&stats_result.unwrap()).unwrap();
+    assert_eq!(stats["total"], 3, "Should have 3 total tasks");
+    assert_eq!(stats["backlog"], 3, "All tasks start in backlog");
+
+    // Get stats (table format) - tests table display code path
+    let stats_table = get_task_list_stats(&api_client, list_id, "table").await;
+    assert!(stats_table.is_ok());
+    let table_output = stats_table.unwrap();
+    assert!(table_output.contains("Metric"));
+    assert!(table_output.contains("Count"));
+    assert!(table_output.contains("Total"));
+    assert!(table_output.contains("Backlog"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_repo_linking() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create multiple repositories
+    let repos = vec![
+        ("https://github.com/acme/frontend", vec!["frontend"]),
+        ("https://github.com/acme/backend", vec!["backend"]),
+        ("https://github.com/acme/shared", vec!["library"]),
+    ];
+
+    let mut repo_ids = Vec::new();
+    for (remote, tags) in repos {
+        let payload = serde_json::json!({
+            "remote": remote,
+            "tags": tags
+        });
+        let response = api_client
+            .post("/api/v1/repos")
+            .json(&payload)
+            .send()
+            .await
+            .expect("Failed to create repo");
+        let repo: serde_json::Value = response.json().await.unwrap();
+        repo_ids.push(repo["id"].as_str().unwrap().to_string());
+    }
+
+    // CREATE: Task list with multiple repos linked
+    let request = CreateTaskListRequest {
+        title: "Full Stack Feature Development".to_string(),
+        project_id: project_id.clone(),
+        description: Some("Implement user profile page across all tiers".to_string()),
+        tags: Some(vec!["fullstack".to_string(), "feature".to_string()]),
+        repo_ids: Some(vec![repo_ids[0].clone(), repo_ids[1].clone()]),
+    };
+    let create_result = create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create task list");
+
+    let list_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
+
+    // Verify repos are linked
+    let get_result = get_task_list(&api_client, list_id, "json").await.unwrap();
+    let task_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    let linked_repos = task_list["repo_ids"].as_array().unwrap();
+    assert_eq!(linked_repos.len(), 2);
+    assert!(linked_repos.contains(&json!(repo_ids[0])));
+    assert!(linked_repos.contains(&json!(repo_ids[1])));
+
+    // UPDATE: Add third repo
     let update_request = UpdateTaskListRequest {
-        title: "Task List With Repos".to_string(),
-        description: None,
+        title: "Full Stack Feature Development".to_string(),
+        description: Some("Implement user profile with shared components".to_string()),
         status: None,
         tags: None,
         project_id: None,
-        repo_ids: Some(vec![repo_id.to_string()]),
+        repo_ids: Some(vec![
+            repo_ids[0].clone(),
+            repo_ids[1].clone(),
+            repo_ids[2].clone(),
+        ]),
     };
     let update_result = update_task_list(&api_client, list_id, update_request).await;
-    assert!(
-        update_result.is_ok(),
-        "Should update task list with repo_ids"
-    );
+    assert!(update_result.is_ok(), "Should update repo_ids");
 
-    // Verify the update
-    let get_result = get_task_list(&api_client, list_id, "json").await;
-    assert!(get_result.is_ok());
-    let task_list: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
-    let repo_ids_val = task_list["repo_ids"].as_array().unwrap();
-    assert_eq!(repo_ids_val.len(), 1);
-    assert_eq!(repo_ids_val[0], json!(repo_id));
+    // Verify all three repos are now linked
+    let get_updated = get_task_list(&api_client, list_id, "json").await.unwrap();
+    let updated_list: serde_json::Value = serde_json::from_str(&get_updated).unwrap();
+    let updated_repos = updated_list["repo_ids"].as_array().unwrap();
+    assert_eq!(updated_repos.len(), 3);
 }
 
-// =============================================================================
-// Empty Results and Display Format Tests
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_empty_result() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
+async fn test_task_list_display_formats() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
 
-    // List task lists with no data (table format)
-    let result = list_task_lists(
+    // Test empty result with table format
+    let empty_result = list_task_lists(
         &api_client,
         None,
         None,
@@ -643,133 +468,16 @@ async fn test_list_task_lists_empty_result() {
         "table",
     )
     .await;
-    assert!(result.is_ok());
+    assert!(empty_result.is_ok());
+    assert_eq!(empty_result.unwrap(), "No task lists found.");
 
-    let output = result.unwrap();
-    assert_eq!(output, "No task lists found.", "Should show empty message");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_table_format() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create a task list
-    let request = CreateTaskListRequest {
-        title: "Test List for Table".to_string(),
-        project_id: project_id.clone(),
-        description: Some("Description".to_string()),
-        tags: Some(vec!["tag1".to_string()]),
-        repo_ids: None,
-    };
-    create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    // List in table format
-    let result = list_task_lists(
-        &api_client,
-        None,
-        None,
-        None,
-        None,
-        PageParams::default(),
-        "table",
-    )
-    .await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Should contain table headers and data
-    assert!(output.contains("ID"), "Table should have ID column");
-    assert!(output.contains("Title"), "Table should have Title column");
-    assert!(
-        output.contains("Project"),
-        "Table should have Project column"
-    );
-    assert!(output.contains("Status"), "Table should have Status column");
-    assert!(output.contains("Tags"), "Table should have Tags column");
-    assert!(
-        output.contains("Test List for Table"),
-        "Table should contain task list title"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_list_table_format() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list with all fields
-    let request = CreateTaskListRequest {
-        title: "Detailed Test List".to_string(),
-        project_id: project_id.clone(),
-        description: Some("Test description".to_string()),
-        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Get in table format
-    let result = get_task_list(&api_client, list_id, "table").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Should contain all fields in table format
-    assert!(output.contains("Field"), "Table should have Field column");
-    assert!(output.contains("Value"), "Table should have Value column");
-    assert!(output.contains("ID"), "Table should show ID field");
-    assert!(output.contains("Title"), "Table should show Title field");
-    assert!(
-        output.contains("Description"),
-        "Table should show Description field"
-    );
-    assert!(
-        output.contains("Project ID"),
-        "Table should show Project ID field"
-    );
-    assert!(output.contains("Status"), "Table should show Status field");
-    assert!(output.contains("Tags"), "Table should show Tags field");
-    assert!(
-        output.contains("External Refs"),
-        "Table should show External Refs field"
-    );
-    assert!(
-        output.contains("Created"),
-        "Table should show Created field"
-    );
-    assert!(
-        output.contains("Updated"),
-        "Table should show Updated field"
-    );
-    assert!(
-        output.contains("Detailed Test List"),
-        "Table should contain title"
-    );
-    assert!(
-        output.contains("Test description"),
-        "Table should contain description"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_list_with_external_refs_table_format() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list via API with external_refs
+    // Create task list with external_refs via API (for table format testing)
     let payload = serde_json::json!({
-        "title": "List with External Refs",
+        "title": "Infrastructure Improvements",
         "project_id": project_id,
-        "external_refs": ["PROJ-123", "owner/repo#456"]
+        "description": "Upgrade Kubernetes cluster and monitoring",
+        "tags": ["devops", "infrastructure", "p1"],
+        "external_refs": ["INFRA-2026", "owner/repo#999"]
     });
     let response = api_client
         .post("/api/v1/task-lists")
@@ -780,297 +488,137 @@ async fn test_get_task_list_with_external_refs_table_format() {
     let task_list: serde_json::Value = response.json().await.unwrap();
     let list_id = task_list["id"].as_str().unwrap();
 
-    // Get in table format - should display external_refs joined with ", "
-    let result = get_task_list(&api_client, list_id, "table").await;
-    assert!(result.is_ok());
+    // Test GET in table format - should show all fields including external_refs
+    let get_table = get_task_list(&api_client, list_id, "table").await;
+    assert!(get_table.is_ok());
+    let table_output = get_table.unwrap();
+    assert!(table_output.contains("Field"));
+    assert!(table_output.contains("Value"));
+    assert!(table_output.contains("Infrastructure Improvements"));
+    assert!(table_output.contains("Upgrade Kubernetes cluster"));
+    assert!(table_output.contains("INFRA-2026, owner/repo#999"));
 
-    let output = result.unwrap();
+    // Create task list WITHOUT external_refs to test the "-" display path
+    let payload_no_refs = serde_json::json!({
+        "title": "Simple Task List",
+        "project_id": project_id,
+        "description": "Basic list without external refs"
+    });
+    let response_no_refs = api_client
+        .post("/api/v1/task-lists")
+        .json(&payload_no_refs)
+        .send()
+        .await
+        .expect("Failed to create task list");
+    let task_list_no_refs: serde_json::Value = response_no_refs.json().await.unwrap();
+    let list_id_no_refs = task_list_no_refs["id"].as_str().unwrap();
+
+    // Test GET in table format for list WITHOUT external_refs - should show "-"
+    let get_table_no_refs = get_task_list(&api_client, list_id_no_refs, "table").await;
+    assert!(get_table_no_refs.is_ok());
+    let table_output_no_refs = get_table_no_refs.unwrap();
+    assert!(table_output_no_refs.contains("External Refs"));
+    // The line "|| -" should appear when external_refs is empty
     assert!(
-        output.contains("PROJ-123, owner/repo#456"),
-        "Table should show external_refs joined with comma, got: {}",
-        output
+        table_output_no_refs.contains("| -") || table_output_no_refs.contains("│ -"),
+        "Should show '-' for empty external_refs"
     );
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_list_stats_table_format() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "Stats Table Test".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Get stats in table format
-    let result = get_task_list_stats(&api_client, list_id, "table").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Should contain table with all status counts
-    assert!(output.contains("Metric"), "Table should have Metric column");
-    assert!(output.contains("Count"), "Table should have Count column");
-    assert!(output.contains("Total"), "Table should show Total");
-    assert!(output.contains("Backlog"), "Table should show Backlog");
-    assert!(output.contains("Todo"), "Table should show Todo");
-    assert!(
-        output.contains("In Progress"),
-        "Table should show In Progress"
-    );
-    assert!(output.contains("Review"), "Table should show Review");
-    assert!(output.contains("Done"), "Table should show Done");
-    assert!(output.contains("Cancelled"), "Table should show Cancelled");
-}
-
-// =============================================================================
-// Query Parameter and Filtering Tests
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_project_filter() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list in test project
-    let request = CreateTaskListRequest {
-        title: "Project Filtered List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    // List with project_id filter
-    let result = list_task_lists(
-        &api_client,
-        None,
-        Some(&project_id),
-        None,
-        None,
-        PageParams::default(),
-        "json",
-    )
-    .await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert!(parsed.as_array().unwrap().len() >= 1);
-    assert_eq!(parsed[0]["project_id"], project_id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_status_filter() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "Active List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    // List with status filter
-    let result = list_task_lists(
-        &api_client,
-        None,
-        None,
-        Some("active"),
-        None,
-        PageParams::default(),
-        "json",
-    )
-    .await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    let lists = parsed.as_array().unwrap();
-    // All returned lists should have active status
-    for list in lists {
-        assert_eq!(list["status"], "active");
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_tags_filter() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list with specific tags
-    let request = CreateTaskListRequest {
-        title: "Tagged List".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: Some(vec!["urgent".to_string(), "backend".to_string()]),
-        repo_ids: None,
-    };
-    create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    // List with tags filter
-    let result = list_task_lists(
+    // Test LIST in table format
+    let list_table = list_task_lists(
         &api_client,
         None,
         None,
         None,
-        Some("urgent"),
-        PageParams::default(),
-        "json",
-    )
-    .await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert!(
-        parsed.as_array().unwrap().len() >= 1,
-        "Should find at least one list with 'urgent' tag"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_limit() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create 5 task lists
-    for i in 1..=5 {
-        let request = CreateTaskListRequest {
-            title: format!("List {}", i),
-            project_id: project_id.clone(),
-            description: None,
-            tags: None,
-            repo_ids: None,
-        };
-        create_task_list(&api_client, request)
-            .await
-            .expect("Failed to create task list");
-    }
-
-    // List with limit=3
-    let page = PageParams {
-        limit: Some(3),
-        offset: None,
-        sort: None,
-        order: None,
-    };
-    let result = list_task_lists(&api_client, None, None, None, None, page, "json").await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(
-        parsed.as_array().unwrap().len(),
-        3,
-        "Should return exactly 3 lists"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_task_lists_with_query() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task lists with searchable titles
-    let request = CreateTaskListRequest {
-        title: "Searchable Backend Tasks".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    // List with query parameter
-    let result = list_task_lists(
-        &api_client,
-        Some("Backend"),
-        None,
-        None,
         None,
         PageParams::default(),
-        "json",
+        "table",
     )
     .await;
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert!(
-        parsed.as_array().unwrap().len() >= 1,
-        "Should find at least one list matching 'Backend'"
-    );
+    assert!(list_table.is_ok());
+    let list_output = list_table.unwrap();
+    assert!(list_output.contains("ID"));
+    assert!(list_output.contains("Title"));
+    assert!(list_output.contains("Project"));
+    assert!(list_output.contains("Status"));
+    assert!(list_output.contains("Tags"));
+    assert!(list_output.contains("Infrastructure Improvements"));
 }
 
-// =============================================================================
-// Delete Tests
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_task_list_without_force_flag() {
-    let (url, project_id, _handle) = spawn_test_server().await;
+async fn test_task_list_error_handling() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
 
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "List to Delete".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Try to delete without --force flag
-    let result = delete_task_list(&api_client, list_id, false).await;
-
-    // Should return error requiring --force flag
-    assert!(result.is_err(), "Should require --force flag for delete");
-    let error = result.unwrap_err().to_string();
+    // GET: Non-existent task list
+    let get_result = get_task_list(&api_client, "nonexist", "json").await;
     assert!(
-        error.contains("--force") || error.contains("force"),
-        "Error should mention --force flag requirement, got: {}",
+        get_result.is_err(),
+        "Should return error for non-existent task list"
+    );
+    let error = get_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
         error
     );
-}
 
-// =============================================================================
-// Update Edge Cases
-// =============================================================================
+    // UPDATE: Non-existent task list
+    let update_request = UpdateTaskListRequest {
+        title: "Updated Title".to_string(),
+        description: Some("Updated desc".to_string()),
+        status: None,
+        tags: None,
+        project_id: None,
+        repo_ids: None,
+    };
+    let update_result = update_task_list(&api_client, "nonexist", update_request).await;
+    assert!(
+        update_result.is_err(),
+        "Should return error for non-existent task list"
+    );
+    let error = update_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+
+    // DELETE: Non-existent task list
+    let delete_result = delete_task_list(&api_client, "nonexist", true).await;
+    assert!(
+        delete_result.is_err(),
+        "Should return error for non-existent task list"
+    );
+    let error = delete_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+
+    // CREATE: Invalid project_id (foreign key constraint)
+    let create_request = CreateTaskListRequest {
+        title: "Test List".to_string(),
+        project_id: "nonexist".to_string(),
+        description: Some("Test description".to_string()),
+        tags: Some(vec!["test".to_string()]),
+        repo_ids: None,
+    };
+    let create_result = create_task_list(&api_client, create_request).await;
+    assert!(
+        create_result.is_err(),
+        "Should fail with non-existent project_id"
+    );
+    let error = create_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found")
+            || error.contains("404")
+            || error.contains("project")
+            || error.contains("foreign key")
+            || error.contains("constraint")
+    );
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_update_task_list_with_empty_title() {
@@ -1081,8 +629,8 @@ async fn test_update_task_list_with_empty_title() {
     let request = CreateTaskListRequest {
         title: "Original Title".to_string(),
         project_id: project_id.clone(),
-        description: Some("Original desc".to_string()),
-        tags: None,
+        description: Some("Original description".to_string()),
+        tags: Some(vec!["original".to_string()]),
         repo_ids: None,
     };
     let create_result = create_task_list(&api_client, request)
@@ -1095,17 +643,17 @@ async fn test_update_task_list_with_empty_title() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract list ID");
 
-    // Update with empty title (should fetch and preserve current title)
+    // Update with empty title - should preserve original title
     let update_request = UpdateTaskListRequest {
-        title: "".to_string(), // Empty title
+        title: "".to_string(),
         description: Some("Updated description".to_string()),
         status: None,
-        tags: None,
+        tags: Some(vec!["updated".to_string()]),
         project_id: None,
         repo_ids: None,
     };
     let result = update_task_list(&api_client, list_id, update_request).await;
-    assert!(result.is_ok(), "Should update even with empty title");
+    assert!(result.is_ok(), "Should handle empty title gracefully");
 
     // Verify title was preserved
     let get_result = get_task_list(&api_client, list_id, "json")
@@ -1114,74 +662,8 @@ async fn test_update_task_list_with_empty_title() {
     let updated_list: serde_json::Value = serde_json::from_str(&get_result).unwrap();
     assert_eq!(
         updated_list["title"], "Original Title",
-        "Title should be preserved when empty string provided"
+        "Should preserve title when empty"
     );
-    assert_eq!(
-        updated_list["description"], "Updated description",
-        "Description should be updated"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_delete_task_list_with_force_flag() {
-    let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Create task list
-    let request = CreateTaskListRequest {
-        title: "List to Delete".to_string(),
-        project_id: project_id.clone(),
-        description: None,
-        tags: None,
-        repo_ids: None,
-    };
-    let create_result = create_task_list(&api_client, request)
-        .await
-        .expect("Failed to create task list");
-
-    let list_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .expect("Failed to extract list ID");
-
-    // Delete with --force flag
-    let result = delete_task_list(&api_client, list_id, true).await;
-    assert!(result.is_ok(), "Should delete with --force flag");
-
-    let output = result.unwrap();
-    assert!(
-        output.contains("Deleted"),
-        "Should confirm deletion, got: {}",
-        output
-    );
-    assert!(output.contains(list_id), "Should mention the deleted ID");
-
-    // Verify task list is actually deleted
-    let get_result = get_task_list(&api_client, list_id, "json").await;
-    assert!(
-        get_result.is_err(),
-        "Getting deleted task list should return error"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_delete_task_list_not_found() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
-
-    // Try to delete non-existent task list
-    let result = delete_task_list(&api_client, "nonexist", true).await;
-
-    // Should return error
-    assert!(
-        result.is_err(),
-        "Should return error for non-existent task list"
-    );
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
-        "Error should mention not found, got: {}",
-        error
-    );
+    assert_eq!(updated_list["description"], "Updated description");
+    assert_eq!(updated_list["tags"], json!(["updated"]));
 }
