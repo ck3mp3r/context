@@ -66,8 +66,8 @@ async fn list_and_relationships_comprehensive() {
     assert_eq!(body["total"], 0);
     assert!(body["items"].as_array().unwrap().is_empty());
 
-    // Test 2: Create project for relationship testing
-    let project = app
+    // Test 2: Create projects with different tags for filtering tests
+    let project_a = app
         .clone()
         .oneshot(
             Request::builder()
@@ -75,13 +75,89 @@ async fn list_and_relationships_comprehensive() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Test Project"})).unwrap(),
+                    serde_json::to_vec(&json!({
+                        "title": "Project A",
+                        "tags": ["backend", "rust"]
+                    }))
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
-    let project_id = json_body(project).await["id"].as_str().unwrap().to_string();
+    let project_a_id = json_body(project_a).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let project_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Project B",
+                        "tags": ["frontend", "react"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    json_body(project_b).await;
+
+    // Test 2a: List with tag filter
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?tags=backend")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Project A");
+
+    // Test 2b: List with sorting
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?sort=title&order=desc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["items"][0]["title"], "Project B"); // B before A in desc order
+
+    // Test 2c: List with pagination
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects?limit=1&offset=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["limit"], 1);
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+
+    let project_id = project_a_id;
 
     // Test 3: Update repo with project relationships (cross-entity relationship)
     let repo = app
