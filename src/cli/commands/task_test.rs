@@ -30,6 +30,7 @@ fn test_update_request_empty_string_parent_id_converts_to_none() {
         parent_id,
         tags: None,
         external_refs: None,
+        list_id: None,
     };
 
     // parent_id should be Some(None) - explicitly removing the parent
@@ -61,6 +62,7 @@ fn test_update_request_non_empty_parent_id_sets_value() {
         parent_id,
         tags: None,
         external_refs: None,
+        list_id: None,
     };
 
     // parent_id should be Some(Some("parent123"))
@@ -91,6 +93,7 @@ fn test_update_request_missing_parent_id_field_is_none() {
         parent_id,
         tags: None,
         external_refs: None,
+        list_id: None,
     };
 
     // parent_id should be None - field not included in update
@@ -475,6 +478,7 @@ async fn test_update_task_integration() {
         parent_id: None,
         tags: Some(vec!["feature".to_string(), "backend".to_string()]),
         external_refs: None,
+        list_id: None,
     };
     let result = update_task(&api_client, task_id, update_request).await;
     assert!(result.is_ok());

@@ -184,6 +184,9 @@ enum TaskCommands {
         /// Parent task ID (for converting to/from subtask). Use empty string to remove parent.
         #[arg(long)]
         parent_id: Option<String>,
+        /// Move task to different list (task list ID)
+        #[arg(long)]
+        list_id: Option<String>,
     },
     /// Delete a task
     Delete {
@@ -899,6 +902,7 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
                 parent_id,
+                list_id,
             } => {
                 let request = commands::task::UpdateTaskRequest {
                     title,
@@ -914,6 +918,7 @@ pub async fn run() -> Result<()> {
                     }),
                     tags: utils::parse_tags(tags.as_deref()),
                     external_refs: utils::parse_tags(external_ref.as_deref()),
+                    list_id,
                 };
                 let output = commands::task::update_task(&api_client, &id, request).await?;
                 println!("{}", output);

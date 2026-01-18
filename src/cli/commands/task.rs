@@ -51,6 +51,8 @@ pub struct UpdateTaskRequest {
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_refs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_id: Option<String>,
 }
 
 #[derive(Tabled)]
@@ -170,6 +172,7 @@ pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<S
             parent_id: None,
             tags: None,
             external_refs: None,
+            list_id: None,
         },
     )
     .await
@@ -193,6 +196,7 @@ pub async fn transition_task(
             parent_id: None,
             tags: None,
             external_refs: None,
+            list_id: None,
         },
     )
     .await
