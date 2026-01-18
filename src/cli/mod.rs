@@ -865,17 +865,15 @@ pub async fn run() -> Result<()> {
                 tags,
                 external_ref,
             } => {
-                let output = commands::task::create_task(
-                    &api_client,
-                    &list_id,
-                    &title,
-                    description.as_deref(),
+                let request = commands::task::CreateTaskRequest {
+                    title,
+                    description,
+                    parent_id,
                     priority,
-                    tags.as_deref(),
-                    external_ref.as_deref(),
-                    parent_id.as_deref(),
-                )
-                .await?;
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: utils::parse_tags(external_ref.as_deref()),
+                };
+                let output = commands::task::create_task(&api_client, &list_id, request).await?;
                 println!("{}", output);
             }
             TaskCommands::Update {
@@ -888,16 +886,22 @@ pub async fn run() -> Result<()> {
                 external_ref,
                 parent_id,
             } => {
-                let params = commands::task::UpdateTaskParams {
-                    title: title.as_deref(),
-                    description: description.as_deref(),
-                    status: status.as_deref(),
+                let request = commands::task::UpdateTaskRequest {
+                    title,
+                    description,
+                    status,
                     priority,
-                    tags: tags.as_deref(),
-                    external_refs: external_ref.as_deref(),
-                    parent_id: parent_id.as_deref(),
+                    parent_id: parent_id.map(|s| {
+                        if s.is_empty() {
+                            None // Empty string means remove parent
+                        } else {
+                            Some(s)
+                        }
+                    }),
+                    tags: utils::parse_tags(tags.as_deref()),
+                    external_refs: utils::parse_tags(external_ref.as_deref()),
                 };
-                let output = commands::task::update_task(&api_client, &id, params).await?;
+                let output = commands::task::update_task(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             TaskCommands::Delete { id, force } => {

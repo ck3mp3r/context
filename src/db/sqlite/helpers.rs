@@ -49,7 +49,7 @@ pub fn build_order_clause(page: &PageSort, allowed_fields: &[&str], default_fiel
 pub fn build_limit_offset_clause(page: &PageSort) -> String {
     let mut clause = String::new();
 
-    let has_offset = page.offset.map_or(false, |o| o > 0);
+    let has_offset = page.offset.is_some_and(|o| o > 0);
 
     if let Some(limit) = page.limit {
         clause.push_str(&format!(" LIMIT {}", limit));

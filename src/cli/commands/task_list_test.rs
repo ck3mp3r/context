@@ -224,31 +224,29 @@ async fn test_task_list_stats_integration() {
         .expect("Failed to extract list ID");
 
     // Create some tasks in the list
-    crate::cli::commands::task::create_task(
-        &api_client,
-        list_id,
-        "Task 1",
-        None,
-        Some(1),
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task 1");
+    let req1 = crate::cli::commands::task::CreateTaskRequest {
+        title: "Task 1".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(1),
+        tags: None,
+        external_refs: None,
+    };
+    crate::cli::commands::task::create_task(&api_client, list_id, req1)
+        .await
+        .expect("Failed to create task 1");
 
-    crate::cli::commands::task::create_task(
-        &api_client,
-        list_id,
-        "Task 2",
-        None,
-        Some(2),
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task 2");
+    let req2 = crate::cli::commands::task::CreateTaskRequest {
+        title: "Task 2".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(2),
+        tags: None,
+        external_refs: None,
+    };
+    crate::cli::commands::task::create_task(&api_client, list_id, req2)
+        .await
+        .expect("Failed to create task 2");
 
     // Get stats
     let result = get_task_list_stats(&api_client, list_id, "json").await;
