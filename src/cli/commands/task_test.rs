@@ -1137,3 +1137,586 @@ async fn test_subtask_with_external_refs() {
     assert_eq!(subtask["external_refs"], json!(["owner/repo#200"]));
     assert_eq!(subtask["parent_id"], parent_id);
 }
+
+// =============================================================================
+// Display Format and Query Parameter Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_empty_result() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // List tasks from empty list (table format)
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "table",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output, "No tasks found.", "Should show empty message");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_table_format() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create a task with no priority
+    let request = CreateTaskRequest {
+        title: "Task Without Priority".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None, // No priority
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+
+    // List in table format
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "table",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+
+    // Should contain table headers
+    assert!(output.contains("ID"), "Table should have ID column");
+    assert!(output.contains("Title"), "Table should have Title column");
+    assert!(output.contains("Status"), "Table should have Status column");
+    assert!(
+        output.contains("Priority"),
+        "Table should have Priority column"
+    );
+    assert!(
+        output.contains("Task Without Priority"),
+        "Table should contain task title"
+    );
+    // API defaults to priority 5 when None is provided
+    assert!(output.contains("5"), "Table should show default priority 5");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_query_filter() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task with searchable title
+    let request = CreateTaskRequest {
+        title: "Implement Authentication Feature".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+
+    // List with query filter
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: Some("Authentication"),
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(
+        parsed.as_array().unwrap().len() >= 1,
+        "Should find at least one task matching 'Authentication'"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_parent_id_filter() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_req = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_req)
+        .await
+        .expect("Failed to create parent task");
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create subtask
+    let subtask_req = CreateTaskRequest {
+        title: "Subtask".to_string(),
+        description: None,
+        parent_id: Some(parent_id.clone()),
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, subtask_req)
+        .await
+        .expect("Failed to create subtask");
+
+    // List with parent_id filter
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: Some(&parent_id),
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+    assert_eq!(tasks.len(), 1, "Should find exactly one subtask");
+    assert_eq!(tasks[0]["parent_id"], parent_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_type_filter() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_req = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, parent_req)
+        .await
+        .expect("Failed to create parent task");
+
+    // List with type=task filter (only parent tasks)
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: Some("task"),
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+    // All returned tasks should have null parent_id
+    for task in tasks {
+        assert!(
+            task["parent_id"].is_null(),
+            "All tasks should be parent tasks"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_status_filter() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task
+    let request = CreateTaskRequest {
+        title: "Backlog Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+
+    // List with status filter
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: Some("backlog"),
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+    // All returned tasks should have backlog status
+    for task in tasks {
+        assert_eq!(task["status"], "backlog", "All tasks should be in backlog");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_with_limit_filter() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create 5 tasks
+    for i in 1..=5 {
+        let request = CreateTaskRequest {
+            title: format!("Task {}", i),
+            description: None,
+            parent_id: None,
+            priority: None,
+            tags: None,
+            external_refs: None,
+        };
+        create_task(&api_client, &list_id, request)
+            .await
+            .expect("Failed to create task");
+    }
+
+    // List with limit=2
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: None,
+            tags: None,
+            r#type: None,
+            limit: Some(2),
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        2,
+        "Should return exactly 2 tasks"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_table_format_with_optional_fields() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_req = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: Some("Parent description".to_string()),
+        parent_id: None,
+        priority: Some(1),
+        tags: Some(vec!["important".to_string()]),
+        external_refs: Some(vec!["PROJ-123".to_string()]),
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_req)
+        .await
+        .expect("Failed to create parent task");
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create subtask with parent_id
+    let subtask_req = CreateTaskRequest {
+        title: "Subtask".to_string(),
+        description: None,
+        parent_id: Some(parent_id.clone()),
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let subtask_result = create_task(&api_client, &list_id, subtask_req)
+        .await
+        .expect("Failed to create subtask");
+    let subtask_id = subtask_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Get subtask in table format - should show parent_id
+    let result = get_task(&api_client, &subtask_id, "table").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("Parent ID"),
+        "Table should show Parent ID field"
+    );
+    assert!(
+        output.contains(&parent_id),
+        "Table should show parent ID value"
+    );
+
+    // Get parent in table format - should show description, external_refs
+    let parent_result = get_task(&api_client, &parent_id, "table").await;
+    assert!(parent_result.is_ok());
+
+    let parent_output = parent_result.unwrap();
+    assert!(
+        parent_output.contains("Description"),
+        "Table should show Description field"
+    );
+    assert!(
+        parent_output.contains("Parent description"),
+        "Table should show description value"
+    );
+    assert!(
+        parent_output.contains("External Refs"),
+        "Table should show External Refs field"
+    );
+    assert!(
+        parent_output.contains("PROJ-123"),
+        "Table should show external ref value"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_table_format_minimal_fields() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task with minimal fields (no description, parent, priority, tags, external_refs)
+    let request = CreateTaskRequest {
+        title: "Minimal Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+    let task_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Get in table format
+    let result = get_task(&api_client, &task_id, "table").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    // Should show default values for optional fields
+    assert!(
+        output.contains("-"),
+        "Table should show '-' for missing priority"
+    );
+    assert!(
+        output.contains("Started") && output.contains("-"),
+        "Table should show '-' for started_at"
+    );
+    assert!(
+        output.contains("Completed") && output.contains("-"),
+        "Table should show '-' for completed_at"
+    );
+}
+
+// =============================================================================
+// Delete Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_task_without_force_flag() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task
+    let request = CreateTaskRequest {
+        title: "Task to Delete".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+    let task_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Try to delete without --force flag
+    let result = delete_task(&api_client, &task_id, false).await;
+
+    // Should return error requiring --force flag
+    assert!(result.is_err(), "Should require --force flag for delete");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("--force") || error.contains("force"),
+        "Error should mention --force flag requirement, got: {}",
+        error
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_task_with_force_flag() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task
+    let request = CreateTaskRequest {
+        title: "Task to Delete".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+    let task_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Delete with --force flag
+    let result = delete_task(&api_client, &task_id, true).await;
+    assert!(result.is_ok(), "Should delete with --force flag");
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("Deleted"),
+        "Should confirm deletion, got: {}",
+        output
+    );
+    assert!(output.contains(&task_id), "Should mention the deleted ID");
+
+    // Verify task is actually deleted
+    let get_result = get_task(&api_client, &task_id, "json").await;
+    assert!(
+        get_result.is_err(),
+        "Getting deleted task should return error"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_task_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Try to delete non-existent task
+    let result = delete_task(&api_client, "nonexist", true).await;
+
+    // Should return error
+    assert!(result.is_err(), "Should return error for non-existent task");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+}
