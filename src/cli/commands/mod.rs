@@ -38,3 +38,7 @@ mod task_list_test;
 #[cfg(test)]
 #[path = "sync_test.rs"]
 mod sync_test;
+
+#[cfg(test)]
+#[path = "api_test.rs"]
+mod api_test;
