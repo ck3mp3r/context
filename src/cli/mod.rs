@@ -964,15 +964,14 @@ pub async fn run() -> Result<()> {
                 parent_id,
                 idx,
             } => {
-                let output = commands::note::create_note(
-                    &api_client,
-                    &title,
-                    &content,
-                    tags.as_deref(),
-                    parent_id.as_deref(),
+                let request = commands::note::CreateNoteRequest {
+                    title,
+                    content,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    parent_id,
                     idx,
-                )
-                .await?;
+                };
+                let output = commands::note::create_note(&api_client, request).await?;
                 println!("{}", output);
             }
             NoteCommands::Update {
@@ -983,16 +982,20 @@ pub async fn run() -> Result<()> {
                 parent_id,
                 idx,
             } => {
-                let output = commands::note::update_note(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    content.as_deref(),
-                    tags.as_deref(),
-                    parent_id.as_deref(),
-                    idx,
-                )
-                .await?;
+                let request = commands::note::UpdateNoteRequest {
+                    title,
+                    content,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    parent_id: parent_id.map(|s| {
+                        if s.is_empty() {
+                            None // Empty string means remove parent
+                        } else {
+                            Some(s)
+                        }
+                    }),
+                    idx: idx.map(Some),
+                };
+                let output = commands::note::update_note(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             NoteCommands::Delete { id, force } => {

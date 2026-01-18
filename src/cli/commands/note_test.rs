@@ -55,15 +55,18 @@ async fn test_create_note_integration() {
     let api_client = ApiClient::new(Some(url));
 
     // Create note with content and tags
-    let result = create_note(
-        &api_client,
-        "Integration Test Note",
-        "This is test content for integration testing",
-        Some("rust,testing,integration"),
-        None,
-        None,
-    )
-    .await;
+    let request = CreateNoteRequest {
+        title: "Integration Test Note".to_string(),
+        content: "This is test content for integration testing".to_string(),
+        tags: Some(vec![
+            "rust".to_string(),
+            "testing".to_string(),
+            "integration".to_string(),
+        ]),
+        parent_id: None,
+        idx: None,
+    };
+    let result = create_note(&api_client, request).await;
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -98,10 +101,25 @@ async fn test_list_notes_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create two notes
-    create_note(&api_client, "Note 1", "Content 1", Some("tag1"), None, None)
+    let req1 = CreateNoteRequest {
+        title: "Note 1".to_string(),
+        content: "Content 1".to_string(),
+        tags: Some(vec!["tag1".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    create_note(&api_client, req1)
         .await
         .expect("Failed to create note 1");
-    create_note(&api_client, "Note 2", "Content 2", Some("tag2"), None, None)
+
+    let req2 = CreateNoteRequest {
+        title: "Note 2".to_string(),
+        content: "Content 2".to_string(),
+        tags: Some(vec!["tag2".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    create_note(&api_client, req2)
         .await
         .expect("Failed to create note 2");
 
@@ -133,7 +151,14 @@ async fn test_get_note_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create note
-    let create_result = create_note(&api_client, "Test Note", "Test content", None, None, None)
+    let request = CreateNoteRequest {
+        title: "Test Note".to_string(),
+        content: "Test content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let create_result = create_note(&api_client, request)
         .await
         .expect("Failed to create note");
 
@@ -160,16 +185,16 @@ async fn test_update_note_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create note
-    let create_result = create_note(
-        &api_client,
-        "Original Title",
-        "Original content",
-        Some("tag1"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create note");
+    let request = CreateNoteRequest {
+        title: "Original Title".to_string(),
+        content: "Original content".to_string(),
+        tags: Some(vec!["tag1".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    let create_result = create_note(&api_client, request)
+        .await
+        .expect("Failed to create note");
 
     let note_id = create_result
         .split('(')
@@ -178,16 +203,14 @@ async fn test_update_note_integration() {
         .expect("Failed to extract note ID");
 
     // Update note
-    let result = update_note(
-        &api_client,
-        note_id,
-        Some("Updated Title"),
-        Some("Updated content"),
-        Some("tag1,tag2"),
-        None,
-        None,
-    )
-    .await;
+    let update_request = UpdateNoteRequest {
+        title: Some("Updated Title".to_string()),
+        content: Some("Updated content".to_string()),
+        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    let result = update_note(&api_client, note_id, update_request).await;
     assert!(result.is_ok());
 
     // Verify updates
@@ -206,7 +229,14 @@ async fn test_delete_note_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create note
-    let create_result = create_note(&api_client, "Note to Delete", "Content", None, None, None)
+    let request = CreateNoteRequest {
+        title: "Note to Delete".to_string(),
+        content: "Content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let create_result = create_note(&api_client, request)
         .await
         .expect("Failed to create note");
 
@@ -236,16 +266,16 @@ async fn test_hierarchical_notes_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create parent note
-    let parent_result = create_note(
-        &api_client,
-        "Parent Note",
-        "Parent content",
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create parent note");
+    let parent_request = CreateNoteRequest {
+        title: "Parent Note".to_string(),
+        content: "Parent content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let parent_result = create_note(&api_client, parent_request)
+        .await
+        .expect("Failed to create parent note");
 
     let parent_id = parent_result
         .split('(')
@@ -254,15 +284,14 @@ async fn test_hierarchical_notes_integration() {
         .expect("Failed to extract parent ID");
 
     // Create child note with parent_id and idx
-    let child_result = create_note(
-        &api_client,
-        "Child Note",
-        "Child content",
-        None,
-        Some(parent_id),
-        Some(1),
-    )
-    .await;
+    let child_request = CreateNoteRequest {
+        title: "Child Note".to_string(),
+        content: "Child content".to_string(),
+        tags: None,
+        parent_id: Some(parent_id.to_string()),
+        idx: Some(1),
+    };
+    let child_result = create_note(&api_client, child_request).await;
     assert!(child_result.is_ok());
 
     let child_id = child_result
@@ -307,26 +336,27 @@ async fn test_list_notes_with_filters_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create notes with different tags
-    create_note(
-        &api_client,
-        "Rust Note",
-        "Content",
-        Some("rust,programming"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create note 1");
-    create_note(
-        &api_client,
-        "Testing Note",
-        "Content",
-        Some("testing,qa"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create note 2");
+    let rust_request = CreateNoteRequest {
+        title: "Rust Note".to_string(),
+        content: "Content".to_string(),
+        tags: Some(vec!["rust".to_string(), "programming".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    create_note(&api_client, rust_request)
+        .await
+        .expect("Failed to create note 1");
+
+    let testing_request = CreateNoteRequest {
+        title: "Testing Note".to_string(),
+        content: "Content".to_string(),
+        tags: Some(vec!["testing".to_string(), "qa".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    create_note(&api_client, testing_request)
+        .await
+        .expect("Failed to create note 2");
 
     // Filter by tags
     let result = list_notes(
@@ -381,16 +411,14 @@ async fn test_update_note_not_found() {
     let api_client = ApiClient::new(Some(url));
 
     // Try to update non-existent note
-    let result = update_note(
-        &api_client,
-        "nonexist",
-        Some("New Title"),
-        Some("New content"),
-        None,
-        None,
-        None,
-    )
-    .await;
+    let update_request = UpdateNoteRequest {
+        title: Some("New Title".to_string()),
+        content: Some("New content".to_string()),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let result = update_note(&api_client, "nonexist", update_request).await;
 
     // Should return error
     assert!(result.is_err(), "Should return error for non-existent note");
@@ -439,16 +467,16 @@ async fn test_list_notes_with_nonexistent_tag() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create note with tags
-    create_note(
-        &api_client,
-        "Note 1",
-        "Content",
-        Some("rust,testing"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create note");
+    let request = CreateNoteRequest {
+        title: "Note 1".to_string(),
+        content: "Content".to_string(),
+        tags: Some(vec!["rust".to_string(), "testing".to_string()]),
+        parent_id: None,
+        idx: None,
+    };
+    create_note(&api_client, request)
+        .await
+        .expect("Failed to create note");
 
     // Filter by non-existent tag - should not error
     let result = list_notes(
@@ -477,15 +505,14 @@ async fn test_list_notes_with_offset() {
 
     // Create 3 notes
     for i in 1..=3 {
-        let _ = create_note(
-            &api_client,
-            &format!("Note {}", i),
-            &format!("Content {}", i),
-            None,
-            None,
-            None,
-        )
-        .await;
+        let request = CreateNoteRequest {
+            title: format!("Note {}", i),
+            content: format!("Content {}", i),
+            tags: None,
+            parent_id: None,
+            idx: None,
+        };
+        let _ = create_note(&api_client, request).await;
     }
 
     // List with offset=1 (skip first note)
@@ -513,9 +540,32 @@ async fn test_list_notes_with_sort_and_order() {
     let api_client = ApiClient::new(Some(url));
 
     // Create notes with different titles
-    let _ = create_note(&api_client, "Zebra Note", "Content", None, None, None).await;
-    let _ = create_note(&api_client, "Alpha Note", "Content", None, None, None).await;
-    let _ = create_note(&api_client, "Beta Note", "Content", None, None, None).await;
+    let req1 = CreateNoteRequest {
+        title: "Zebra Note".to_string(),
+        content: "Content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let _ = create_note(&api_client, req1).await;
+
+    let req2 = CreateNoteRequest {
+        title: "Alpha Note".to_string(),
+        content: "Content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let _ = create_note(&api_client, req2).await;
+
+    let req3 = CreateNoteRequest {
+        title: "Beta Note".to_string(),
+        content: "Content".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+    };
+    let _ = create_note(&api_client, req3).await;
 
     // List sorted by title ascending
     let page = PageParams {
