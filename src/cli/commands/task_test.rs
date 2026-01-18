@@ -971,3 +971,166 @@ async fn test_update_task_to_remove_parent_id() {
         "parent_id should be null after removal"
     );
 }
+
+// =============================================================================
+// External References Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_to_add_external_refs() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task without external_refs
+    let request = CreateTaskRequest {
+        title: "Task Without External Refs".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+
+    let task_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract task ID");
+
+    // Update task to add external_refs
+    let update_request = UpdateTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        parent_id: None,
+        tags: None,
+        external_refs: Some(vec!["owner/repo#456".to_string(), "JIRA-789".to_string()]),
+        list_id: None,
+    };
+    let update_result = update_task(&api_client, task_id, update_request).await;
+    assert!(update_result.is_ok(), "Should be able to add external_refs");
+
+    // Verify external_refs were added
+    let get_result = get_task(&api_client, task_id, "json")
+        .await
+        .expect("Failed to get task");
+    let task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(task["external_refs"], json!(["owner/repo#456", "JIRA-789"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_external_refs_persist_across_status_transitions() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task with external_refs
+    let request = CreateTaskRequest {
+        title: "Task with External Refs".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(1),
+        tags: None,
+        external_refs: Some(vec!["owner/repo#100".to_string()]),
+    };
+    let create_result = create_task(&api_client, &list_id, request)
+        .await
+        .expect("Failed to create task");
+
+    let task_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract task ID");
+
+    // Transition task to todo
+    let transition_result = transition_task(&api_client, task_id, "todo").await;
+    assert!(transition_result.is_ok());
+
+    // Verify external_refs still present
+    let get_result = get_task(&api_client, task_id, "json")
+        .await
+        .expect("Failed to get task");
+    let task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(task["status"], "todo");
+    assert_eq!(task["external_refs"], json!(["owner/repo#100"]));
+
+    // Transition to in_progress
+    let _ = transition_task(&api_client, task_id, "in_progress").await;
+
+    // Verify external_refs still present after another transition
+    let get_result2 = get_task(&api_client, task_id, "json")
+        .await
+        .expect("Failed to get task");
+    let task2: serde_json::Value = serde_json::from_str(&get_result2).unwrap();
+    assert_eq!(task2["status"], "in_progress");
+    assert_eq!(task2["external_refs"], json!(["owner/repo#100"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_subtask_with_external_refs() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_request = CreateTaskRequest {
+        title: "Parent with External Ref".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: Some(vec!["EPIC-100".to_string()]),
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_request)
+        .await
+        .expect("Failed to create parent task");
+
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract parent task ID");
+
+    // Create subtask with its own external_ref
+    let subtask_request = CreateTaskRequest {
+        title: "Subtask with External Ref".to_string(),
+        description: None,
+        parent_id: Some(parent_id.to_string()),
+        priority: None,
+        tags: None,
+        external_refs: Some(vec!["owner/repo#200".to_string()]),
+    };
+    let subtask_result = create_task(&api_client, &list_id, subtask_request).await;
+    assert!(
+        subtask_result.is_ok(),
+        "Should create subtask with external_refs"
+    );
+
+    let subtask_id = subtask_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract subtask ID")
+        .to_string();
+
+    // Verify both parent and subtask have their own external_refs
+    let parent_get = get_task(&api_client, parent_id, "json")
+        .await
+        .expect("Failed to get parent");
+    let parent_task: serde_json::Value = serde_json::from_str(&parent_get).unwrap();
+    assert_eq!(parent_task["external_refs"], json!(["EPIC-100"]));
+
+    let subtask_get = get_task(&api_client, &subtask_id, "json")
+        .await
+        .expect("Failed to get subtask");
+    let subtask: serde_json::Value = serde_json::from_str(&subtask_get).unwrap();
+    assert_eq!(subtask["external_refs"], json!(["owner/repo#200"]));
+    assert_eq!(subtask["parent_id"], parent_id);
+}
