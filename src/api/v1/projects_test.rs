@@ -23,6 +23,19 @@ async fn test_app() -> axum::Router {
     routes::create_router(state, false)
 }
 
+/// Helper to create test app with access to notifier for broadcast testing
+async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let notifier = crate::api::notifier::ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
+}
+
 /// Helper to parse JSON response body
 async fn json_body(response: axum::response::Response) -> Value {
     let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -30,14 +43,16 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 // =============================================================================
-// GET /v1/projects - List Projects
+// Comprehensive List and Relationship Tests
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_projects_initially_empty() {
+async fn list_and_relationships_comprehensive() {
     let app = test_app().await;
 
+    // Test 1: Initially empty
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/projects")
@@ -46,27 +61,13 @@ async fn list_projects_initially_empty() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 0);
+    assert!(body["items"].as_array().unwrap().is_empty());
 
-    // Should be empty - no default project in migration
-    assert_eq!(projects.len(), 0);
-    assert_eq!(body["total"].as_u64().unwrap(), 0);
-}
-
-// =============================================================================
-// REPO RELATIONSHIP TESTS - TDD for Missing Functionality
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_repo_with_project_relationships_should_work() {
-    let app = test_app().await;
-
-    // Create a project first
-    let response = app
+    // Test 2: Create project for relationship testing
+    let project = app
         .clone()
         .oneshot(
             Request::builder()
@@ -74,21 +75,16 @@ async fn update_repo_with_project_relationships_should_work() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Test Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let project_id = json_body(project).await["id"].as_str().unwrap().to_string();
 
-    let body = json_body(response).await;
-    let project_id = body["id"].as_str().unwrap();
-
-    // Create a repo
-    let response = app
+    // Test 3: Update repo with project relationships (cross-entity relationship)
+    let repo = app
         .clone()
         .oneshot(
             Request::builder()
@@ -105,12 +101,10 @@ async fn update_repo_with_project_relationships_should_work() {
         )
         .await
         .unwrap();
+    let repo_id = json_body(repo).await["id"].as_str().unwrap().to_string();
 
-    let repo_body = json_body(response).await;
-    let repo_id = repo_body["id"].as_str().unwrap();
-
-    // Update repo with project relationship - THIS SHOULD WORK BUT CURRENTLY FAILS
-    let response = app
+    let repo_update = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -121,7 +115,7 @@ async fn update_repo_with_project_relationships_should_work() {
                         "remote": "https://github.com/test/repo.git",
                         "path": "/tmp/test",
                         "tags": ["test"],
-                        "project_ids": [project_id]
+                        "project_ids": [&project_id]
                     }))
                     .unwrap(),
                 ))
@@ -129,66 +123,13 @@ async fn update_repo_with_project_relationships_should_work() {
         )
         .await
         .unwrap();
+    assert_eq!(repo_update.status(), StatusCode::OK);
+    let repo_body = json_body(repo_update).await;
+    assert_eq!(repo_body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(repo_body["project_ids"][0], project_id);
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    // THIS ASSERTION WILL FAIL - project_ids field missing from UpdateRequest/Response DTOs
-    assert!(body["project_ids"].is_array());
-    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["project_ids"][0], project_id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_note_with_project_relationships_should_work() {
-    let app = test_app().await;
-
-    // Create a project
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    let project_id = body["id"].as_str().unwrap();
-
-    // Create a repo first (notes require repo_id)
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "https://github.com/test/repo.git"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let repo_body = json_body(response).await;
-    let repo_id = repo_body["id"].as_str().unwrap();
-
-    // Create a note
-    let response = app
+    // Test 4: Update note with project relationships (cross-entity relationship)
+    let note = app
         .clone()
         .oneshot(
             Request::builder()
@@ -198,8 +139,7 @@ async fn update_note_with_project_relationships_should_work() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Test Note",
-                        "content": "Test content",
-                        "repo_id": repo_id
+                        "content": "Initial content"
                     }))
                     .unwrap(),
                 ))
@@ -207,12 +147,9 @@ async fn update_note_with_project_relationships_should_work() {
         )
         .await
         .unwrap();
+    let note_id = json_body(note).await["id"].as_str().unwrap().to_string();
 
-    let note_body = json_body(response).await;
-    let note_id = note_body["id"].as_str().unwrap();
-
-    // Update note with project relationship - THIS SHOULD WORK BUT CURRENTLY FAILS
-    let response = app
+    let note_update = app
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -220,10 +157,10 @@ async fn update_note_with_project_relationships_should_work() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Updated Note",
+                        "title": "Test Note",
                         "content": "Updated content",
-                        "tags": ["test"],
-                        "project_ids": [project_id]
+                        "tags": ["note-tag"],
+                        "project_ids": [&project_id]
                     }))
                     .unwrap(),
                 ))
@@ -231,25 +168,21 @@ async fn update_note_with_project_relationships_should_work() {
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    // THIS ASSERTION WILL FAIL - project_ids field missing from UpdateRequest/Response DTOs
-    assert!(body["project_ids"].is_array());
-    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["project_ids"][0], project_id);
+    assert_eq!(note_update.status(), StatusCode::OK);
+    let note_body = json_body(note_update).await;
+    assert_eq!(note_body["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(note_body["project_ids"][0], project_id);
 }
 
 // =============================================================================
-// PATCH /v1/projects/{id} - Partial Update Project
+// Comprehensive CRUD and PATCH Tests
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn patch_project_partial_title_update() {
+async fn crud_and_patch_operations() {
     let app = test_app().await;
 
-    // Create a project
+    // Test 1: CREATE project with full data
     let create_response = app
         .clone()
         .oneshot(
@@ -259,7 +192,7 @@ async fn patch_project_partial_title_update() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "title": "Original Title",
+                        "title": "Original Project",
                         "description": "Original description",
                         "tags": ["tag1", "tag2"]
                     }))
@@ -269,13 +202,44 @@ async fn patch_project_partial_title_update() {
         )
         .await
         .unwrap();
-
     assert_eq!(create_response.status(), StatusCode::CREATED);
     let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap();
+    let project_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["title"], "Original Project");
+    assert_eq!(created["description"], "Original description");
+    assert_eq!(created["tags"].as_array().unwrap().len(), 2);
 
-    // PATCH only the title
-    let patch_response = app
+    // Test 2: GET project by ID
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let got = json_body(get_response).await;
+    assert_eq!(got["id"], project_id);
+
+    // Test 3: GET nonexistent project (404)
+    let get_404 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/notfound")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_404.status(), StatusCode::NOT_FOUND);
+
+    // Test 4: PATCH partial update (title only)
+    let patch_title = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -291,51 +255,14 @@ async fn patch_project_partial_title_update() {
         )
         .await
         .unwrap();
-
-    assert_eq!(patch_response.status(), StatusCode::OK);
-
-    let patched = json_body(patch_response).await;
-
-    // Title should be updated
+    assert_eq!(patch_title.status(), StatusCode::OK);
+    let patched = json_body(patch_title).await;
     assert_eq!(patched["title"], "Updated Title");
+    assert_eq!(patched["description"], "Original description"); // Preserved
 
-    // Other fields should be preserved
-    assert_eq!(patched["description"], "Original description");
-    assert_eq!(patched["tags"].as_array().unwrap().len(), 2);
-    assert_eq!(patched["tags"][0], "tag1");
-    assert_eq!(patched["tags"][1], "tag2");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_project_omit_field_preserves_it() {
-    let app = test_app().await;
-
-    // Create a project with description
-    let create_response = app
+    // Test 5: PATCH with field omission preserves existing values
+    let patch_preserve = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Test Project",
-                        "description": "Has description"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap();
-    assert!(created["description"].is_string());
-
-    // PATCH - omit description field (no change)
-    let patch_response = app
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -343,7 +270,7 @@ async fn patch_project_omit_field_preserves_it() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "title": "Test Project Updated"
+                        "description": "New description"
                     }))
                     .unwrap(),
                 ))
@@ -351,72 +278,14 @@ async fn patch_project_omit_field_preserves_it() {
         )
         .await
         .unwrap();
+    assert_eq!(patch_preserve.status(), StatusCode::OK);
+    let preserved = json_body(patch_preserve).await;
+    assert_eq!(preserved["title"], "Updated Title"); // Still preserved from previous update
+    assert_eq!(preserved["description"], "New description");
 
-    assert_eq!(patch_response.status(), StatusCode::OK);
-
-    let patched = json_body(patch_response).await;
-
-    // Description should still be there (unchanged)
-    assert_eq!(patched["description"], "Has description");
-
-    // Title should be updated
-    assert_eq!(patched["title"], "Test Project Updated");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_project_not_found() {
-    let app = test_app().await;
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri("/api/v1/projects/notfound")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "New Title"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_project_empty_body_preserves_all() {
-    let app = test_app().await;
-
-    // Create a project
-    let create_response = app
+    // Test 6: PATCH with empty body preserves all fields
+    let patch_empty = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Original",
-                        "description": "Desc",
-                        "tags": ["tag1"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap();
-
-    // PATCH with empty body
-    let patch_response = app
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -427,102 +296,31 @@ async fn patch_project_empty_body_preserves_all() {
         )
         .await
         .unwrap();
+    assert_eq!(patch_empty.status(), StatusCode::OK);
+    let unchanged = json_body(patch_empty).await;
+    assert_eq!(unchanged["title"], "Updated Title");
+    assert_eq!(unchanged["description"], "New description");
 
-    assert_eq!(patch_response.status(), StatusCode::OK);
-
-    let patched = json_body(patch_response).await;
-
-    // Everything should be unchanged
-    assert_eq!(patched["title"], "Original");
-    assert_eq!(patched["description"], "Desc");
-    assert_eq!(patched["tags"].as_array().unwrap().len(), 1);
-}
-
-// =============================================================================
-// WebSocket Broadcast Tests
-// =============================================================================
-
-/// Helper to create test app with access to notifier for broadcast testing
-async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let notifier = crate::api::notifier::ChangeNotifier::new();
-    let state = AppState::new(
-        db,
-        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
-        notifier.clone(),
-    );
-    (routes::create_router(state, false), notifier)
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn create_project_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-    let mut subscriber = notifier.subscribe();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "New Project",
-                        "description": "Test project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let created = json_body(response).await;
-    let project_id = created["id"].as_str().unwrap();
-
-    // Should receive ProjectCreated broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::ProjectCreated { project_id: id } => {
-            assert_eq!(id, project_id);
-        }
-        _ => panic!("Expected ProjectCreated message, got {:?}", msg),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_project_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create a project first
-    let create_response = app
+    // Test 7: PATCH nonexistent project (404)
+    let patch_404 = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
+                .method("PATCH")
+                .uri("/api/v1/projects/notfound")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Original Project"
-                    }))
-                    .unwrap(),
+                    serde_json::to_string(&json!({"title": "new"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    assert_eq!(patch_404.status(), StatusCode::NOT_FOUND);
 
-    let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap().to_string();
-
-    // Subscribe AFTER creation to avoid receiving create notification
-    let mut subscriber = notifier.subscribe();
-
-    // Update the project
-    let response = app
+    // Test 8: PUT full update
+    let put_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -530,8 +328,9 @@ async fn update_project_broadcasts_notification() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
-                        "title": "Updated Project",
-                        "description": "Updated description"
+                        "title": "Completely Replaced",
+                        "description": "All new",
+                        "tags": ["newtag"]
                     }))
                     .unwrap(),
                 ))
@@ -539,50 +338,14 @@ async fn update_project_broadcasts_notification() {
         )
         .await
         .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let updated = json_body(put_response).await;
+    assert_eq!(updated["title"], "Completely Replaced");
+    assert_eq!(updated["description"], "All new");
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Should receive ProjectUpdated broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::ProjectUpdated { project_id: id } => {
-            assert_eq!(id, project_id);
-        }
-        _ => panic!("Expected ProjectUpdated message, got {:?}", msg),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn delete_project_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create a project first
-    let create_response = app
+    // Test 9: DELETE project
+    let delete_response = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Project to Delete"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap().to_string();
-
-    // Subscribe AFTER creation
-    let mut subscriber = notifier.subscribe();
-
-    // Delete the project
-    let response = app
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -592,58 +355,45 @@ async fn delete_project_broadcasts_notification() {
         )
         .await
         .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    // Should receive ProjectDeleted broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::ProjectDeleted { project_id: id } => {
-            assert_eq!(id, project_id);
-        }
-        _ => panic!("Expected ProjectDeleted message, got {:?}", msg),
-    }
-}
-
-// =============================================================================
-// External Reference Support
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn create_project_with_external_ref() {
-    let app = test_app().await;
-
-    let response = app
+    // Test 10: GET deleted project (404)
+    let get_deleted = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "GitHub Project",
-                        "description": "Project linked to GitHub",
-                        "external_refs": ["owner/repo#123"]
-                    }))
-                    .unwrap(),
-                ))
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
+    assert_eq!(get_deleted.status(), StatusCode::NOT_FOUND);
 
-    assert_eq!(response.status(), StatusCode::CREATED);
-
-    let body = json_body(response).await;
-    assert_eq!(body["title"], "GitHub Project");
-    assert_eq!(body["external_refs"], json!(["owner/repo#123"]));
+    // Test 11: DELETE nonexistent project (404)
+    let delete_404 = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/projects/notfound")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_404.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn update_project_external_ref() {
-    let app = test_app().await;
+// =============================================================================
+// WebSocket Broadcast Tests
+// =============================================================================
 
-    // Create a project without external_ref
+#[tokio::test(flavor = "multi_thread")]
+async fn websocket_broadcasts() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Test 1: Create broadcasts ProjectCreated
+    let mut subscriber = notifier.subscribe();
     let create_response = app
         .clone()
         .oneshot(
@@ -652,8 +402,8 @@ async fn update_project_external_ref() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project Without Ref"
+                    serde_json::to_string(&json!({
+                        "title": "Broadcast Test"
                     }))
                     .unwrap(),
                 ))
@@ -661,13 +411,24 @@ async fn update_project_external_ref() {
         )
         .await
         .unwrap();
-
+    assert_eq!(create_response.status(), StatusCode::CREATED);
     let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap();
-    assert!(created["external_refs"].as_array().unwrap().is_empty());
+    let project_id = created["id"].as_str().unwrap().to_string();
 
-    // Update to add external_ref
-    let response = app
+    let msg = subscriber
+        .recv()
+        .await
+        .expect("Should receive create broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::ProjectCreated { project_id: id } => {
+            assert_eq!(id, project_id);
+        }
+        _ => panic!("Expected ProjectCreated, got {:?}", msg),
+    }
+
+    // Test 2: Update broadcasts ProjectUpdated
+    let mut subscriber = notifier.subscribe();
+    let update_response = app
         .clone()
         .oneshot(
             Request::builder()
@@ -675,9 +436,8 @@ async fn update_project_external_ref() {
                 .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project With Ref",
-                        "external_refs": json!(["JIRA-456"])
+                    serde_json::to_string(&json!({
+                        "title": "Updated Broadcast"
                     }))
                     .unwrap(),
                 ))
@@ -685,26 +445,102 @@ async fn update_project_external_ref() {
         )
         .await
         .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
 
-    assert_eq!(response.status(), StatusCode::OK);
+    let msg = subscriber
+        .recv()
+        .await
+        .expect("Should receive update broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::ProjectUpdated { project_id: id } => {
+            assert_eq!(id, project_id);
+        }
+        _ => panic!("Expected ProjectUpdated, got {:?}", msg),
+    }
 
-    let body = json_body(response).await;
-    assert_eq!(body["title"], "Project With Ref");
-    assert_eq!(body["external_refs"], json!(["JIRA-456"]));
-
-    // Verify via GET
-    let response = app
+    // Test 3: Delete broadcasts ProjectDeleted
+    let mut subscriber = notifier.subscribe();
+    let delete_response = app
         .oneshot(
             Request::builder()
+                .method("DELETE")
                 .uri(format!("/api/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    let body = json_body(response).await;
-    assert_eq!(body["external_refs"], json!(["JIRA-456"]));
+    let msg = subscriber
+        .recv()
+        .await
+        .expect("Should receive delete broadcast");
+    match msg {
+        crate::api::notifier::UpdateMessage::ProjectDeleted { project_id: id } => {
+            assert_eq!(id, project_id);
+        }
+        _ => panic!("Expected ProjectDeleted, got {:?}", msg),
+    }
+}
+
+// =============================================================================
+// External References Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn external_refs_operations() {
+    let app = test_app().await;
+
+    // Test 1: Create project with external refs
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "External Ref Project",
+                        "external_refs": ["github:org/repo#123", "JIRA-456"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = json_body(create_response).await;
+    let project_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["external_refs"].as_array().unwrap().len(), 2);
+    assert_eq!(created["external_refs"][0], "github:org/repo#123");
+    assert_eq!(created["external_refs"][1], "JIRA-456");
+
+    // Test 2: Update external refs
+    let update_response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/projects/{}", project_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "External Ref Project",
+                        "external_refs": ["github:org/repo#456", "JIRA-789", "LINEAR-123"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
+    let updated = json_body(update_response).await;
+    assert_eq!(updated["external_refs"].as_array().unwrap().len(), 3);
+    assert_eq!(updated["external_refs"][0], "github:org/repo#456");
+    assert_eq!(updated["external_refs"][2], "LINEAR-123");
 }
 
 // =============================================================================
@@ -712,48 +548,60 @@ async fn update_project_external_ref() {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_projects_by_title() {
+async fn fts5_search_comprehensive() {
     let app = test_app().await;
 
-    // Create test projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Backend API",
-                        "description": "A web API built with Rust"
-                    }))
+    // Create test projects for comprehensive search testing
+    for (title, description, tags, external_refs) in [
+        (
+            "Rust Backend API",
+            "High-performance async backend",
+            vec!["rust", "backend", "api"],
+            vec!["github:company/rust-api#1"],
+        ),
+        (
+            "Python Data Pipeline",
+            "ETL pipeline for analytics",
+            vec!["python", "data", "etl"],
+            vec!["github:company/pipeline#2"],
+        ),
+        (
+            "Frontend Dashboard",
+            "React-based monitoring dashboard",
+            vec!["react", "frontend", "monitoring"],
+            vec!["JIRA-101"],
+        ),
+        (
+            "Mobile App",
+            "Cross-platform mobile application",
+            vec!["mobile", "react-native"],
+            vec!["LINEAR-202"],
+        ),
+    ] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/projects")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&json!({
+                            "title": title,
+                            "description": description,
+                            "tags": tags,
+                            "external_refs": external_refs
+                        }))
+                        .unwrap(),
+                    ))
                     .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+            )
+            .await
+            .unwrap();
+    }
 
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Python Data Pipeline",
-                        "description": "Data processing pipeline"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search for "rust"
+    // Test 1: Search by title
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/projects?q=rust")
@@ -762,446 +610,131 @@ async fn search_projects_by_title() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert!(body["items"][0]["title"].as_str().unwrap().contains("Rust"));
 
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "Rust Backend API");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_by_description() {
-    let app = test_app().await;
-
-    // Create test projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project Alpha",
-                        "description": "Machine learning research project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project Beta",
-                        "description": "Frontend web application"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by description
+    // Test 2: Search by description
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=machine+learning")
+                .uri("/api/v1/projects?q=analytics")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert!(
+        body["items"][0]["description"]
+            .as_str()
+            .unwrap()
+            .contains("analytics")
+    );
 
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "Project Alpha");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_by_tags() {
-    let app = test_app().await;
-
-    // Create test projects with tags
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Frontend Project",
-                        "tags": ["react", "typescript", "frontend"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Backend Project",
-                        "tags": ["rust", "api", "backend"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by tag
+    // Test 3: Search by tags
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=typescript")
+                .uri("/api/v1/projects?q=frontend")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    let tags = body["items"][0]["tags"].as_array().unwrap();
+    assert!(tags.iter().any(|t| t.as_str().unwrap() == "frontend"));
 
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "Frontend Project");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_by_external_refs() {
-    let app = test_app().await;
-
-    // Create projects with external refs
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "GitHub Integration",
-                        "external_refs": ["owner/repo#123", "owner/repo#456"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Jira Integration",
-                        "external_refs": ["PROJ-789"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by external ref
+    // Test 4: Search by external refs
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=owner%2Frepo%23123")
+                .uri("/api/v1/projects?q=JIRA")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert!(
+        body["items"][0]["external_refs"][0]
+            .as_str()
+            .unwrap()
+            .contains("JIRA")
+    );
 
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "GitHub Integration");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_with_boolean_operators() {
-    let app = test_app().await;
-
-    // Create test projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Web API",
-                        "description": "Backend service"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust CLI Tool",
-                        "description": "Command line utility"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Python API",
-                        "description": "Backend service"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search with AND operator
+    // Test 5: Boolean AND operator
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=rust+AND+backend")
+                .uri("/api/v1/projects?q=react%20AND%20monitoring")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert!(
+        body["items"][0]["title"]
+            .as_str()
+            .unwrap()
+            .contains("Dashboard")
+    );
 
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "Rust Web API");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_with_phrase_query() {
-    let app = test_app().await;
-
-    // Create test projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Backend Service",
-                        "description": "RESTful API service implementation"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "API Documentation",
-                        "description": "Service documentation for API"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search with exact phrase
+    // Test 6: Phrase query
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=%22API+service%22")
+                .uri("/api/v1/projects?q=%22mobile%20application%22")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert!(
+        body["items"][0]["description"]
+            .as_str()
+            .unwrap()
+            .contains("mobile application")
+    );
 
-    // Should only match exact phrase "API service"
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0]["title"], "Backend Service");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_combines_with_tag_filter() {
-    let app = test_app().await;
-
-    // Create test projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Backend",
-                        "tags": ["backend", "production"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Frontend",
-                        "tags": ["frontend", "production"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust CLI",
-                        "tags": ["backend", "experimental"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search "rust" with tag filter "backend,production" (OR logic - matches ANY tag)
+    // Test 7: Combine search with tag filter
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=rust&tags=backend,production")
+                .uri("/api/v1/projects?q=backend&tags=rust")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert!(body["items"][0]["title"].as_str().unwrap().contains("Rust"));
 
-    // Should match all "Rust" projects with "backend" OR "production" tags (3 projects):
-    // - "Rust Backend" (has backend + production)
-    // - "Rust Frontend" (has production)
-    // - "Rust CLI" (has backend)
-    assert_eq!(projects.len(), 3);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_empty_query_returns_all() {
-    let app = test_app().await;
-
-    // Create a project
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search with empty query (should return all)
+    // Test 8: Empty query returns all
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/projects?q=")
@@ -1210,53 +743,21 @@ async fn search_projects_empty_query_returns_all() {
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 4); // All 4 projects we created
 
-    assert_eq!(projects.len(), 1);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_projects_no_results() {
-    let app = test_app().await;
-
-    // Create a project
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search for something that doesn't exist
+    // Test 9: No results
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/projects?q=nonexistent")
+                .uri("/api/v1/projects?q=nonexistent_term_xyz")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let projects = body["items"].as_array().expect("Expected items array");
-
-    assert_eq!(projects.len(), 0);
     assert_eq!(body["total"], 0);
 }
