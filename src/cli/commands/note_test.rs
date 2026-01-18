@@ -301,36 +301,48 @@ async fn test_hierarchical_notes_integration() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract parent ID");
 
-    // Create child note with parent_id and idx
-    let child_request = CreateNoteRequest {
-        title: "Child Note".to_string(),
-        content: "Child content".to_string(),
+    // Create multiple child notes with different idx values to test ordering
+    let child1_request = CreateNoteRequest {
+        title: "Child Note 1".to_string(),
+        content: "First child".to_string(),
+        tags: None,
+        parent_id: Some(parent_id.to_string()),
+        idx: Some(2),
+        project_ids: None,
+        repo_ids: None,
+    };
+    let child1_result = create_note(&api_client, child1_request).await;
+    assert!(child1_result.is_ok());
+
+    let child2_request = CreateNoteRequest {
+        title: "Child Note 2".to_string(),
+        content: "Second child".to_string(),
         tags: None,
         parent_id: Some(parent_id.to_string()),
         idx: Some(1),
         project_ids: None,
         repo_ids: None,
     };
-    let child_result = create_note(&api_client, child_request).await;
-    assert!(child_result.is_ok());
+    let child2_result = create_note(&api_client, child2_request).await;
+    assert!(child2_result.is_ok());
 
-    let child_id = child_result
+    let child2_id = child2_result
         .unwrap()
         .split('(')
         .nth(1)
         .and_then(|s| s.split(')').next())
-        .expect("Failed to extract child ID")
+        .expect("Failed to extract child2 ID")
         .to_string();
 
-    // Verify child note has parent_id
-    let get_result = get_note(&api_client, &child_id, "json")
+    // Verify child note has parent_id and idx
+    let get_result = get_note(&api_client, &child2_id, "json")
         .await
         .expect("Failed to get child note");
     let child_note: serde_json::Value = serde_json::from_str(&get_result).unwrap();
     assert_eq!(child_note["parent_id"], parent_id);
     assert_eq!(child_note["idx"], 1);
 
-    // List notes filtered by parent_id
+    // List notes filtered by parent_id - should be ordered by idx
     let result = list_notes(
         &api_client,
         None,
@@ -346,8 +358,12 @@ async fn test_hierarchical_notes_integration() {
 
     let output = result.unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(parsed.as_array().unwrap().len(), 1);
-    assert_eq!(parsed[0]["title"], "Child Note");
+    assert_eq!(parsed.as_array().unwrap().len(), 2);
+    // Verify ordering by idx: Child Note 2 (idx=1) should come before Child Note 1 (idx=2)
+    assert_eq!(parsed[0]["title"], "Child Note 2");
+    assert_eq!(parsed[0]["idx"], 1);
+    assert_eq!(parsed[1]["title"], "Child Note 1");
+    assert_eq!(parsed[1]["idx"], 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
