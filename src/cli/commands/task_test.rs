@@ -362,13 +362,13 @@ async fn test_complete_task_integration() {
     let list_id = create_test_task_list(&url, &project_id).await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create task
+    // Create task with tags
     let request = CreateTaskRequest {
         title: "Task to Complete".to_string(),
         description: None,
         parent_id: None,
         priority: None,
-        tags: None,
+        tags: Some(vec!["feature".to_string(), "completed".to_string()]),
         external_refs: None,
     };
     let create_result = create_task(&api_client, &list_id, request)
@@ -389,12 +389,13 @@ async fn test_complete_task_integration() {
     let output = result.unwrap();
     assert!(output.contains(task_id));
 
-    // Verify task is marked as done
+    // Verify task is marked as done and tags persist
     let get_result = get_task(&api_client, task_id, "json")
         .await
         .expect("Failed to get task");
     let updated_task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
     assert_eq!(updated_task["status"], "done");
+    assert_eq!(updated_task["tags"], json!(["feature", "completed"]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -403,13 +404,13 @@ async fn test_transition_task_integration() {
     let list_id = create_test_task_list(&url, &project_id).await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create task (starts as backlog)
+    // Create task (starts as backlog) with tags
     let request = CreateTaskRequest {
         title: "Task to Transition".to_string(),
         description: None,
         parent_id: None,
         priority: None,
-        tags: None,
+        tags: Some(vec!["workflow".to_string()]),
         external_refs: None,
     };
     let create_result = create_task(&api_client, &list_id, request)
@@ -426,12 +427,13 @@ async fn test_transition_task_integration() {
     let result = transition_task(&api_client, task_id, "todo").await;
     assert!(result.is_ok());
 
-    // Verify status changed
+    // Verify status changed and tags persist
     let get_result = get_task(&api_client, task_id, "json")
         .await
         .expect("Failed to get task");
     let updated_task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
     assert_eq!(updated_task["status"], "todo");
+    assert_eq!(updated_task["tags"], json!(["workflow"]));
 
     // Transition to in_progress
     transition_task(&api_client, task_id, "in_progress")
@@ -442,6 +444,7 @@ async fn test_transition_task_integration() {
         .expect("Failed to get task");
     let updated_task: serde_json::Value = serde_json::from_str(&get_result).unwrap();
     assert_eq!(updated_task["status"], "in_progress");
+    assert_eq!(updated_task["tags"], json!(["workflow"]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
