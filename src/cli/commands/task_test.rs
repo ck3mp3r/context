@@ -450,7 +450,26 @@ async fn test_update_task_integration() {
     let list_id = create_test_task_list(&url, &project_id).await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create task
+    // Create parent task
+    let parent_request = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: Some(2),
+        tags: None,
+        external_refs: None,
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_request)
+        .await
+        .expect("Failed to create parent task");
+
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract parent task ID");
+
+    // Create regular task
     let request = CreateTaskRequest {
         title: "Original Title".to_string(),
         description: None,
@@ -469,13 +488,13 @@ async fn test_update_task_integration() {
         .and_then(|s| s.split(')').next())
         .expect("Failed to extract task ID");
 
-    // Update task
+    // Update task to become a subtask and update other fields
     let update_request = UpdateTaskRequest {
         title: Some("Updated Title".to_string()),
         description: Some("New description".to_string()),
         status: None,
         priority: Some(1),
-        parent_id: None,
+        parent_id: Some(Some(parent_id.to_string())),
         tags: Some(vec!["feature".to_string(), "backend".to_string()]),
         external_refs: None,
         list_id: None,
@@ -483,7 +502,7 @@ async fn test_update_task_integration() {
     let result = update_task(&api_client, task_id, update_request).await;
     assert!(result.is_ok());
 
-    // Verify updates
+    // Verify updates including parent_id
     let get_result = get_task(&api_client, task_id, "json")
         .await
         .expect("Failed to get task");
@@ -492,6 +511,7 @@ async fn test_update_task_integration() {
     assert_eq!(updated_task["description"], "New description");
     assert_eq!(updated_task["priority"], 1);
     assert_eq!(updated_task["tags"], json!(["feature", "backend"]));
+    assert_eq!(updated_task["parent_id"], parent_id);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -716,4 +736,238 @@ async fn test_list_tasks_with_sort_and_order() {
     assert_eq!(tasks[0]["title"], "Zebra Task");
     assert_eq!(tasks[1]["title"], "Beta Task");
     assert_eq!(tasks[2]["title"], "Alpha Task");
+}
+
+// =============================================================================
+// Subtask (Hierarchical) Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_with_parent_id() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_request = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: Some("Parent task description".to_string()),
+        parent_id: None,
+        priority: Some(2),
+        tags: Some(vec!["epic".to_string()]),
+        external_refs: None,
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_request)
+        .await
+        .expect("Failed to create parent task");
+
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract parent task ID");
+
+    // Create subtask with parent_id
+    let subtask_request = CreateTaskRequest {
+        title: "Subtask".to_string(),
+        description: Some("This is a subtask".to_string()),
+        parent_id: Some(parent_id.to_string()),
+        priority: Some(3),
+        tags: Some(vec!["implementation".to_string()]),
+        external_refs: None,
+    };
+    let subtask_result = create_task(&api_client, &list_id, subtask_request).await;
+    assert!(
+        subtask_result.is_ok(),
+        "Should create subtask with parent_id"
+    );
+
+    let subtask_id = subtask_result
+        .unwrap()
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract subtask ID")
+        .to_string();
+
+    // Verify subtask has parent_id
+    let get_result = get_task(&api_client, &subtask_id, "json")
+        .await
+        .expect("Failed to get subtask");
+    let subtask: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(subtask["parent_id"], parent_id);
+    assert_eq!(subtask["title"], "Subtask");
+    assert_eq!(subtask["list_id"], list_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_tasks_filtered_by_parent_id() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_request = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_request)
+        .await
+        .expect("Failed to create parent task");
+
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract parent task ID");
+
+    // Create two subtasks
+    let subtask1_request = CreateTaskRequest {
+        title: "Subtask 1".to_string(),
+        description: None,
+        parent_id: Some(parent_id.to_string()),
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, subtask1_request)
+        .await
+        .expect("Failed to create subtask 1");
+
+    let subtask2_request = CreateTaskRequest {
+        title: "Subtask 2".to_string(),
+        description: None,
+        parent_id: Some(parent_id.to_string()),
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, subtask2_request)
+        .await
+        .expect("Failed to create subtask 2");
+
+    // Create another parent task without subtasks
+    let other_parent_request = CreateTaskRequest {
+        title: "Other Parent".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    create_task(&api_client, &list_id, other_parent_request)
+        .await
+        .expect("Failed to create other parent");
+
+    // List tasks filtered by parent_id
+    let result = list_tasks(
+        &api_client,
+        &list_id,
+        ListTasksFilter {
+            query: None,
+            status: None,
+            parent_id: Some(parent_id),
+            tags: None,
+            r#type: None,
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let tasks = parsed.as_array().unwrap();
+
+    // Should only return the 2 subtasks
+    assert_eq!(tasks.len(), 2);
+    assert_eq!(tasks[0]["title"], "Subtask 1");
+    assert_eq!(tasks[0]["parent_id"], parent_id);
+    assert_eq!(tasks[1]["title"], "Subtask 2");
+    assert_eq!(tasks[1]["parent_id"], parent_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_to_remove_parent_id() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let list_id = create_test_task_list(&url, &project_id).await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create parent task
+    let parent_request = CreateTaskRequest {
+        title: "Parent Task".to_string(),
+        description: None,
+        parent_id: None,
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let parent_result = create_task(&api_client, &list_id, parent_request)
+        .await
+        .expect("Failed to create parent task");
+
+    let parent_id = parent_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract parent task ID");
+
+    // Create subtask
+    let subtask_request = CreateTaskRequest {
+        title: "Subtask".to_string(),
+        description: None,
+        parent_id: Some(parent_id.to_string()),
+        priority: None,
+        tags: None,
+        external_refs: None,
+    };
+    let subtask_result = create_task(&api_client, &list_id, subtask_request)
+        .await
+        .expect("Failed to create subtask");
+
+    let subtask_id = subtask_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract subtask ID")
+        .to_string();
+
+    // Verify it has parent_id
+    let get_result = get_task(&api_client, &subtask_id, "json")
+        .await
+        .expect("Failed to get subtask");
+    let subtask_before: serde_json::Value = serde_json::from_str(&get_result).unwrap();
+    assert_eq!(subtask_before["parent_id"], parent_id);
+
+    // Update to remove parent_id (convert subtask to top-level task)
+    let update_request = UpdateTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        parent_id: Some(None), // Explicitly remove parent
+        tags: None,
+        external_refs: None,
+        list_id: None,
+    };
+    let update_result = update_task(&api_client, &subtask_id, update_request).await;
+    assert!(update_result.is_ok(), "Should be able to remove parent_id");
+
+    // Verify parent_id is removed
+    let get_result_after = get_task(&api_client, &subtask_id, "json")
+        .await
+        .expect("Failed to get task after update");
+    let task_after: serde_json::Value = serde_json::from_str(&get_result_after).unwrap();
+    assert!(
+        task_after["parent_id"].is_null(),
+        "parent_id should be null after removal"
+    );
 }
