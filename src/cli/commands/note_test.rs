@@ -540,3 +540,189 @@ async fn test_note_error_handling() {
         error
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_note_display_formats_and_filters() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create note with full data for table display testing
+    let create_request = CreateNoteRequest {
+        title: "Display Format Testing Note".to_string(),
+        content: "This is a comprehensive test note with all fields populated to verify table display formatting works correctly".to_string(),
+        tags: Some(vec!["testing".to_string(), "display".to_string(), "formats".to_string()]),
+        parent_id: None,
+        idx: Some(5),
+        project_ids: Some(vec![project_id.clone()]),
+        repo_ids: None,
+    };
+    let create_result = create_note(&api_client, create_request).await;
+    assert!(create_result.is_ok());
+    let output = create_result.unwrap();
+    let note_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap();
+
+    // Test GET with table format (covers lines 160-177)
+    let get_table = get_note(&api_client, note_id, "table").await;
+    assert!(get_table.is_ok(), "Should get note in table format");
+    let table_output = get_table.unwrap();
+    assert!(
+        table_output.contains("Field"),
+        "Table should have Field column"
+    );
+    assert!(
+        table_output.contains("Value"),
+        "Table should have Value column"
+    );
+    assert!(
+        table_output.contains("Display Format Testing Note"),
+        "Should show title"
+    );
+    assert!(table_output.contains("Index"), "Should show index field");
+    assert!(
+        table_output.contains("testing, display, formats"),
+        "Should show tags"
+    );
+
+    // Test GET table format with parent_id (covers line 165)
+    let child_request = CreateNoteRequest {
+        title: "Child Note".to_string(),
+        content: "Child note with parent".to_string(),
+        tags: Some(vec!["child".to_string()]),
+        parent_id: Some(note_id.to_string()),
+        idx: None,
+        project_ids: None,
+        repo_ids: None,
+    };
+    let child_result = create_note(&api_client, child_request).await;
+    assert!(child_result.is_ok());
+    let child_output = child_result.unwrap();
+    let child_id = child_output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap();
+
+    let child_table = get_note(&api_client, child_id, "table").await;
+    assert!(child_table.is_ok());
+    let child_table_output = child_table.unwrap();
+    assert!(
+        child_table_output.contains("Parent ID"),
+        "Should show parent ID field"
+    );
+
+    // Create second note for list testing
+    let note2_request = CreateNoteRequest {
+        title: "Second Note for List".to_string(),
+        content: "Another note".to_string(),
+        tags: Some(vec!["testing".to_string()]),
+        parent_id: None,
+        idx: None,
+        project_ids: None,
+        repo_ids: None,
+    };
+    create_note(&api_client, note2_request)
+        .await
+        .expect("Failed to create note 2");
+
+    // Test LIST with table format (covers lines 131, 135-143)
+    let list_table = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "table",
+    )
+    .await;
+    assert!(list_table.is_ok(), "Should list notes in table format");
+    let list_output = list_table.unwrap();
+    assert!(list_output.contains("ID"), "Table should have ID column");
+    assert!(
+        list_output.contains("Title"),
+        "Table should have Title column"
+    );
+    assert!(
+        list_output.contains("Tags"),
+        "Table should have Tags column"
+    );
+    assert!(
+        list_output.contains("Display Format Testing Note"),
+        "Should show note title"
+    );
+
+    // Test LIST with query parameter (covers line 100)
+    let list_query = list_notes(
+        &api_client,
+        Some("Display"),
+        None,
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(list_query.is_ok(), "Should filter by query");
+    let query_result: serde_json::Value = serde_json::from_str(&list_query.unwrap()).unwrap();
+    let query_notes = query_result.as_array().unwrap();
+    assert!(query_notes.len() >= 1, "Should find notes matching query");
+
+    // Test LIST with project_id filter (covers line 103)
+    let list_project = list_notes(
+        &api_client,
+        None,
+        Some(&project_id),
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(list_project.is_ok(), "Should filter by project_id");
+    let project_result: serde_json::Value = serde_json::from_str(&list_project.unwrap()).unwrap();
+    let project_notes = project_result.as_array().unwrap();
+    assert!(project_notes.len() >= 1, "Should find notes in project");
+
+    // Test LIST with note_type filter (covers line 112)
+    let list_note_type = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        Some("note"),
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(list_note_type.is_ok(), "Should filter by note_type");
+
+    // Test LIST with empty results in table format (covers line 136-137)
+    // Create a new server with no data
+    let (empty_url, _empty_project_id, _empty_handle) = spawn_test_server().await;
+    let empty_client = ApiClient::new(Some(empty_url));
+    let empty_list = list_notes(
+        &empty_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "table",
+    )
+    .await;
+    assert!(empty_list.is_ok(), "Should handle empty list");
+    assert_eq!(
+        empty_list.unwrap(),
+        "No notes found.",
+        "Should show empty message"
+    );
+}
