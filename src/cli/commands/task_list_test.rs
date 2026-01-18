@@ -761,6 +761,38 @@ async fn test_get_task_list_table_format() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_list_with_external_refs_table_format() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task list via API with external_refs
+    let payload = serde_json::json!({
+        "title": "List with External Refs",
+        "project_id": project_id,
+        "external_refs": ["PROJ-123", "owner/repo#456"]
+    });
+    let response = api_client
+        .post("/api/v1/task-lists")
+        .json(&payload)
+        .send()
+        .await
+        .expect("Failed to create task list");
+    let task_list: serde_json::Value = response.json().await.unwrap();
+    let list_id = task_list["id"].as_str().unwrap();
+
+    // Get in table format - should display external_refs joined with ", "
+    let result = get_task_list(&api_client, list_id, "table").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("PROJ-123, owner/repo#456"),
+        "Table should show external_refs joined with comma, got: {}",
+        output
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_get_task_list_stats_table_format() {
     let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url));
@@ -955,6 +987,44 @@ async fn test_list_task_lists_with_limit() {
         parsed.as_array().unwrap().len(),
         3,
         "Should return exactly 3 lists"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_task_lists_with_query() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create task lists with searchable titles
+    let request = CreateTaskListRequest {
+        title: "Searchable Backend Tasks".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create task list");
+
+    // List with query parameter
+    let result = list_task_lists(
+        &api_client,
+        Some("Backend"),
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(
+        parsed.as_array().unwrap().len() >= 1,
+        "Should find at least one list matching 'Backend'"
     );
 }
 
