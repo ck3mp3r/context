@@ -52,15 +52,29 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_create_task_list_integration() {
     let (url, project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url));
+    let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create task list with description and tags
+    // Create a repository to link
+    let repo_payload = serde_json::json!({
+        "remote": "https://github.com/test/task-list-repo",
+        "tags": []
+    });
+    let repo_response = api_client
+        .post("/api/v1/repos")
+        .json(&repo_payload)
+        .send()
+        .await
+        .expect("Failed to create repo");
+    let repo: serde_json::Value = repo_response.json().await.unwrap();
+    let repo_id = repo["id"].as_str().unwrap();
+
+    // Create task list with description, tags, and repo link
     let request = CreateTaskListRequest {
         title: "Integration Test List".to_string(),
         project_id: project_id.clone(),
         description: Some("Test description".to_string()),
         tags: Some(vec!["testing".to_string(), "integration".to_string()]),
-        repo_ids: None,
+        repo_ids: Some(vec![repo_id.to_string()]),
     };
     let result = create_task_list(&api_client, request).await;
 
@@ -85,6 +99,7 @@ async fn test_create_task_list_integration() {
     assert_eq!(created_list["tags"], json!(["testing", "integration"]));
     assert_eq!(created_list["project_id"], project_id);
     assert_eq!(created_list["status"], "active");
+    assert_eq!(created_list["repo_ids"], json!([repo_id]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -478,4 +493,132 @@ async fn test_list_task_lists_with_sort_and_order() {
     assert_eq!(lists[0]["title"], "Zebra List");
     assert_eq!(lists[1]["title"], "Beta List");
     assert_eq!(lists[2]["title"], "Alpha List");
+}
+
+// =============================================================================
+// Repository Linking Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_task_list_with_multiple_repo_ids() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create two repositories
+    let repo1_payload = serde_json::json!({
+        "remote": "https://github.com/test/repo1",
+        "tags": []
+    });
+    let repo1_response = api_client
+        .post("/api/v1/repos")
+        .json(&repo1_payload)
+        .send()
+        .await
+        .expect("Failed to create repo 1");
+    let repo1: serde_json::Value = repo1_response.json().await.unwrap();
+    let repo1_id = repo1["id"].as_str().unwrap();
+
+    let repo2_payload = serde_json::json!({
+        "remote": "https://github.com/test/repo2",
+        "tags": []
+    });
+    let repo2_response = api_client
+        .post("/api/v1/repos")
+        .json(&repo2_payload)
+        .send()
+        .await
+        .expect("Failed to create repo 2");
+    let repo2: serde_json::Value = repo2_response.json().await.unwrap();
+    let repo2_id = repo2["id"].as_str().unwrap();
+
+    // Create task list linked to multiple repos
+    let request = CreateTaskListRequest {
+        title: "Task List with Multiple Repos".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: Some(vec![repo1_id.to_string(), repo2_id.to_string()]),
+    };
+    let create_result = create_task_list(&api_client, request).await;
+    assert!(
+        create_result.is_ok(),
+        "Should create task list with multiple repo_ids"
+    );
+
+    let output = create_result.unwrap();
+    let list_id = output
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
+
+    // Verify both repos are linked
+    let get_result = get_task_list(&api_client, list_id, "json").await;
+    assert!(get_result.is_ok());
+    let task_list: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
+    let repo_ids_val = task_list["repo_ids"].as_array().unwrap();
+    assert_eq!(repo_ids_val.len(), 2);
+    assert!(repo_ids_val.contains(&json!(repo1_id)));
+    assert!(repo_ids_val.contains(&json!(repo2_id)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_task_list_to_add_repo_ids() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Create a repository
+    let repo_payload = serde_json::json!({
+        "remote": "https://github.com/test/update-repo",
+        "tags": []
+    });
+    let repo_response = api_client
+        .post("/api/v1/repos")
+        .json(&repo_payload)
+        .send()
+        .await
+        .expect("Failed to create repo");
+    let repo: serde_json::Value = repo_response.json().await.unwrap();
+    let repo_id = repo["id"].as_str().unwrap();
+
+    // Create task list without repo_ids
+    let request = CreateTaskListRequest {
+        title: "Task List Without Repos".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let create_result = create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create task list");
+
+    let list_id = create_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .expect("Failed to extract list ID");
+
+    // Update task list to add repo_ids
+    let update_request = UpdateTaskListRequest {
+        title: "Task List With Repos".to_string(),
+        description: None,
+        status: None,
+        tags: None,
+        project_id: None,
+        repo_ids: Some(vec![repo_id.to_string()]),
+    };
+    let update_result = update_task_list(&api_client, list_id, update_request).await;
+    assert!(
+        update_result.is_ok(),
+        "Should update task list with repo_ids"
+    );
+
+    // Verify the update
+    let get_result = get_task_list(&api_client, list_id, "json").await;
+    assert!(get_result.is_ok());
+    let task_list: serde_json::Value = serde_json::from_str(&get_result.unwrap()).unwrap();
+    let repo_ids_val = task_list["repo_ids"].as_array().unwrap();
+    assert_eq!(repo_ids_val.len(), 1);
+    assert_eq!(repo_ids_val[0], json!(repo_id));
 }
