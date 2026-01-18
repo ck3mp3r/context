@@ -82,6 +82,8 @@ struct NoteListResponse {
 }
 
 /// List notes with optional filtering
+// TODO: Refactor to reduce parameter count (use builder pattern or params struct)
+#[allow(clippy::too_many_arguments)]
 pub async fn list_notes(
     api_client: &ApiClient,
     query: Option<&str>,
