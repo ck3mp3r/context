@@ -199,6 +199,8 @@ async fn test_update_task_list_integration() {
         description: Some("Updated description".to_string()),
         status: None,
         tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+        project_id: None,
+        repo_ids: None,
     };
     let result = update_task_list(&api_client, list_id, update_request).await;
     assert!(result.is_ok());
@@ -308,6 +310,8 @@ async fn test_update_task_list_not_found() {
         description: Some("New desc".to_string()),
         status: None,
         tags: None,
+        project_id: None,
+        repo_ids: None,
     };
     let result = update_task_list(&api_client, "nonexist", update_request).await;
 

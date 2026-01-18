@@ -568,6 +568,12 @@ enum TaskListCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// Relink to different project (project ID)
+        #[arg(long)]
+        project_id: Option<String>,
+        /// Update linked repositories (comma-separated IDs)
+        #[arg(long)]
+        repo_ids: Option<String>,
     },
     /// Delete a task list
     Delete {
@@ -808,12 +814,16 @@ pub async fn run() -> Result<()> {
                 description,
                 status,
                 tags,
+                project_id,
+                repo_ids,
             } => {
                 let request = commands::task_list::UpdateTaskListRequest {
                     title: title.unwrap_or_default(), // Empty string triggers fetch of current title
                     description,
                     status,
                     tags: utils::parse_tags(tags.as_deref()),
+                    project_id,
+                    repo_ids: utils::parse_tags(repo_ids.as_deref()),
                 };
                 let output =
                     commands::task_list::update_task_list(&api_client, &id, request).await?;
