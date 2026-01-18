@@ -65,6 +65,8 @@ async fn test_create_note_integration() {
         ]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let result = create_note(&api_client, request).await;
 
@@ -107,6 +109,8 @@ async fn test_list_notes_integration() {
         tags: Some(vec!["tag1".to_string()]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     create_note(&api_client, req1)
         .await
@@ -118,6 +122,8 @@ async fn test_list_notes_integration() {
         tags: Some(vec!["tag2".to_string()]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     create_note(&api_client, req2)
         .await
@@ -157,6 +163,8 @@ async fn test_get_note_integration() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let create_result = create_note(&api_client, request)
         .await
@@ -191,6 +199,8 @@ async fn test_update_note_integration() {
         tags: Some(vec!["tag1".to_string()]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let create_result = create_note(&api_client, request)
         .await
@@ -209,6 +219,8 @@ async fn test_update_note_integration() {
         tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let result = update_note(&api_client, note_id, update_request).await;
     assert!(result.is_ok());
@@ -235,6 +247,8 @@ async fn test_delete_note_integration() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let create_result = create_note(&api_client, request)
         .await
@@ -272,6 +286,8 @@ async fn test_hierarchical_notes_integration() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let parent_result = create_note(&api_client, parent_request)
         .await
@@ -290,6 +306,8 @@ async fn test_hierarchical_notes_integration() {
         tags: None,
         parent_id: Some(parent_id.to_string()),
         idx: Some(1),
+        project_ids: None,
+        repo_ids: None,
     };
     let child_result = create_note(&api_client, child_request).await;
     assert!(child_result.is_ok());
@@ -342,6 +360,8 @@ async fn test_list_notes_with_filters_integration() {
         tags: Some(vec!["rust".to_string(), "programming".to_string()]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     create_note(&api_client, rust_request)
         .await
@@ -353,6 +373,8 @@ async fn test_list_notes_with_filters_integration() {
         tags: Some(vec!["testing".to_string(), "qa".to_string()]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     create_note(&api_client, testing_request)
         .await
@@ -417,6 +439,8 @@ async fn test_update_note_not_found() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let result = update_note(&api_client, "nonexist", update_request).await;
 
@@ -468,11 +492,17 @@ async fn test_list_notes_with_nonexistent_tag() {
 
     // Create note with tags
     let request = CreateNoteRequest {
-        title: "Note 1".to_string(),
-        content: "Content".to_string(),
-        tags: Some(vec!["rust".to_string(), "testing".to_string()]),
+        title: "Integration Test Note".to_string(),
+        content: "This is test content for integration testing".to_string(),
+        tags: Some(vec![
+            "rust".to_string(),
+            "testing".to_string(),
+            "integration".to_string(),
+        ]),
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     create_note(&api_client, request)
         .await
@@ -511,6 +541,8 @@ async fn test_list_notes_with_offset() {
             tags: None,
             parent_id: None,
             idx: None,
+            project_ids: None,
+            repo_ids: None,
         };
         let _ = create_note(&api_client, request).await;
     }
@@ -546,6 +578,8 @@ async fn test_list_notes_with_sort_and_order() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let _ = create_note(&api_client, req1).await;
 
@@ -555,6 +589,8 @@ async fn test_list_notes_with_sort_and_order() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let _ = create_note(&api_client, req2).await;
 
@@ -564,6 +600,8 @@ async fn test_list_notes_with_sort_and_order() {
         tags: None,
         parent_id: None,
         idx: None,
+        project_ids: None,
+        repo_ids: None,
     };
     let _ = create_note(&api_client, req3).await;
 

@@ -267,6 +267,12 @@ enum NoteCommands {
         /// Index for manual ordering (lower values first)
         #[arg(long)]
         idx: Option<i32>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+        /// Repository IDs to link (comma-separated)
+        #[arg(long)]
+        repo_ids: Option<String>,
     },
     /// Update a note
     Update {
@@ -287,6 +293,12 @@ enum NoteCommands {
         /// Index for manual ordering (lower values first)
         #[arg(long)]
         idx: Option<i32>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+        /// Repository IDs to link (comma-separated)
+        #[arg(long)]
+        repo_ids: Option<String>,
     },
     /// Delete a note
     Delete {
@@ -963,6 +975,8 @@ pub async fn run() -> Result<()> {
                 tags,
                 parent_id,
                 idx,
+                project_ids,
+                repo_ids,
             } => {
                 let request = commands::note::CreateNoteRequest {
                     title,
@@ -970,6 +984,8 @@ pub async fn run() -> Result<()> {
                     tags: utils::parse_tags(tags.as_deref()),
                     parent_id,
                     idx,
+                    project_ids: utils::parse_tags(project_ids.as_deref()),
+                    repo_ids: utils::parse_tags(repo_ids.as_deref()),
                 };
                 let output = commands::note::create_note(&api_client, request).await?;
                 println!("{}", output);
@@ -981,6 +997,8 @@ pub async fn run() -> Result<()> {
                 tags,
                 parent_id,
                 idx,
+                project_ids,
+                repo_ids,
             } => {
                 let request = commands::note::UpdateNoteRequest {
                     title,
@@ -994,6 +1012,8 @@ pub async fn run() -> Result<()> {
                         }
                     }),
                     idx: idx.map(Some),
+                    project_ids: utils::parse_tags(project_ids.as_deref()),
+                    repo_ids: utils::parse_tags(repo_ids.as_deref()),
                 };
                 let output = commands::note::update_note(&api_client, &id, request).await?;
                 println!("{}", output);

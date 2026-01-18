@@ -29,6 +29,10 @@ pub struct CreateNoteRequest {
     pub parent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idx: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +47,10 @@ pub struct UpdateNoteRequest {
     pub parent_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idx: Option<Option<i32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_ids: Option<Vec<String>>,
 }
 
 #[derive(Tabled)]
