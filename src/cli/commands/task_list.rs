@@ -5,7 +5,7 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::PageParams;
 use crate::cli::error::CliResult;
-use crate::cli::utils::{apply_table_style, format_tags, parse_tags, truncate_with_ellipsis};
+use crate::cli::utils::{apply_table_style, format_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
 use tabled::{Table, Tabled};
 
@@ -18,26 +18,26 @@ struct ListTaskListsResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct CreateTaskListRequest {
-    pub(crate) title: String,
-    pub(crate) project_id: String,
+pub struct CreateTaskListRequest {
+    pub title: String,
+    pub project_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) repo_ids: Option<Vec<String>>,
+    pub repo_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UpdateTaskListRequest {
-    pub(crate) title: String, // Title is required for update API
+pub struct UpdateTaskListRequest {
+    pub title: String, // Title is required for update API
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) status: Option<String>,
+    pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tags: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -183,27 +183,11 @@ pub async fn get_task_list(api_client: &ApiClient, id: &str, format: &str) -> Cl
 /// Create a new task list
 pub async fn create_task_list(
     api_client: &ApiClient,
-    title: &str,
-    project_id: &str,
-    description: Option<&str>,
-    tags: Option<&str>,
-    repo_ids: Option<&str>,
+    request: CreateTaskListRequest,
 ) -> CliResult<String> {
-    let request_body = CreateTaskListRequest {
-        title: title.to_string(),
-        project_id: project_id.to_string(),
-        description: description.map(|s| s.to_string()),
-        tags: parse_tags(tags),
-        repo_ids: repo_ids.map(|ids| {
-            ids.split(',')
-                .map(|s| s.trim().to_string())
-                .collect::<Vec<_>>()
-        }),
-    };
-
     let response = api_client
         .post("/api/v1/task-lists")
-        .json(&request_body)
+        .json(&request)
         .send()
         .await?;
 
@@ -218,33 +202,21 @@ pub async fn create_task_list(
 pub async fn update_task_list(
     api_client: &ApiClient,
     id: &str,
-    title: Option<&str>,
-    description: Option<&str>,
-    status: Option<&str>,
-    tags: Option<&str>,
+    mut request: UpdateTaskListRequest,
 ) -> CliResult<String> {
-    // For update, we need to get the current title if not provided (API requires title field)
-    let current_title = if let Some(t) = title {
-        t.to_string()
-    } else {
+    // For update, if title is empty, we need to fetch the current title (API requires title field)
+    if request.title.is_empty() {
         let response = api_client
             .get(&format!("/api/v1/task-lists/{}", id))
             .send()
             .await?;
         let task_list: TaskList = ApiClient::handle_response(response).await?;
-        task_list.title
-    };
-
-    let request_body = UpdateTaskListRequest {
-        title: current_title,
-        description: description.map(|s| s.to_string()),
-        status: status.map(|s| s.to_string()),
-        tags: parse_tags(tags),
-    };
+        request.title = task_list.title;
+    }
 
     let response = api_client
         .patch(&format!("/api/v1/task-lists/{}", id))
-        .json(&request_body)
+        .json(&request)
         .send()
         .await?;
 

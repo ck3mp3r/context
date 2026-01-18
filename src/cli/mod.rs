@@ -773,15 +773,18 @@ pub async fn run() -> Result<()> {
                 tags,
                 repo_ids,
             } => {
-                let output = commands::task_list::create_task_list(
-                    &api_client,
-                    &title,
-                    &project_id,
-                    description.as_deref(),
-                    tags.as_deref(),
-                    repo_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::task_list::CreateTaskListRequest {
+                    title,
+                    project_id,
+                    description,
+                    tags: utils::parse_tags(tags.as_deref()),
+                    repo_ids: repo_ids.map(|ids| {
+                        ids.split(',')
+                            .map(|s| s.trim().to_string())
+                            .collect::<Vec<_>>()
+                    }),
+                };
+                let output = commands::task_list::create_task_list(&api_client, request).await?;
                 println!("{}", output);
             }
             TaskListCommands::Update {
@@ -791,15 +794,14 @@ pub async fn run() -> Result<()> {
                 status,
                 tags,
             } => {
-                let output = commands::task_list::update_task_list(
-                    &api_client,
-                    &id,
-                    title.as_deref(),
-                    description.as_deref(),
-                    status.as_deref(),
-                    tags.as_deref(),
-                )
-                .await?;
+                let request = commands::task_list::UpdateTaskListRequest {
+                    title: title.unwrap_or_default(), // Empty string triggers fetch of current title
+                    description,
+                    status,
+                    tags: utils::parse_tags(tags.as_deref()),
+                };
+                let output =
+                    commands::task_list::update_task_list(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             TaskListCommands::Delete { id, force } => {

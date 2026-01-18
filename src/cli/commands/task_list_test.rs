@@ -55,15 +55,14 @@ async fn test_create_task_list_integration() {
     let api_client = ApiClient::new(Some(url));
 
     // Create task list with description and tags
-    let result = create_task_list(
-        &api_client,
-        "Integration Test List",
-        &project_id,
-        Some("Test description"),
-        Some("testing,integration"),
-        None,
-    )
-    .await;
+    let request = CreateTaskListRequest {
+        title: "Integration Test List".to_string(),
+        project_id: project_id.clone(),
+        description: Some("Test description".to_string()),
+        tags: Some(vec!["testing".to_string(), "integration".to_string()]),
+        repo_ids: None,
+    };
+    let result = create_task_list(&api_client, request).await;
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -94,10 +93,25 @@ async fn test_list_task_lists_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create two task lists
-    create_task_list(&api_client, "List 1", &project_id, None, Some("tag1"), None)
+    let req1 = CreateTaskListRequest {
+        title: "List 1".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: Some(vec!["tag1".to_string()]),
+        repo_ids: None,
+    };
+    create_task_list(&api_client, req1)
         .await
         .expect("Failed to create list 1");
-    create_task_list(&api_client, "List 2", &project_id, None, Some("tag2"), None)
+
+    let req2 = CreateTaskListRequest {
+        title: "List 2".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: Some(vec!["tag2".to_string()]),
+        repo_ids: None,
+    };
+    create_task_list(&api_client, req2)
         .await
         .expect("Failed to create list 2");
 
@@ -128,16 +142,16 @@ async fn test_get_task_list_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create task list
-    let create_result = create_task_list(
-        &api_client,
-        "Test List",
-        &project_id,
-        Some("Description"),
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task list");
+    let request = CreateTaskListRequest {
+        title: "Test List".to_string(),
+        project_id: project_id.clone(),
+        description: Some("Description".to_string()),
+        tags: None,
+        repo_ids: None,
+    };
+    let create_result = create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create task list");
 
     // Extract list ID from success message
     let list_id = create_result
@@ -162,16 +176,16 @@ async fn test_update_task_list_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create task list
-    let create_result = create_task_list(
-        &api_client,
-        "Original Title",
-        &project_id,
-        Some("Original desc"),
-        Some("tag1"),
-        None,
-    )
-    .await
-    .expect("Failed to create task list");
+    let request = CreateTaskListRequest {
+        title: "Original Title".to_string(),
+        project_id: project_id.clone(),
+        description: Some("Original desc".to_string()),
+        tags: Some(vec!["tag1".to_string()]),
+        repo_ids: None,
+    };
+    let create_result = create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create task list");
 
     let list_id = create_result
         .split('(')
@@ -180,15 +194,13 @@ async fn test_update_task_list_integration() {
         .expect("Failed to extract list ID");
 
     // Update task list
-    let result = update_task_list(
-        &api_client,
-        list_id,
-        Some("Updated Title"),
-        Some("Updated description"),
-        None,
-        Some("tag1,tag2"),
-    )
-    .await;
+    let update_request = UpdateTaskListRequest {
+        title: "Updated Title".to_string(),
+        description: Some("Updated description".to_string()),
+        status: None,
+        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+    };
+    let result = update_task_list(&api_client, list_id, update_request).await;
     assert!(result.is_ok());
 
     // Verify updates
@@ -206,16 +218,16 @@ async fn test_task_list_stats_integration() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create task list
-    let create_result = create_task_list(
-        &api_client,
-        "Stats Test List",
-        &project_id,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create task list");
+    let request = CreateTaskListRequest {
+        title: "Stats Test List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let create_result = create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create task list");
 
     let list_id = create_result
         .split('(')
@@ -291,15 +303,13 @@ async fn test_update_task_list_not_found() {
     let api_client = ApiClient::new(Some(url));
 
     // Try to update non-existent task_list
-    let result = update_task_list(
-        &api_client,
-        "nonexist",
-        Some("New Title"),
-        Some("New desc"),
-        None,
-        None,
-    )
-    .await;
+    let update_request = UpdateTaskListRequest {
+        title: "New Title".to_string(),
+        description: Some("New desc".to_string()),
+        status: None,
+        tags: None,
+    };
+    let result = update_task_list(&api_client, "nonexist", update_request).await;
 
     // Should return error
     assert!(
@@ -327,8 +337,14 @@ async fn test_create_task_list_with_nonexistent_project_id() {
     let api_client = ApiClient::new(Some(url));
 
     // Try to create task_list with non-existent project_id
-    let result =
-        create_task_list(&api_client, "Task List Title", "nonexist", None, None, None).await;
+    let request = CreateTaskListRequest {
+        title: "Task List Title".to_string(),
+        project_id: "nonexist".to_string(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let result = create_task_list(&api_client, request).await;
 
     // Should return error (foreign key constraint)
     assert!(
@@ -359,15 +375,14 @@ async fn test_list_task_lists_with_offset() {
 
     // Create 3 task lists
     for i in 1..=3 {
-        let _ = create_task_list(
-            &api_client,
-            &format!("List {}", i),
-            &project_id,
-            None,
-            None,
-            None,
-        )
-        .await;
+        let request = CreateTaskListRequest {
+            title: format!("List {}", i),
+            project_id: project_id.clone(),
+            description: None,
+            tags: None,
+            repo_ids: None,
+        };
+        let _ = create_task_list(&api_client, request).await;
     }
 
     // List with offset=1 (skip first list)
@@ -395,9 +410,32 @@ async fn test_list_task_lists_with_sort_and_order() {
     let api_client = ApiClient::new(Some(url));
 
     // Create lists with different titles
-    let _ = create_task_list(&api_client, "Zebra List", &project_id, None, None, None).await;
-    let _ = create_task_list(&api_client, "Alpha List", &project_id, None, None, None).await;
-    let _ = create_task_list(&api_client, "Beta List", &project_id, None, None, None).await;
+    let req1 = CreateTaskListRequest {
+        title: "Zebra List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let _ = create_task_list(&api_client, req1).await;
+
+    let req2 = CreateTaskListRequest {
+        title: "Alpha List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let _ = create_task_list(&api_client, req2).await;
+
+    let req3 = CreateTaskListRequest {
+        title: "Beta List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let _ = create_task_list(&api_client, req3).await;
 
     // List sorted by title ascending
     let page = PageParams {

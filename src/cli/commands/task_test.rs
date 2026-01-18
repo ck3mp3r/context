@@ -1,7 +1,7 @@
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task::*;
-use crate::cli::commands::task_list::create_task_list;
+use crate::cli::commands::task_list::{CreateTaskListRequest, create_task_list};
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
@@ -146,16 +146,16 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 /// Helper to create a task list via HTTP and return its ID
 async fn create_test_task_list(api_url: &str, project_id: &str) -> String {
     let api_client = ApiClient::new(Some(api_url.to_string()));
-    let result = crate::cli::commands::task_list::create_task_list(
-        &api_client,
-        "Test Task List",
-        project_id,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to create test task list");
+    let request = crate::cli::commands::task_list::CreateTaskListRequest {
+        title: "Test Task List".to_string(),
+        project_id: project_id.to_string(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let result = crate::cli::commands::task_list::create_task_list(&api_client, request)
+        .await
+        .expect("Failed to create test task list");
 
     // Extract ID from success message: "✓ Created task list: Title (list_id)"
     result
@@ -544,8 +544,14 @@ async fn test_list_tasks_with_offset() {
     let api_client = ApiClient::new(Some(url));
 
     // Create task list
-    let list_result =
-        create_task_list(&api_client, "Test List", &project_id, None, None, None).await;
+    let request = CreateTaskListRequest {
+        title: "Test List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let list_result = create_task_list(&api_client, request).await;
     let list_id = list_result
         .unwrap()
         .split('(')
@@ -602,8 +608,14 @@ async fn test_list_tasks_with_sort_and_order() {
     let api_client = ApiClient::new(Some(url));
 
     // Create task list
-    let list_result =
-        create_task_list(&api_client, "Test List", &project_id, None, None, None).await;
+    let request = CreateTaskListRequest {
+        title: "Test List".to_string(),
+        project_id: project_id.clone(),
+        description: None,
+        tags: None,
+        repo_ids: None,
+    };
+    let list_result = create_task_list(&api_client, request).await;
     let list_id = list_result
         .unwrap()
         .split('(')
