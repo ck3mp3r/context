@@ -244,15 +244,14 @@ async fn test_task_list_list_with_comprehensive_filters() {
     let items = parsed.as_array().unwrap();
 
     // Should find "Alpha Backend Tasks" matching all filters
-    assert!(items.len() >= 1, "Should find backend tasks");
+    assert!(!items.is_empty(), "Should find backend tasks");
     assert_eq!(items[0]["title"], "Alpha Backend Tasks");
-    assert_eq!(
+    assert!(
         items[0]["tags"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|t| t == "backend"),
-        true
+            .any(|t| t == "backend")
     );
 
     // Test offset parameter separately

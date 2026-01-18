@@ -671,7 +671,7 @@ async fn test_note_display_formats_and_filters() {
     assert!(list_query.is_ok(), "Should filter by query");
     let query_result: serde_json::Value = serde_json::from_str(&list_query.unwrap()).unwrap();
     let query_notes = query_result.as_array().unwrap();
-    assert!(query_notes.len() >= 1, "Should find notes matching query");
+    assert!(!query_notes.is_empty(), "Should find notes matching query");
 
     // Test LIST with project_id filter (covers line 103)
     let list_project = list_notes(
@@ -688,7 +688,7 @@ async fn test_note_display_formats_and_filters() {
     assert!(list_project.is_ok(), "Should filter by project_id");
     let project_result: serde_json::Value = serde_json::from_str(&list_project.unwrap()).unwrap();
     let project_notes = project_result.as_array().unwrap();
-    assert!(project_notes.len() >= 1, "Should find notes in project");
+    assert!(!project_notes.is_empty(), "Should find notes in project");
 
     // Test LIST with note_type filter (covers line 112)
     let list_note_type = list_notes(
