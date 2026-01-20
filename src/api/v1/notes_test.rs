@@ -275,19 +275,19 @@ async fn list_notes_comprehensive() {
     assert_eq!(body["total"], 1);
     assert_eq!(body["items"][0]["title"], "Parent Rust Note");
 
-    // Test 5b: Filter by tags (programming should match 2)
+    // Test 5b: Filter by multiple tags (comma-separated)
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?tags=programming")
+                .uri("/api/v1/notes?tags=rust,programming")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     let body = json_body(response).await;
-    assert_eq!(body["total"], 2);
+    assert_eq!(body["total"], 2, "Should match notes with ANY of the tags");
 
     // Test 6a: Filter by parent_id (should return children in idx order)
     let response = app
@@ -657,6 +657,27 @@ async fn crud_operations() {
     assert_eq!(replaced["title"], "Completely Replaced");
     assert_eq!(replaced["content"], "New content");
     assert_eq!(replaced["idx"], 100);
+
+    // Test 6b: PUT nonexistent returns 404
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/notes/nonexistent")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Updated",
+                        "content": "Content"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     // Test 7: DELETE
     let delete_response = app
