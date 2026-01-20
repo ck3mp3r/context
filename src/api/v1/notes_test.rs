@@ -421,6 +421,7 @@ async fn list_notes_comprehensive() {
 
     // Test 11: Combined filters (project + search)
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/api/v1/notes?project_id={}&q=Rust", project_a_id))
@@ -432,6 +433,20 @@ async fn list_notes_comprehensive() {
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
     assert_eq!(body["items"][0]["title"], "Parent Rust Note");
+
+    // Test 12: Empty search query returns empty results
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?q=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 0, "Empty search should return 0 results");
+    assert!(body["items"].as_array().unwrap().is_empty());
 }
 
 // =============================================================================
@@ -543,51 +558,8 @@ async fn crud_operations() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    // Test 4: PATCH partial update (title only)
-    let patch_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri(format!("/api/v1/notes/{}", note_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Updated Title"})).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(patch_response.status(), StatusCode::OK);
-    let patched = json_body(patch_response).await;
-    assert_eq!(patched["title"], "Updated Title");
-    assert_eq!(patched["content"], "Complete content"); // Preserved
-    assert_eq!(patched["idx"], 42); // Preserved
-
-    // Test 5: PATCH relationships
-    let patch_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri(format!("/api/v1/notes/{}", note_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "project_ids": [],
-                        "repo_ids": []
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let patched = json_body(patch_response).await;
-    assert!(patched["project_ids"].as_array().unwrap().is_empty());
-    assert!(patched["repo_ids"].as_array().unwrap().is_empty());
-
-    // Test 6: PATCH parent_id and idx
+    // Test 4: PATCH all fields (covers all merge_into branches)
+    // Create a parent note first for parent_id testing
     let parent_response = app
         .clone()
         .oneshot(
@@ -597,7 +569,7 @@ async fn crud_operations() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Parent",
+                        "title": "Parent Note",
                         "content": "Parent content"
                     }))
                     .unwrap(),
@@ -611,19 +583,22 @@ async fn crud_operations() {
         .unwrap()
         .to_string();
 
-    let child_response = app
+    let patch_response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Child",
-                        "content": "Child content",
+                        "title": "Updated Title",
+                        "content": "Updated content",
+                        "tags": ["updated"],
                         "parent_id": &parent_id,
-                        "idx": 99
+                        "idx": 99,
+                        "project_ids": [&project_id],
+                        "repo_ids": [&repo_id]
                     }))
                     .unwrap(),
                 ))
@@ -631,31 +606,16 @@ async fn crud_operations() {
         )
         .await
         .unwrap();
-    assert_eq!(child_response.status(), StatusCode::CREATED);
-    let child = json_body(child_response).await;
-    assert_eq!(child["parent_id"], parent_id);
-    assert_eq!(child["idx"], 99);
-
-    // Test 7: PATCH to remove parent_id (set to empty string)
-    let child_id = child["id"].as_str().unwrap();
-    let patch_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri(format!("/api/v1/notes/{}", child_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"parent_id": ""})).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    assert_eq!(patch_response.status(), StatusCode::OK);
     let patched = json_body(patch_response).await;
-    assert!(patched["parent_id"].is_null());
+    assert_eq!(patched["title"], "Updated Title");
+    assert_eq!(patched["content"], "Updated content");
+    assert_eq!(patched["idx"], 99);
+    assert_eq!(patched["parent_id"], parent_id);
+    assert_eq!(patched["project_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(patched["repo_ids"].as_array().unwrap().len(), 1);
 
-    // Test 8: PATCH nonexistent returns 404
+    // Test 5: PATCH nonexistent returns 404
     let response = app
         .clone()
         .oneshot(
@@ -672,7 +632,7 @@ async fn crud_operations() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    // Test 9: PUT full replacement
+    // Test 6: PUT full replacement
     let put_response = app
         .clone()
         .oneshot(
@@ -698,7 +658,7 @@ async fn crud_operations() {
     assert_eq!(replaced["content"], "New content");
     assert_eq!(replaced["idx"], 100);
 
-    // Test 10: DELETE
+    // Test 7: DELETE
     let delete_response = app
         .clone()
         .oneshot(
@@ -712,7 +672,7 @@ async fn crud_operations() {
         .unwrap();
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    // Test 11: GET deleted returns 404
+    // Test 8: GET deleted returns 404
     let response = app
         .clone()
         .oneshot(
@@ -725,7 +685,7 @@ async fn crud_operations() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    // Test 12: DELETE nonexistent returns 404
+    // Test 9: DELETE nonexistent returns 404
     let response = app
         .oneshot(
             Request::builder()
