@@ -10,11 +10,13 @@
       inputs.fenix.packages.${pkgs.system}.stable.cargo
       inputs.fenix.packages.${pkgs.system}.stable.rustc
       inputs.fenix.packages.${pkgs.system}.stable.rust-analyzer
+      inputs.fenix.packages.${pkgs.system}.stable.llvm-tools-preview
       inputs.fenix.packages.${pkgs.system}.targets.wasm32-unknown-unknown.stable.rust-std
     ];
   in [
     toolchain
     pkgs.cargo-tarpaulin
+    pkgs.cargo-llvm-cov
     pkgs.trunk
     pkgs.wasm-bindgen-cli
     pkgs.nodejs
@@ -40,8 +42,8 @@
       description = "Run cargo clippy";
     };
     coverage = {
-      exec = "cargo tarpaulin --out Html";
-      description = "Generate code coverage report";
+      exec = "cargo llvm-cov --html --open";
+      description = "Generate code coverage report with cargo-llvm-cov";
     };
     build = {
       exec = "cargo build --release";

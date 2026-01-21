@@ -615,7 +615,122 @@ async fn crud_operations() {
     assert_eq!(patched["project_ids"].as_array().unwrap().len(), 1);
     assert_eq!(patched["repo_ids"].as_array().unwrap().len(), 1);
 
-    // Test 5: PATCH nonexistent returns 404
+    // Test 5a: PATCH with only title (partial update)
+    let patch_title_only = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "Only Title Changed"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_title_only.status(), StatusCode::OK);
+    let patched_title = json_body(patch_title_only).await;
+    assert_eq!(patched_title["title"], "Only Title Changed");
+    // Other fields should remain unchanged from previous PATCH
+    assert_eq!(patched_title["content"], "Updated content");
+    assert_eq!(patched_title["idx"], 99);
+    assert_eq!(patched_title["parent_id"], parent_id);
+
+    // Test 5b: PATCH with only content (partial update)
+    let patch_content_only = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"content": "Content updated separately"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_content_only.status(), StatusCode::OK);
+    let patched_content = json_body(patch_content_only).await;
+    assert_eq!(patched_content["content"], "Content updated separately");
+    // Title should be preserved from Test 5a
+    assert_eq!(patched_content["title"], "Only Title Changed");
+    assert_eq!(patched_content["idx"], 99);
+
+    // Test 5c: PATCH to clear parent_id (set to null)
+    let patch_clear_parent = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"parent_id": null})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_clear_parent.status(), StatusCode::OK);
+    let patched_cleared = json_body(patch_clear_parent).await;
+    assert!(
+        patched_cleared["parent_id"].is_null(),
+        "parent_id should be cleared"
+    );
+    // Other fields preserved
+    assert_eq!(patched_cleared["title"], "Only Title Changed");
+    assert_eq!(patched_cleared["content"], "Content updated separately");
+
+    // Test 5d: PATCH to clear idx (set to null)
+    let patch_clear_idx = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"idx": null})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_clear_idx.status(), StatusCode::OK);
+    let patched_no_idx = json_body(patch_clear_idx).await;
+    assert!(patched_no_idx["idx"].is_null(), "idx should be cleared");
+
+    // Test 5e: PATCH with multiple fields but not all
+    let patch_multi = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Multi-field Update",
+                        "tags": ["new-tag", "partial"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_multi.status(), StatusCode::OK);
+    let patched_multi = json_body(patch_multi).await;
+    assert_eq!(patched_multi["title"], "Multi-field Update");
+    assert_eq!(patched_multi["tags"].as_array().unwrap().len(), 2);
+    // Content should be preserved from Test 5b
+    assert_eq!(patched_multi["content"], "Content updated separately");
+
+    // Test 5f: PATCH nonexistent returns 404
     let response = app
         .clone()
         .oneshot(
