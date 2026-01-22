@@ -8,9 +8,11 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 
+/// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory()
         .await
@@ -32,25 +34,54 @@ async fn test_app() -> axum::Router {
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
-        crate::api::notifier::ChangeNotifier::new(),
+        ChangeNotifier::new(),
     );
     routes::create_router(state, false)
 }
 
+/// Helper to create test app with access to notifier for broadcast testing
+async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Create a test project with known ID for API tests
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
+    let notifier = ChangeNotifier::new();
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        notifier.clone(),
+    );
+    (routes::create_router(state, false), notifier)
+}
+
+/// Helper to parse JSON response body
 async fn json_body(response: axum::response::Response) -> Value {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&body).unwrap()
 }
 
 // =============================================================================
-// GET /v1/task-lists - List TaskLists (with tags, pagination, ordering)
+// List and Filter Comprehensive
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_initially_empty() {
+async fn list_and_filter_task_lists() {
     let app = test_app().await;
 
+    // Test 1: Initially empty
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/task-lists")
@@ -61,117 +92,87 @@ async fn list_task_lists_initially_empty() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
     assert!(body["items"].as_array().unwrap().is_empty());
     assert_eq!(body["total"], 0);
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_with_pagination() {
-    let app = test_app().await;
+    // Create test project
+    let project_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "Test Project"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let project_id = json_body(project_response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    // Create 5 task lists
-    for i in 1..=5 {
-        app.clone()
+    // Create task lists with various attributes
+    for (i, (title, tags, status)) in [
+        ("Alpha Sprint", vec!["work", "urgent"], "active"),
+        ("Beta Sprint", vec!["work"], "active"),
+        ("Gamma Sprint", vec!["personal"], "active"),
+        ("Delta Sprint", vec!["work"], "archived"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let create_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/task-lists")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::to_vec(
-                            &json!({"title": format!("List {}", i), "project_id": "test0000"}),
-                        )
+                        serde_json::to_vec(&json!({
+                            "title": title,
+                            "tags": tags,
+                            "project_id": if i == 0 { &project_id } else { "test0000" }
+                        }))
                         .unwrap(),
                     ))
                     .unwrap(),
             )
             .await
             .unwrap();
+
+        let created = json_body(create_response).await;
+        let list_id = created["id"].as_str().unwrap();
+
+        // Archive the last one
+        if *status == "archived" {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PATCH")
+                        .uri(format!("/api/v1/task-lists/{}", list_id))
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::to_vec(&json!({"status": "archived"})).unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
     }
 
-    // Get first page
+    // Test 2: Filter by project
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/task-lists?limit=2&offset=0")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-    assert_eq!(body["total"], 5);
-    assert_eq!(body["limit"], 2);
-    assert_eq!(body["offset"], 0);
-
-    // Get last page
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/task-lists?limit=2&offset=4")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 1);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_with_tag_filter() {
-    let app = test_app().await;
-
-    // Create task lists with different tags
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Work Tasks",
-                        "tags": ["work", "urgent"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Personal Tasks",
-                        "tags": ["personal"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by "work" tag
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/task-lists?tags=work")
+                .uri(format!("/api/v1/task-lists?project_id={}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -180,32 +181,60 @@ async fn list_task_lists_with_tag_filter() {
 
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
-    assert_eq!(body["items"][0]["title"], "Work Tasks");
-}
+    assert_eq!(body["items"][0]["title"], "Alpha Sprint");
 
-#[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_with_ordering() {
-    let app = test_app().await;
+    // Test 3: Filter by tags
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?tags=urgent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
-    // Create task lists
-    for name in ["Zebra", "Apple", "Mango"] {
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/task-lists")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&json!({"title": name, "project_id": "test0000"}))
-                            .unwrap(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-    }
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Alpha Sprint");
 
-    // Sort by title ascending
+    // Test 4: Combined filters (project + tags)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists?project_id={}&tags=work",
+                    project_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Alpha Sprint");
+
+    // Test 5: Filter by status
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?status=archived")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Delta Sprint");
+
+    // Test 6: Ordering (title ascending)
     let response = app
         .clone()
         .oneshot(
@@ -219,15 +248,14 @@ async fn list_task_lists_with_ordering() {
 
     let body = json_body(response).await;
     let items = body["items"].as_array().unwrap();
-    assert_eq!(items[0]["title"], "Apple");
-    assert_eq!(items[1]["title"], "Mango");
-    assert_eq!(items[2]["title"], "Zebra");
+    assert_eq!(items[0]["title"], "Alpha Sprint");
+    assert_eq!(items[1]["title"], "Beta Sprint");
 
-    // Sort by title descending
+    // Test 7: Pagination
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/task-lists?sort=title&order=desc")
+                .uri("/api/v1/task-lists?limit=2&offset=0")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -235,463 +263,21 @@ async fn list_task_lists_with_ordering() {
         .unwrap();
 
     let body = json_body(response).await;
-    let items = body["items"].as_array().unwrap();
-    assert_eq!(items[0]["title"], "Zebra");
-}
-
-// =============================================================================
-// GET /v1/task-lists/{id} - Get TaskList
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn get_task_list_loads_relationships() {
-    let app = test_app().await;
-
-    // Create a repo to link to
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:test/repo"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let repo_body = json_body(response).await;
-    let repo_id = repo_body["id"].as_str().unwrap();
-
-    // Create a task list with relationships
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test List with Relationships",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(response).await;
-    let list_id = created["id"].as_str().unwrap();
-
-    // Update to add repo relationship
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/task-lists/{}", list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test List with Relationships",
-                        "repo_ids": [repo_id],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // GET the task list and verify relationships are loaded
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/task-lists/{}", list_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-
-    // Verify project_id is loaded
-    assert_eq!(body["project_id"], "test0000");
-
-    // Verify repo_ids is loaded
-    assert!(body["repo_ids"].is_array(), "repo_ids should be an array");
-    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["repo_ids"][0], repo_id);
-}
-
-// =============================================================================
-// PUT /v1/task-lists/{id} - Update TaskList
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_task_list_handles_relationships() {
-    let app = test_app().await;
-
-    // First create a project and repo to link to
-    let project_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "title": "Test Project",
-                        "description": "For relationship testing"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let project_body = json_body(project_response).await;
-    let project_id = project_body["id"].as_str().unwrap();
-
-    let repo_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "remote": "github:user/test-repo",
-                        "path": "/test/path"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let repo_body = json_body(repo_response).await;
-    let repo_id = repo_body["id"].as_str().unwrap();
-
-    // Create task list without relationships
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "title": "Personal Tasks",
-                        "tags": ["personal"],
-                        "project_id": "test0000"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let create_body = json_body(create_response).await;
-    let task_list_id = create_body["id"].as_str().unwrap();
-
-    // Update task list WITH relationships - this should work but currently doesn't
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/task-lists/{}", task_list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "title": "Updated TaskList with Relationships",
-                        "description": "Testing relationship updates",
-                        "repo_ids": [repo_id],
-                        "project_id": project_id
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-
-    // Verify the task list was updated
-    assert_eq!(body["title"], "Updated TaskList with Relationships");
-    assert_eq!(body["description"], "Testing relationship updates");
-
-    // Verify relationships are included and correct
-    assert!(
-        body["repo_ids"].is_array(),
-        "repo_ids should be included in response"
-    );
-    assert_eq!(body["project_id"], project_id);
-
-    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["repo_ids"][0], repo_id);
-}
-
-// =============================================================================
-// PATCH /v1/task-lists/{id} - Partial Update TaskList
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_task_list_status_to_archived_sets_archived_at() {
-    let app = test_app().await;
-
-    // Create an active task list
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Active List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    let id = body["id"].as_str().unwrap();
-
-    // Verify initially active with no archived_at
-    assert_eq!(body["status"], "active");
-    assert!(body["archived_at"].is_null());
-
-    // PATCH status to archived
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri(format!("/api/v1/task-lists/{}", id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "status": "archived"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-
-    // Status should be archived
-    assert_eq!(body["status"], "archived");
-
-    // archived_at should be set automatically by repository layer
-    assert!(!body["archived_at"].is_null());
-    assert!(!body["archived_at"].as_str().unwrap().is_empty());
-}
-
-// =============================================================================
-// GET /v1/task-lists?project_id=X - Filter by Project
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_filtered_by_project_id() {
-    let app = test_app().await;
-
-    // Create two projects
-    let project_a_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project A",
-                        "description": "First project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let project_a_body = json_body(project_a_response).await;
-    let project_a_id = project_a_body["id"].as_str().unwrap();
-
-    let project_b_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project B",
-                        "description": "Second project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let project_b_body = json_body(project_b_response).await;
-    let project_b_id = project_b_body["id"].as_str().unwrap();
-
-    // Create task lists: 2 for project A, 1 for project B
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project A - Sprint 1",
-                        "project_id": project_a_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project A - Sprint 2",
-                        "project_id": project_a_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project B - Sprint 1",
-                        "project_id": project_b_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by project_id for Project A
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/task-lists?project_id={}", project_a_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert_eq!(body["total"], 2);
     assert_eq!(body["items"].as_array().unwrap().len(), 2);
-
-    // Verify all returned items belong to Project A
-    for item in body["items"].as_array().unwrap() {
-        assert_eq!(item["project_id"], project_a_id);
-    }
+    assert_eq!(body["total"], 4);
+    assert_eq!(body["limit"], 2);
+    assert_eq!(body["offset"], 0);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_filtered_by_nonexistent_project() {
-    let app = test_app().await;
-
-    // Create a task list with the default project
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Some Task List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by a non-existent project_id
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/task-lists?project_id=nonexist")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert_eq!(body["total"], 0);
-    assert!(body["items"].as_array().unwrap().is_empty());
-}
+// =============================================================================
+// CRUD Operations
+// =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_task_lists_filtered_by_project_id_and_tags() {
+async fn crud_operations() {
     let app = test_app().await;
 
-    // Create a project
+    // Create project and repo for relationship testing
     let project_response = app
         .clone()
         .oneshot(
@@ -700,130 +286,17 @@ async fn list_task_lists_filtered_by_project_id_and_tags() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"title": "CRUD Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let project_id = json_body(project_response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let project_body = json_body(project_response).await;
-    let project_id = project_body["id"].as_str().unwrap();
-
-    // Create task lists with various tag combinations
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Work List",
-                        "tags": ["work", "urgent"],
-                        "project_id": project_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Personal List",
-                        "tags": ["personal"],
-                        "project_id": project_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Different Project Work",
-                        "tags": ["work"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by project_id AND tags=work
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!(
-                    "/api/v1/task-lists?project_id={}&tags=work",
-                    project_id
-                ))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert_eq!(body["total"], 1);
-    assert_eq!(body["items"][0]["title"], "Work List");
-    assert_eq!(body["items"][0]["project_id"], project_id);
-}
-
-// =============================================================================
-// PATCH /v1/task-lists/{id} - Relationship Relinking
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn patch_task_list_link_to_project_and_repo() {
-    let app = test_app().await;
-
-    // Create a project
-    let project_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let project_body = json_body(project_response).await;
-    let project_id = project_body["id"].as_str().unwrap().to_string();
-
-    // Create a repo
     let repo_response = app
         .clone()
         .oneshot(
@@ -832,79 +305,18 @@ async fn patch_task_list_link_to_project_and_repo() {
                 .uri("/api/v1/repos")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:user/test-repo"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"remote": "github:test/repo"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let repo_id = json_body(repo_response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let repo_body = json_body(repo_response).await;
-    let repo_id = repo_body["id"].as_str().unwrap().to_string();
-
-    // Create a task list without relationships
-    let list_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let list_body = json_body(list_response).await;
-    let list_id = list_body["id"].as_str().unwrap();
-
-    // Verify initial relationships
-    assert_eq!(list_body["project_id"], "test0000");
-    assert!(list_body["repo_ids"].as_array().unwrap().is_empty());
-
-    // PATCH to link to both project and repo
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("PATCH")
-                .uri(format!("/api/v1/task-lists/{}", list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "project_id": project_id,
-                        "repo_ids": [repo_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-
-    // Verify relationships were added
-    assert_eq!(body["project_id"], project_id);
-    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["repo_ids"][0], repo_id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn get_task_list_stats_returns_counts_by_status() {
-    let app = test_app().await;
-
-    // Create task list
+    // Test 1: CREATE task list
     let create_response = app
         .clone()
         .oneshot(
@@ -914,7 +326,9 @@ async fn get_task_list_stats_returns_counts_by_status() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Stats Test List",
+                        "title": "New Task List",
+                        "description": "Test description",
+                        "tags": ["test"],
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -925,23 +339,113 @@ async fn get_task_list_stats_returns_counts_by_status() {
         .unwrap();
 
     assert_eq!(create_response.status(), StatusCode::CREATED);
-    let list_body = json_body(create_response).await;
-    let list_id = list_body["id"].as_str().unwrap();
+    let created = json_body(create_response).await;
+    let list_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["title"], "New Task List");
+    assert_eq!(created["status"], "active");
+    assert!(created["archived_at"].is_null());
 
+    // Test 2: GET task list with relationships
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/task-lists/{}", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["id"], list_id);
+    assert_eq!(body["project_id"], "test0000");
+    assert!(body["repo_ids"].is_array());
+
+    // Test 3: PATCH partial update - status to archived
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "archived"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["status"], "archived");
+    assert!(!body["archived_at"].is_null());
+    assert_eq!(body["title"], "New Task List"); // Title unchanged
+
+    // Test 4: PATCH relationship update
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "project_id": &project_id,
+                        "repo_ids": [&repo_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["project_id"], project_id);
+    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(body["repo_ids"][0], repo_id);
+
+    // Test 5: PUT full update with relationships
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Updated Task List",
+                        "description": "Updated description",
+                        "project_id": &project_id,
+                        "repo_ids": [&repo_id]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["title"], "Updated Task List");
+    assert_eq!(body["project_id"], project_id);
+    assert_eq!(body["repo_ids"][0], repo_id);
+
+    // Test 6: GET stats endpoint
     // Create tasks with different statuses
-    for (i, status) in [
-        "backlog",
-        "todo",
-        "todo",
-        "in_progress",
-        "done",
-        "done",
-        "done",
-    ]
-    .iter()
-    .enumerate()
+    for (i, status) in ["backlog", "todo", "in_progress", "done"]
+        .iter()
+        .enumerate()
     {
-        let create_task_response = app
+        let task_response = app
             .clone()
             .oneshot(
                 Request::builder()
@@ -949,27 +453,16 @@ async fn get_task_list_stats_returns_counts_by_status() {
                     .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::to_vec(&json!({
-                            "title": format!("Task {}", i)
-                        }))
-                        .unwrap(),
+                        serde_json::to_vec(&json!({"title": format!("Task {}", i)})).unwrap(),
                     ))
                     .unwrap(),
             )
             .await
             .unwrap();
 
-        assert_eq!(
-            create_task_response.status(),
-            StatusCode::CREATED,
-            "Failed to create task {}",
-            i
-        );
+        let task = json_body(task_response).await;
+        let task_id = task["id"].as_str().unwrap();
 
-        let task_body = json_body(create_task_response).await;
-        let task_id = task_body["id"].as_str().unwrap();
-
-        // Update to desired status (skip backlog as it's default)
         if *status != "backlog" {
             app.clone()
                 .oneshot(
@@ -987,11 +480,10 @@ async fn get_task_list_stats_returns_counts_by_status() {
         }
     }
 
-    // Get stats
-    let response = app
+    let stats_response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("GET")
                 .uri(format!("/api/v1/task-lists/{}/stats", list_id))
                 .body(Body::empty())
                 .unwrap(),
@@ -999,182 +491,20 @@ async fn get_task_list_stats_returns_counts_by_status() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
+    assert_eq!(stats_response.status(), StatusCode::OK);
+    let stats = json_body(stats_response).await;
+    assert_eq!(stats["total"], 4);
+    assert_eq!(stats["backlog"], 1);
+    assert_eq!(stats["todo"], 1);
+    assert_eq!(stats["in_progress"], 1);
+    assert_eq!(stats["done"], 1);
 
-    assert_eq!(body["list_id"], list_id);
-    assert_eq!(body["total"], 7);
-    assert_eq!(body["backlog"], 1);
-    assert_eq!(body["todo"], 2);
-    assert_eq!(body["in_progress"], 1);
-    assert_eq!(body["review"], 0);
-    assert_eq!(body["done"], 3);
-    assert_eq!(body["cancelled"], 0);
-}
-
-// =============================================================================
-// WebSocket Broadcast Tests
-// =============================================================================
-
-async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-
-    // Create a test project with known ID for API tests
-    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind("test0000")
-        .bind("Test Project")
-        .bind("Default project for tests")
-        .bind("[]")
-        .bind("2025-01-01 00:00:00")
-        .bind("2025-01-01 00:00:00")
-        .execute(db.pool())
-        .await
-        .expect("Create test project should succeed");
-
-    let notifier = crate::api::notifier::ChangeNotifier::new();
-    let state = AppState::new(
-        db,
-        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
-        notifier.clone(),
-    );
-    (routes::create_router(state, false), notifier)
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn create_task_list_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-    let mut subscriber = notifier.subscribe();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "New Task List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let created = json_body(response).await;
-    let task_list_id = created["id"].as_str().unwrap();
-
-    // Should receive TaskListCreated broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::TaskListCreated { task_list_id: id } => {
-            assert_eq!(id, task_list_id);
-        }
-        _ => panic!("Expected TaskListCreated message, got {:?}", msg),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_task_list_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create a task list first
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Original Task List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(create_response).await;
-    let task_list_id = created["id"].as_str().unwrap().to_string();
-
-    // Subscribe AFTER creation to avoid receiving create notification
-    let mut subscriber = notifier.subscribe();
-
-    // Update the task list
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/task-lists/{}", task_list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Updated Task List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Should receive TaskListUpdated broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::TaskListUpdated { task_list_id: id } => {
-            assert_eq!(id, task_list_id);
-        }
-        _ => panic!("Expected TaskListUpdated message, got {:?}", msg),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn delete_task_list_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create a task list first
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Task List to Delete",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let created = json_body(create_response).await;
-    let task_list_id = created["id"].as_str().unwrap().to_string();
-
-    // Subscribe AFTER creation
-    let mut subscriber = notifier.subscribe();
-
-    // Delete the task list
+    // Test 7: DELETE task list
     let response = app
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/api/v1/task-lists/{}", task_list_id))
+                .uri(format!("/api/v1/task-lists/{}", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1182,26 +512,17 @@ async fn delete_task_list_broadcasts_notification() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    // Should receive TaskListDeleted broadcast
-    let msg = subscriber.recv().await.expect("Should receive broadcast");
-    match msg {
-        crate::api::notifier::UpdateMessage::TaskListDeleted { task_list_id: id } => {
-            assert_eq!(id, task_list_id);
-        }
-        _ => panic!("Expected TaskListDeleted message, got {:?}", msg),
-    }
 }
 
 // =============================================================================
-// FTS5 Search Tests
+// FTS5 Search
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_by_title() {
+async fn fts5_search_task_lists() {
     let app = test_app().await;
 
-    // Create task lists
+    // Create task lists with searchable content
     app.clone()
         .oneshot(
             Request::builder()
@@ -1211,7 +532,10 @@ async fn search_task_lists_by_title() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Rust Backend Sprint",
-                        "description": "API development",
+                        "description": "API development tasks",
+                        "notes": "Critical deadline for stakeholders",
+                        "tags": ["rust", "backend"],
+                        "external_refs": ["owner/repo#123"],
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -1231,6 +555,7 @@ async fn search_task_lists_by_title() {
                     serde_json::to_vec(&json!({
                         "title": "Python Data Pipeline",
                         "description": "ETL processing",
+                        "tags": ["python"],
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -1240,8 +565,28 @@ async fn search_task_lists_by_title() {
         .await
         .unwrap();
 
-    // Search for "rust"
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Rust CLI Tools",
+                        "description": "Command line utilities",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Test 1: Search by title
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/task-lists?q=rust")
@@ -1251,249 +596,59 @@ async fn search_task_lists_by_title() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
 
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Rust Backend Sprint");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_by_description() {
-    let app = test_app().await;
-
-    // Create task lists
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Sprint Alpha",
-                        "description": "Machine learning features",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Sprint Beta",
-                        "description": "Frontend improvements",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by description
+    // Test 2: Search by description
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/task-lists?q=machine+learning")
+                .uri("/api/v1/task-lists?q=ETL")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Python Data Pipeline");
 
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Sprint Alpha");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_by_notes() {
-    let app = test_app().await;
-
-    // Create task lists
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Q1 Release",
-                        "notes": "Critical deadline for stakeholders",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Q2 Planning",
-                        "notes": "Nice to have features",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by notes
+    // Test 3: Search by notes
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/task-lists?q=critical+deadline")
+                .uri("/api/v1/task-lists?q=stakeholders")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Rust Backend Sprint");
 
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Q1 Release");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_by_tags() {
-    let app = test_app().await;
-
-    // Create task lists
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Frontend Work",
-                        "tags": ["react", "typescript"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Backend Work",
-                        "tags": ["rust", "api"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by tag
+    // Test 4: Search by tags
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/task-lists?q=typescript")
+                .uri("/api/v1/task-lists?q=backend")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
 
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Frontend Work");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_by_external_refs() {
-    let app = test_app().await;
-
-    // Create task lists
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "GitHub Sprint",
-                        "external_refs": ["owner/repo#123"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Jira Sprint",
-                        "external_refs": ["PROJ-789"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search by external ref
+    // Test 5: Search by external_refs
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/task-lists?q=owner%2Frepo%23123")
@@ -1503,205 +658,13 @@ async fn search_task_lists_by_external_refs() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
     let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Rust Backend Sprint");
 
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "GitHub Sprint");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_combines_with_project_filter() {
-    let app = test_app().await;
-
-    // Create second project
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind("proj0002")
-        .bind("Project 2")
-        .bind("Second project")
-        .bind("[]")
-        .bind("2025-01-01 00:00:00")
-        .bind("2025-01-01 00:00:00")
-        .execute(db.pool())
-        .await
-        .unwrap();
-
-    // Create task lists in different projects
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust API Project 1",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search with project filter
+    // Test 6: Boolean operator AND
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/task-lists?q=rust&project_id=test0000")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
-
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Rust API Project 1");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_combines_with_status_filter() {
-    let app = test_app().await;
-
-    // Create active and archived task lists
-    let create_response = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Active Sprint",
-                        "description": "Current work",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let created = json_body(create_response).await;
-    let list_id = created["id"].as_str().unwrap();
-
-    // Archive one
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/task-lists/{}", list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Active Sprint",
-                        "status": "archived",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Create another active one
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Active Work",
-                        "description": "Current tasks",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search active only
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/task-lists?q=work&status=active")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
-
-    // Should only match active
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Active Work");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_boolean_operators() {
-    let app = test_app().await;
-
-    // Create task lists
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Web API",
-                        "description": "Backend service",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust CLI",
-                        "description": "Command line",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search with AND
-    let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/v1/task-lists?q=rust+AND+backend")
@@ -1711,29 +674,46 @@ async fn search_task_lists_boolean_operators() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "Rust Backend Sprint");
+
+    // Test 7: Search combined with status filter
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-lists?q=rust&status=active")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
-
-    assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0]["title"], "Rust Web API");
+    assert_eq!(body["total"], 2);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn search_task_lists_empty_results() {
-    let app = test_app().await;
+// =============================================================================
+// WebSocket Broadcasts
+// =============================================================================
 
-    // Create a task list
-    app.clone()
+#[tokio::test(flavor = "multi_thread")]
+async fn websocket_broadcasts() {
+    let (app, notifier) = test_app_with_notifier().await;
+
+    // Test 1: CREATE broadcasts TaskListCreated
+    let mut subscriber = notifier.subscribe();
+
+    let create_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/task-lists")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test List",
+                    serde_json::to_string(&json!({
+                        "title": "New Task List",
                         "project_id": "test0000"
                     }))
                     .unwrap(),
@@ -1743,22 +723,71 @@ async fn search_task_lists_empty_results() {
         .await
         .unwrap();
 
-    // Search for nonexistent
-    let response = app
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = json_body(create_response).await;
+    let list_id = created["id"].as_str().unwrap().to_string();
+
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        UpdateMessage::TaskListCreated { task_list_id } => {
+            assert_eq!(task_list_id, list_id);
+        }
+        _ => panic!("Expected TaskListCreated, got {:?}", msg),
+    }
+
+    // Test 2: UPDATE broadcasts TaskListUpdated
+    let mut subscriber = notifier.subscribe();
+
+    let update_response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/task-lists?q=nonexistent")
+                .method("PUT")
+                .uri(format!("/api/v1/task-lists/{}", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "title": "Updated Task List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(update_response.status(), StatusCode::OK);
+
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        UpdateMessage::TaskListUpdated { task_list_id } => {
+            assert_eq!(task_list_id, list_id);
+        }
+        _ => panic!("Expected TaskListUpdated, got {:?}", msg),
+    }
+
+    // Test 3: DELETE broadcasts TaskListDeleted
+    let mut subscriber = notifier.subscribe();
+
+    let delete_response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/task-lists/{}", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    let body = json_body(response).await;
-    let lists = body["items"].as_array().expect("Expected items array");
-
-    assert_eq!(lists.len(), 0);
-    assert_eq!(body["total"], 0);
+    let msg = subscriber.recv().await.expect("Should receive broadcast");
+    match msg {
+        UpdateMessage::TaskListDeleted { task_list_id } => {
+            assert_eq!(task_list_id, list_id);
+        }
+        _ => panic!("Expected TaskListDeleted, got {:?}", msg),
+    }
 }
