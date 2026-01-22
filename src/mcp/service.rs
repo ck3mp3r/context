@@ -61,6 +61,7 @@ pub fn create_mcp_service<D: Database + 'static>(
     // Configure Streamable HTTP server
     let config = StreamableHttpServerConfig {
         sse_keep_alive: None, // Use default (15s)
+        sse_retry: None,      // Use default retry behavior
         stateful_mode: true,  // Enable session management
         cancellation_token,
     };

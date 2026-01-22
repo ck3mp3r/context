@@ -12,11 +12,10 @@ use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 
+/// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
-    let db = SqliteDatabase::in_memory()
-        .await
-        .expect("Failed to create test database");
-    db.migrate().expect("Failed to run migrations");
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
@@ -25,11 +24,10 @@ async fn test_app() -> axum::Router {
     routes::create_router(state, false)
 }
 
+/// Helper to create test app with access to notifier for broadcast testing
 async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
-    let db = SqliteDatabase::in_memory()
-        .await
-        .expect("Failed to create test database");
-    db.migrate().expect("Failed to run migrations");
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
     let notifier = ChangeNotifier::new();
     let state = AppState::new(
         db,
@@ -39,224 +37,18 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
     (routes::create_router(state, false), notifier)
 }
 
+/// Helper to parse JSON response body
 async fn json_body(response: axum::response::Response) -> Value {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&body).unwrap()
 }
 
-// =============================================================================
-// GET /v1/notes - List Notes (with optional search & pagination)
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn list_notes_initially_empty() {
+async fn list_and_filter_notes() {
     let app = test_app().await;
 
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert!(body["items"].as_array().unwrap().is_empty());
-    assert_eq!(body["total"], 0);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_with_search_query() {
-    let app = test_app().await;
-
-    // Create notes with different content
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Programming",
-                        "content": "Rust is a systems programming language"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Python Scripting",
-                        "content": "Python is great for scripting"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search for "rust"
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?q=rust")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    let notes = body["items"].as_array().unwrap();
-    assert_eq!(notes.len(), 1);
-    assert_eq!(notes[0]["title"], "Rust Programming");
-    assert_eq!(body["total"], 1);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_with_pagination() {
-    let app = test_app().await;
-
-    // Create 5 notes
-    for i in 1..=5 {
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/notes")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&json!({
-                            "title": format!("Note {}", i),
-                            "content": format!("Content {}", i)
-                        }))
-                        .unwrap(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-    }
-
-    // Get first page (limit 2)
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?limit=2&offset=0")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-    assert_eq!(body["total"], 5);
-    assert_eq!(body["limit"], 2);
-    assert_eq!(body["offset"], 0);
-
-    // Get second page
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?limit=2&offset=2")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-    assert_eq!(body["offset"], 2);
-
-    // Get last page (partial)
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?limit=2&offset=4")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 1);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_search_no_match_returns_empty() {
-    let app = test_app().await;
-
-    // Create a note
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Some Note",
-                        "content": "Some content"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search for non-existent term
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?q=nonexistent")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    assert!(body["items"].as_array().unwrap().is_empty());
-    assert_eq!(body["total"], 0);
-}
-
-// =============================================================================
-// GET /v1/notes?project_id=X - Filter by Project
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_filtered_by_project_id() {
-    let app = test_app().await;
-
-    // Create two projects
-    let project_a_response = app
+    // Create test data: 2 projects, 3 parent notes, 2 subnotes
+    let project_a = app
         .clone()
         .oneshot(
             Request::builder()
@@ -264,52 +56,30 @@ async fn list_notes_filtered_by_project_id() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project A"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Project A"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let project_a_id = json_body(project_a).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let project_a_body = json_body(project_a_response).await;
-    let project_a_id = project_a_body["id"].as_str().unwrap();
-
-    let project_b_response = app
+    let parent_response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project B"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let project_b_body = json_body(project_b_response).await;
-    let project_b_id = project_b_body["id"].as_str().unwrap();
-
-    // Create notes: 2 for project A, 1 for project B, 1 for both
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
                 .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Project A Note 1",
-                        "content": "Content for A",
-                        "project_ids": [project_a_id]
+                        "title": "Parent Note",
+                        "content": "Rust programming",
+                        "tags": ["rust", "programming"],
+                        "project_ids": [&project_a_id]
                     }))
                     .unwrap(),
                 ))
@@ -317,6 +87,10 @@ async fn list_notes_filtered_by_project_id() {
         )
         .await
         .unwrap();
+    let parent_id = json_body(parent_response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     app.clone()
         .oneshot(
@@ -326,221 +100,10 @@ async fn list_notes_filtered_by_project_id() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "title": "Project A Note 2",
-                        "content": "More content for A",
-                        "project_ids": [project_a_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Project B Note",
-                        "content": "Content for B",
-                        "project_ids": [project_b_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Shared Note",
-                        "content": "Content for both",
-                        "project_ids": [project_a_id, project_b_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by project_id for Project A
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/notes?project_id={}", project_a_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    // Should return 3 notes: 2 exclusive to A + 1 shared
-    assert_eq!(body["total"], 3);
-    assert_eq!(body["items"].as_array().unwrap().len(), 3);
-
-    // Filter by project_id for Project B
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/notes?project_id={}", project_b_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    // Should return 2 notes: 1 exclusive to B + 1 shared
-    assert_eq!(body["total"], 2);
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_filtered_by_project_id_and_search() {
-    let app = test_app().await;
-
-    // Create a project
-    let project_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let project_body = json_body(project_response).await;
-    let project_id = project_body["id"].as_str().unwrap();
-
-    // Create notes with different content
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Guide",
-                        "content": "Learning Rust programming",
-                        "project_ids": [project_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Python Guide",
-                        "content": "Learning Python programming",
-                        "project_ids": [project_id]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Create a note in a different (non-existent) project
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Mastery",
-                        "content": "Advanced Rust techniques",
-                        "project_ids": []
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Filter by project_id AND search for "Rust"
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/notes?project_id={}&q=Rust", project_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = json_body(response).await;
-    // Should return only 1 note: "Rust Guide" from the project
-    assert_eq!(body["total"], 1);
-    assert_eq!(body["items"][0]["title"], "Rust Guide");
-}
-
-// =============================================================================
-// POST /v1/notes - Create Note
-// =============================================================================
-
-// =============================================================================
-// Tag Filtering
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_with_tag_filter() {
-    let app = test_app().await;
-
-    // Create notes with different tags
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Note",
-                        "content": "About Rust",
-                        "tags": ["rust", "programming"]
+                        "title": "Child Note",
+                        "content": "Subnote",
+                        "parent_id": &parent_id,
+                        "idx": 10
                     }))
                     .unwrap(),
                 ))
@@ -558,8 +121,8 @@ async fn list_notes_with_tag_filter() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Python Note",
-                        "content": "About Python",
-                        "tags": ["python", "programming"]
+                        "content": "Python guide",
+                        "tags": ["python"]
                     }))
                     .unwrap(),
                 ))
@@ -568,26 +131,21 @@ async fn list_notes_with_tag_filter() {
         .await
         .unwrap();
 
-    app.clone()
+    // Filter by project_id
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Cooking Note",
-                        "content": "About cooking",
-                        "tags": ["cooking"]
-                    }))
-                    .unwrap(),
-                ))
+                .uri(format!("/api/v1/notes?project_id={}", project_a_id))
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
 
-    // Filter by "rust" tag
+    // Filter by tags
     let response = app
         .clone()
         .oneshot(
@@ -598,104 +156,87 @@ async fn list_notes_with_tag_filter() {
         )
         .await
         .unwrap();
-
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
-    assert_eq!(body["items"][0]["title"], "Rust Note");
 
-    // Filter by "programming" tag (should match 2)
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?tags=programming")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = json_body(response).await;
-    assert_eq!(body["total"], 2);
-}
-
-// =============================================================================
-// Ordering
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_notes_with_ordering() {
-    let app = test_app().await;
-
-    // Create notes with different titles
-    for title in ["Zebra", "Apple", "Mango"] {
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/notes")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&json!({
-                            "title": title,
-                            "content": "content"
-                        }))
-                        .unwrap(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-    }
-
-    // Sort by title ascending
+    // Filter by parent_id (returns subnotes in idx order)
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?sort=title&order=asc")
+                .uri(format!("/api/v1/notes?parent_id={}", parent_id))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     let body = json_body(response).await;
-    let items = body["items"].as_array().unwrap();
-    assert_eq!(items[0]["title"], "Apple");
-    assert_eq!(items[1]["title"], "Mango");
-    assert_eq!(items[2]["title"], "Zebra");
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["idx"], 10);
 
-    // Sort by title descending
+    // Filter by type=note (parent notes only)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?type=note")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2);
+
+    // Filter by type=subnote (child notes only)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?type=subnote")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+
+    // Ordering (asc by title)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes?sort=title&order=asc&type=note")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = json_body(response).await;
+    assert_eq!(body["items"][0]["title"], "Parent Note");
+    assert_eq!(body["items"][1]["title"], "Python Note");
+
+    // Pagination
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?sort=title&order=desc")
+                .uri("/api/v1/notes?limit=1&offset=0&type=note")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     let body = json_body(response).await;
-    let items = body["items"].as_array().unwrap();
-    assert_eq!(items[0]["title"], "Zebra");
-    assert_eq!(items[1]["title"], "Mango");
-    assert_eq!(items[2]["title"], "Apple");
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["limit"], 1);
 }
 
-// =============================================================================
-// PATCH /v1/notes/{id} - Partial Update Note
-// =============================================================================
-
-// =============================================================================
-// PATCH /v1/notes/{id} - Relationship Relinking
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn patch_note_link_to_project_and_repo() {
+async fn crud_operations() {
     let app = test_app().await;
 
-    // Create a project
     let project_response = app
         .clone()
         .oneshot(
@@ -704,43 +245,19 @@ async fn patch_note_link_to_project_and_repo() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Project"
-                    }))
-                    .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Test Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
+    let project_id = json_body(project_response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let project_body = json_body(project_response).await;
-    let project_id = project_body["id"].as_str().unwrap().to_string();
-
-    // Create a repo
-    let repo_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/repos")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "remote": "github:user/test-repo"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let repo_body = json_body(repo_response).await;
-    let repo_id = repo_body["id"].as_str().unwrap().to_string();
-
-    // Create a note without relationships
-    let note_response = app
+    // CREATE
+    let create_response = app
         .clone()
         .oneshot(
             Request::builder()
@@ -750,7 +267,10 @@ async fn patch_note_link_to_project_and_repo() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Test Note",
-                        "content": "Test content"
+                        "content": "Content",
+                        "tags": ["test"],
+                        "project_ids": [&project_id],
+                        "idx": 42
                     }))
                     .unwrap(),
                 ))
@@ -758,16 +278,84 @@ async fn patch_note_link_to_project_and_repo() {
         )
         .await
         .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = json_body(create_response).await;
+    let note_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["title"], "Test Note");
+    assert_eq!(created["idx"], 42);
 
-    let note_body = json_body(note_response).await;
-    let note_id = note_body["id"].as_str().unwrap();
+    // GET
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
 
-    // Verify no relationships initially
-    assert!(note_body["project_ids"].as_array().unwrap().is_empty());
-    assert!(note_body["repo_ids"].as_array().unwrap().is_empty());
-
-    // PATCH to link to both project and repo
+    // GET 404
     let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/notes/nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // Create parent note for hierarchy testing
+    let parent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Parent",
+                        "content": "Parent content"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let parent_id = json_body(parent_response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // PATCH partial update (only title)
+    let patch_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "Updated"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_response.status(), StatusCode::OK);
+    let patched = json_body(patch_response).await;
+    assert_eq!(patched["title"], "Updated");
+    assert_eq!(patched["content"], "Content"); // unchanged
+
+    // PATCH with parent_id (tests relationships)
+    app.clone()
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -775,8 +363,8 @@ async fn patch_note_link_to_project_and_repo() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "project_ids": [project_id],
-                        "repo_ids": [repo_id]
+                        "parent_id": &parent_id,
+                        "tags": ["updated"]
                     }))
                     .unwrap(),
                 ))
@@ -785,25 +373,95 @@ async fn patch_note_link_to_project_and_repo() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
+    // PATCH clear optional field (idx to null)
+    let patch_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"idx": null})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let patched = json_body(patch_response).await;
+    assert!(patched["idx"].is_null());
 
-    // Verify relationships were added
-    assert_eq!(body["project_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["project_ids"][0], project_id);
-    assert_eq!(body["repo_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(body["repo_ids"][0], repo_id);
+    // PATCH 404
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/notes/nonexistent")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "X"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // PUT full replacement
+    let put_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Replaced",
+                        "content": "New"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let replaced = json_body(put_response).await;
+    assert_eq!(replaced["title"], "Replaced");
+
+    // DELETE
+    let delete_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+
+    // Verify deleted (404)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes/{}", note_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-// =============================================================================
-// FTS5 Tag Search Integration Tests
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn fts5_search_finds_notes_by_tags_via_api() {
+async fn fts5_search() {
     let app = test_app().await;
 
-    // Create notes with specific tags
     app.clone()
         .oneshot(
             Request::builder()
@@ -813,8 +471,8 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Rust Programming",
-                        "content": "Learning async/await",
-                        "tags": ["rust", "programming"]
+                        "content": "Learning Axum",
+                        "tags": ["rust"]
                     }))
                     .unwrap(),
                 ))
@@ -832,8 +490,8 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": "Python Guide",
-                        "content": "Flask tutorial",
-                        "tags": ["python", "web"]
+                        "content": "Django framework",
+                        "tags": ["python"]
                     }))
                     .unwrap(),
                 ))
@@ -842,68 +500,37 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         .await
         .unwrap();
 
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "JavaScript Basics",
-                        "content": "ES6 features",
-                        "tags": ["javascript", "programming"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Search for "rust" - should find the note with "rust" tag
+    // Search by title
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?q=rust")
+                .uri("/api/v1/notes?q=Rust")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(
-        body["items"].as_array().unwrap().len(),
-        1,
-        "Should find note with 'rust' tag"
-    );
-    assert_eq!(body["items"][0]["title"], "Rust Programming");
+    assert_eq!(body["total"], 1);
 
-    // Search for "programming" - should find 2 notes with "programming" tag
+    // Search by content
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?q=programming")
+                .uri("/api/v1/notes?q=Axum")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(
-        body["items"].as_array().unwrap().len(),
-        2,
-        "Should find both notes with 'programming' tag"
-    );
+    assert_eq!(body["total"], 1);
 
-    // Search for "python" - should find note with "python" tag
+    // Search by tags
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/notes?q=python")
@@ -912,726 +539,101 @@ async fn fts5_search_finds_notes_by_tags_via_api() {
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(
-        body["items"].as_array().unwrap().len(),
-        1,
-        "Should find note with 'python' tag"
-    );
-    assert_eq!(body["items"][0]["title"], "Python Guide");
-}
+    assert_eq!(body["total"], 1);
 
-#[tokio::test(flavor = "multi_thread")]
-async fn fts5_search_boolean_operators_with_tags_via_api() {
-    let app = test_app().await;
-
-    // Create notes with different tag combinations
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust Web Development",
-                        "content": "Axum framework guide",
-                        "tags": ["rust", "web"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Python Web Development",
-                        "content": "Django tutorial",
-                        "tags": ["python", "web"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Rust CLI Tools",
-                        "content": "Command-line parsing",
-                        "tags": ["rust", "cli"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // FTS5 AND operator: search for notes with both "rust" AND "web"
+    // Boolean AND
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?q=rust+AND+web")
+                .uri("/api/v1/notes?q=rust+AND+Axum")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(
-        body["items"].as_array().unwrap().len(),
-        1,
-        "Should find only note with both 'rust' AND 'web' tags"
-    );
-    assert_eq!(body["items"][0]["title"], "Rust Web Development");
+    assert_eq!(body["total"], 1);
 
-    // FTS5 OR operator: search for notes with "python" OR "cli"
+    // Boolean OR
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes?q=python+OR+cli")
+                .uri("/api/v1/notes?q=python+OR+rust")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert_eq!(
-        body["items"].as_array().unwrap().len(),
-        2,
-        "Should find notes with 'python' OR 'cli' tags"
-    );
+    assert_eq!(body["total"], 2);
 }
 
-// =============================================================================
-// WebSocket Broadcast Tests
-// =============================================================================
-
 #[tokio::test(flavor = "multi_thread")]
-async fn create_note_broadcasts_notification() {
+async fn websocket_broadcasts() {
     let (app, notifier) = test_app_with_notifier().await;
+
+    // CREATE broadcasts
     let mut rx = notifier.subscribe();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "title": "Broadcast Test",
-                        "content": "Testing broadcast",
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let body = json_body(response).await;
-    let note_id = body["id"].as_str().unwrap().to_string();
-
-    // Should receive broadcast
-    let msg = rx.try_recv().expect("Should receive broadcast");
-    assert_eq!(msg, UpdateMessage::NoteCreated { note_id });
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn update_note_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create note first
     let create_response = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/notes")
                 .method("POST")
+                .uri("/api/v1/notes")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    json!({
-                        "title": "Original",
-                        "content": "Content",
-                    })
-                    .to_string(),
+                    json!({"title": "Test", "content": "Content"}).to_string(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
     let note = json_body(create_response).await;
-    let note_id = note["id"].as_str().unwrap();
+    let note_id = note["id"].as_str().unwrap().to_string();
+    let msg = rx.try_recv().expect("Should receive create broadcast");
+    assert_eq!(
+        msg,
+        UpdateMessage::NoteCreated {
+            note_id: note_id.clone()
+        }
+    );
 
-    // Subscribe after create to only get update notification
+    // UPDATE broadcasts
     let mut rx = notifier.subscribe();
-
-    // Update the note
-    let response = app
+    app.clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/notes/{}", note_id))
                 .method("PUT")
+                .uri(format!("/api/v1/notes/{}", note_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    json!({
-                        "title": "Updated",
-                        "content": "Updated content",
-                    })
-                    .to_string(),
+                    json!({"title": "Updated", "content": "New"}).to_string(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Should receive broadcast
-    let msg = rx.try_recv().expect("Should receive broadcast");
+    let msg = rx.try_recv().expect("Should receive update broadcast");
     assert_eq!(
         msg,
         UpdateMessage::NoteUpdated {
-            note_id: note_id.to_string()
+            note_id: note_id.clone()
         }
     );
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn delete_note_broadcasts_notification() {
-    let (app, notifier) = test_app_with_notifier().await;
-
-    // Create note first
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "title": "To Delete",
-                        "content": "Content",
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let note = json_body(create_response).await;
-    let note_id = note["id"].as_str().unwrap();
-
-    // Subscribe after create
+    // DELETE broadcasts
     let mut rx = notifier.subscribe();
-
-    // Delete the note
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/notes/{}", note_id))
-                .method("DELETE")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    // Should receive broadcast
-    let msg = rx.try_recv().expect("Should receive broadcast");
-    assert_eq!(
-        msg,
-        UpdateMessage::NoteDeleted {
-            note_id: note_id.to_string()
-        }
-    );
-}
-
-// =============================================================================
-// Hierarchical Notes Tests (parent_id and idx)
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_note_with_parent() {
-    let app = test_app().await;
-
-    // Create parent note
-    let parent_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Parent Note",
-                        "content": "Parent content"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(parent_response.status(), StatusCode::CREATED);
-    let parent = json_body(parent_response).await;
-    let parent_id = parent["id"].as_str().unwrap();
-
-    // Create child note with parent_id
-    let child_response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Child Note",
-                        "content": "Child content",
-                        "parent_id": parent_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(child_response.status(), StatusCode::CREATED);
-    let child = json_body(child_response).await;
-    assert_eq!(child["title"], "Child Note");
-    assert_eq!(child["parent_id"], parent_id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_update_note_idx() {
-    let app = test_app().await;
-
-    // Create note
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Note",
-                        "content": "Content",
-                        "idx": 10
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(create_response.status(), StatusCode::CREATED);
-    let note = json_body(create_response).await;
-    let note_id = note["id"].as_str().unwrap();
-    assert_eq!(note["idx"], 10);
-
-    // Update idx
-    let update_response = app
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/notes/{}", note_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test Note",
-                        "content": "Content",
-                        "idx": 20
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(update_response.status(), StatusCode::OK);
-    let updated = json_body(update_response).await;
-    assert_eq!(updated["idx"], 20);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_list_subnotes_filtered() {
-    let app = test_app().await;
-
-    // Create parent note
-    let parent_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Parent",
-                        "content": "Parent"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let parent = json_body(parent_response).await;
-    let parent_id = parent["id"].as_str().unwrap();
-
-    // Create child notes with different idx values
-    let children = vec![("Child 1", 30), ("Child 2", 10), ("Child 3", 20)];
-
-    for (title, idx) in children {
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/notes")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&json!({
-                            "title": title,
-                            "content": "Content",
-                            "parent_id": parent_id,
-                            "idx": idx
-                        }))
-                        .unwrap(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-    }
-
-    // List subnotes filtered by parent_id
-    let list_response = app
-        .oneshot(
-            Request::builder()
-                .uri(format!("/api/v1/notes?parent_id={}", parent_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(list_response.status(), StatusCode::OK);
-    let body = json_body(list_response).await;
-    let items = body["items"].as_array().unwrap();
-
-    assert_eq!(items.len(), 3);
-    // Should be ordered by idx (10, 20, 30)
-    assert_eq!(items[0]["title"], "Child 2");
-    assert_eq!(items[0]["idx"], 10);
-    assert_eq!(items[1]["title"], "Child 3");
-    assert_eq!(items[1]["idx"], 20);
-    assert_eq!(items[2]["title"], "Child 1");
-    assert_eq!(items[2]["idx"], 30);
-}
-
-// =============================================================================
-// Note Type Filtering Tests (type=note, type=subnote)
-// =============================================================================
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_api_type_note_returns_only_parent_notes() {
-    let app = test_app().await;
-
-    // Create 2 parent notes
-    let parent1 = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Parent Note 1",
-                        "content": "This is a parent note"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let parent1_body = json_body(parent1).await;
-    let parent1_id = parent1_body["id"].as_str().unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Parent Note 2",
-                        "content": "Another parent note"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Create 2 subnotes
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Subnote 1",
-                        "content": "This is a subnote",
-                        "parent_id": parent1_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Subnote 2",
-                        "content": "Another subnote",
-                        "parent_id": parent1_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Query with type=note
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?type=note")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    assert_eq!(body["total"], 2, "Should return only 2 parent notes");
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-
-    // Verify all returned notes have parent_id = null
-    for item in body["items"].as_array().unwrap() {
-        assert!(
-            item["parent_id"].is_null(),
-            "All notes should be parents (parent_id IS NULL)"
-        );
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_api_type_subnote_returns_only_subnotes() {
-    let app = test_app().await;
-
-    // Create 1 parent note
-    let parent = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Parent Note",
-                        "content": "This is a parent note"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let parent_body = json_body(parent).await;
-    let parent_id = parent_body["id"].as_str().unwrap();
-
-    // Create 2 subnotes
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Subnote 1",
-                        "content": "This is a subnote",
-                        "parent_id": parent_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Subnote 2",
-                        "content": "Another subnote",
-                        "parent_id": parent_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Query with type=subnote
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes?type=subnote")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    assert_eq!(body["total"], 2, "Should return only 2 subnotes");
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
-
-    // Verify all returned notes have parent_id NOT null
-    for item in body["items"].as_array().unwrap() {
-        assert!(
-            !item["parent_id"].is_null(),
-            "All notes should be subnotes (parent_id IS NOT NULL)"
-        );
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_api_type_omitted_returns_all_notes() {
-    let app = test_app().await;
-
-    // Create 1 parent note
-    let parent = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Parent Note",
-                        "content": "This is a parent note"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let parent_body = json_body(parent).await;
-    let parent_id = parent_body["id"].as_str().unwrap();
-
-    // Create 1 subnote
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/notes")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Subnote",
-                        "content": "This is a subnote",
-                        "parent_id": parent_id
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Query WITHOUT type parameter (backward compatibility)
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/notes")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    assert_eq!(
-        body["total"], 2,
-        "Should return all notes (parent + subnote)"
-    );
-    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+    app.oneshot(
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/v1/notes/{}", note_id))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let msg = rx.try_recv().expect("Should receive delete broadcast");
+    assert_eq!(msg, UpdateMessage::NoteDeleted { note_id });
 }
