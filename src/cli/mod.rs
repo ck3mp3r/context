@@ -201,10 +201,11 @@ enum TaskCommands {
         /// Task ID to complete
         id: String,
     },
-    /// Transition task between statuses with validation
+    /// Transition one or more tasks to a new status
     Transition {
-        /// Task ID to transition
-        id: String,
+        /// Task ID(s) to transition (one or more)
+        #[arg(required = true)]
+        ids: Vec<String>,
         /// Target status (backlog, todo, in_progress, review, done, cancelled)
         status: String,
     },
@@ -941,8 +942,8 @@ pub async fn run() -> Result<()> {
                 let output = commands::task::complete_task(&api_client, &id).await?;
                 println!("{}", output);
             }
-            TaskCommands::Transition { id, status } => {
-                let output = commands::task::transition_task(&api_client, &id, &status).await?;
+            TaskCommands::Transition { ids, status } => {
+                let output = commands::task::transition_task(&api_client, &ids, &status).await?;
                 println!("{}", output);
             }
         },

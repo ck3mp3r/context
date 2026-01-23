@@ -178,28 +178,36 @@ pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<S
     .await
 }
 
-/// Transition a task to a new status
+/// Transition one or more tasks to a new status
 pub async fn transition_task(
     api_client: &ApiClient,
-    task_id: &str,
+    task_ids: &[String],
     status: &str,
 ) -> CliResult<String> {
-    // Use existing update_task with the target status via PATCH endpoint
-    update_task(
-        api_client,
-        task_id,
-        UpdateTaskRequest {
-            title: None,
-            description: None,
-            status: Some(status.to_string()),
-            priority: None,
-            parent_id: None,
-            tags: None,
-            external_refs: None,
-            list_id: None,
-        },
-    )
-    .await
+    // Transition each task via PATCH endpoint
+    let mut results = Vec::new();
+
+    for task_id in task_ids {
+        update_task(
+            api_client,
+            task_id,
+            UpdateTaskRequest {
+                title: None,
+                description: None,
+                status: Some(status.to_string()),
+                priority: None,
+                parent_id: None,
+                tags: None,
+                external_refs: None,
+                list_id: None,
+            },
+        )
+        .await?;
+
+        results.push(format!("✓ Task {} transitioned to {}", task_id, status));
+    }
+
+    Ok(results.join("\n"))
 }
 
 /// Get a single task by ID
