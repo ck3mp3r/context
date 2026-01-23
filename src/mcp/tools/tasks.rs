@@ -162,8 +162,8 @@ pub struct UpdateTaskParams {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TransitionTaskParams {
-    #[schemars(description = "Task ID to transition")]
-    pub task_id: String,
+    #[schemars(description = "List of task IDs to transition (one or more)")]
+    pub task_ids: Vec<String>,
     #[schemars(
         description = "Target status: 'backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled'"
     )]
@@ -177,7 +177,7 @@ pub struct DeleteTaskParams {
 }
 
 // =============================================================================
-// Helper Functions
+// Tool Implementation
 // =============================================================================
 
 /// Returns allowed target statuses for a given current status
@@ -352,19 +352,19 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
+        description = "Transition one or more tasks to a new status. All tasks must have the same current status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
     )]
     pub async fn transition_task(
         &self,
         params: Parameters<TransitionTaskParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Get existing task
-        let task = self.db.tasks().get(&params.0.task_id).await.map_err(|e| {
-            McpError::resource_not_found(
-                "task_not_found",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        // Validate task_ids is not empty
+        if params.0.task_ids.is_empty() {
+            return Err(McpError::invalid_params(
+                "empty_task_ids",
+                Some(serde_json::json!({"error": "task_ids cannot be empty"})),
+            ));
+        }
 
         // Parse target status
         let target_status = params.0.status.parse::<TaskStatus>().map_err(|e| {
@@ -374,86 +374,24 @@ impl<D: Database + 'static> TaskTools<D> {
             )
         })?;
 
-        // Check if transition is allowed
-        let allowed = allowed_transitions(&task.status);
-        if !allowed.contains(&target_status) {
-            let current_str = task.status.to_string().to_lowercase();
-            let target_str = target_status.to_string().to_lowercase();
-            let allowed_strs: Vec<String> = allowed
-                .iter()
-                .map(|s| s.to_string().to_lowercase())
-                .collect();
-
-            let error_message = if allowed.is_empty() {
-                format!(
-                    "Cannot transition from '{}' - it is a final state. Current: {}, Attempted: {}",
-                    current_str, current_str, target_str
-                )
-            } else {
-                format!(
-                    "Invalid transition from '{}' to '{}'. Allowed transitions: [{}]",
-                    current_str,
-                    target_str,
-                    allowed_strs.join(", ")
-                )
-            };
-
-            return Err(McpError::invalid_params(
-                "invalid_transition",
-                Some(serde_json::json!({
-                    "error": error_message,
-                    "current_status": current_str,
-                    "attempted_status": target_str,
-                    "allowed_statuses": allowed_strs,
-                })),
-            ));
-        }
-
-        // Perform transition
-        let mut updated_task = task.clone();
-        updated_task.status = target_status.clone();
-
-        // Clear completed_at when transitioning FROM done to any other status
-        if task.status == TaskStatus::Done && target_status != TaskStatus::Done {
-            updated_task.completed_at = None;
-        }
-
-        // Set timestamps based on target status
-        match target_status {
-            TaskStatus::InProgress => {
-                // Set started_at if not already set
-                if updated_task.started_at.is_none() {
-                    // Let database set it via trigger
-                }
-            }
-            TaskStatus::Done => {
-                // completed_at will be set by database trigger
-            }
-            _ => {
-                // Other transitions don't modify timestamps
-            }
-        }
-
-        self.db
-            .tasks()
-            .update(&updated_task)
-            .await
-            .map_err(map_db_error)?;
-
-        // Fetch updated task to get auto-set timestamps
-        let result_task = self
+        // Call database transition_tasks method
+        let updated_tasks = self
             .db
             .tasks()
-            .get(&params.0.task_id)
+            .transition_tasks(&params.0.task_ids, target_status)
             .await
             .map_err(map_db_error)?;
 
-        self.notifier.notify(UpdateMessage::TaskUpdated {
-            task_id: params.0.task_id.clone(),
-        });
+        // Send notification for each transitioned task
+        for task in &updated_tasks {
+            self.notifier.notify(UpdateMessage::TaskUpdated {
+                task_id: task.id.clone(),
+            });
+        }
 
+        // Return tasks as JSON array
         Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&result_task).unwrap(),
+            serde_json::to_string_pretty(&updated_tasks).unwrap(),
         )]))
     }
 
