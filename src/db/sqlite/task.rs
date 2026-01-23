@@ -649,7 +649,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         })
     }
 
-    async fn transition_tasks_bulk(
+    async fn transition_tasks(
         &self,
         task_ids: &[String],
         target_status: TaskStatus,

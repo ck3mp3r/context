@@ -88,7 +88,7 @@ pub trait TaskRepository: Send + Sync {
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn get_stats_for_list(&self, list_id: &str)
     -> impl Future<Output = DbResult<TaskStats>> + Send;
-    fn transition_tasks_bulk(
+    fn transition_tasks(
         &self,
         task_ids: &[String],
         target_status: TaskStatus,

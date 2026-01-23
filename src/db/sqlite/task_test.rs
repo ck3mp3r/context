@@ -1712,7 +1712,7 @@ async fn fts5_search_handles_special_characters() {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_bulk_success() {
+async fn transition_tasks_success() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
     let tasks = db.tasks();
@@ -1752,7 +1752,7 @@ async fn transition_tasks_bulk_success() {
         "bulktsk3".to_string(),
     ];
     let updated_tasks = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::InProgress)
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
         .await
         .expect("Bulk transition should succeed");
 
@@ -1784,7 +1784,7 @@ async fn transition_tasks_bulk_success() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_bulk_mixed_status_fails() {
+async fn transition_tasks_mixed_status_fails() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
     let tasks = db.tasks();
@@ -1813,7 +1813,7 @@ async fn transition_tasks_bulk_mixed_status_fails() {
     // Try to transition tasks with different statuses
     let task_ids = vec!["mixtsk01".to_string(), "mixtsk02".to_string()];
     let result = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::InProgress)
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
         .await;
 
     assert!(
@@ -1828,7 +1828,7 @@ async fn transition_tasks_bulk_mixed_status_fails() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_bulk_invalid_transition_fails() {
+async fn transition_tasks_invalid_transition_fails() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
     let tasks = db.tasks();
@@ -1856,9 +1856,7 @@ async fn transition_tasks_bulk_invalid_transition_fails() {
 
     // Try invalid transition: backlog -> review (not allowed)
     let task_ids = vec!["invtsk01".to_string(), "invtsk02".to_string()];
-    let result = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::Review)
-        .await;
+    let result = tasks.transition_tasks(&task_ids, TaskStatus::Review).await;
 
     assert!(result.is_err(), "Should fail for invalid transition");
     let err_msg = result.unwrap_err().to_string();
@@ -1869,7 +1867,7 @@ async fn transition_tasks_bulk_invalid_transition_fails() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_bulk_not_found_fails() {
+async fn transition_tasks_not_found_fails() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
     let tasks = db.tasks();
@@ -1890,9 +1888,7 @@ async fn transition_tasks_bulk_not_found_fails() {
 
     // Try to transition with one non-existent task ID
     let task_ids = vec!["notftsk1".to_string(), "nonexist".to_string()];
-    let result = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::Todo)
-        .await;
+    let result = tasks.transition_tasks(&task_ids, TaskStatus::Todo).await;
 
     assert!(result.is_err(), "Should fail when task not found");
     let err_msg = result.unwrap_err().to_string();
@@ -1903,7 +1899,7 @@ async fn transition_tasks_bulk_not_found_fails() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_bulk_timestamps() {
+async fn transition_tasks_timestamps() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
     let tasks = db.tasks();
@@ -1932,7 +1928,7 @@ async fn transition_tasks_bulk_timestamps() {
     // Test 1: Transition to in_progress sets started_at
     let task_ids = vec!["tstsk001".to_string(), "tstsk002".to_string()];
     let updated = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::InProgress)
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
         .await
         .expect("Transition to in_progress should succeed");
 
@@ -1943,7 +1939,7 @@ async fn transition_tasks_bulk_timestamps() {
 
     // Test 2: Transition to done sets completed_at
     let updated = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::Done)
+        .transition_tasks(&task_ids, TaskStatus::Done)
         .await
         .expect("Transition to done should succeed");
 
@@ -1954,7 +1950,7 @@ async fn transition_tasks_bulk_timestamps() {
 
     // Test 3: Transition back to todo clears completed_at
     let updated = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::Todo)
+        .transition_tasks(&task_ids, TaskStatus::Todo)
         .await
         .expect("Transition to todo should succeed");
 
@@ -1968,7 +1964,7 @@ async fn transition_tasks_bulk_timestamps() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_bulk_transaction_rollback() {
+async fn transition_tasks_transaction_rollback() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
     let tasks = db.tasks();
@@ -2000,9 +1996,7 @@ async fn transition_tasks_bulk_transaction_rollback() {
         "rolltsk2".to_string(),
         "nonexist".to_string(),
     ];
-    let result = tasks
-        .transition_tasks_bulk(&task_ids, TaskStatus::Todo)
-        .await;
+    let result = tasks.transition_tasks(&task_ids, TaskStatus::Todo).await;
 
     assert!(result.is_err(), "Should fail due to non-existent task");
 
