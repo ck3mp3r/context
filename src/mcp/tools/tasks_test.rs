@@ -977,7 +977,7 @@ async fn test_transition_backlog_to_todo() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "todo".to_string(),
     };
 
@@ -987,7 +987,9 @@ async fn test_transition_backlog_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Todo);
     assert!(updated.started_at.is_none()); // No timestamp for todo
@@ -1003,7 +1005,7 @@ async fn test_transition_backlog_to_in_progress() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "in_progress".to_string(),
     };
 
@@ -1013,7 +1015,9 @@ async fn test_transition_backlog_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::InProgress);
     assert!(updated.started_at.is_some()); // started_at should be set
@@ -1029,7 +1033,7 @@ async fn test_transition_todo_to_backlog() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "backlog".to_string(),
     };
 
@@ -1039,7 +1043,9 @@ async fn test_transition_todo_to_backlog() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Backlog);
 }
@@ -1179,7 +1185,7 @@ async fn test_transition_todo_to_in_progress() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "in_progress".to_string(),
     };
 
@@ -1189,7 +1195,9 @@ async fn test_transition_todo_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::InProgress);
     assert!(updated.started_at.is_some()); // started_at should be set
@@ -1210,7 +1218,7 @@ async fn test_transition_in_progress_to_todo() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "todo".to_string(),
     };
 
@@ -1220,7 +1228,9 @@ async fn test_transition_in_progress_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Todo);
     assert!(updated.started_at.is_some()); // Preserve started_at when pausing
@@ -1241,7 +1251,7 @@ async fn test_transition_in_progress_to_review() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "review".to_string(),
     };
 
@@ -1251,7 +1261,9 @@ async fn test_transition_in_progress_to_review() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Review);
 }
@@ -1271,7 +1283,7 @@ async fn test_transition_in_progress_to_done() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "done".to_string(),
     };
 
@@ -1281,7 +1293,9 @@ async fn test_transition_in_progress_to_done() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Done);
     assert!(updated.completed_at.is_some()); // completed_at should be set
@@ -1302,7 +1316,7 @@ async fn test_transition_in_progress_to_cancelled() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "cancelled".to_string(),
     };
 
@@ -1312,7 +1326,9 @@ async fn test_transition_in_progress_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Cancelled);
 }
@@ -2400,7 +2416,7 @@ async fn test_transition_backlog_to_done_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "done".to_string(),
     };
 
@@ -2421,7 +2437,7 @@ async fn test_transition_todo_to_review_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "review".to_string(),
     };
 
@@ -2440,7 +2456,7 @@ async fn test_transition_todo_to_done_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "done".to_string(),
     };
 
@@ -2464,7 +2480,7 @@ async fn test_transition_done_to_backlog() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "backlog".to_string(),
     };
 
@@ -2474,7 +2490,9 @@ async fn test_transition_done_to_backlog() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Backlog);
     assert!(updated.completed_at.is_none()); // completed_at should be cleared
@@ -2495,7 +2513,7 @@ async fn test_transition_done_to_todo() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "todo".to_string(),
     };
 
@@ -2505,7 +2523,9 @@ async fn test_transition_done_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Todo);
     assert!(updated.completed_at.is_none()); // completed_at should be cleared
@@ -2526,7 +2546,7 @@ async fn test_transition_done_to_in_progress() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "in_progress".to_string(),
     };
 
@@ -2536,7 +2556,9 @@ async fn test_transition_done_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::InProgress);
     assert!(updated.completed_at.is_none()); // completed_at should be cleared
@@ -2557,7 +2579,7 @@ async fn test_transition_done_to_review() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "review".to_string(),
     };
 
@@ -2567,7 +2589,9 @@ async fn test_transition_done_to_review() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Review);
     assert!(updated.completed_at.is_none()); // completed_at should be cleared
@@ -2583,7 +2607,7 @@ async fn test_transition_cancelled_to_todo() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "todo".to_string(),
     };
 
@@ -2593,7 +2617,9 @@ async fn test_transition_cancelled_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Todo);
 }
@@ -2608,7 +2634,7 @@ async fn test_transition_cancelled_to_in_progress() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "in_progress".to_string(),
     };
 
@@ -2618,7 +2644,9 @@ async fn test_transition_cancelled_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::InProgress);
 }
@@ -2638,7 +2666,7 @@ async fn test_transition_review_to_backlog_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "backlog".to_string(),
     };
 
@@ -2662,7 +2690,7 @@ async fn test_transition_done_to_cancelled_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "cancelled".to_string(),
     };
 
@@ -2686,7 +2714,7 @@ async fn test_transition_review_to_in_progress() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "in_progress".to_string(),
     };
 
@@ -2696,7 +2724,9 @@ async fn test_transition_review_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::InProgress);
 }
@@ -2716,7 +2746,7 @@ async fn test_transition_review_to_done() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "done".to_string(),
     };
 
@@ -2726,7 +2756,9 @@ async fn test_transition_review_to_done() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Done);
     assert!(updated.completed_at.is_some()); // completed_at should be set
@@ -2747,7 +2779,7 @@ async fn test_transition_review_to_cancelled() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "cancelled".to_string(),
     };
 
@@ -2757,7 +2789,9 @@ async fn test_transition_review_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Cancelled);
 }
@@ -2773,7 +2807,7 @@ async fn test_transition_any_status_to_cancelled() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "cancelled".to_string(),
     };
 
@@ -2783,7 +2817,9 @@ async fn test_transition_any_status_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
+    assert_eq!(updated.len(), 1);
+    let updated = &updated[0];
 
     assert_eq!(updated.status, TaskStatus::Cancelled);
 }

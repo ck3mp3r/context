@@ -179,47 +179,6 @@ pub struct DeleteTaskParams {
 // =============================================================================
 // Tool Implementation
 // =============================================================================
-
-/// Returns allowed target statuses for a given current status
-fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
-    match current {
-        TaskStatus::Backlog => vec![
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::Todo => vec![
-            TaskStatus::Backlog,
-            TaskStatus::InProgress,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::InProgress => vec![
-            TaskStatus::Todo,
-            TaskStatus::Review,
-            TaskStatus::Done,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::Review => vec![
-            TaskStatus::InProgress,
-            TaskStatus::Done,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::Done => vec![
-            TaskStatus::Backlog,
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Review,
-        ],
-        TaskStatus::Cancelled => vec![
-            TaskStatus::Backlog,
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Review,
-        ],
-    }
-}
-
-// =============================================================================
 // Task Tools
 // =============================================================================
 
