@@ -221,7 +221,7 @@ async fn status_and_cascade_operations() {
     let body = json_body(response).await;
     assert!(body["completed_at"].is_null());
 
-    // Test 3: Cascade - move sub1 to in_progress
+    // Test 3: No cascade - move sub1 to in_progress
     app.clone()
         .oneshot(
             Request::builder()
@@ -236,7 +236,7 @@ async fn status_and_cascade_operations() {
         .await
         .unwrap();
 
-    // Move parent to in_progress - should NOT cascade to sub2 (different status)
+    // Move parent to in_progress - should NOT cascade to sub2
     app.clone()
         .oneshot(
             Request::builder()
@@ -261,7 +261,7 @@ async fn status_and_cascade_operations() {
         .await
         .unwrap();
     let sub2_body = json_body(sub2_check).await;
-    assert_eq!(sub2_body["status"], "in_progress"); // Cascaded because it matched parent's old status
+    assert_eq!(sub2_body["status"], "backlog"); // Remains in backlog - no cascading!
 }
 
 // =============================================================================

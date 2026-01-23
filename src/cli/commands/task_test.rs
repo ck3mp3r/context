@@ -362,7 +362,7 @@ async fn test_task_status_transitions() {
         .unwrap();
 
     // Transition: backlog -> todo
-    transition_task(&api_client, task_id, "todo")
+    transition_task(&api_client, &[task_id.to_string()], "todo")
         .await
         .expect("Transition failed");
     let task = serde_json::from_str::<serde_json::Value>(
@@ -373,7 +373,7 @@ async fn test_task_status_transitions() {
     assert_eq!(task["tags"], json!(["bug", "database", "critical"])); // Tags persist
 
     // Transition: todo -> in_progress
-    transition_task(&api_client, task_id, "in_progress")
+    transition_task(&api_client, &[task_id.to_string()], "in_progress")
         .await
         .expect("Transition failed");
 
