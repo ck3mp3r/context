@@ -642,7 +642,7 @@ async fn task_update_status_to_in_progress_sets_started_at() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
+async fn task_update_status_from_done_to_in_progress_preserves_completed_at() {
     let db = setup_db().await;
 
     let task_lists = db.task_lists();
@@ -694,12 +694,12 @@ async fn task_update_status_from_done_to_in_progress_clears_completed_at() {
     updated.status = TaskStatus::InProgress;
     tasks.update(&updated).await.expect("Update should succeed");
 
-    // completed_at should be cleared
+    // completed_at should be preserved as historical record
     let after = tasks.get(&created.id).await.expect("Get should succeed");
     assert_eq!(after.status, TaskStatus::InProgress);
     assert!(
-        after.completed_at.is_none(),
-        "completed_at should be cleared when reverting from done"
+        after.completed_at.is_some(),
+        "completed_at should be preserved as historical audit trail"
     );
 }
 

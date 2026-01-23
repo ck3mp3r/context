@@ -496,6 +496,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let mut task = task.clone();
 
         // Auto-manage timestamps based on status transitions
+        // NOTE: We NEVER clear historical timestamps - they represent audit trail
         let status_changed = task.status != current.status;
         if status_changed {
             match task.status {
@@ -504,22 +505,16 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                     if task.started_at.is_none() {
                         task.started_at = Some(current_timestamp());
                     }
-                    // Clear completed_at if reverting from done
-                    if current.status == TaskStatus::Done {
-                        task.completed_at = None;
-                    }
+                    // Keep completed_at as historical record (don't clear)
                 }
-                TaskStatus::Done => {
+                TaskStatus::Done | TaskStatus::Cancelled => {
                     // Completing task - set completed_at only if not already set (idempotent)
                     if task.completed_at.is_none() {
                         task.completed_at = Some(current_timestamp());
                     }
                 }
                 _ => {
-                    // Moving to any other status from done - clear completed_at
-                    if current.status == TaskStatus::Done {
-                        task.completed_at = None;
-                    }
+                    // Keep all timestamps as historical records (don't clear)
                 }
             }
         }

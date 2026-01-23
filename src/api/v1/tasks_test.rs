@@ -219,7 +219,10 @@ async fn status_and_cascade_operations() {
         "PATCH back to todo failed"
     );
     let body = json_body(response).await;
-    assert!(body["completed_at"].is_null());
+    assert!(
+        !body["completed_at"].is_null(),
+        "completed_at should be preserved as historical record"
+    );
 
     // Test 3: No cascade - move sub1 to in_progress
     app.clone()
