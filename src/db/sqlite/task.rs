@@ -727,11 +727,11 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         // Calculate timestamps based on target status
+        // NOTE: We NEVER clear historical timestamps (started_at, completed_at)
+        // These represent audit trail - when work first started/completed
         let should_set_started = target_status == TaskStatus::InProgress;
         let should_set_completed =
             matches!(target_status, TaskStatus::Done | TaskStatus::Cancelled);
-        let should_clear_completed =
-            !matches!(target_status, TaskStatus::Done | TaskStatus::Cancelled);
 
         let target_status_str = target_status.to_string();
         let updated_at = current_timestamp();
@@ -747,7 +747,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 END,
                 completed_at = CASE 
                     WHEN ? = 1 AND completed_at IS NULL THEN datetime('now')
-                    WHEN ? = 1 THEN NULL
                     ELSE completed_at 
                 END,
                 updated_at = ?
@@ -760,7 +759,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .bind(&target_status_str)
             .bind(if should_set_started { 1 } else { 0 })
             .bind(if should_set_completed { 1 } else { 0 })
-            .bind(if should_clear_completed { 1 } else { 0 })
             .bind(&updated_at);
 
         for id in task_ids {

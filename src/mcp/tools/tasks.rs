@@ -334,24 +334,31 @@ impl<D: Database + 'static> TaskTools<D> {
         })?;
 
         // Call database transition_tasks method
-        let updated_tasks = self
-            .db
+        self.db
             .tasks()
             .transition_tasks(&params.0.task_ids, target_status)
             .await
             .map_err(map_db_error)?;
 
         // Send notification for each transitioned task
-        for task in &updated_tasks {
+        for task_id in &params.0.task_ids {
             self.notifier.notify(UpdateMessage::TaskUpdated {
-                task_id: task.id.clone(),
+                task_id: task_id.clone(),
             });
         }
 
-        // Return tasks as JSON array
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&updated_tasks).unwrap(),
-        )]))
+        // Return success message
+        let count = params.0.task_ids.len();
+        let message = if count == 1 {
+            format!("Successfully transitioned 1 task to {}", params.0.status)
+        } else {
+            format!(
+                "Successfully transitioned {} tasks to {}",
+                count, params.0.status
+            )
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
     #[tool(

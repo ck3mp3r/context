@@ -1948,17 +1948,17 @@ async fn transition_tasks_timestamps() {
         assert!(task.completed_at.is_some(), "completed_at should be set");
     }
 
-    // Test 3: Transition back to todo clears completed_at
+    // Test 3: Transition back to todo preserves timestamps (audit trail)
     let updated = tasks
         .transition_tasks(&task_ids, TaskStatus::Todo)
         .await
         .expect("Transition to todo should succeed");
 
     for task in &updated {
-        assert!(task.started_at.is_some(), "started_at should remain set");
+        assert!(task.started_at.is_some(), "started_at should be preserved");
         assert!(
-            task.completed_at.is_none(),
-            "completed_at should be cleared"
+            task.completed_at.is_some(),
+            "completed_at should be preserved (historical record)"
         );
     }
 }

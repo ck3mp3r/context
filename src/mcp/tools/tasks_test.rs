@@ -955,13 +955,17 @@ async fn create_task_with_status(
         parent_id: None,
         title: "Test Task".to_string(),
         description: None,
-        status,
+        status: status.clone(),
         priority: None,
         tags: vec![],
         external_refs: vec![],
         created_at: None,
         started_at,
-        completed_at: None,
+        completed_at: if matches!(status, TaskStatus::Done | TaskStatus::Cancelled) {
+            Some("2026-01-01T12:00:00Z".to_string())
+        } else {
+            None
+        },
         updated_at: None,
     };
     db.tasks().create(&task).await.unwrap()
@@ -986,13 +990,14 @@ async fn test_transition_backlog_to_todo() {
         .await
         .expect("Transition should succeed");
 
+    // Verify success message
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Todo);
-    assert!(updated.started_at.is_none()); // No timestamp for todo
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1015,12 +1020,13 @@ async fn test_transition_backlog_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::InProgress);
-    assert!(updated.started_at.is_some()); // started_at should be set
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert!(task.started_at.is_some()); // started_at should be set
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1043,11 +1049,12 @@ async fn test_transition_todo_to_backlog() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Backlog);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Backlog);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1195,12 +1202,13 @@ async fn test_transition_todo_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::InProgress);
-    assert!(updated.started_at.is_some()); // started_at should be set
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert!(task.started_at.is_some()); // started_at should be set
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1228,12 +1236,13 @@ async fn test_transition_in_progress_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Todo);
-    assert!(updated.started_at.is_some()); // Preserve started_at when pausing
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
+    assert!(task.started_at.is_some()); // Historical timestamp preserved
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1261,11 +1270,12 @@ async fn test_transition_in_progress_to_review() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Review);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Review);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1293,12 +1303,13 @@ async fn test_transition_in_progress_to_done() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Done);
-    assert!(updated.completed_at.is_some()); // completed_at should be set
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+    assert!(task.completed_at.is_some()); // completed_at should be set
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1326,11 +1337,12 @@ async fn test_transition_in_progress_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Cancelled);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
 }
 
 // =============================================================================
@@ -2490,12 +2502,13 @@ async fn test_transition_done_to_backlog() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Backlog);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Backlog);
+    assert!(task.completed_at.is_some()); // Historical timestamp preserved
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2523,12 +2536,13 @@ async fn test_transition_done_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Todo);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
+    assert!(task.completed_at.is_some()); // Historical timestamp preserved
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2556,12 +2570,13 @@ async fn test_transition_done_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::InProgress);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert!(task.completed_at.is_some()); // Historical timestamp preserved
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2589,12 +2604,13 @@ async fn test_transition_done_to_review() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Review);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Review);
+    assert!(task.completed_at.is_some()); // Historical timestamp preserved
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2617,11 +2633,12 @@ async fn test_transition_cancelled_to_todo() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Todo);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2644,11 +2661,12 @@ async fn test_transition_cancelled_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::InProgress);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2724,11 +2742,12 @@ async fn test_transition_review_to_in_progress() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::InProgress);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2756,12 +2775,13 @@ async fn test_transition_review_to_done() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Done);
-    assert!(updated.completed_at.is_some()); // completed_at should be set
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+    assert!(task.completed_at.is_some()); // completed_at should be set
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2789,11 +2809,12 @@ async fn test_transition_review_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Cancelled);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2817,9 +2838,10 @@ async fn test_transition_any_status_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Vec<Task> = serde_json::from_str(content_text).unwrap();
-    assert_eq!(updated.len(), 1);
-    let updated = &updated[0];
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Cancelled);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
 }
