@@ -6,12 +6,13 @@
   ...
 }: {
   packages = let
-    toolchain = inputs.fenix.packages.${pkgs.system}.combine [
-      inputs.fenix.packages.${pkgs.system}.stable.cargo
-      inputs.fenix.packages.${pkgs.system}.stable.rustc
-      inputs.fenix.packages.${pkgs.system}.stable.rust-analyzer
-      inputs.fenix.packages.${pkgs.system}.stable.llvm-tools-preview
-      inputs.fenix.packages.${pkgs.system}.targets.wasm32-unknown-unknown.stable.rust-std
+    system = pkgs.stdenv.hostPlatform.system;
+    toolchain = inputs.fenix.packages.${system}.combine [
+      inputs.fenix.packages.${system}.stable.cargo
+      inputs.fenix.packages.${system}.stable.rustc
+      inputs.fenix.packages.${system}.stable.rust-analyzer
+      inputs.fenix.packages.${system}.stable.llvm-tools-preview
+      inputs.fenix.packages.${system}.targets.wasm32-unknown-unknown.stable.rust-std
     ];
   in [
     toolchain
@@ -78,14 +79,16 @@
     };
   };
 
-  git-hooks.hooks = {
+  git-hooks.hooks = let
+    system = pkgs.stdenv.hostPlatform.system;
+  in {
     rustfmt = {
       enable = true;
-      packageOverrides.rustfmt = inputs.fenix.packages.${pkgs.system}.stable.rustfmt;
+      packageOverrides.rustfmt = inputs.fenix.packages.${system}.stable.rustfmt;
     };
     clippy = {
       enable = true;
-      packageOverrides.clippy = inputs.fenix.packages.${pkgs.system}.stable.clippy;
+      packageOverrides.clippy = inputs.fenix.packages.${system}.stable.clippy;
     };
     # Custom pre-push hook to run tests
     test-on-push = {
