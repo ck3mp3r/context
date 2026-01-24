@@ -125,10 +125,6 @@ in {
   packages =
     regularPackages
     // archivePackages
-    // {
-      # Export custom git for testing
-      git-custom = gitCustom;
-    }
     // (
       # Only include container on non-Darwin systems (Linux)
       if isDarwin
