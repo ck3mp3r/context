@@ -109,10 +109,14 @@
     archiveAndHash = true;
   };
 
+  # Custom minimal git for container
+  gitCustom = pkgs.callPackage ./git-minimal.nix {};
+
   # Import container image build
   containerImage = import ./container.nix {
     inherit pkgs cargoToml;
     defaultPackage = regularPackages.context;
+    git = gitCustom;
   };
   # Check if we're on Darwin (macOS)
   isDarwin = builtins.match ".*-darwin" system != null;
@@ -121,6 +125,10 @@ in {
   packages =
     regularPackages
     // archivePackages
+    // {
+      # Export custom git for testing
+      git-custom = gitCustom;
+    }
     // (
       # Only include container on non-Darwin systems (Linux)
       if isDarwin

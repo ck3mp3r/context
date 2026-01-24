@@ -2,6 +2,7 @@
   pkgs,
   cargoToml,
   defaultPackage,
+  git,
 }:
 # Container image - build on Linux systems only
 # Cross-compilation from Darwin is deferred to CI
@@ -13,8 +14,7 @@ pkgs.dockerTools.buildLayeredImage {
   contents = [
     defaultPackage # c5t binary with embedded frontend (statically linked)
     pkgs.cacert # CA certificates for HTTPS
-    # Note: git is NOT included - sync functionality unavailable in container
-    # Use the CLI binary directly for sync operations
+    git # Ultra-minimal git for sync operations
   ];
 
   # Setup /data directory and create non-root user
