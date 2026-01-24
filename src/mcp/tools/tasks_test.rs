@@ -955,93 +955,363 @@ async fn create_task_with_status(
         parent_id: None,
         title: "Test Task".to_string(),
         description: None,
-        status,
+        status: status.clone(),
         priority: None,
         tags: vec![],
         external_refs: vec![],
         created_at: None,
         started_at,
-        completed_at: None,
+        completed_at: if matches!(status, TaskStatus::Done | TaskStatus::Cancelled) {
+            Some("2026-01-01T12:00:00Z".to_string())
+        } else {
+            None
+        },
         updated_at: None,
     };
     db.tasks().create(&task).await.unwrap()
 }
 
+/// Test valid task transitions that don't set timestamps (simple status changes)
 #[tokio::test(flavor = "multi_thread")]
-async fn test_transition_backlog_to_todo() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
+async fn test_transitions_without_timestamp_changes() {
+    let scenarios = vec![
+        // (from_status, to_status, description)
+        (TaskStatus::Backlog, "todo", "Backlog → Todo"),
+        (TaskStatus::Todo, "backlog", "Todo → Backlog"),
+    ];
 
-    let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+    for (from_status, to_status, description) in scenarios {
+        let db = SqliteDatabase::in_memory().await.unwrap();
+        db.migrate().unwrap();
+        let db = Arc::new(db);
 
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "todo".to_string(),
-    };
+        let task = create_task_with_status(&db, from_status, None).await;
+        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
+        let params = TransitionTaskParams {
+            task_ids: vec![task.id.clone()],
+            status: to_status.to_string(),
+        };
 
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+        let result = tools
+            .transition_task(Parameters(params))
+            .await
+            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
 
-    assert_eq!(updated.status, TaskStatus::Todo);
-    assert!(updated.started_at.is_none()); // No timestamp for todo
+        // Verify success message
+        let content_text = result.content[0].as_text().unwrap().text.as_str();
+        assert!(
+            content_text.contains("Successfully transitioned"),
+            "{}: should contain success message",
+            description
+        );
+
+        // Verify task was actually transitioned by fetching from DB
+        let task = db.tasks().get(&task.id).await.unwrap();
+        let expected_status = match to_status {
+            "todo" => TaskStatus::Todo,
+            "backlog" => TaskStatus::Backlog,
+            _ => panic!("Unexpected status: {}", to_status),
+        };
+        assert_eq!(
+            task.status, expected_status,
+            "{}: status should be updated",
+            description
+        );
+    }
 }
 
+/// Test transitions that set started_at timestamp
 #[tokio::test(flavor = "multi_thread")]
-async fn test_transition_backlog_to_in_progress() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
+async fn test_transitions_that_set_started_at() {
+    let scenarios = vec![
+        // (from_status, to_status, description)
+        (TaskStatus::Backlog, "in_progress", "Backlog → InProgress"),
+        (TaskStatus::Todo, "in_progress", "Todo → InProgress"),
+    ];
 
-    let task = create_task_with_status(&db, TaskStatus::Backlog, None).await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+    for (from_status, to_status, description) in scenarios {
+        let db = SqliteDatabase::in_memory().await.unwrap();
+        db.migrate().unwrap();
+        let db = Arc::new(db);
 
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "in_progress".to_string(),
-    };
+        let task = create_task_with_status(&db, from_status, None).await;
+        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
+        let params = TransitionTaskParams {
+            task_ids: vec![task.id.clone()],
+            status: to_status.to_string(),
+        };
 
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+        let result = tools
+            .transition_task(Parameters(params))
+            .await
+            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
 
-    assert_eq!(updated.status, TaskStatus::InProgress);
-    assert!(updated.started_at.is_some()); // started_at should be set
+        let content_text = result.content[0].as_text().unwrap().text.as_str();
+        assert!(
+            content_text.contains("Successfully transitioned"),
+            "{}: should contain success message",
+            description
+        );
+
+        // Verify task transitioned and started_at was set
+        let task = db.tasks().get(&task.id).await.unwrap();
+        assert_eq!(
+            task.status,
+            TaskStatus::InProgress,
+            "{}: status should be InProgress",
+            description
+        );
+        assert!(
+            task.started_at.is_some(),
+            "{}: started_at should be set",
+            description
+        );
+    }
 }
 
+/// Test transitions from InProgress that preserve started_at
 #[tokio::test(flavor = "multi_thread")]
-async fn test_transition_todo_to_backlog() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
+async fn test_transitions_from_in_progress_preserve_started_at() {
+    let scenarios = vec![
+        // (to_status, expected_status, expect_completed, description)
+        ("todo", TaskStatus::Todo, false, "InProgress → Todo"),
+        ("review", TaskStatus::Review, false, "InProgress → Review"),
+        ("done", TaskStatus::Done, true, "InProgress → Done"),
+        (
+            "cancelled",
+            TaskStatus::Cancelled,
+            true,
+            "InProgress → Cancelled",
+        ),
+    ];
 
-    let task = create_task_with_status(&db, TaskStatus::Todo, None).await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+    for (to_status, expected_status, expect_completed, description) in scenarios {
+        let db = SqliteDatabase::in_memory().await.unwrap();
+        db.migrate().unwrap();
+        let db = Arc::new(db);
 
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "backlog".to_string(),
-    };
+        let task = create_task_with_status(
+            &db,
+            TaskStatus::InProgress,
+            Some("2026-01-01T10:00:00Z".to_string()),
+        )
+        .await;
+        let original_started_at = task.started_at.clone();
+        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
+        let params = TransitionTaskParams {
+            task_ids: vec![task.id.clone()],
+            status: to_status.to_string(),
+        };
 
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+        let result = tools
+            .transition_task(Parameters(params))
+            .await
+            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
 
-    assert_eq!(updated.status, TaskStatus::Backlog);
+        let content_text = result.content[0].as_text().unwrap().text.as_str();
+        assert!(
+            content_text.contains("Successfully transitioned"),
+            "{}: should contain success message",
+            description
+        );
+
+        // Verify task transitioned and started_at was preserved
+        let task = db.tasks().get(&task.id).await.unwrap();
+        assert_eq!(
+            task.status, expected_status,
+            "{}: status should be updated",
+            description
+        );
+        assert_eq!(
+            task.started_at, original_started_at,
+            "{}: started_at should be preserved",
+            description
+        );
+
+        if expect_completed {
+            assert!(
+                task.completed_at.is_some(),
+                "{}: completed_at should be set",
+                description
+            );
+        }
+    }
+}
+
+/// Test transitions from Done that preserve completed_at
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transitions_from_done_preserve_completed_at() {
+    let scenarios = vec![
+        // (to_status, expected_status, description)
+        ("backlog", TaskStatus::Backlog, "Done → Backlog"),
+        ("todo", TaskStatus::Todo, "Done → Todo"),
+        ("in_progress", TaskStatus::InProgress, "Done → InProgress"),
+        ("review", TaskStatus::Review, "Done → Review"),
+    ];
+
+    for (to_status, expected_status, description) in scenarios {
+        let db = SqliteDatabase::in_memory().await.unwrap();
+        db.migrate().unwrap();
+        let db = Arc::new(db);
+
+        let task = create_task_with_status(
+            &db,
+            TaskStatus::Done,
+            Some("2026-01-01T10:00:00Z".to_string()),
+        )
+        .await;
+        let original_completed_at = task.completed_at.clone();
+        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+        let params = TransitionTaskParams {
+            task_ids: vec![task.id.clone()],
+            status: to_status.to_string(),
+        };
+
+        let result = tools
+            .transition_task(Parameters(params))
+            .await
+            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
+
+        let content_text = result.content[0].as_text().unwrap().text.as_str();
+        assert!(
+            content_text.contains("Successfully transitioned"),
+            "{}: should contain success message",
+            description
+        );
+
+        // Verify task transitioned and completed_at was preserved
+        let task = db.tasks().get(&task.id).await.unwrap();
+        assert_eq!(
+            task.status, expected_status,
+            "{}: status should be updated",
+            description
+        );
+        assert_eq!(
+            task.completed_at, original_completed_at,
+            "{}: completed_at should be preserved (historical audit trail)",
+            description
+        );
+    }
+}
+
+/// Test transitions from Review
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transitions_from_review() {
+    let scenarios = vec![
+        // (to_status, expected_status, expect_completed, description)
+        (
+            "in_progress",
+            TaskStatus::InProgress,
+            false,
+            "Review → InProgress",
+        ),
+        ("done", TaskStatus::Done, true, "Review → Done"),
+        (
+            "cancelled",
+            TaskStatus::Cancelled,
+            true,
+            "Review → Cancelled",
+        ),
+    ];
+
+    for (to_status, expected_status, expect_completed, description) in scenarios {
+        let db = SqliteDatabase::in_memory().await.unwrap();
+        db.migrate().unwrap();
+        let db = Arc::new(db);
+
+        let task = create_task_with_status(
+            &db,
+            TaskStatus::Review,
+            Some("2026-01-01T10:00:00Z".to_string()),
+        )
+        .await;
+        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+        let params = TransitionTaskParams {
+            task_ids: vec![task.id.clone()],
+            status: to_status.to_string(),
+        };
+
+        let result = tools
+            .transition_task(Parameters(params))
+            .await
+            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
+
+        let content_text = result.content[0].as_text().unwrap().text.as_str();
+        assert!(
+            content_text.contains("Successfully transitioned"),
+            "{}: should contain success message",
+            description
+        );
+
+        // Verify task transitioned
+        let task = db.tasks().get(&task.id).await.unwrap();
+        assert_eq!(
+            task.status, expected_status,
+            "{}: status should be updated",
+            description
+        );
+
+        if expect_completed {
+            assert!(
+                task.completed_at.is_some(),
+                "{}: completed_at should be set",
+                description
+            );
+        }
+    }
+}
+
+/// Test transitions from Cancelled
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transitions_from_cancelled() {
+    let scenarios = vec![
+        // (to_status, expected_status, description)
+        ("todo", TaskStatus::Todo, "Cancelled → Todo"),
+        (
+            "in_progress",
+            TaskStatus::InProgress,
+            "Cancelled → InProgress",
+        ),
+    ];
+
+    for (to_status, expected_status, description) in scenarios {
+        let db = SqliteDatabase::in_memory().await.unwrap();
+        db.migrate().unwrap();
+        let db = Arc::new(db);
+
+        let task = create_task_with_status(&db, TaskStatus::Cancelled, None).await;
+        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+        let params = TransitionTaskParams {
+            task_ids: vec![task.id.clone()],
+            status: to_status.to_string(),
+        };
+
+        let result = tools
+            .transition_task(Parameters(params))
+            .await
+            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
+
+        let content_text = result.content[0].as_text().unwrap().text.as_str();
+        assert!(
+            content_text.contains("Successfully transitioned"),
+            "{}: should contain success message",
+            description
+        );
+
+        // Verify task transitioned
+        let task = db.tasks().get(&task.id).await.unwrap();
+        assert_eq!(
+            task.status, expected_status,
+            "{}: status should be updated",
+            description
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1167,154 +1437,6 @@ async fn test_create_task_without_priority_defaults_to_p5() {
     assert_eq!(created.priority, Some(5));
     assert_eq!(created.title, "Task without priority");
     assert_eq!(created.status, TaskStatus::Backlog);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_todo_to_in_progress() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(&db, TaskStatus::Todo, None).await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "in_progress".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::InProgress);
-    assert!(updated.started_at.is_some()); // started_at should be set
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_in_progress_to_todo() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::InProgress,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "todo".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Todo);
-    assert!(updated.started_at.is_some()); // Preserve started_at when pausing
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_in_progress_to_review() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::InProgress,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "review".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Review);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_in_progress_to_done() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::InProgress,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "done".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Done);
-    assert!(updated.completed_at.is_some()); // completed_at should be set
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_in_progress_to_cancelled() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::InProgress,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "cancelled".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Cancelled);
 }
 
 // =============================================================================
@@ -2400,7 +2522,7 @@ async fn test_transition_backlog_to_done_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "done".to_string(),
     };
 
@@ -2421,7 +2543,7 @@ async fn test_transition_todo_to_review_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "review".to_string(),
     };
 
@@ -2440,187 +2562,13 @@ async fn test_transition_todo_to_done_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "done".to_string(),
     };
 
     let result = tools.transition_task(Parameters(params)).await;
 
     assert!(result.is_err(), "Todo → done should be invalid");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_done_to_backlog() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Done,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "backlog".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Backlog);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_done_to_todo() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Done,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "todo".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Todo);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_done_to_in_progress() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Done,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "in_progress".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::InProgress);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_done_to_review() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Done,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "review".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Review);
-    assert!(updated.completed_at.is_none()); // completed_at should be cleared
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_cancelled_to_todo() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(&db, TaskStatus::Cancelled, None).await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "todo".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Todo);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_cancelled_to_in_progress() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(&db, TaskStatus::Cancelled, None).await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "in_progress".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::InProgress);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2638,7 +2586,7 @@ async fn test_transition_review_to_backlog_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "backlog".to_string(),
     };
 
@@ -2662,104 +2610,13 @@ async fn test_transition_done_to_cancelled_invalid() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "cancelled".to_string(),
     };
 
     let result = tools.transition_task(Parameters(params)).await;
 
     assert!(result.is_err(), "Done → cancelled should be invalid");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_review_to_in_progress() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Review,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "in_progress".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::InProgress);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_review_to_done() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Review,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "done".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Done);
-    assert!(updated.completed_at.is_some()); // completed_at should be set
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transition_review_to_cancelled() {
-    let db = SqliteDatabase::in_memory().await.unwrap();
-    db.migrate().unwrap();
-    let db = Arc::new(db);
-
-    let task = create_task_with_status(
-        &db,
-        TaskStatus::Review,
-        Some("2026-01-01T10:00:00Z".to_string()),
-    )
-    .await;
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = TransitionTaskParams {
-        task_id: task.id.clone(),
-        status: "cancelled".to_string(),
-    };
-
-    let result = tools
-        .transition_task(Parameters(params))
-        .await
-        .expect("Transition should succeed");
-
-    let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
-
-    assert_eq!(updated.status, TaskStatus::Cancelled);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2773,7 +2630,7 @@ async fn test_transition_any_status_to_cancelled() {
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
     let params = TransitionTaskParams {
-        task_id: task.id.clone(),
+        task_ids: vec![task.id.clone()],
         status: "cancelled".to_string(),
     };
 
@@ -2783,7 +2640,10 @@ async fn test_transition_any_status_to_cancelled() {
         .expect("Transition should succeed");
 
     let content_text = result.content[0].as_text().unwrap().text.as_str();
-    let updated: Task = serde_json::from_str(content_text).unwrap();
+    assert!(content_text.contains("Successfully transitioned"));
+    assert!(content_text.contains("task"));
 
-    assert_eq!(updated.status, TaskStatus::Cancelled);
+    // Verify task was actually transitioned by fetching from DB
+    let task = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
 }

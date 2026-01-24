@@ -11,7 +11,7 @@ use std::path::Path;
 
 use crate::db::{
     DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
-    models::{Note, Project, Repo, Task, TaskList, TaskStats},
+    models::{Note, Project, Repo, Task, TaskList, TaskStats, TaskStatus},
 };
 use crate::sync::{ExportSummary, ImportSummary};
 
@@ -88,6 +88,11 @@ pub trait TaskRepository: Send + Sync {
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn get_stats_for_list(&self, list_id: &str)
     -> impl Future<Output = DbResult<TaskStats>> + Send;
+    fn transition_tasks(
+        &self,
+        task_ids: &[String],
+        target_status: TaskStatus,
+    ) -> impl Future<Output = DbResult<Vec<Task>>> + Send;
 }
 
 /// Repository for Note operations.

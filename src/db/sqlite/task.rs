@@ -15,6 +15,45 @@ pub struct SqliteTaskRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+/// Returns the allowed transitions from a given status.
+fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
+    match current {
+        TaskStatus::Backlog => vec![
+            TaskStatus::Todo,
+            TaskStatus::InProgress,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::Todo => vec![
+            TaskStatus::Backlog,
+            TaskStatus::InProgress,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::InProgress => vec![
+            TaskStatus::Todo,
+            TaskStatus::Review,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::Review => vec![
+            TaskStatus::InProgress,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+        ],
+        TaskStatus::Done => vec![
+            TaskStatus::Backlog,
+            TaskStatus::Todo,
+            TaskStatus::InProgress,
+            TaskStatus::Review,
+        ],
+        TaskStatus::Cancelled => vec![
+            TaskStatus::Backlog,
+            TaskStatus::Todo,
+            TaskStatus::InProgress,
+            TaskStatus::Review,
+        ],
+    }
+}
+
 impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn create(&self, task: &Task) -> DbResult<Task> {
         // Use provided ID if not empty, otherwise generate one
@@ -456,11 +495,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let mut task = task.clone();
 
-        // Track if status is changing and what the old status was (for cascade)
-        let status_changed = task.status != current.status;
-        let old_status = current.status.clone();
-
         // Auto-manage timestamps based on status transitions
+        // NOTE: We NEVER clear historical timestamps - they represent audit trail
+        let status_changed = task.status != current.status;
         if status_changed {
             match task.status {
                 TaskStatus::InProgress => {
@@ -468,22 +505,16 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                     if task.started_at.is_none() {
                         task.started_at = Some(current_timestamp());
                     }
-                    // Clear completed_at if reverting from done
-                    if current.status == TaskStatus::Done {
-                        task.completed_at = None;
-                    }
+                    // Keep completed_at as historical record (don't clear)
                 }
-                TaskStatus::Done => {
+                TaskStatus::Done | TaskStatus::Cancelled => {
                     // Completing task - set completed_at only if not already set (idempotent)
                     if task.completed_at.is_none() {
                         task.completed_at = Some(current_timestamp());
                     }
                 }
                 _ => {
-                    // Moving to any other status from done - clear completed_at
-                    if current.status == TaskStatus::Done {
-                        task.completed_at = None;
-                    }
+                    // Keep all timestamps as historical records (don't clear)
                 }
             }
         }
@@ -498,12 +529,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .filter(|s| !s.is_empty()) // Treat empty string as None
             .unwrap_or_else(current_timestamp);
 
-        // Start transaction for atomic parent + cascade updates
-        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
-
-        // Update parent task
+        // Update task (no transaction needed - single operation)
         let external_refs_json =
             serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
 
@@ -527,7 +553,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&task.completed_at)
         .bind(&updated_at)
         .bind(&task.id)
-        .execute(&mut *tx)
+        .execute(self.pool)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -539,58 +565,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 id: task.id.clone(),
             });
         }
-
-        // CASCADE: If status changed and this is a parent task, update matching subtasks
-        if status_changed && current.parent_id.is_none() {
-            let old_status_str = old_status.to_string();
-            let new_status_str = task.status.to_string();
-
-            // Update all subtasks that match the parent's OLD status
-            let cascade_result = sqlx::query(
-                r#"
-                UPDATE task 
-                SET status = ?,
-                    started_at = CASE 
-                        WHEN ? = 'in_progress' AND started_at IS NULL THEN datetime('now')
-                        ELSE started_at 
-                    END,
-                    completed_at = CASE 
-                        WHEN ? IN ('done', 'cancelled') AND completed_at IS NULL THEN datetime('now')
-                        WHEN ? NOT IN ('done', 'cancelled') THEN NULL
-                        ELSE completed_at 
-                    END
-                WHERE parent_id = ? 
-                  AND status = ?
-                "#,
-            )
-            .bind(&new_status_str)
-            .bind(&new_status_str)  // For started_at CASE
-            .bind(&new_status_str)  // For completed_at CASE (set if done/cancelled)
-            .bind(&new_status_str)  // For completed_at CASE (clear if not done/cancelled)
-            .bind(&task.id)
-            .bind(&old_status_str)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| DbError::Database {
-                message: format!("Failed to cascade status to subtasks: {}", e),
-            })?;
-
-            let rows_affected = cascade_result.rows_affected();
-            if rows_affected > 0 {
-                tracing::debug!(
-                    "Cascaded status change from '{}' to '{}' for {} subtask(s) of parent '{}'",
-                    old_status_str,
-                    new_status_str,
-                    rows_affected,
-                    task.id
-                );
-            }
-        }
-
-        // Commit transaction
-        tx.commit().await.map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
 
         Ok(())
     }
@@ -668,6 +642,153 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             done,
             cancelled,
         })
+    }
+
+    async fn transition_tasks(
+        &self,
+        task_ids: &[String],
+        target_status: TaskStatus,
+    ) -> DbResult<Vec<Task>> {
+        // Validate input
+        if task_ids.is_empty() {
+            return Err(DbError::Validation {
+                message: "task_ids cannot be empty".to_string(),
+            });
+        }
+
+        // Start transaction for atomic operation
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Build IN clause for SQL query
+        let placeholders = task_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query_str = format!(
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at FROM task WHERE id IN ({})",
+            placeholders
+        );
+
+        // Fetch all tasks
+        let mut query = sqlx::query(&query_str);
+        for id in task_ids {
+            query = query.bind(id);
+        }
+
+        let rows = query
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Check all tasks were found
+        if rows.len() != task_ids.len() {
+            let found_ids: Vec<String> =
+                rows.iter().map(|row| row.get::<String, _>("id")).collect();
+            let missing: Vec<_> = task_ids
+                .iter()
+                .filter(|id| !found_ids.contains(id))
+                .collect();
+            return Err(DbError::NotFound {
+                entity_type: "Task".to_string(),
+                id: missing.first().unwrap().to_string(),
+            });
+        }
+
+        // Parse tasks and validate they all have the same current status
+        let tasks: Vec<Task> = rows.iter().map(row_to_task).collect();
+        let first_status = &tasks[0].status;
+
+        for task in &tasks {
+            if task.status != *first_status {
+                return Err(DbError::Validation {
+                    message: format!(
+                        "All tasks must have the same current status. Found mixed statuses: {:?} and {:?}",
+                        first_status, task.status
+                    ),
+                });
+            }
+        }
+
+        // Validate transition is allowed
+        let allowed = allowed_transitions(first_status);
+        if !allowed.contains(&target_status) {
+            return Err(DbError::Validation {
+                message: format!(
+                    "invalid_transition: Cannot transition from {:?} to {:?}",
+                    first_status, target_status
+                ),
+            });
+        }
+
+        // Calculate timestamps based on target status
+        // NOTE: We NEVER clear historical timestamps (started_at, completed_at)
+        // These represent audit trail - when work first started/completed
+        let should_set_started = target_status == TaskStatus::InProgress;
+        let should_set_completed =
+            matches!(target_status, TaskStatus::Done | TaskStatus::Cancelled);
+
+        let target_status_str = target_status.to_string();
+        let updated_at = current_timestamp();
+
+        // Update all tasks with timestamp management
+        let update_query = format!(
+            r#"
+            UPDATE task 
+            SET status = ?,
+                started_at = CASE 
+                    WHEN ? = 1 AND started_at IS NULL THEN datetime('now')
+                    ELSE started_at 
+                END,
+                completed_at = CASE 
+                    WHEN ? = 1 AND completed_at IS NULL THEN datetime('now')
+                    ELSE completed_at 
+                END,
+                updated_at = ?
+            WHERE id IN ({})
+            "#,
+            placeholders
+        );
+
+        let mut update = sqlx::query(&update_query)
+            .bind(&target_status_str)
+            .bind(if should_set_started { 1 } else { 0 })
+            .bind(if should_set_completed { 1 } else { 0 })
+            .bind(&updated_at);
+
+        for id in task_ids {
+            update = update.bind(id);
+        }
+
+        update
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Fetch updated tasks
+        let mut fetch_query = sqlx::query(&query_str);
+        for id in task_ids {
+            fetch_query = fetch_query.bind(id);
+        }
+
+        let updated_rows =
+            fetch_query
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+        let updated_tasks: Vec<Task> = updated_rows.iter().map(row_to_task).collect();
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(updated_tasks)
     }
 }
 
