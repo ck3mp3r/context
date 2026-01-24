@@ -93,6 +93,50 @@ Status: ✓ Clean
 ╰─────────────┴──────────┴────────────╯
 ```
 
+### Container Deployments
+
+Git authentication requires mounting credentials into the container.
+
+**SSH Authentication** - Mount `.ssh` directory:
+
+```yaml
+volumes:
+  - ~/.local/share/c5t:/data
+  - ~/.ssh:/data/.ssh:ro
+```
+
+```sh
+docker exec c5t c5t sync init git@github.com:username/c5t-sync.git
+```
+
+**HTTPS Authentication** - Use Personal Access Token:
+
+Create token: GitHub Settings → Developer Settings → Personal Access Tokens (Permissions: `repo`)
+
+Option 1 - Embed in URL:
+```sh
+docker exec c5t c5t sync init https://username:TOKEN@github.com/username/c5t-sync.git
+```
+
+Option 2 - Credential file:
+```sh
+# Create credentials file on host
+echo "https://username:TOKEN@github.com" > ~/.git-credentials
+chmod 600 ~/.git-credentials
+```
+
+```yaml
+volumes:
+  - ~/.local/share/c5t:/data
+  - ~/.git-credentials:/data/.git-credentials:ro
+```
+
+```sh
+# Configure once (persists in /data/.gitconfig)
+docker exec c5t git config --global credential.helper store
+docker exec c5t c5t sync init https://github.com/username/c5t-sync.git
+```
+
 ## Usage
 
 ### Export (Local Backup or Push to Remote)

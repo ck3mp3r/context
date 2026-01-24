@@ -145,6 +145,8 @@ services:
     restart: unless-stopped
 ```
 
+**Git sync in containers:** Mount `~/.ssh:/data/.ssh:ro` (SSH) or use Personal Access Token in URL (HTTPS). See [Sync Guide - Container Deployments](docs/sync.md#container-deployments).
+
 **Note**: Health check runs from Docker host (requires curl on host), checking `http://localhost:3737/health`
 
 ## Documentation
