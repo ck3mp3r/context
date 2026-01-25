@@ -9,12 +9,14 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::static_assets::serve_frontend;
 use super::v1::{
-    CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
-    CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest, PatchProjectRequest,
-    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, RepoResponse,
-    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
+    CreateTaskListRequest, CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest,
+    PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse,
+    ReplaceSkillRequest, RepoResponse, SkillResponse, TaskListResponse, TaskResponse,
+    UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest,
     UpdateTaskListRequest, UpdateTaskRequest,
 };
+
 use crate::db::Database;
 
 /// Build routes with generic database and git types.
@@ -120,10 +122,10 @@ macro_rules! routes {
             super::v1::SyncResponse,
              ErrorResponse,
              // --- Skills ---
-             super::v1::SkillResponse,
-             super::v1::CreateSkillRequest,
-             super::v1::ReplaceSkillRequest,
-             super::v1::UpdateSkillRequest,
+             SkillResponse,
+             CreateSkillRequest,
+             ReplaceSkillRequest,
+             UpdateSkillRequest,
         )
     ),
     tags(
