@@ -21,6 +21,8 @@ use rust_embed::RustEmbed;
 #[include = "*.js"]
 #[include = "*.wasm"]
 #[include = "*.css"]
+#[include = "*.svg"]
+#[include = "*.ico"]
 #[include = "snippets/**/*"]
 struct FrontendAssets;
 

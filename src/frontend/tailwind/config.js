@@ -7,7 +7,7 @@ module.exports = {
     "./src/frontend/models/**/*.rs",
     "./src/frontend/app.rs",
     "./src/frontend/main.rs",
-    "./src/frontend/assets/index.html",
+    "./src/frontend/public/index.html",
   ],
   safelist: [
     // Connection indicator colors

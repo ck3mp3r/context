@@ -65,4 +65,4 @@ data/db/
 dist/
 
 # Auto-generated CSS files (Tailwind via Trunk pre-build hook)
-src/frontend/assets/style.css
+src/frontend/public/style.css

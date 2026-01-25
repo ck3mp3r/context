@@ -1,5 +1,5 @@
 [build]
-target = "src/frontend/assets/index.html"
+target = "src/frontend/public/index.html"
 dist = "dist"
 public_url = "/"
 filehash = true
@@ -22,7 +22,7 @@ no_autoreload = false
 [[hooks]]
 stage = "pre_build"
 command = "tailwindcss"
-command_arguments = ["-c", "./src/frontend/assets/tailwind.config.js", "-i", "./src/frontend/assets/input.css", "-o", "./src/frontend/assets/style.css"]
+command_arguments = ["-c", "./src/frontend/tailwind/config.js", "-i", "./src/frontend/tailwind/input.css", "-o", "./src/frontend/public/style.css"]
 
 [[proxy]]
 backend = "http://localhost:3738"
