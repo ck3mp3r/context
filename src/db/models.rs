@@ -26,7 +26,7 @@ pub const NOTE_HARD_MAX: usize = 100_000; // ~25,000 tokens
 // =============================================================================
 
 /// Sort order for list queries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, utoipa::ToSchema)]
 pub enum SortOrder {
     #[default]
     Asc,
@@ -38,7 +38,7 @@ pub enum SortOrder {
 // =============================================================================
 
 /// Base pagination and sorting options - composed into entity-specific queries.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize, utoipa::ToSchema)]
 pub struct PageSort {
     /// Maximum number of items to return.
     pub limit: Option<usize>,
@@ -112,6 +112,16 @@ pub struct NoteQuery {
     /// Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL).
     /// Omit to return both parent notes and subnotes.
     pub note_type: Option<String>,
+}
+
+/// Query for Skills - pagination + tags/project filters.
+#[derive(Debug, Clone, Default, serde::Deserialize, utoipa::IntoParams)]
+pub struct SkillQuery {
+    pub page: PageSort,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
+    /// Filter by project ID (skills with project_id in project_ids array).
+    pub project_id: Option<String>,
 }
 
 /// Result of a paginated list query.
@@ -310,6 +320,20 @@ pub struct Note {
     /// Count of subnotes (children) - computed field, not stored in DB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subnote_count: Option<i32>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// A skill entity following the Note pattern for core fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Skill {
+    pub id: Id,
+    pub name: String,
+    pub description: Option<String>,
+    pub instructions: Option<String>,
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub project_ids: Vec<Id>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

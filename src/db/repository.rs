@@ -117,6 +117,27 @@ pub trait NoteRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
 }
 
+/// Repository for Skill operations.
+pub trait SkillRepository: Send + Sync {
+    fn create(
+        &self,
+        skill: &crate::db::models::Skill,
+    ) -> impl Future<Output = DbResult<crate::db::models::Skill>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::db::models::Skill>> + Send;
+    fn list(
+        &self,
+        query: Option<&crate::db::models::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::db::models::Skill>>> + Send;
+    fn update(&self, skill: &crate::db::models::Skill)
+    -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&crate::db::models::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::db::models::Skill>>> + Send;
+}
+
 /// Repository for sync operations (import/export).
 pub trait SyncRepository: Send + Sync {
     fn import_all(&self, input_dir: &Path) -> impl Future<Output = DbResult<ImportSummary>> + Send;
@@ -157,6 +178,10 @@ pub trait Database: Send + Sync {
     type Sync<'a>: SyncRepository
     where
         Self: 'a;
+    /// The skill repository type.
+    type Skills<'a>: SkillRepository
+    where
+        Self: 'a;
 
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
@@ -178,4 +203,7 @@ pub trait Database: Send + Sync {
 
     /// Get the sync repository.
     fn sync(&self) -> Self::Sync<'_>;
+
+    /// Get the skill repository.
+    fn skills(&self) -> Self::Skills<'_>;
 }

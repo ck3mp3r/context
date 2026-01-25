@@ -85,6 +85,7 @@ impl Database for SqliteDatabase {
     type Tasks<'a> = SqliteTaskRepository<'a>;
     type Notes<'a> = SqliteNoteRepository<'a>;
     type Sync<'a> = SqliteSyncRepository<'a>;
+    type Skills<'a> = super::SqliteSkillRepository<'a>;
 
     fn migrate(&self) -> DbResult<()> {
         // Use tokio::task::block_in_place for sync interface compatibility
@@ -115,5 +116,9 @@ impl Database for SqliteDatabase {
 
     fn sync(&self) -> Self::Sync<'_> {
         SqliteSyncRepository { pool: &self.pool }
+    }
+
+    fn skills(&self) -> Self::Skills<'_> {
+        super::SqliteSkillRepository { pool: &self.pool }
     }
 }
