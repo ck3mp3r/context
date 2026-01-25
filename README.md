@@ -120,8 +120,9 @@ Access the Web UI at http://localhost:3737
 - `TZ=UTC` - Timezone
 
 **Notes:**
-- Container size: ~23MB (optimized Nix-built image)
-- Git sync is **not available** in containers - use CLI binary for sync operations
+- Container size: ~150MB (includes git for sync support)
+  - Base c5t binary: ~23MB  
+  - Custom minimal git: ~126MB (stripped of docs, perl, python, GUI tools)
 - Images built from static musl binaries for minimal attack surface
 
 **docker-compose.yml example:**
@@ -143,6 +144,8 @@ services:
       retries: 3
     restart: unless-stopped
 ```
+
+**Git sync in containers:** Mount `~/.ssh:/data/.ssh:ro` (SSH) or use Personal Access Token in URL (HTTPS). See [Sync Guide - Container Deployments](docs/sync.md#container-deployments).
 
 **Note**: Health check runs from Docker host (requires curl on host), checking `http://localhost:3737/health`
 
