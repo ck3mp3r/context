@@ -59,16 +59,6 @@ pub trait TaskListRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
-    fn link_project(
-        &self,
-        task_list_id: &str,
-        project_id: &str,
-    ) -> impl Future<Output = DbResult<()>> + Send;
-    fn link_repo(
-        &self,
-        task_list_id: &str,
-        repo_id: &str,
-    ) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for Task operations.
