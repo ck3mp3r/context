@@ -29,7 +29,7 @@ windows:
               - command: trunk
                 args:
                   - serve
-          - flex: 8
+          - flex: 4
       - flex: 1
         flex_direction: column
         panes:
@@ -41,4 +41,4 @@ windows:
                   - --bin
                   - c5t
                   - api
-          - flex: 8
+          - flex: 4
