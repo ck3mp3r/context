@@ -36,9 +36,9 @@ macro_rules! routes {
 /// OpenAPI documentation
 #[derive(OpenApi)]
 #[openapi(
-    info(
+        info(
         title = "Context API",
-        version = "0.1.0",
+        version = env!("CARGO_PKG_VERSION"),
         description = "Context/memory management API for LLM sessions",
         license(name = "MIT")
     ),
