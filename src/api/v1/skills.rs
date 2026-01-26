@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
 use crate::db::{Database, DbError, PageSort, Skill, SkillQuery, SkillRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -164,6 +165,12 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         )
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill.id.clone(),
+    });
+
     Ok(Json(SkillResponse {
         id: skill.id,
         name: skill.name,
@@ -311,6 +318,12 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         )
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillCreated {
+        skill_id: created.id.clone(),
+    });
+
     Ok((
         StatusCode::CREATED,
         Json(SkillResponse {
@@ -383,6 +396,12 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         )
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill.id.clone(),
+    });
+
     Ok(Json(SkillResponse {
         id: skill.id,
         name: skill.name,
@@ -427,5 +446,11 @@ pub async fn delete_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillDeleted {
+        skill_id: skill_id.clone(),
+    });
+
     Ok(StatusCode::NO_CONTENT)
 }

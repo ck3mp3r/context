@@ -12,9 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
-use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, PageSort, Skill, SkillQuery, SkillRepository};
-use crate::mcp::tools::{apply_limit, map_db_error};
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
+use crate::db::SkillRepository;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListSkillsParams {
@@ -99,13 +98,13 @@ pub struct SearchSkillsParams {
 #[derive(Clone)]
 pub struct SkillTools<D: crate::db::Database> {
     db: Arc<D>,
-    notifier: crate::api::notifier::ChangeNotifier,
+    notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: crate::db::Database + 'static> SkillTools<D> {
-    pub fn new(db: Arc<D>, notifier: crate::api::notifier::ChangeNotifier) -> Self {
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,
             notifier,
@@ -208,7 +207,11 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             )
         })?;
 
-        // notifier broadcast not implemented yet
+        // Broadcast SkillCreated notification
+        self.notifier.notify(UpdateMessage::SkillCreated {
+            skill_id: created.id.clone(),
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
         )]))
@@ -270,6 +273,11 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
                 )
             })?;
 
+        // Broadcast SkillUpdated notification
+        self.notifier.notify(UpdateMessage::SkillUpdated {
+            skill_id: params.0.skill_id.clone(),
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&updated).unwrap(),
         )]))
@@ -294,6 +302,11 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
                     Some(serde_json::json!({"error": e.to_string()})),
                 ),
             })?;
+
+        // Broadcast SkillDeleted notification
+        self.notifier.notify(UpdateMessage::SkillDeleted {
+            skill_id: params.0.skill_id.clone(),
+        });
 
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Skill {} deleted successfully",

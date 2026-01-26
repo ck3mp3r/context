@@ -31,6 +31,11 @@ pub enum UpdateMessage {
     TaskCreated { task_id: String },
     TaskUpdated { task_id: String },
     TaskDeleted { task_id: String },
+
+    // Skills
+    SkillCreated { skill_id: String },
+    SkillUpdated { skill_id: String },
+    SkillDeleted { skill_id: String },
 }
 
 /// Pub/sub notifier for broadcasting database changes to all subscribers.
