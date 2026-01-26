@@ -75,14 +75,16 @@ pub struct DeleteSkillParams {
 #[derive(Clone)]
 pub struct SkillTools<D: crate::db::Database> {
     db: Arc<D>,
+    notifier: crate::api::notifier::ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: crate::db::Database + 'static> SkillTools<D> {
-    pub fn new(db: Arc<D>) -> Self {
+    pub fn new(db: Arc<D>, notifier: crate::api::notifier::ChangeNotifier) -> Self {
         Self {
             db,
+            notifier,
             tool_router: Self::tool_router(),
         }
     }
@@ -91,14 +93,187 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
         &self.tool_router
     }
 
+    // -- Tools to implement (following notes pattern)
+
     // minimal tool to satisfy wiring in future
     #[tool(description = "List skills placeholder")]
     pub async fn list_skills(
         &self,
-        _params: Parameters<ListSkillsParams>,
+        params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {
+        let query = crate::db::SkillQuery {
+            page: crate::db::PageSort {
+                limit: params.0.limit,
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            tags: params.0.tags.clone(),
+            project_id: params.0.project_id.clone(),
+        };
+
+        let result = self.db.skills().list(Some(&query)).await.map_err(|e| {
+            McpError::internal_error(
+                "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        let response = json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
         Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string(&json!({"items":[], "total":0, "limit":0, "offset":0})).unwrap(),
+            serde_json::to_string_pretty(&response).unwrap(),
         )]))
+    }
+
+    #[tool(description = "Get a skill by ID")]
+    pub async fn get_skill(
+        &self,
+        params: Parameters<GetSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let skill = self
+            .db
+            .skills()
+            .get(&params.0.skill_id)
+            .await
+            .map_err(|e| match e {
+                crate::db::DbError::NotFound { .. } => McpError::resource_not_found(
+                    "skill_not_found",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+                _ => McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&skill).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Create a new skill")]
+    pub async fn create_skill(
+        &self,
+        params: Parameters<CreateSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let skill = crate::db::Skill {
+            id: crate::db::utils::generate_entity_id(),
+            name: params.0.name.clone(),
+            description: params.0.description.clone(),
+            instructions: params.0.instructions.clone(),
+            tags: params.0.tags.clone().unwrap_or_default(),
+            project_ids: params.0.project_ids.clone().unwrap_or_default(),
+            created_at: None,
+            updated_at: None,
+        };
+
+        let created = self.db.skills().create(&skill).await.map_err(|e| {
+            McpError::internal_error(
+                "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // notifier broadcast not implemented yet
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&created).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Update a skill")]
+    pub async fn update_skill(
+        &self,
+        params: Parameters<UpdateSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut skill = self
+            .db
+            .skills()
+            .get(&params.0.skill_id)
+            .await
+            .map_err(|e| match e {
+                crate::db::DbError::NotFound { .. } => McpError::resource_not_found(
+                    "skill_not_found",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+                _ => McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+            })?;
+
+        if let Some(name) = &params.0.name {
+            skill.name = name.clone();
+        }
+        if let Some(description) = &params.0.description {
+            skill.description = Some(description.clone());
+        }
+        if let Some(instructions) = &params.0.instructions {
+            skill.instructions = Some(instructions.clone());
+        }
+        if let Some(tags) = &params.0.tags {
+            skill.tags = tags.clone();
+        }
+        if let Some(project_ids) = &params.0.project_ids {
+            skill.project_ids = project_ids.clone();
+        }
+
+        self.db.skills().update(&skill).await.map_err(|e| {
+            McpError::internal_error(
+                "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        let updated = self
+            .db
+            .skills()
+            .get(&params.0.skill_id)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                )
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&updated).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Delete a skill")]
+    pub async fn delete_skill(
+        &self,
+        params: Parameters<DeleteSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .skills()
+            .delete(&params.0.skill_id)
+            .await
+            .map_err(|e| match e {
+                crate::db::DbError::NotFound { .. } => McpError::resource_not_found(
+                    "skill_not_found",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+                _ => McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Skill {} deleted successfully",
+            params.0.skill_id
+        ))]))
     }
 }
