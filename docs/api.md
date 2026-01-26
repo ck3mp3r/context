@@ -48,6 +48,15 @@
 - `DELETE /api/v1/notes/:id` - Delete note
 - `GET /api/v1/notes/search?q=query` - Full-text search
 
+### Skills
+- `GET /api/v1/skills` - List skills (filter by tags, project_id)
+- `POST /api/v1/skills` - Create skill
+- `GET /api/v1/skills/:id` - Get skill
+- `PUT /api/v1/skills/:id` - Replace skill (full update)
+- `PATCH /api/v1/skills/:id` - Partial update skill
+- `DELETE /api/v1/skills/:id` - Delete skill
+- `GET /api/v1/skills/search?q=query` - Full-text search
+
 ## Running
 
 ```sh
@@ -85,6 +94,14 @@ curl http://localhost:3737/api/v1/task-lists?status=active
 
 # Search notes
 curl "http://localhost:3737/api/v1/notes/search?q=rust+async"
+
+# Search skills
+curl "http://localhost:3737/api/v1/skills/search?q=kubernetes+deployment"
+
+# Create skill
+curl -X POST http://localhost:3737/api/v1/skills \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Deploy to K8s", "description": "Kubernetes deployment workflow", "instructions": "1. Build image\n2. Push to registry\n3. Apply manifests"}'
 
 # Complete a task
 curl -X PATCH http://localhost:3737/api/v1/tasks/abc12345/complete

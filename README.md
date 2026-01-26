@@ -11,6 +11,7 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 - **Projects & Task Lists** - Organize work hierarchically with M:N relationships
 - **Tasks** - Track work with status, priority, subtasks, and timestamps
 - **Notes** - Full-text searchable knowledge base with tags and project links
+- **Skills** - Reusable agent instructions and capabilities with full-text search
 - **Session Notes** - Persistent state for AI agents that survives context compaction
 - **Agent Workflows** - Autonomous multi-step workflows with task tracking and state recovery
 - **Real-time Updates** - WebSocket-based live sync between CLI/MCP and Web UI

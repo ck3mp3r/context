@@ -94,10 +94,18 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `delete_note` - Delete note
 - `search_notes` - Full-text search notes (FTS5)
 
+### Skills (6 tools)
+- `create_skill` - Create new skill
+- `list_skills` - List skills (filter by tags/project)
+- `get_skill` - Get skill by ID
+- `update_skill` - Update skill
+- `delete_skill` - Delete skill
+- `search_skills` - Full-text search skills (FTS5)
+
 ### Sync (1 tool)
 - `sync` - Git-based sync operations (init/export/import/status)
 
-**Total: 28 MCP tools**
+**Total: 34 MCP tools**
 
 ## Tag Conventions
 
@@ -274,6 +282,324 @@ create_note({
 ```
 
 See parameter schemas in tool definitions for full details.
+
+## Skills - Reusable Agent Instructions
+
+Skills are reusable, searchable instructions and capabilities for AI agents. They enable agents to store, retrieve, and apply specialized knowledge across sessions and contexts.
+
+### What are Skills?
+
+A **Skill** is a named set of instructions that can be:
+- **Created** - Define once, reuse many times
+- **Searched** - Full-text search across name, description, instructions, and tags
+- **Linked** - Associate with projects for organization
+- **Versioned** - Track when created and updated
+- **Tagged** - Categorize for easy discovery
+
+### Skill Model
+
+```rust
+pub struct Skill {
+    pub id: String,                // 8-char hex ID
+    pub name: String,              // Required: Skill name/title
+    pub description: Option<String>, // Optional: Brief description
+    pub instructions: Option<String>, // Optional: Detailed instructions (Markdown)
+    pub tags: Vec<String>,         // Tags for categorization
+    pub project_ids: Vec<String>,  // Link to projects (8-char hex IDs)
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+```
+
+### Use Cases
+
+**1. Deployment Workflows**
+```javascript
+create_skill({
+  name: "Deploy to Kubernetes",
+  description: "Standard deployment workflow for K8s applications",
+  instructions: `
+## Prerequisites
+- Docker image built and tagged
+- kubectl configured with cluster access
+- Manifests in k8s/ directory
+
+## Steps
+1. Build and tag image: \`docker build -t app:v1.0.0 .\`
+2. Push to registry: \`docker push registry.example.com/app:v1.0.0\`
+3. Update manifests with new image tag
+4. Apply manifests: \`kubectl apply -f k8s/\`
+5. Verify deployment: \`kubectl rollout status deployment/app\`
+6. Check pods: \`kubectl get pods -l app=myapp\`
+
+## Rollback
+\`kubectl rollout undo deployment/app\`
+  `,
+  tags: ["deployment", "kubernetes", "docker"],
+  project_ids: ["a1b2c3d4"]
+})
+```
+
+**2. Testing Strategies**
+```javascript
+create_skill({
+  name: "TDD Workflow - Rust",
+  description: "Test-Driven Development process for Rust projects",
+  instructions: `
+## RED → GREEN → REFACTOR
+
+### 1. RED - Write Failing Test
+- Write test that describes desired behavior
+- Run test suite: \`cargo test\`
+- Verify test fails for the right reason
+
+### 2. GREEN - Make It Pass
+- Write minimal code to pass the test
+- No optimization yet
+- Run: \`cargo test\`
+- All tests must pass
+
+### 3. REFACTOR - Clean Up
+- Improve code quality
+- Apply SOLID principles
+- Run tests after each change
+- Ensure all tests still pass
+
+### Best Practices
+- One test at a time
+- Descriptive test names
+- Test edge cases
+- Use \`cargo clippy\` for linting
+  `,
+  tags: ["testing", "tdd", "rust", "workflow"],
+  project_ids: ["a1b2c3d4"]
+})
+```
+
+**3. Code Review Guidelines**
+```javascript
+create_skill({
+  name: "Code Review Checklist",
+  description: "Comprehensive code review process",
+  instructions: `
+## Security
+- [ ] No hardcoded secrets or credentials
+- [ ] Input validation and sanitization
+- [ ] Proper error handling (no sensitive info in errors)
+- [ ] SQL injection prevention
+- [ ] XSS prevention
+
+## Code Quality
+- [ ] Follows project conventions
+- [ ] SOLID principles applied
+- [ ] No code duplication
+- [ ] Functions are small and focused
+- [ ] Meaningful variable/function names
+
+## Testing
+- [ ] New features have tests
+- [ ] Bug fixes have regression tests
+- [ ] All tests pass
+- [ ] Edge cases covered
+
+## Documentation
+- [ ] Public APIs documented
+- [ ] Complex logic has comments
+- [ ] README updated if needed
+  `,
+  tags: ["code-review", "best-practices", "checklist"]
+})
+```
+
+**4. API Integration Patterns**
+```javascript
+create_skill({
+  name: "REST API Client - Best Practices",
+  description: "Resilient HTTP client implementation patterns",
+  instructions: `
+## Client Configuration
+- Connection pooling
+- Timeouts (connect, read, total)
+- Retry logic with exponential backoff
+- Rate limiting
+
+## Error Handling
+- Retry on 5xx errors (3 attempts)
+- Don't retry on 4xx (client errors)
+- Circuit breaker pattern
+- Graceful degradation
+
+## Example (Rust + reqwest)
+\`\`\`rust
+let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(30))
+    .pool_max_idle_per_host(10)
+    .build()?;
+
+// Retry logic
+let mut attempts = 0;
+loop {
+    match client.get(url).send().await {
+        Ok(resp) if resp.status().is_success() => break Ok(resp),
+        Ok(resp) if resp.status().is_server_error() && attempts < 3 => {
+            attempts += 1;
+            sleep(Duration::from_millis(100 * 2_u64.pow(attempts))).await;
+        }
+        Ok(resp) => break Err(/* client error */),
+        Err(e) if attempts < 3 => { /* retry */ },
+        Err(e) => break Err(e),
+    }
+}
+\`\`\`
+  `,
+  tags: ["api", "http", "patterns", "rust"]
+})
+```
+
+### Searching Skills
+
+Skills support full-text search (FTS5) across all fields:
+
+```javascript
+// Find deployment-related skills
+search_skills({
+  query: "kubernetes AND deployment"
+})
+
+// Find testing skills
+search_skills({
+  query: "test* OR tdd"
+})
+
+// Combine search with tag filter
+search_skills({
+  query: "rust",
+  tags: ["workflow", "best-practices"]
+})
+
+// Find skills for a specific project
+list_skills({
+  project_id: "a1b2c3d4",
+  tags: ["deployment"]
+})
+```
+
+### Best Practices
+
+**Skill Naming:**
+- Use clear, descriptive names
+- Include technology/domain: "Deploy to K8s", "TDD Workflow - Rust"
+- Be specific: "API Error Handling" not just "Error Handling"
+
+**Instructions:**
+- Use Markdown for formatting
+- Include code examples
+- Add prerequisites
+- Document edge cases
+- Keep focused (one skill = one capability)
+
+**Tags:**
+- Use consistent tag conventions
+- Include technology: `rust`, `kubernetes`, `python`
+- Include type: `workflow`, `checklist`, `pattern`, `guideline`
+- Include domain: `deployment`, `testing`, `security`
+
+**Organization:**
+- Link skills to relevant projects
+- One skill per specific capability
+- Create variations for different tech stacks
+- Update rather than duplicate
+
+### CLI Commands
+
+```bash
+# List all skills
+c5t skill list
+
+# List skills with specific tags
+c5t skill list --tags deployment,kubernetes
+
+# List skills for a project
+c5t skill list --project-id a1b2c3d4
+
+# Search skills
+c5t skill search "kubernetes deployment"
+
+# Get skill details
+c5t skill get abc12345
+
+# Create new skill
+c5t skill create \
+  --name "Deploy to K8s" \
+  --description "Kubernetes deployment workflow" \
+  --instructions "1. Build\n2. Push\n3. Deploy" \
+  --tags deployment,kubernetes \
+  --project-ids a1b2c3d4
+
+# Update skill
+c5t skill update abc12345 \
+  --instructions "Updated instructions..."
+
+# Delete skill
+c5t skill delete abc12345 --force
+
+# Output as JSON
+c5t skill list --json
+```
+
+### Integration with Agent Workflows
+
+Skills work seamlessly with session notes and task lists:
+
+```javascript
+// 1. Find relevant skill for current task
+search_skills({ query: "deployment kubernetes" })
+// Returns: [{ id: "skill123", name: "Deploy to K8s", ... }]
+
+// 2. Get full instructions
+get_skill({ skill_id: "skill123" })
+
+// 3. Update session note with skill reference
+update_note({
+  note_id: "session_note_id",
+  content: `
+## Current Task
+Deploying microservice to K8s cluster
+
+## Using Skill
+Following skill 'Deploy to K8s' (skill123)
+
+## Progress
+- [x] Build Docker image
+- [x] Push to registry
+- [ ] Update manifests
+- [ ] Apply to cluster
+  `
+})
+
+// 4. Create task list based on skill
+create_task_list({
+  title: "Deploy Microservice",
+  description: "Following Deploy to K8s skill (skill123)",
+  tags: ["deployment", "skill:skill123"]
+})
+```
+
+### Skill vs Note
+
+**Use a Skill when:**
+- Reusable instructions/process
+- Multiple projects need same capability
+- Want to search and discover expertise
+- Standard workflow or pattern
+
+**Use a Note when:**
+- Project-specific context
+- One-time documentation
+- Meeting notes, decisions
+- Ephemeral information
+
+
 
 ## Agent-Based Workflows
 

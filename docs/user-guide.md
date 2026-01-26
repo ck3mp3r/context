@@ -137,6 +137,20 @@ backlog → todo → in_progress → review → done
 - Types: `manual` (user-created), `archived_todo` (auto-generated from completed tasks)
 - Tag-based linking: Use `parent:NOTE_ID`, `related:NOTE_ID` to chain notes
 
+### Skills
+
+**Skills** are reusable instructions and capabilities for AI agents and developers.
+
+- Store workflows, checklists, patterns, and best practices
+- Support full-text search (FTS5) across name, description, instructions, and tags
+- Can be linked to multiple projects for organization
+- Use Markdown for detailed instructions
+- Examples: "Deploy to K8s", "TDD Workflow - Rust", "Code Review Checklist"
+
+**When to use Skills vs Notes:**
+- **Skills**: Reusable processes, workflows, patterns that apply across projects
+- **Notes**: Project-specific documentation, meeting notes, one-time decisions
+
 ### IDs
 
 All entities use **8-character lowercase hexadecimal IDs** (e.g., `a1b2c3d4`).

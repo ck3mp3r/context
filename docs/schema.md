@@ -67,6 +67,17 @@ created_at TEXT
 updated_at TEXT
 ```
 
+### skill
+```sql
+id           TEXT PRIMARY KEY    -- 8-char hex
+name         TEXT NOT NULL       -- Skill name/title
+description  TEXT                -- Optional description
+instructions TEXT                -- Optional detailed instructions (Markdown)
+tags         TEXT                -- JSON array
+created_at   TEXT
+updated_at   TEXT
+```
+
 ## Relationship Tables
 
 ### project_repo
@@ -97,12 +108,26 @@ repo_id TEXT NOT NULL    -- FK to repo
 PRIMARY KEY (note_id, repo_id)
 ```
 
+### project_skill
+```sql
+project_id TEXT NOT NULL    -- FK to project
+skill_id   TEXT NOT NULL    -- FK to skill
+PRIMARY KEY (project_id, skill_id)
+```
+
 ## Full-Text Search
 
 ### note_fts
 ```sql
 -- FTS5 virtual table for note search
 -- Indexes: title, content, tags
+-- Triggered on INSERT/UPDATE/DELETE
+```
+
+### skill_fts
+```sql
+-- FTS5 virtual table for skill search
+-- Indexes: name, description, instructions, tags
 -- Triggered on INSERT/UPDATE/DELETE
 ```
 
