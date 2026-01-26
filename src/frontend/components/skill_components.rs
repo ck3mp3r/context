@@ -111,32 +111,30 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
         if let Some(UpdateMessage::SkillUpdated {
             skill_id: updated_id,
         }) = ws_updates.get()
+            && updated_id == current_skill_id
         {
-            if updated_id == current_skill_id {
-                web_sys::console::log_1(
-                    &format!(
-                        "Skill {} updated via WebSocket, refetching...",
-                        current_skill_id
-                    )
-                    .into(),
-                );
-                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-            }
+            web_sys::console::log_1(
+                &format!(
+                    "Skill {} updated via WebSocket, refetching...",
+                    current_skill_id
+                )
+                .into(),
+            );
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
         if let Some(UpdateMessage::SkillDeleted {
             skill_id: deleted_id,
         }) = ws_updates.get()
+            && deleted_id == current_skill_id
         {
-            if deleted_id == current_skill_id {
-                web_sys::console::log_1(
-                    &format!(
-                        "Skill {} deleted via WebSocket, closing modal...",
-                        current_skill_id
-                    )
-                    .into(),
-                );
-                open.set(false);
-            }
+            web_sys::console::log_1(
+                &format!(
+                    "Skill {} deleted via WebSocket, closing modal...",
+                    current_skill_id
+                )
+                .into(),
+            );
+            open.set(false);
         }
     });
 
@@ -219,16 +217,28 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
 
                                     // Title and ID
                                     <div class="mb-6">
-                                        <h2 class="text-2xl font-bold text-ctp-text mb-2">{skill.name.clone()}</h2>
-                                        <CopyableId id=skill.id.clone()/>
+                                        <div class="flex items-center gap-3 mb-2">
+                                            <CopyableId id=skill.id.clone()/>
+                                            <h2 class="text-2xl font-bold text-ctp-text">{skill.name.clone()}</h2>
+                                        </div>
                                     </div>
 
                                     // Description
                                     {skill.description.as_ref().map(|desc| {
+                                        let mut options = Options::empty();
+                                        options.insert(Options::ENABLE_STRIKETHROUGH);
+                                        options.insert(Options::ENABLE_TABLES);
+                                        options.insert(Options::ENABLE_FOOTNOTES);
+                                        options.insert(Options::ENABLE_TASKLISTS);
+
+                                        let parser = Parser::new_ext(desc, options);
+                                        let mut html_output = String::new();
+                                        html::push_html(&mut html_output, parser);
+
                                         view! {
                                             <div class="mb-6">
                                                 <h4 class="text-sm font-semibold text-ctp-subtext1 mb-2">"Description"</h4>
-                                                <p class="text-ctp-text">{desc.clone()}</p>
+                                                <div class="prose prose-invert max-w-none" inner_html=html_output></div>
                                             </div>
                                         }
                                     })}

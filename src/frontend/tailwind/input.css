@@ -192,6 +192,28 @@ body {
   flex: 1 !important;
 }
 
+.skill-detail-drawer {
+  width: 85vw !important;
+  max-width: 85vw !important;
+}
+
+/* Force the entire drawer structure to be non-scrollable and use flexbox */
+.skill-detail-drawer,
+.skill-detail-drawer > *,
+.skill-detail-drawer .thaw-overlay-drawer__content,
+.skill-detail-drawer .thaw-drawer-body {
+  height: 100% !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.skill-detail-drawer .thaw-drawer-body {
+  padding: 0 !important;
+  flex: 1 !important;
+}
+
 .task-list-detail-drawer {
   width: 95vw !important;
   max-width: 95vw !important;

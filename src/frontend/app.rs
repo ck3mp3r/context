@@ -115,15 +115,6 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                                 class:hover:text-ctp-text=move || !is_active("/notes")>
                                 "Notes"
                             </a>
-                            <a href="/repos"
-                                class="px-4 py-2 rounded-lg font-medium transition-colors"
-                                class:bg-ctp-surface2=move || is_active("/repos")
-                                class:text-ctp-text=move || is_active("/repos")
-                                class:text-ctp-subtext1=move || !is_active("/repos")
-                                class:hover:bg-ctp-surface1=move || !is_active("/repos")
-                                class:hover:text-ctp-text=move || !is_active("/repos")>
-                                "Repos"
-                            </a>
                             <a href="/skills"
                                 class="px-4 py-2 rounded-lg font-medium transition-colors"
                                 class:bg-ctp-surface2=move || is_active("/skills")
@@ -132,6 +123,15 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                                 class:hover:bg-ctp-surface1=move || !is_active("/skills")
                                 class:hover:text-ctp-text=move || !is_active("/skills")>
                                 "Skills"
+                            </a>
+                            <a href="/repos"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                class:bg-ctp-surface2=move || is_active("/repos")
+                                class:text-ctp-text=move || is_active("/repos")
+                                class:text-ctp-subtext1=move || !is_active("/repos")
+                                class:hover:bg-ctp-surface1=move || !is_active("/repos")
+                                class:hover:text-ctp-text=move || !is_active("/repos")>
+                                "Repos"
                             </a>
                         </div>
                         <ThemeSwitcher theme=catppuccin_theme/>
