@@ -92,6 +92,19 @@ pub struct Note {
     pub updated_at: String,
 }
 
+/// Skill response from API
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub instructions: Option<String>,
+    pub tags: Vec<String>,
+    pub project_ids: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Paginated response wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paginated<T> {
@@ -116,6 +129,11 @@ pub enum UpdateMessage {
     NoteCreated { note_id: String },
     NoteUpdated { note_id: String },
     NoteDeleted { note_id: String },
+
+    // Skills
+    SkillCreated { skill_id: String },
+    SkillUpdated { skill_id: String },
+    SkillDeleted { skill_id: String },
 
     // Projects
     ProjectCreated { project_id: String },

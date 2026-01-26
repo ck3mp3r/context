@@ -8,7 +8,7 @@ use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
 use crate::components::ThemeSwitcher;
-use crate::pages::{Notes, ProjectDetail, Projects, Repos};
+use crate::pages::{Notes, ProjectDetail, Projects, Repos, Skills};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
@@ -124,6 +124,15 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                                 class:hover:text-ctp-text=move || !is_active("/repos")>
                                 "Repos"
                             </a>
+                            <a href="/skills"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                class:bg-ctp-surface2=move || is_active("/skills")
+                                class:text-ctp-text=move || is_active("/skills")
+                                class:text-ctp-subtext1=move || !is_active("/skills")
+                                class:hover:bg-ctp-surface1=move || !is_active("/skills")
+                                class:hover:text-ctp-text=move || !is_active("/skills")>
+                                "Skills"
+                            </a>
                         </div>
                         <ThemeSwitcher theme=catppuccin_theme/>
                     </div>
@@ -137,6 +146,8 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                     <Route path=path!("/notes") view=Notes/>
                     <Route path=path!("/notes/:id") view=Notes/>
                     <Route path=path!("/repos") view=Repos/>
+                    <Route path=path!("/skills") view=Skills/>
+                    <Route path=path!("/skills/:id") view=Skills/>
                 </Routes>
             </div>
 

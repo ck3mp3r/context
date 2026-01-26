@@ -45,7 +45,10 @@ async fn test_list_skills_empty() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
-    assert!(body.as_array().unwrap().is_empty());
+    assert_eq!(body["items"].as_array().unwrap().len(), 0);
+    assert_eq!(body["total"], 0);
+    assert_eq!(body["limit"], 50);
+    assert_eq!(body["offset"], 0);
 }
 
 // --- ==== CRUD & Validation Tests ==== ---
@@ -362,8 +365,11 @@ async fn test_list_skills_non_empty() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let arr = json_body(response).await;
-    assert_eq!(arr.as_array().unwrap().len(), 3);
+    let body = json_body(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 3);
+    assert_eq!(body["total"], 3);
+    assert_eq!(body["limit"], 50);
+    assert_eq!(body["offset"], 0);
 }
 
 // Edge: Invalid UUID (should be consistent, but uses string keys like "skl_", so skip if UUID not enforced)

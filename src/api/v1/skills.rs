@@ -50,6 +50,14 @@ impl From<Skill> for SkillResponse {
     }
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedSkills {
+    pub items: Vec<SkillResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListSkillsQuery {
     /// Filter by tags (comma-separated)
@@ -189,7 +197,7 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     tag = "skills",
     params(ListSkillsQuery),
     responses(
-        (status = 200, description = "List of skills", body = [SkillResponse]),
+        (status = 200, description = "List of skills", body = PaginatedSkills),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -197,7 +205,7 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
 pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Query(query): Query<ListSkillsQuery>,
-) -> Result<Json<Vec<SkillResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<PaginatedSkills>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
     let repo = db.skills();
 
@@ -233,9 +241,12 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
-    Ok(Json(
-        results.items.into_iter().map(SkillResponse::from).collect(),
-    ))
+    Ok(Json(PaginatedSkills {
+        items: results.items.into_iter().map(SkillResponse::from).collect(),
+        total: results.total,
+        limit: results.limit.unwrap_or(50),
+        offset: results.offset,
+    }))
 }
 
 #[utoipa::path(

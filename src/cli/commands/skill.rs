@@ -44,6 +44,15 @@ pub struct UpdateSkillRequest {
     pub project_ids: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // total, limit, offset are part of API contract but not used in CLI
+struct SkillListResponse {
+    items: Vec<Skill>,
+    total: usize,
+    limit: usize,
+    offset: usize,
+}
+
 #[derive(Tabled)]
 pub(crate) struct SkillDisplay {
     #[tabled(rename = "ID")]
@@ -94,7 +103,7 @@ pub async fn list_skills(
         request = request.query(&[("order", ord)]);
     }
 
-    let skills: Vec<Skill> = request
+    let response: SkillListResponse = request
         .send()
         .await?
         .error_for_status()?
@@ -105,9 +114,9 @@ pub async fn list_skills(
         })?;
 
     if format == "json" {
-        Ok(serde_json::to_string_pretty(&skills)?)
+        Ok(serde_json::to_string_pretty(&response.items)?)
     } else {
-        let display: Vec<SkillDisplay> = skills.iter().map(SkillDisplay::from).collect();
+        let display: Vec<SkillDisplay> = response.items.iter().map(SkillDisplay::from).collect();
         let mut table = Table::new(display);
         apply_table_style(&mut table);
         Ok(format!("{}", table))
