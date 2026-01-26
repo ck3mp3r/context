@@ -83,6 +83,11 @@ enum Commands {
         #[command(subcommand)]
         command: RepoCommands,
     },
+    /// Skill management
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommands,
+    },
     /// Sync operations
     Sync {
         #[command(subcommand)]
@@ -307,6 +312,88 @@ enum NoteCommands {
     /// Delete a note
     Delete {
         /// Note ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillCommands {
+    /// List skills
+    List {
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
+        /// Filter by tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Maximum number of skills to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (name, created_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Get a skill by ID
+    Get {
+        /// Skill ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new skill
+    Create {
+        /// Skill name
+        #[arg(long)]
+        name: String,
+        /// Description
+        #[arg(long)]
+        description: Option<String>,
+        /// Instructions
+        #[arg(long)]
+        instructions: Option<String>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+    },
+    /// Update a skill
+    Update {
+        /// Skill ID
+        id: String,
+        /// New name
+        #[arg(long)]
+        name: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New instructions
+        #[arg(long)]
+        instructions: Option<String>,
+        /// New tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+    },
+    /// Delete a skill
+    Delete {
+        /// Skill ID
         id: String,
         /// Force deletion without confirmation
         #[arg(long)]
@@ -1036,6 +1123,84 @@ pub async fn run() -> Result<()> {
             }
             NoteCommands::Delete { id, force } => {
                 let output = commands::note::delete_note(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+        },
+        Some(Commands::Skill { command }) => match command {
+            SkillCommands::List {
+                project_id,
+                tags,
+                limit,
+                offset,
+                sort,
+                order,
+                json,
+            } => {
+                let page = commands::PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
+                let output = commands::skill::list_skills(
+                    &api_client,
+                    project_id.as_deref(),
+                    tags.as_deref(),
+                    page,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Get { id, json } => {
+                let output = commands::skill::get_skill(
+                    &api_client,
+                    &id,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Create {
+                name,
+                description,
+                instructions,
+                tags,
+                project_ids,
+            } => {
+                let output = commands::skill::create_skill(
+                    &api_client,
+                    &name,
+                    description.as_deref(),
+                    instructions.as_deref(),
+                    tags.as_deref(),
+                    project_ids.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Update {
+                id,
+                name,
+                description,
+                instructions,
+                tags,
+                project_ids,
+            } => {
+                let output = commands::skill::update_skill(
+                    &api_client,
+                    &id,
+                    name.as_deref(),
+                    description.as_deref(),
+                    instructions.as_deref(),
+                    tags.as_deref(),
+                    project_ids.as_deref(),
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Delete { id, force } => {
+                let output = commands::skill::delete_skill(&api_client, &id, force).await?;
                 println!("{}", output);
             }
         },
