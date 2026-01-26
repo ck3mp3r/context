@@ -15,6 +15,8 @@ mod projects_test;
 #[cfg(test)]
 mod repos_test;
 #[cfg(test)]
+mod skills_test;
+#[cfg(test)]
 mod task_lists_test;
 #[cfg(test)]
 mod tasks_test;

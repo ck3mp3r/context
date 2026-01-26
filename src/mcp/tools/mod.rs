@@ -32,6 +32,9 @@ mod projects_test;
 pub mod repos;
 #[cfg(test)]
 mod repos_test;
+pub mod skills;
+#[cfg(test)]
+mod skills_test;
 pub mod sync;
 #[cfg(test)]
 mod sync_test;
@@ -45,6 +48,7 @@ mod tasks_test;
 pub use notes::NoteTools;
 pub use projects::ProjectTools;
 pub use repos::RepoTools;
+pub use skills::SkillTools;
 pub use sync::SyncTools;
 pub use task_lists::TaskListTools;
 pub use tasks::TaskTools;

@@ -115,7 +115,7 @@ pub struct NoteQuery {
 }
 
 /// Query for Skills - pagination + tags/project filters.
-#[derive(Debug, Clone, Default, serde::Deserialize, utoipa::IntoParams)]
+#[derive(Debug, Clone, Default)]
 pub struct SkillQuery {
     pub page: PageSort,
     /// Filter by tags (OR logic - matches if ANY tag matches).

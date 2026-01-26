@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
-// Parameter structs will live here (TDD: add tests expecting these)
+use crate::api::notifier::ChangeNotifier;
+use crate::db::{Database, PageSort, Skill, SkillQuery, SkillRepository};
+use crate::mcp::tools::{apply_limit, map_db_error};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListSkillsParams {
@@ -70,6 +72,28 @@ pub struct UpdateSkillParams {
 pub struct DeleteSkillParams {
     #[schemars(description = "Skill ID")]
     pub skill_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SearchSkillsParams {
+    #[schemars(
+        description = "FTS5 search query. Examples: 'rust AND async' (Boolean), 'phrase', 'term*' (prefix), 'NOT deprecated' (exclude), 'api AND (error OR bug)' (complex)"
+    )]
+    pub query: String,
+    #[schemars(
+        description = "Filter results by tags (optional). Can combine with search to find e.g. session skills matching a term."
+    )]
+    pub tags: Option<Vec<String>>,
+    #[schemars(description = "Filter by project ID (optional)")]
+    pub project_id: Option<String>,
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
+    pub limit: Option<usize>,
+    #[schemars(description = "Number of results to skip (optional)")]
+    pub offset: Option<usize>,
+    #[schemars(description = "Field to sort by (name, created_at). Default: created_at")]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
 }
 
 #[derive(Clone)]
@@ -275,5 +299,52 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             "Skill {} deleted successfully",
             params.0.skill_id
         ))]))
+    }
+
+    #[tool(
+        description = "Full-text search skills (FTS5) with optional sorting. Supports: Boolean AND/OR/NOT, phrase, prefix. Filter results by tags/project_id. Sort by name, created_at. Returns metadata only (no large fields)."
+    )]
+    pub async fn search_skills(
+        &self,
+        params: Parameters<SearchSkillsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Build query
+        let query = crate::db::SkillQuery {
+            page: crate::db::PageSort {
+                limit: params.0.limit,
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(crate::db::SortOrder::Desc),
+                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            tags: params.0.tags.clone(),
+            project_id: params.0.project_id.clone(),
+        };
+
+        let result = self
+            .db
+            .skills()
+            .search(&params.0.query, Some(&query))
+            .await
+            .map_err(|e| {
+                McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                )
+            })?;
+
+        let response = serde_json::json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 }

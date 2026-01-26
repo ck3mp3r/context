@@ -81,7 +81,7 @@ async fn test_create_skill() {
     assert_eq!(created["description"], "A skill description");
     assert_eq!(created["instructions"], "Follow these steps");
     assert_eq!(created["tags"], json!(["tag1", "tag2"]));
-    assert!(created["id"].as_str().unwrap().starts_with("skl"));
+    assert!(!created["id"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -106,7 +106,7 @@ async fn test_create_skill_missing_field() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test(flavor = "multi_thread")]

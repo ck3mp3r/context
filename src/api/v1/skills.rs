@@ -7,16 +7,111 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
-use crate::db::{Database, DbError, Skill, SkillQuery, SkillRepository};
+use crate::db::{Database, DbError, PageSort, Skill, SkillQuery, SkillRepository, SortOrder};
 
 use super::ErrorResponse;
 
 // =============================================================================
 // DTOs
 // =============================================================================
+
+#[derive(Serialize, ToSchema)]
+pub struct SkillResponse {
+    #[schema(example = "skl00123")]
+    pub id: String,
+    #[schema(example = "Rust")]
+    pub name: String,
+    #[schema(example = "Low-level systems programming")]
+    pub description: Option<String>,
+    #[schema(example = "Follow the Rust Book")]
+    pub instructions: Option<String>,
+    pub tags: Vec<String>,
+    pub project_ids: Vec<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+impl From<Skill> for SkillResponse {
+    fn from(s: Skill) -> Self {
+        Self {
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            instructions: s.instructions,
+            tags: s.tags,
+            project_ids: s.project_ids,
+            created_at: s.created_at,
+            updated_at: s.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListSkillsQuery {
+    /// Filter by tags (comma-separated)
+    #[param(example = "rust,programming")]
+    pub tags: Option<String>,
+    /// Filter by project ID
+    #[param(example = "a1b2c3d4")]
+    pub project_id: Option<String>,
+    /// Maximum number of items to return
+    #[param(example = 20)]
+    pub limit: Option<usize>,
+    /// Number of items to skip
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+    /// Field to sort by (name, created_at)
+    #[param(example = "created_at")]
+    pub sort: Option<String>,
+    /// Sort order (asc, desc)
+    #[param(example = "desc")]
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateSkillRequest {
+    #[schema(example = "Rust")]
+    pub name: String,
+    #[schema(example = "Low-level systems programming")]
+    pub description: Option<String>,
+    #[schema(example = "Follow the Rust Book")]
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub project_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReplaceSkillRequest {
+    #[schema(example = "Rust")]
+    pub name: String,
+    #[schema(example = "Low-level systems programming")]
+    pub description: Option<String>,
+    #[schema(example = "Follow the Rust Book")]
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub project_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateSkillRequest {
+    #[schema(example = "Rust")]
+    pub name: Option<String>,
+    #[schema(example = "Low-level systems programming")]
+    pub description: Option<String>,
+    #[schema(example = "Follow the Rust Book")]
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub project_ids: Option<Vec<String>>,
+}
 
 // =============================================================================
 // Handlers
@@ -85,7 +180,7 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     get,
     path = "/api/v1/skills",
     tag = "skills",
-    params(SkillQuery),
+    params(ListSkillsQuery),
     responses(
         (status = 200, description = "List of skills", body = [SkillResponse]),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -94,11 +189,35 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
 /// List skills (with optional filtering/query)
 pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
-    Query(query): Query<SkillQuery>,
+    Query(query): Query<ListSkillsQuery>,
 ) -> Result<Json<Vec<SkillResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
     let repo = db.skills();
-    let results = repo.list(Some(&query)).await.map_err(|e| {
+
+    // Convert API query to DB query
+    let tags = query.tags.as_ref().map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let db_query = SkillQuery {
+        page: PageSort {
+            limit: query.limit,
+            offset: query.offset,
+            sort_by: query.sort.clone(),
+            sort_order: match query.order.as_deref() {
+                Some("desc") => Some(SortOrder::Desc),
+                Some("asc") => Some(SortOrder::Asc),
+                _ => None,
+            },
+        },
+        tags,
+        project_id: query.project_id.clone(),
+    };
+
+    let results = repo.list(Some(&db_query)).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -106,21 +225,9 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
             }),
         )
     })?;
+
     Ok(Json(
-        results
-            .items
-            .into_iter()
-            .map(|s| SkillResponse {
-                id: s.id,
-                name: s.name,
-                description: s.description,
-                instructions: s.instructions,
-                tags: s.tags,
-                project_ids: s.project_ids,
-                created_at: s.created_at,
-                updated_at: s.updated_at,
-            })
-            .collect(),
+        results.items.into_iter().map(SkillResponse::from).collect(),
     ))
 }
 
@@ -321,62 +428,4 @@ pub async fn delete_skill<D: Database, G: GitOps + Send + Sync>(
         ),
     })?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateSkillRequest {
-    #[schema(example = "Rust")]
-    pub name: String,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub project_ids: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ReplaceSkillRequest {
-    #[schema(example = "Rust")]
-    pub name: String,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub project_ids: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateSkillRequest {
-    #[schema(example = "Rust")]
-    pub name: Option<String>,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-    #[serde(default)]
-    pub project_ids: Option<Vec<String>>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct SkillResponse {
-    #[schema(example = "skl00123")]
-    pub id: String,
-    #[schema(example = "Rust")]
-    pub name: String,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
-    pub tags: Vec<String>,
-    pub project_ids: Vec<String>,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
 }
