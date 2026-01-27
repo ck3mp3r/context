@@ -3,7 +3,7 @@
 //! Coordinates git operations, export, import, and status checking.
 
 use crate::db::{
-    Database, NoteRepository, ProjectRepository, RepoRepository, SyncRepository,
+    Database, NoteRepository, ProjectRepository, RepoRepository, SkillRepository, SyncRepository,
     TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
@@ -216,6 +216,7 @@ impl<G: GitOps> SyncManager<G> {
             task_lists = summary.task_lists,
             tasks = summary.tasks,
             notes = summary.notes,
+            skills = summary.skills,
             "Export complete"
         );
 
@@ -226,6 +227,7 @@ impl<G: GitOps> SyncManager<G> {
             "lists.jsonl".to_string(),
             "tasks.jsonl".to_string(),
             "notes.jsonl".to_string(),
+            "skills.jsonl".to_string(),
         ];
         tracing::debug!("Adding files to git");
         self.git.add_files(&self.sync_dir, &files)?;
@@ -369,6 +371,7 @@ impl<G: GitOps> SyncManager<G> {
             task_lists: db.task_lists().list(None).await?.total,
             tasks: db.tasks().list(None).await?.total,
             notes: db.notes().list(None).await?.total,
+            skills: db.skills().list(None).await?.total,
         };
 
         // Count entities in JSONL files
@@ -396,13 +399,14 @@ impl<G: GitOps> SyncManager<G> {
 
     /// Count entities in JSONL files.
     async fn count_jsonl_entities(&self) -> Option<EntityCounts> {
-        use crate::db::{Note, Project, Repo, Task, TaskList};
+        use crate::db::{Note, Project, Repo, Skill, Task, TaskList};
 
         let repos: Vec<Repo> = read_jsonl(&self.sync_dir.join("repos.jsonl")).ok()?;
         let projects: Vec<Project> = read_jsonl(&self.sync_dir.join("projects.jsonl")).ok()?;
         let task_lists: Vec<TaskList> = read_jsonl(&self.sync_dir.join("lists.jsonl")).ok()?;
         let tasks: Vec<Task> = read_jsonl(&self.sync_dir.join("tasks.jsonl")).ok()?;
         let notes: Vec<Note> = read_jsonl(&self.sync_dir.join("notes.jsonl")).ok()?;
+        let skills: Vec<Skill> = read_jsonl(&self.sync_dir.join("skills.jsonl")).ok()?;
 
         Some(EntityCounts {
             repos: repos.len(),
@@ -410,6 +414,7 @@ impl<G: GitOps> SyncManager<G> {
             task_lists: task_lists.len(),
             tasks: tasks.len(),
             notes: notes.len(),
+            skills: skills.len(),
         })
     }
 }
@@ -439,10 +444,11 @@ pub struct EntityCounts {
     pub task_lists: usize,
     pub tasks: usize,
     pub notes: usize,
+    pub skills: usize,
 }
 
 impl EntityCounts {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes
+        self.repos + self.projects + self.task_lists + self.tasks + self.notes + self.skills
     }
 }

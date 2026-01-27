@@ -1,6 +1,6 @@
 use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillRepository, SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
 };
 use crate::sync::export::export_all;
 use crate::sync::import::*;
@@ -24,6 +24,7 @@ async fn test_import_empty_directory() {
     std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
     std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("skills.jsonl"), "").unwrap();
 
     let summary = import_all(&db, temp_dir.path()).await.unwrap();
 
@@ -32,6 +33,7 @@ async fn test_import_empty_directory() {
     assert_eq!(summary.task_lists, 0);
     assert_eq!(summary.tasks, 0);
     assert_eq!(summary.notes, 0);
+    assert_eq!(summary.skills, 0);
     assert_eq!(summary.total(), 0);
 }
 
@@ -415,5 +417,285 @@ async fn test_import_preserves_task_list_timestamps() {
     assert_eq!(
         imported_list.updated_at, modified_updated,
         "task_list updated_at should be preserved from import, not auto-generated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_creates_new() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a project first
+    let project = Project {
+        id: "proj0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+
+    // Create a skill
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "Test Skill".to_string(),
+        description: Some("A test skill".to_string()),
+        instructions: Some("Do something".to_string()),
+        tags: vec!["test".to_string()],
+        project_ids: vec!["proj0001".to_string()],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+
+    // Write to JSONL
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[skill]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    // Import
+    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 1);
+
+    // Verify skill was created
+    let imported_skill = db.skills().get("skill001").await.unwrap();
+    assert_eq!(imported_skill.name, "Test Skill");
+    assert_eq!(imported_skill.description, Some("A test skill".to_string()));
+    assert_eq!(
+        imported_skill.instructions,
+        Some("Do something".to_string())
+    );
+    assert_eq!(imported_skill.tags, vec!["test"]);
+    assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_updates_existing() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create project
+    let project = Project {
+        id: "proj0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+
+    // Create initial skill
+    let skill_v1 = Skill {
+        id: "skill001".to_string(),
+        name: "Original Name".to_string(),
+        description: Some("Original description".to_string()),
+        instructions: Some("Original instructions".to_string()),
+        tags: vec!["v1".to_string()],
+        project_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+    };
+    db.skills().create(&skill_v1).await.unwrap();
+
+    // Create modified version for import
+    let skill_v2 = Skill {
+        id: "skill001".to_string(),
+        name: "Updated Name".to_string(),
+        description: Some("Updated description".to_string()),
+        instructions: Some("Updated instructions".to_string()),
+        tags: vec!["v2".to_string()],
+        project_ids: vec!["proj0001".to_string()],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-02T15:00:00Z".to_string()),
+    };
+
+    // Write to JSONL
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[skill_v2]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    // Import should update
+    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 1);
+
+    // Verify only one skill exists (updated, not duplicated)
+    let skills = db.skills().list(None).await.unwrap();
+    assert_eq!(skills.items.len(), 1);
+
+    // Verify it was updated
+    let updated_skill = db.skills().get("skill001").await.unwrap();
+    assert_eq!(updated_skill.name, "Updated Name");
+    assert_eq!(
+        updated_skill.description,
+        Some("Updated description".to_string())
+    );
+    assert_eq!(
+        updated_skill.instructions,
+        Some("Updated instructions".to_string())
+    );
+    assert_eq!(updated_skill.tags, vec!["v2"]);
+    assert_eq!(updated_skill.project_ids, vec!["proj0001"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_preserves_project_relationships() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create multiple projects
+    let project1 = Project {
+        id: "proj0001".to_string(),
+        title: "Project 1".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+
+    let project2 = Project {
+        id: "proj0002".to_string(),
+        title: "Project 2".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+
+    // Create skill linked to multiple projects
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "Multi-Project Skill".to_string(),
+        description: None,
+        instructions: None,
+        tags: vec![],
+        project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+
+    // Write to JSONL
+    write_jsonl(
+        &temp_dir.path().join("projects.jsonl"),
+        &[project1, project2],
+    )
+    .unwrap();
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[skill]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    // Import
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    // Verify M:N relationships preserved
+    let imported_skill = db.skills().get("skill001").await.unwrap();
+    assert_eq!(imported_skill.project_ids.len(), 2);
+    assert!(imported_skill.project_ids.contains(&"proj0001".to_string()));
+    assert!(imported_skill.project_ids.contains(&"proj0002".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_missing_skills_file_handled_gracefully() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create other files but skip skills.jsonl
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("projects.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+    // No skills.jsonl
+
+    // Import should succeed with 0 skills
+    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_import_skills_round_trip() {
+    let db1 = setup_test_db().await;
+    let db2 = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create data in db1
+    let project = Project {
+        id: "proj0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+    db1.projects().create(&project).await.unwrap();
+
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "Round-trip Skill".to_string(),
+        description: Some("Testing round-trip".to_string()),
+        instructions: Some("Should survive export/import".to_string()),
+        tags: vec!["test".to_string(), "round-trip".to_string()],
+        project_ids: vec!["proj0001".to_string()],
+        created_at: Some("2024-01-01T12:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T15:30:00Z".to_string()),
+    };
+    db1.skills().create(&skill).await.unwrap();
+
+    // Export from db1
+    let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
+    assert_eq!(export_summary.skills, 1);
+
+    // Import to db2
+    let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
+    assert_eq!(import_summary.skills, 1);
+
+    // Verify data integrity
+    let imported_skill = db2.skills().get("skill001").await.unwrap();
+    assert_eq!(imported_skill.id, "skill001");
+    assert_eq!(imported_skill.name, "Round-trip Skill");
+    assert_eq!(
+        imported_skill.description,
+        Some("Testing round-trip".to_string())
+    );
+    assert_eq!(
+        imported_skill.instructions,
+        Some("Should survive export/import".to_string())
+    );
+    assert_eq!(imported_skill.tags, vec!["test", "round-trip"]);
+    assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
+    assert_eq!(
+        imported_skill.created_at,
+        Some("2024-01-01T12:00:00Z".to_string())
+    );
+    assert_eq!(
+        imported_skill.updated_at,
+        Some("2024-01-01T15:30:00Z".to_string())
     );
 }

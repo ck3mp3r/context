@@ -1,7 +1,8 @@
 //! Export database entities to JSONL files.
 
 use crate::db::{
-    Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
+    Database, NoteRepository, ProjectRepository, RepoRepository, SkillRepository,
+    TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::Path;
@@ -23,12 +24,13 @@ pub enum ExportError {
 
 /// Export all database entities to JSONL files in the specified directory.
 ///
-/// Creates 5 files:
+/// Creates 6 files:
 /// - repos.jsonl
 /// - projects.jsonl
 /// - lists.jsonl
 /// - tasks.jsonl
 /// - notes.jsonl
+/// - skills.jsonl
 ///
 /// # Arguments
 /// * `db` - Database instance
@@ -98,6 +100,18 @@ pub async fn export_all<D: Database>(
     summary.notes = notes.len();
     tracing::debug!(count = notes.len(), "Exported notes");
 
+    // Export skills - get full entities with relationships
+    tracing::debug!("Fetching skills");
+    let skills_list = db.skills().list(None).await?;
+    let mut skills = Vec::new();
+    for skill in skills_list.items {
+        let full_skill = db.skills().get(&skill.id).await?;
+        skills.push(full_skill);
+    }
+    write_jsonl(&output_dir.join("skills.jsonl"), &skills)?;
+    summary.skills = skills.len();
+    tracing::debug!(count = skills.len(), "Exported skills");
+
     tracing::info!(total = summary.total(), "Export all complete");
     Ok(summary)
 }
@@ -110,10 +124,11 @@ pub struct ExportSummary {
     pub task_lists: usize,
     pub tasks: usize,
     pub notes: usize,
+    pub skills: usize,
 }
 
 impl ExportSummary {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes
+        self.repos + self.projects + self.task_lists + self.tasks + self.notes + self.skills
     }
 }

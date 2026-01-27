@@ -395,3 +395,166 @@ async fn test_import_pull_twice_idempotent() {
     // Second import with pull - should work (idempotent)
     let _ = manager.import(&db, true).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_entity_counts_includes_skills_field() {
+    // Test that EntityCounts struct has skills field
+    let counts = EntityCounts {
+        repos: 1,
+        projects: 2,
+        task_lists: 3,
+        tasks: 4,
+        notes: 5,
+        skills: 6,
+    };
+
+    assert_eq!(counts.repos, 1);
+    assert_eq!(counts.projects, 2);
+    assert_eq!(counts.task_lists, 3);
+    assert_eq!(counts.tasks, 4);
+    assert_eq!(counts.notes, 5);
+    assert_eq!(counts.skills, 6);
+    assert_eq!(counts.total(), 21); // Sum of all counts
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_returns_correct_skills_count_from_db() {
+    use crate::db::{Skill, SkillRepository};
+
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+    let db = setup_test_db().await;
+
+    // Create 2 skills
+    let skill1 = Skill {
+        id: "skill001".to_string(),
+        name: "Test Skill 1".to_string(),
+        description: None,
+        instructions: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let skill2 = Skill {
+        id: "skill002".to_string(),
+        name: "Test Skill 2".to_string(),
+        description: None,
+        instructions: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.skills().create(&skill1).await.unwrap();
+    db.skills().create(&skill2).await.unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    let status = manager.status(&db).await.unwrap();
+
+    assert!(status.initialized);
+    assert!(status.db_counts.is_some());
+    let db_counts = status.db_counts.unwrap();
+    assert_eq!(db_counts.skills, 2, "Should count 2 skills from DB");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_jsonl_entities_counts_skills_jsonl() {
+    use crate::db::Skill;
+    use crate::sync::write_jsonl;
+
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+    let db = setup_test_db().await;
+
+    // Create empty JSONL files for other entities
+    write_jsonl::<crate::db::Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
+    write_jsonl::<crate::db::Project>(&temp_dir.path().join("projects.jsonl"), &[]).unwrap();
+    write_jsonl::<crate::db::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
+    write_jsonl::<crate::db::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
+    write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+
+    // Create skills.jsonl with 3 test skills
+    let skills = vec![
+        Skill {
+            id: "skill001".to_string(),
+            name: "Skill 1".to_string(),
+            description: None,
+            instructions: None,
+            tags: vec![],
+            project_ids: vec![],
+            created_at: None,
+            updated_at: None,
+        },
+        Skill {
+            id: "skill002".to_string(),
+            name: "Skill 2".to_string(),
+            description: None,
+            instructions: None,
+            tags: vec![],
+            project_ids: vec![],
+            created_at: None,
+            updated_at: None,
+        },
+        Skill {
+            id: "skill003".to_string(),
+            name: "Skill 3".to_string(),
+            description: None,
+            instructions: None,
+            tags: vec![],
+            project_ids: vec![],
+            created_at: None,
+            updated_at: None,
+        },
+    ];
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &skills).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    let status = manager.status(&db).await.unwrap();
+
+    assert!(status.jsonl_counts.is_some());
+    let counts = status.jsonl_counts.unwrap();
+    assert_eq!(counts.skills, 3, "Should count 3 skills from skills.jsonl");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_adds_skills_jsonl_to_git_files() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+    let db = setup_test_db().await;
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_add_files()
+        .times(1)
+        .withf(|_, files: &[String]| {
+            // Verify that skills.jsonl is included in the files list
+            files.contains(&"skills.jsonl".to_string())
+        })
+        .returning(|_, _| Ok(mock_output(0, "", "")));
+    mock_git
+        .expect_commit()
+        .times(1)
+        .returning(|_, _| Ok(mock_output(0, "commit successful", "")));
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    let result = manager.export(&db, None, false).await;
+
+    assert!(result.is_ok());
+}

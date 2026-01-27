@@ -1,8 +1,8 @@
 //! Import JSONL files into database.
 
 use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Task,
-    TaskList, TaskListRepository, TaskRepository,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::Path;
@@ -28,12 +28,13 @@ pub enum ImportError {
 
 /// Import all JSONL files from the specified directory into the database.
 ///
-/// Reads 5 files:
+/// Reads 6 files:
 /// - repos.jsonl
 /// - projects.jsonl
 /// - lists.jsonl
 /// - tasks.jsonl
 /// - notes.jsonl
+/// - skills.jsonl
 ///
 /// Uses upsert logic: if entity exists (by ID), update it; otherwise create it.
 ///
@@ -56,6 +57,7 @@ pub async fn import_all<D: Database>(
     // 3. Task Lists (references projects)
     // 4. Tasks (references task_lists)
     // 5. Notes (can reference projects and repos)
+    // 6. Skills (can reference projects)
 
     // Import projects FIRST (no dependencies)
     let projects_file = input_dir.join("projects.jsonl");
@@ -152,6 +154,25 @@ pub async fn import_all<D: Database>(
         tracing::debug!(count = summary.notes, "Imported notes");
     }
 
+    // Import skills
+    let skills_file = input_dir.join("skills.jsonl");
+    if skills_file.exists() {
+        tracing::debug!("Importing skills");
+        let skills: Vec<Skill> = read_jsonl(&skills_file)?;
+        for skill in skills {
+            match db.skills().get(&skill.id).await {
+                Ok(_existing) => {
+                    db.skills().update(&skill).await?;
+                }
+                Err(_) => {
+                    db.skills().create(&skill).await?;
+                }
+            }
+            summary.skills += 1;
+        }
+        tracing::debug!(count = summary.skills, "Imported skills");
+    }
+
     tracing::info!(total = summary.total(), "Import all complete");
     Ok(summary)
 }
@@ -164,10 +185,11 @@ pub struct ImportSummary {
     pub task_lists: usize,
     pub tasks: usize,
     pub notes: usize,
+    pub skills: usize,
 }
 
 impl ImportSummary {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes
+        self.repos + self.projects + self.task_lists + self.tasks + self.notes + self.skills
     }
 }

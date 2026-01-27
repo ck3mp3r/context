@@ -1,6 +1,6 @@
 use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    SqliteDatabase,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillRepository, SqliteDatabase,
 };
 use crate::sync::export::*;
 use crate::sync::jsonl::read_jsonl;
@@ -25,6 +25,7 @@ async fn test_export_empty_database() {
     assert_eq!(summary.task_lists, 0);
     assert_eq!(summary.tasks, 0);
     assert_eq!(summary.notes, 0);
+    assert_eq!(summary.skills, 0);
 
     // Verify files exist
     assert!(temp_dir.path().join("repos.jsonl").exists());
@@ -32,6 +33,7 @@ async fn test_export_empty_database() {
     assert!(temp_dir.path().join("lists.jsonl").exists());
     assert!(temp_dir.path().join("tasks.jsonl").exists());
     assert!(temp_dir.path().join("notes.jsonl").exists());
+    assert!(temp_dir.path().join("skills.jsonl").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -91,13 +93,14 @@ async fn test_export_creates_all_files() {
 
     export_all(&db, temp_dir.path()).await.unwrap();
 
-    // All 5 files should exist
+    // All 6 files should exist
     let expected_files = [
         "repos.jsonl",
         "projects.jsonl",
         "lists.jsonl",
         "tasks.jsonl",
         "notes.jsonl",
+        "skills.jsonl",
     ];
 
     for file in &expected_files {
@@ -181,4 +184,156 @@ async fn test_export_includes_relationships() {
 
     // Verify repo relationships are exported
     assert_eq!(exported_repo.project_ids, vec!["proj0001"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_empty() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+
+    // Skills should be 0 in empty database
+    assert_eq!(summary.skills, 0);
+
+    // Skills file should exist even when empty
+    assert!(temp_dir.path().join("skills.jsonl").exists());
+
+    // File should be valid JSONL (empty array when read)
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_with_data() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a project first
+    let project = Project {
+        id: "proj0001".to_string(),
+        title: "Test Project".to_string(),
+        description: Some("A test project".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+    db.projects().create(&project).await.unwrap();
+
+    // Create a skill with project relationship
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "Test Skill".to_string(),
+        description: Some("A test skill".to_string()),
+        instructions: Some("Do something".to_string()),
+        tags: vec!["test".to_string(), "export".to_string()],
+        project_ids: vec!["proj0001".to_string()],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills().create(&skill).await.unwrap();
+
+    // Export
+    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+
+    // Verify summary includes skills
+    assert_eq!(summary.skills, 1);
+    assert_eq!(summary.total(), 2); // 1 project + 1 skill
+
+    // Read back the exported skill
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 1);
+
+    let exported_skill = &skills[0];
+    assert_eq!(exported_skill.id, "skill001");
+    assert_eq!(exported_skill.name, "Test Skill");
+    assert_eq!(exported_skill.description, Some("A test skill".to_string()));
+    assert_eq!(
+        exported_skill.instructions,
+        Some("Do something".to_string())
+    );
+    assert_eq!(exported_skill.tags, vec!["test", "export"]);
+    assert_eq!(exported_skill.project_ids, vec!["proj0001"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_preserves_relationships() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create multiple projects
+    let project1 = Project {
+        id: "proj0001".to_string(),
+        title: "Project 1".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+    db.projects().create(&project1).await.unwrap();
+
+    let project2 = Project {
+        id: "proj0002".to_string(),
+        title: "Project 2".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+    };
+    db.projects().create(&project2).await.unwrap();
+
+    // Create skill linked to multiple projects
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "Multi-Project Skill".to_string(),
+        description: None,
+        instructions: None,
+        tags: vec![],
+        project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills().create(&skill).await.unwrap();
+
+    // Create skill with no projects
+    let skill_no_projects = Skill {
+        id: "skill002".to_string(),
+        name: "Standalone Skill".to_string(),
+        description: None,
+        instructions: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills().create(&skill_no_projects).await.unwrap();
+
+    // Export
+    export_all(&db, temp_dir.path()).await.unwrap();
+
+    // Read back the exported skills
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 2);
+
+    // Verify multi-project skill
+    let multi_project = skills.iter().find(|s| s.id == "skill001").unwrap();
+    assert_eq!(multi_project.project_ids.len(), 2);
+    assert!(multi_project.project_ids.contains(&"proj0001".to_string()));
+    assert!(multi_project.project_ids.contains(&"proj0002".to_string()));
+
+    // Verify standalone skill
+    let standalone = skills.iter().find(|s| s.id == "skill002").unwrap();
+    assert_eq!(standalone.project_ids.len(), 0);
 }

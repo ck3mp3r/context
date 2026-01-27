@@ -3,7 +3,7 @@
 use sqlx::SqlitePool;
 use std::path::Path;
 
-use crate::db::{DbError, DbResult, Note, Project, Repo, SyncRepository, Task, TaskList};
+use crate::db::{DbError, DbResult, Note, Project, Repo, Skill, SyncRepository, Task, TaskList};
 use crate::sync::{ExportSummary, ImportSummary, read_jsonl};
 
 /// SQLite-specific sync repository.
@@ -79,6 +79,7 @@ async fn import_all_with_transaction(
     // 3. Task Lists (references projects)
     // 4. Tasks (references task_lists and optionally parent tasks)
     // 5. Notes (can reference projects and repos)
+    // 6. Skills (can reference projects via project_skill M:N)
 
     // ========== Import Projects ==========
     let projects_file = input_dir.join("projects.jsonl");
@@ -302,6 +303,52 @@ async fn import_all_with_transaction(
         }
     }
 
+    // ========== Import Skills ==========
+    let skills_file = input_dir.join("skills.jsonl");
+    if skills_file.exists() {
+        let skills: Vec<Skill> = read_jsonl(&skills_file)?;
+        for skill in skills {
+            // Upsert skill
+            sqlx::query(
+                "INSERT INTO skill (id, name, description, instructions, tags, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   name = excluded.name,
+                   description = excluded.description,
+                   instructions = excluded.instructions,
+                   tags = excluded.tags,
+                   updated_at = excluded.updated_at",
+            )
+            .bind(&skill.id)
+            .bind(&skill.name)
+            .bind(&skill.description)
+            .bind(&skill.instructions)
+            .bind(serde_json::to_string(&skill.tags)?)
+            .bind(&skill.created_at)
+            .bind(&skill.updated_at)
+            .execute(&mut **tx)
+            .await?;
+
+            // Handle project_skill M:N relationships
+            // Delete existing relationships for this skill
+            sqlx::query("DELETE FROM project_skill WHERE skill_id = ?")
+                .bind(&skill.id)
+                .execute(&mut **tx)
+                .await?;
+
+            // Insert new relationships
+            for project_id in &skill.project_ids {
+                sqlx::query("INSERT INTO project_skill (project_id, skill_id) VALUES (?, ?)")
+                    .bind(project_id)
+                    .bind(&skill.id)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+
+            summary.skills += 1;
+        }
+    }
+
     Ok(summary)
 }
 
@@ -313,11 +360,12 @@ async fn export_all_from_pool(
     output_dir: &Path,
 ) -> Result<ExportSummary, Box<dyn std::error::Error + Send + Sync>> {
     use crate::db::sqlite::{
-        SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository,
+        SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSkillRepository,
         SqliteTaskListRepository, SqliteTaskRepository,
     };
     use crate::db::{
-        NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
+        NoteRepository, ProjectRepository, RepoRepository, SkillRepository, TaskListRepository,
+        TaskRepository,
     };
     use crate::sync::write_jsonl;
 
@@ -372,6 +420,17 @@ async fn export_all_from_pool(
     }
     write_jsonl(&output_dir.join("notes.jsonl"), &notes)?;
     summary.notes = notes.len();
+
+    // Export skills - get full entities with relationships
+    let skills_repo = SqliteSkillRepository { pool };
+    let skills_list = skills_repo.list(None).await?;
+    let mut skills = Vec::new();
+    for skill in skills_list.items {
+        let full_skill = skills_repo.get(&skill.id).await?;
+        skills.push(full_skill);
+    }
+    write_jsonl(&output_dir.join("skills.jsonl"), &skills)?;
+    summary.skills = skills.len();
 
     Ok(summary)
 }
