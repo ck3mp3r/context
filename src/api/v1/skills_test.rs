@@ -409,3 +409,224 @@ async fn test_list_skills_non_empty() {
 // Edge: Add/modify more detailed validation tests if Skill fields are restricted further
 
 // If filtering, sorting, or pagination implemented for Skill, add tests mirroring notes_test.rs here as well.
+
+// --- ==== Agent Skills Specification Tests ==== ---
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_skill_with_agent_skills_fields() {
+    let app = test_app().await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "agent-skill",
+                        "description": "A skill with Agent Skills metadata",
+                        "instructions": "Follow these steps",
+                        "tags": ["agent", "spec"],
+                        "license": "MIT",
+                        "compatibility": "opencode>=0.1.0",
+                        "allowed_tools": ["read", "write", "edit"],
+                        "metadata": {"author": "test", "version": "1.0.0"},
+                        "origin_url": "https://github.com/example/skill",
+                        "origin_ref": "main",
+                        "project_ids": []
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created = json_body(response).await;
+    assert_eq!(created["name"], "agent-skill");
+    assert_eq!(created["license"], "MIT");
+    assert_eq!(created["compatibility"], "opencode>=0.1.0");
+    assert_eq!(created["allowed_tools"], json!(["read", "write", "edit"]));
+    assert_eq!(
+        created["metadata"],
+        json!({"author": "test", "version": "1.0.0"})
+    );
+    assert_eq!(created["origin_url"], "https://github.com/example/skill");
+    assert_eq!(created["origin_ref"], "main");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_skill_returns_agent_skills_fields() {
+    let app = test_app().await;
+
+    // Create skill with all fields
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "full-skill",
+                        "description": "Complete skill",
+                        "instructions": "Instructions",
+                        "license": "Apache-2.0",
+                        "compatibility": "opencode>=0.2.0",
+                        "allowed_tools": ["grep", "glob"],
+                        "metadata": {"category": "development"},
+                        "origin_url": "git://example.com/repo.git",
+                        "origin_ref": "v1.0.0"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = json_body(response).await;
+    let id = created["id"].as_str().unwrap();
+
+    // GET should return all fields
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/skills/{}", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let got = json_body(response).await;
+    assert_eq!(got["id"], id);
+    assert_eq!(got["name"], "full-skill");
+    assert_eq!(got["license"], "Apache-2.0");
+    assert_eq!(got["compatibility"], "opencode>=0.2.0");
+    assert_eq!(got["allowed_tools"], json!(["grep", "glob"]));
+    assert_eq!(got["metadata"], json!({"category": "development"}));
+    assert_eq!(got["origin_url"], "git://example.com/repo.git");
+    assert_eq!(got["origin_ref"], "v1.0.0");
+    // origin_fetched_at and origin_metadata are auto-managed, not user-provided
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_skill_agent_skills_fields() {
+    let app = test_app().await;
+
+    // Create minimal skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "patch-test",
+                        "description": "Initial description",
+                        "instructions": "Initial instructions"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = json_body(response).await;
+    let id = created["id"].as_str().unwrap();
+
+    // PATCH with Agent Skills fields
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/skills/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "license": "MIT",
+                        "compatibility": "opencode>=1.0.0",
+                        "allowed_tools": ["task"],
+                        "origin_url": "https://agentskills.io/skills/example"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let patched = json_body(response).await;
+    assert_eq!(patched["id"], id);
+    assert_eq!(patched["license"], "MIT");
+    assert_eq!(patched["compatibility"], "opencode>=1.0.0");
+    assert_eq!(patched["allowed_tools"], json!(["task"]));
+    assert_eq!(
+        patched["origin_url"],
+        "https://agentskills.io/skills/example"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_skill_agent_skills_fields() {
+    let app = test_app().await;
+
+    // Create skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "put-test",
+                        "description": "Test",
+                        "instructions": "Test"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = json_body(response).await;
+    let id = created["id"].as_str().unwrap();
+
+    // PUT (full replacement) with Agent Skills fields
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/skills/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "replaced-skill",
+                        "description": "Replaced",
+                        "instructions": "New instructions",
+                        "license": "GPL-3.0",
+                        "metadata": {"type": "utility"}
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let put = json_body(response).await;
+    assert_eq!(put["id"], id);
+    assert_eq!(put["name"], "replaced-skill");
+    assert_eq!(put["license"], "GPL-3.0");
+    assert_eq!(put["metadata"], json!({"type": "utility"}));
+}

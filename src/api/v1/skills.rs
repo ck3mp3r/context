@@ -30,6 +30,18 @@ pub struct SkillResponse {
     #[schema(example = "Follow the Rust Book")]
     pub instructions: Option<String>,
     pub tags: Vec<String>,
+    #[schema(example = "MIT")]
+    pub license: Option<String>,
+    #[schema(example = "opencode>=0.1.0")]
+    pub compatibility: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    #[schema(example = "https://github.com/example/skill")]
+    pub origin_url: Option<String>,
+    #[schema(example = "main")]
+    pub origin_ref: Option<String>,
+    pub origin_fetched_at: Option<String>,
+    pub origin_metadata: Option<serde_json::Value>,
     pub project_ids: Vec<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
@@ -43,6 +55,16 @@ impl From<Skill> for SkillResponse {
             description: s.description,
             instructions: s.instructions,
             tags: s.tags,
+            license: s.license,
+            compatibility: s.compatibility,
+            allowed_tools: s
+                .allowed_tools
+                .and_then(|json| serde_json::from_str(&json).ok()),
+            metadata: s.metadata,
+            origin_url: s.origin_url,
+            origin_ref: s.origin_ref,
+            origin_fetched_at: s.origin_fetched_at,
+            origin_metadata: s.origin_metadata,
             project_ids: s.project_ids,
             created_at: s.created_at,
             updated_at: s.updated_at,
@@ -90,6 +112,16 @@ pub struct CreateSkillRequest {
     pub instructions: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[schema(example = "MIT")]
+    pub license: Option<String>,
+    #[schema(example = "opencode>=0.1.0")]
+    pub compatibility: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    #[schema(example = "https://github.com/example/skill")]
+    pub origin_url: Option<String>,
+    #[schema(example = "main")]
+    pub origin_ref: Option<String>,
     #[serde(default)]
     pub project_ids: Vec<String>,
 }
@@ -104,6 +136,16 @@ pub struct ReplaceSkillRequest {
     pub instructions: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[schema(example = "MIT")]
+    pub license: Option<String>,
+    #[schema(example = "opencode>=0.1.0")]
+    pub compatibility: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    #[schema(example = "https://github.com/example/skill")]
+    pub origin_url: Option<String>,
+    #[schema(example = "main")]
+    pub origin_ref: Option<String>,
     #[serde(default)]
     pub project_ids: Vec<String>,
 }
@@ -118,6 +160,16 @@ pub struct UpdateSkillRequest {
     pub instructions: Option<String>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    #[schema(example = "MIT")]
+    pub license: Option<String>,
+    #[schema(example = "opencode>=0.1.0")]
+    pub compatibility: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    #[schema(example = "https://github.com/example/skill")]
+    pub origin_url: Option<String>,
+    #[schema(example = "main")]
+    pub origin_ref: Option<String>,
     #[serde(default)]
     pub project_ids: Option<Vec<String>>,
 }
@@ -164,6 +216,14 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     skill.description = req.description;
     skill.instructions = req.instructions;
     skill.tags = req.tags;
+    skill.license = req.license;
+    skill.compatibility = req.compatibility;
+    skill.allowed_tools = req
+        .allowed_tools
+        .map(|v| serde_json::to_string(&v).unwrap());
+    skill.metadata = req.metadata;
+    skill.origin_url = req.origin_url;
+    skill.origin_ref = req.origin_ref;
     skill.project_ids = req.project_ids;
     repo.update(&skill).await.map_err(|e| {
         (
@@ -179,16 +239,7 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
         skill_id: skill.id.clone(),
     });
 
-    Ok(Json(SkillResponse {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        instructions: skill.instructions,
-        tags: skill.tags,
-        project_ids: skill.project_ids,
-        created_at: skill.created_at,
-        updated_at: skill.updated_at,
-    }))
+    Ok(Json(SkillResponse::from(skill)))
 }
 
 #[utoipa::path(
@@ -281,16 +332,7 @@ pub async fn get_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
-    Ok(Json(SkillResponse {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        instructions: skill.instructions,
-        tags: skill.tags,
-        project_ids: skill.project_ids,
-        created_at: skill.created_at,
-        updated_at: skill.updated_at,
-    }))
+    Ok(Json(SkillResponse::from(skill)))
 }
 
 #[utoipa::path(
@@ -317,12 +359,14 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         description: req.description,
         instructions: req.instructions,
         tags: req.tags,
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
+        license: req.license,
+        compatibility: req.compatibility,
+        allowed_tools: req
+            .allowed_tools
+            .map(|v| serde_json::to_string(&v).unwrap()),
+        metadata: req.metadata,
+        origin_url: req.origin_url,
+        origin_ref: req.origin_ref,
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: req.project_ids,
@@ -343,19 +387,7 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         skill_id: created.id.clone(),
     });
 
-    Ok((
-        StatusCode::CREATED,
-        Json(SkillResponse {
-            id: created.id,
-            name: created.name,
-            description: created.description,
-            instructions: created.instructions,
-            tags: created.tags,
-            project_ids: created.project_ids,
-            created_at: created.created_at,
-            updated_at: created.updated_at,
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(SkillResponse::from(created))))
 }
 
 #[utoipa::path(
@@ -404,6 +436,24 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
     if let Some(tags) = req.tags {
         skill.tags = tags;
     }
+    if let Some(license) = req.license {
+        skill.license = Some(license);
+    }
+    if let Some(compatibility) = req.compatibility {
+        skill.compatibility = Some(compatibility);
+    }
+    if let Some(allowed_tools) = req.allowed_tools {
+        skill.allowed_tools = Some(serde_json::to_string(&allowed_tools).unwrap());
+    }
+    if let Some(metadata) = req.metadata {
+        skill.metadata = Some(metadata);
+    }
+    if let Some(origin_url) = req.origin_url {
+        skill.origin_url = Some(origin_url);
+    }
+    if let Some(origin_ref) = req.origin_ref {
+        skill.origin_ref = Some(origin_ref);
+    }
     if let Some(project_ids) = req.project_ids {
         skill.project_ids = project_ids;
     }
@@ -421,16 +471,7 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
         skill_id: skill.id.clone(),
     });
 
-    Ok(Json(SkillResponse {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        instructions: skill.instructions,
-        tags: skill.tags,
-        project_ids: skill.project_ids,
-        created_at: skill.created_at,
-        updated_at: skill.updated_at,
-    }))
+    Ok(Json(SkillResponse::from(skill)))
 }
 
 #[utoipa::path(
