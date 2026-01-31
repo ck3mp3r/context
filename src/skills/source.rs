@@ -2,8 +2,9 @@
 //!
 //! This module handles parsing source URLs and fetching skill sources from:
 //! - Git repositories (git+https, git+ssh)
-//! - HTTP/HTTPS archives (.zip, .tar.gz)
 //! - Local filesystem paths (file://, relative, absolute)
+//!
+//! NOTE: HTTP/HTTPS archives not yet supported
 
 use std::path::PathBuf;
 use thiserror::Error;
@@ -45,34 +46,97 @@ pub enum SourceType {
         repo_url: String,
         path: Option<String>,
     },
-    /// Local filesystem path
+    /// Local filesystem path (file://, /absolute, or ./relative)
     LocalPath { path: PathBuf },
-    /// file:// URI
-    FileUri { path: PathBuf },
-    /// HTTP/HTTPS archive (.zip, .tar.gz, etc.)
-    HttpArchive { url: String, extension: String },
 }
 
-/// Parse a source URL/path string into a SourceType
+/// Parse a source URL string into a SourceType
 ///
-/// Examples:
+/// Supported formats:
 /// - `git+https://github.com/user/repo/path/to/skill` → GitHttps with path
 /// - `git+ssh://git@github.com/user/repo` → GitSsh
-/// - `file:///absolute/path` → FileUri
-/// - `/absolute/path` → LocalPath
-/// - `./relative/path` → LocalPath
-/// - `https://example.com/skill.zip` → HttpArchive
+/// - `file:///absolute/path` → LocalPath
+/// - `/absolute/path` → LocalPath (if exists)
+/// - `./relative/path` → LocalPath (if exists)
+///
+/// The URL format embeds the subpath after the repo:
+/// `git+https://domain/org/repo/path/to/skill`
+///                    ^^^^^^^^^^^^^^^^ ^^^^^^^^^^^^^^
+///                    repo URL         subpath (optional)
 pub fn parse_source(source: &str) -> Result<SourceType, SourceError> {
-    // TODO: Implement source parsing
-    // 1. Check for git+https:// or git+ssh:// prefix
-    // 2. Check for file:// prefix
-    // 3. Check for https:// or http:// (archive)
-    // 4. Check if path exists locally (relative or absolute)
-    // 5. Return error if no match
+    let source = source.trim();
 
-    Err(SourceError::InvalidUrl(
-        "Source parsing not yet implemented".to_string(),
-    ))
+    // 1. Check for git+https://
+    if source.starts_with("git+https://") {
+        return parse_git_url(source, "git+https://", false);
+    }
+
+    // 2. Check for git+ssh://
+    if source.starts_with("git+ssh://") {
+        return parse_git_url(source, "git+ssh://", true);
+    }
+
+    // 3. Check for file:// URI (strip prefix and treat as local path)
+    if source.starts_with("file://") {
+        let path = source.trim_start_matches("file://");
+        return Ok(SourceType::LocalPath {
+            path: PathBuf::from(path),
+        });
+    }
+
+    // 4. Check if it's a local path (relative or absolute)
+    let path = PathBuf::from(source);
+    if path.exists() {
+        return Ok(SourceType::LocalPath { path });
+    }
+
+    // No match
+    Err(SourceError::InvalidUrl(format!(
+        "Unsupported source: '{}'. Supported: git+https://, git+ssh://, file://, or existing local path",
+        source
+    )))
+}
+
+/// Parse git+https:// or git+ssh:// URL
+///
+/// Format: git+https://github.com/user/repo/path/to/skill
+///         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^----^^^^^^^^^^^
+///         prefix     repo_url                 subpath (optional)
+fn parse_git_url(source: &str, prefix: &str, is_ssh: bool) -> Result<SourceType, SourceError> {
+    let without_prefix = source.trim_start_matches(prefix);
+
+    // Split by '/' to find components
+    let parts: Vec<&str> = without_prefix.split('/').collect();
+
+    // Need at least domain/org/repo (3 parts)
+    if parts.len() < 3 {
+        return Err(SourceError::InvalidUrl(format!(
+            "Invalid git URL format: '{}'. Expected: {}domain/org/repo[/path]",
+            source, prefix
+        )));
+    }
+
+    // Reconstruct repo URL: prefix + domain/org/repo
+    let repo_url = format!("{}{}/{}/{}", prefix, parts[0], parts[1], parts[2]);
+
+    // Extract optional subpath (everything after domain/org/repo)
+    let subpath = if parts.len() > 3 {
+        Some(parts[3..].join("/"))
+    } else {
+        None
+    };
+
+    if is_ssh {
+        Ok(SourceType::GitSsh {
+            repo_url,
+            path: subpath,
+        })
+    } else {
+        Ok(SourceType::GitHttps {
+            repo_url,
+            path: subpath,
+        })
+    }
 }
 
 /// Fetch source to a temporary directory
@@ -95,14 +159,85 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_git_https_simple() {
+        let result = parse_source("git+https://github.com/user/repo");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            SourceType::GitHttps { repo_url, path } => {
+                assert_eq!(repo_url, "git+https://github.com/user/repo");
+                assert_eq!(path, None);
+            }
+            _ => panic!("Expected GitHttps variant"),
+        }
+    }
+
+    #[test]
     fn test_parse_git_https_with_path() {
         let result = parse_source("git+https://github.com/user/repo/skills/rust");
-        assert!(result.is_err()); // Placeholder until implemented
+        assert!(result.is_ok());
+        match result.unwrap() {
+            SourceType::GitHttps { repo_url, path } => {
+                assert_eq!(repo_url, "git+https://github.com/user/repo");
+                assert_eq!(path, Some("skills/rust".to_string()));
+            }
+            _ => panic!("Expected GitHttps variant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_git_ssh() {
+        let result = parse_source("git+ssh://git@github.com/user/repo");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            SourceType::GitSsh { repo_url, path } => {
+                assert_eq!(repo_url, "git+ssh://git@github.com/user/repo");
+                assert_eq!(path, None);
+            }
+            _ => panic!("Expected GitSsh variant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_file_uri() {
+        let result = parse_source("file:///tmp/skill");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            SourceType::LocalPath { path } => {
+                assert_eq!(path, PathBuf::from("/tmp/skill"));
+            }
+            _ => panic!("Expected LocalPath variant"),
+        }
     }
 
     #[test]
     fn test_parse_local_path() {
-        let result = parse_source("/tmp/skills/rust");
-        assert!(result.is_err()); // Placeholder until implemented
+        // Create a temp file to test with
+        let temp = std::env::temp_dir();
+        let result = parse_source(temp.to_str().unwrap());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            SourceType::LocalPath { path } => {
+                assert_eq!(path, temp);
+            }
+            _ => panic!("Expected LocalPath variant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_invalid_git_url() {
+        let result = parse_source("git+https://github.com/user");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_nonexistent_path() {
+        let result = parse_source("/this/path/does/not/exist");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_unsupported_protocol() {
+        let result = parse_source("https://example.com/skill.zip");
+        assert!(result.is_err());
     }
 }
