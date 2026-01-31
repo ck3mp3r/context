@@ -449,7 +449,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         })?;
 
         // Invalidate cache after successful update
-        crate::cache::invalidate_skill_cache(&skill.id)?;
+        crate::skills::invalidate_cache(&skill.id)?;
 
         Ok(())
     }
@@ -470,7 +470,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         }
 
         // Invalidate cache after successful delete
-        crate::cache::invalidate_skill_cache(id)?;
+        crate::skills::invalidate_cache(id)?;
 
         Ok(())
     }

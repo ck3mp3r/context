@@ -134,7 +134,7 @@ pub fn extract_attachments(
 ///
 /// # Arguments
 /// * `skill_id` - Skill ID to invalidate cache for
-pub fn invalidate_skill_cache(skill_id: &str) -> Result<(), DbError> {
+pub fn invalidate_cache(skill_id: &str) -> Result<(), DbError> {
     let cache_dir = get_skill_cache_dir(skill_id);
 
     if cache_dir.exists() {
@@ -249,12 +249,12 @@ mod tests {
         }
 
         // Cleanup
-        invalidate_skill_cache(&skill_id).unwrap();
+        invalidate_cache(&skill_id).unwrap();
         assert!(!cache_dir.exists());
     }
 
     #[test]
-    fn test_invalidate_skill_cache() {
+    fn test_invalidate_cache() {
         use crate::db::utils::generate_entity_id;
 
         let skill_id = generate_entity_id();
@@ -265,10 +265,10 @@ mod tests {
         assert!(cache_dir.exists());
 
         // Invalidate
-        invalidate_skill_cache(&skill_id).unwrap();
+        invalidate_cache(&skill_id).unwrap();
         assert!(!cache_dir.exists());
 
         // Invalidating non-existent cache should not error
-        invalidate_skill_cache(&skill_id).unwrap();
+        invalidate_cache(&skill_id).unwrap();
     }
 }

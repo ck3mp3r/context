@@ -279,3 +279,36 @@ pub async fn delete_skill(api_client: &ApiClient, id: &str, force: bool) -> CliR
 
     Ok(format!("Deleted skill: {}", id))
 }
+
+/// Import a skill from a source
+///
+/// Source formats:
+/// - Local: ./path/to/skill, /abs/path/to/skill, file:///path/to/skill
+/// - Git: git+https://github.com/user/repo/path/to/skill, git+ssh://git@github.com/user/repo/path/to/skill
+/// - Archive: https://example.com/skill.zip, https://example.com/skill.tar.gz
+///
+/// The path within the source can be:
+/// 1. Embedded in the URL (e.g., git+https://github.com/user/repo/path/to/skill)
+/// 2. Specified via --path flag (e.g., --path path/to/skill)
+///
+/// This function:
+/// 1. Parses the source URL to extract protocol, repo, and path
+/// 2. Fetches the source (clone git repo, download archive, or use local path)
+/// 3. Navigates to the specified path within the source
+/// 4. Parses SKILL.md (frontmatter + body)
+/// 5. Scans scripts/, references/, assets/ directories
+/// 6. Encodes attachments as base64
+/// 7. POSTs to /api/v1/skills with complete skill data
+pub async fn import_skill(
+    api_client: &ApiClient,
+    source: &str,
+    path_override: Option<&str>,
+    project_ids: Option<Vec<String>>,
+) -> CliResult<String> {
+    // TODO: Tasks 2.6, 2.7, 2.8
+    let _path_override = path_override;
+    let _project_ids = project_ids;
+    let _api_client = api_client;
+
+    Ok(format!("Import from '{}' not yet implemented", source))
+}

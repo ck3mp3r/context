@@ -435,6 +435,17 @@ enum SkillCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Import a skill from a source (local path, git repository, or archive URL)
+    Import {
+        /// Source location (examples: ./path, /abs/path, file:///path, git+https://github.com/user/repo, https://example.com/skill.zip)
+        source: String,
+        /// Subpath within the source (optional, for monorepos with multiple skills)
+        #[arg(long)]
+        path: Option<String>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1262,6 +1273,22 @@ pub async fn run() -> Result<()> {
             }
             SkillCommands::Delete { id, force } => {
                 let output = commands::skill::delete_skill(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            SkillCommands::Import {
+                source,
+                path,
+                project_ids,
+            } => {
+                let project_id_vec =
+                    project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect());
+                let output = commands::skill::import_skill(
+                    &api_client,
+                    &source,
+                    path.as_deref(),
+                    project_id_vec,
+                )
+                .await?;
                 println!("{}", output);
             }
         },

@@ -513,9 +513,9 @@ async fn skill_search_with_tag_filter() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn skill_update_invalidates_cache() {
-    use crate::cache;
     use crate::db::models::SkillAttachment;
     use crate::db::sqlite::skill::SqliteSkillRepository;
+    use crate::skills;
     use base64::Engine as _;
 
     let db = setup_db().await;
@@ -570,7 +570,7 @@ async fn skill_update_invalidates_cache() {
         .await
         .expect("Get attachments should succeed");
     let cache_dir =
-        cache::extract_attachments("skl00015", &attachments).expect("Extract should succeed");
+        skills::extract_attachments("skl00015", &attachments).expect("Extract should succeed");
 
     // Verify cache exists
     assert!(cache_dir.exists(), "Cache directory should exist");
@@ -596,9 +596,9 @@ async fn skill_update_invalidates_cache() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn skill_delete_invalidates_cache() {
-    use crate::cache;
     use crate::db::models::SkillAttachment;
     use crate::db::sqlite::skill::SqliteSkillRepository;
+    use crate::skills;
     use base64::Engine as _;
 
     let db = setup_db().await;
@@ -652,7 +652,7 @@ async fn skill_delete_invalidates_cache() {
         .await
         .expect("Get attachments should succeed");
     let cache_dir =
-        cache::extract_attachments("skl00016", &attachments).expect("Extract should succeed");
+        skills::extract_attachments("skl00016", &attachments).expect("Extract should succeed");
 
     // Verify cache exists
     assert!(cache_dir.exists(), "Cache directory should exist");

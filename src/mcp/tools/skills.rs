@@ -160,7 +160,7 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
                     )
                 })?;
 
-            let cache_dir = crate::cache::extract_attachments(&params.0.skill_id, &attachments)
+            let cache_dir = crate::skills::extract_attachments(&params.0.skill_id, &attachments)
                 .map_err(|e| {
                     McpError::internal_error(
                         "cache_error",
