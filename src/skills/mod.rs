@@ -7,11 +7,10 @@
 //! - Attachment scanning and encoding
 
 mod cache;
-// TODO: Implement these modules for Task 2.6 import functionality
-// mod import;
-// mod parser;
-// mod scanner;
-// mod source;
+mod import;
+mod parser;
+mod scanner;
+mod source;
 
 // Re-export cache functions
 pub use cache::{
@@ -19,5 +18,5 @@ pub use cache::{
     invalidate_cache,
 };
 
-// Re-export import functions (TODO: uncomment when implemented)
-// pub use import::{import_skill, ImportError};
+// Re-export import functions
+pub use import::{ImportError, import_skill};
