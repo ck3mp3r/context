@@ -310,13 +310,21 @@ async fn import_all_with_transaction(
         for skill in skills {
             // Upsert skill
             sqlx::query(
-                "INSERT INTO skill (id, name, description, instructions, tags, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                "INSERT INTO skill (id, name, description, instructions, tags, license, compatibility, allowed_tools, metadata, origin_url, origin_ref, origin_fetched_at, origin_metadata, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    name = excluded.name,
                    description = excluded.description,
                    instructions = excluded.instructions,
                    tags = excluded.tags,
+                   license = excluded.license,
+                   compatibility = excluded.compatibility,
+                   allowed_tools = excluded.allowed_tools,
+                   metadata = excluded.metadata,
+                   origin_url = excluded.origin_url,
+                   origin_ref = excluded.origin_ref,
+                   origin_fetched_at = excluded.origin_fetched_at,
+                   origin_metadata = excluded.origin_metadata,
                    updated_at = excluded.updated_at",
             )
             .bind(&skill.id)
@@ -324,6 +332,14 @@ async fn import_all_with_transaction(
             .bind(&skill.description)
             .bind(&skill.instructions)
             .bind(serde_json::to_string(&skill.tags)?)
+            .bind(&skill.license)
+            .bind(&skill.compatibility)
+            .bind(&skill.allowed_tools)
+            .bind(skill.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap()))
+            .bind(&skill.origin_url)
+            .bind(&skill.origin_ref)
+            .bind(&skill.origin_fetched_at)
+            .bind(skill.origin_metadata.as_ref().map(|m| serde_json::to_string(m).unwrap()))
             .bind(&skill.created_at)
             .bind(&skill.updated_at)
             .execute(&mut **tx)

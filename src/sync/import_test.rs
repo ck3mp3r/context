@@ -835,3 +835,119 @@ async fn test_import_export_skills_agent_skills_fields_round_trip() {
         Some("2024-01-01T15:30:00Z".to_string())
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_upsert_updates_agent_skills_fields() {
+    // Tests the UPSERT code path - updating an existing skill with new Agent Skills metadata
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create initial skill with basic fields
+    let initial_skill = Skill {
+        id: "skill002".to_string(),
+        name: "initial-name".to_string(),
+        description: Some("Initial description".to_string()),
+        instructions: Some("Initial instructions".to_string()),
+        tags: vec!["tag1".to_string()],
+        license: Some("MIT".to_string()),
+        compatibility: Some("opencode>=0.1.0".to_string()),
+        allowed_tools: Some(r#"["Bash(echo:*)"]"#.to_string()),
+        metadata: Some(serde_json::json!({"version": "1.0"})),
+        origin_url: Some("https://github.com/original/repo".to_string()),
+        origin_ref: Some("main".to_string()),
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+    };
+    db.skills().create(&initial_skill).await.unwrap();
+
+    // Export (to create JSONL file)
+    export_all(&db, temp_dir.path()).await.unwrap();
+
+    // Modify the JSONL to simulate external changes to Agent Skills fields
+    let skills_file = temp_dir.path().join("skills.jsonl");
+    let modified_skill = Skill {
+        id: "skill002".to_string(),
+        name: "updated-name".to_string(),
+        description: Some("Updated description with new content".to_string()),
+        instructions: Some("Updated instructions with changes".to_string()),
+        tags: vec![
+            "tag1".to_string(),
+            "tag2".to_string(),
+            "updated".to_string(),
+        ],
+        license: Some("Apache-2.0".to_string()), // CHANGED
+        compatibility: Some("Requires kubectl >= 1.30, docker >= 20.10".to_string()), // CHANGED
+        allowed_tools: Some(r#"["Bash(kubectl:*)","Bash(docker:*)","Bash(helm:*)"]"#.to_string()), // CHANGED
+        metadata: Some(
+            serde_json::json!({"version": "2.0", "author": "updated", "new_field": "added"}),
+        ), // CHANGED
+        origin_url: Some("https://github.com/updated/repo".to_string()), // CHANGED
+        origin_ref: Some("v2.0.0".to_string()),                          // CHANGED
+        origin_fetched_at: Some("2026-01-31T19:00:00Z".to_string()),     // CHANGED
+        origin_metadata: Some(serde_json::json!({"commit": "xyz789", "updated": true})), // CHANGED
+        project_ids: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2026-01-31T19:00:00Z".to_string()), // CHANGED
+    };
+    std::fs::write(
+        &skills_file,
+        format!("{}\n", serde_json::to_string(&modified_skill).unwrap()),
+    )
+    .unwrap();
+
+    // Import - this should UPSERT (update existing skill)
+    let import_summary = import_all(&db, temp_dir.path()).await.unwrap();
+    assert_eq!(import_summary.skills, 1);
+
+    // Verify ALL Agent Skills fields were updated via UPSERT
+    let updated = db.skills().get("skill002").await.unwrap();
+
+    // Core fields should be updated
+    assert_eq!(updated.name, "updated-name");
+    assert_eq!(
+        updated.description,
+        Some("Updated description with new content".to_string())
+    );
+    assert_eq!(
+        updated.instructions,
+        Some("Updated instructions with changes".to_string())
+    );
+    assert_eq!(updated.tags, vec!["tag1", "tag2", "updated"]);
+
+    // **CRITICAL**: Agent Skills fields should be updated via UPSERT
+    assert_eq!(updated.license, Some("Apache-2.0".to_string())); // Must be updated
+    assert_eq!(
+        updated.compatibility,
+        Some("Requires kubectl >= 1.30, docker >= 20.10".to_string())
+    ); // Must be updated
+    assert_eq!(
+        updated.allowed_tools,
+        Some(r#"["Bash(kubectl:*)","Bash(docker:*)","Bash(helm:*)"]"#.to_string())
+    ); // Must be updated
+    assert_eq!(
+        updated.metadata,
+        Some(serde_json::json!({"version": "2.0", "author": "updated", "new_field": "added"}))
+    ); // Must be updated
+
+    // **CRITICAL**: Origin tracking fields should be updated via UPSERT
+    assert_eq!(
+        updated.origin_url,
+        Some("https://github.com/updated/repo".to_string())
+    ); // Must be updated
+    assert_eq!(updated.origin_ref, Some("v2.0.0".to_string())); // Must be updated
+    assert_eq!(
+        updated.origin_fetched_at,
+        Some("2026-01-31T19:00:00Z".to_string())
+    ); // Must be updated
+    assert_eq!(
+        updated.origin_metadata,
+        Some(serde_json::json!({"commit": "xyz789", "updated": true}))
+    ); // Must be updated
+
+    // Timestamps
+    assert_eq!(updated.created_at, Some("2024-01-01T10:00:00Z".to_string())); // Should not change
+    assert_eq!(updated.updated_at, Some("2026-01-31T19:00:00Z".to_string())); // Should be updated
+}

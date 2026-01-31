@@ -225,13 +225,25 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     skill.origin_url = req.origin_url;
     skill.origin_ref = req.origin_ref;
     skill.project_ids = req.project_ids;
-    repo.update(&skill).await.map_err(|e| {
-        (
+    repo.update(&skill).await.map_err(|e| match e {
+        DbError::Validation { .. } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+        _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: e.to_string(),
             }),
-        )
+        ),
     })?;
 
     // Broadcast notification
@@ -373,13 +385,19 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         created_at: None,
         updated_at: None,
     };
-    let created = repo.create(&skill).await.map_err(|e| {
-        (
+    let created = repo.create(&skill).await.map_err(|e| match e {
+        DbError::Validation { .. } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+        _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: e.to_string(),
             }),
-        )
+        ),
     })?;
 
     // Broadcast notification
@@ -457,13 +475,25 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
     if let Some(project_ids) = req.project_ids {
         skill.project_ids = project_ids;
     }
-    repo.update(&skill).await.map_err(|e| {
-        (
+    repo.update(&skill).await.map_err(|e| match e {
+        DbError::Validation { .. } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+        _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: e.to_string(),
             }),
-        )
+        ),
     })?;
 
     // Broadcast notification
