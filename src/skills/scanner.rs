@@ -4,7 +4,6 @@
 //! and encodes them to base64 for database storage.
 
 use base64::Engine as _;
-use std::fs;
 use std::path::Path;
 use thiserror::Error;
 
@@ -25,6 +24,7 @@ pub enum ScannerError {
 
 /// Represents an attachment found during scanning
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Used when import is implemented
 pub struct AttachmentData {
     /// Attachment type: "script", "reference", or "asset"
     pub type_: String,
@@ -45,7 +45,7 @@ pub struct AttachmentData {
 /// Scan a skill directory for attachments
 ///
 /// Expected directory structure:
-/// ```
+/// ```text
 /// skill_dir/
 ///   SKILL.md (not scanned - parsed separately)
 ///   scripts/

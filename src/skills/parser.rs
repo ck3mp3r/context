@@ -104,7 +104,7 @@ pub fn parse_skill_md(path: &Path) -> Result<SkillMd, ParserError> {
 /// Extract YAML frontmatter and Markdown body from content
 ///
 /// Expected format:
-/// ```
+/// ```text
 /// ---
 /// key: value
 /// ---

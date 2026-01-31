@@ -146,6 +146,7 @@ fn parse_git_url(source: &str, prefix: &str, is_ssh: bool) -> Result<SourceType,
 ///
 /// Returns the path to the directory containing the skill source.
 /// For Git sources, caller is responsible for cleanup of temp directory.
+#[allow(dead_code)] // Used when import is implemented
 pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
     match source_type {
         SourceType::GitHttps { repo_url, .. } | SourceType::GitSsh { repo_url, .. } => {

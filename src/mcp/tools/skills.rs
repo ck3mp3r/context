@@ -62,6 +62,7 @@ pub struct SearchSkillsParams {
 #[derive(Clone)]
 pub struct SkillTools<D: crate::db::Database> {
     db: Arc<D>,
+    #[allow(dead_code)] // Will be used for change notifications
     notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
