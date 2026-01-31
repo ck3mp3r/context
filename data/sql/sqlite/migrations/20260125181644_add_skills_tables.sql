@@ -100,3 +100,25 @@ END;
 CREATE TRIGGER IF NOT EXISTS skill_fts_delete AFTER DELETE ON skill BEGIN
     DELETE FROM skill_fts WHERE id = old.id;
 END;
+
+-- ============================================================================
+-- SKILL_ATTACHMENT TABLE (Phase 2: Attachment Storage & Cache System)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS skill_attachment (
+    id TEXT PRIMARY KEY CHECK(length(id) == 8),
+    skill_id TEXT NOT NULL CHECK(length(skill_id) == 8),
+    type TEXT NOT NULL CHECK(type IN ('script', 'reference', 'asset')),
+    filename TEXT NOT NULL,
+    content TEXT NOT NULL,              -- Base64-encoded file content
+    content_hash TEXT NOT NULL,         -- SHA256 hash for cache invalidation
+    mime_type TEXT,                     -- MIME type (e.g., "text/x-shellscript", "image/png")
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (skill_id) REFERENCES skill(id) ON DELETE CASCADE,
+    UNIQUE(skill_id, type, filename)    -- One file per type per skill
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_skill_attachment_skill_id ON skill_attachment(skill_id);
+CREATE INDEX IF NOT EXISTS idx_skill_attachment_type ON skill_attachment(skill_id, type);

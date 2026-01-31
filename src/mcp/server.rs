@@ -343,30 +343,6 @@ impl<D: Database + 'static> McpServer<D> {
         self.skill_tools.get_skill(params).await
     }
 
-    #[tool(description = "Create a new skill")]
-    pub async fn create_skill(
-        &self,
-        params: Parameters<CreateSkillParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.skill_tools.create_skill(params).await
-    }
-
-    #[tool(description = "Update an existing skill")]
-    pub async fn update_skill(
-        &self,
-        params: Parameters<UpdateSkillParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.skill_tools.update_skill(params).await
-    }
-
-    #[tool(description = "Delete a skill")]
-    pub async fn delete_skill(
-        &self,
-        params: Parameters<DeleteSkillParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.skill_tools.delete_skill(params).await
-    }
-
     #[tool(description = "Full-text search skills using FTS5")]
     pub async fn search_skills(
         &self,

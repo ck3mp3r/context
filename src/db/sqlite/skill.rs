@@ -3,7 +3,7 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
-use crate::db::models::{SKILL_DESCRIPTION_MAX, Skill, SkillQuery};
+use crate::db::models::{SKILL_DESCRIPTION_MAX, Skill, SkillAttachment, SkillQuery};
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, SkillRepository};
 
@@ -47,6 +47,9 @@ fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
         origin_fetched_at: row.get("origin_fetched_at"),
         origin_metadata,
         project_ids: vec![], // Loaded separately via join table
+        scripts: vec![],     // Loaded separately via skill_attachment table
+        references: vec![],  // Loaded separately via skill_attachment table
+        assets: vec![],      // Loaded separately via skill_attachment table
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -209,6 +212,9 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             origin_fetched_at: skill.origin_fetched_at.clone(),
             origin_metadata: skill.origin_metadata.clone(),
             project_ids: skill.project_ids.clone(),
+            scripts: skill.scripts.clone(),
+            references: skill.references.clone(),
+            assets: skill.assets.clone(),
             created_at: Some(created_at),
             updated_at: Some(updated_at),
         })
@@ -238,6 +244,13 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                     })?;
 
             skill.project_ids = project_ids;
+
+            // Load attachment filenames grouped by type
+            let (scripts, references, assets) = self.load_attachments(id).await?;
+            skill.scripts = scripts;
+            skill.references = references;
+            skill.assets = assets;
+
             Ok(skill)
         } else {
             Err(DbError::NotFound {
@@ -434,6 +447,10 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
+
+        // Invalidate cache after successful update
+        crate::cache::invalidate_skill_cache(&skill.id)?;
+
         Ok(())
     }
 
@@ -451,6 +468,10 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 id: id.to_string(),
             });
         }
+
+        // Invalidate cache after successful delete
+        crate::cache::invalidate_skill_cache(id)?;
+
         Ok(())
     }
 
@@ -505,6 +526,135 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             total,
             limit: query.page.limit,
             offset: query.page.offset.unwrap_or(0),
+        })
+    }
+
+    async fn get_attachments(&self, skill_id: &str) -> DbResult<Vec<SkillAttachment>> {
+        let rows = sqlx::query(
+            "SELECT id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at FROM skill_attachment WHERE skill_id = ? ORDER BY type, filename"
+        )
+        .bind(skill_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let attachments = rows
+            .iter()
+            .map(|row| SkillAttachment {
+                id: row.get("id"),
+                skill_id: row.get("skill_id"),
+                type_: row.get("type"),
+                filename: row.get("filename"),
+                content: row.get("content"),
+                content_hash: row.get("content_hash"),
+                mime_type: row.get("mime_type"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            })
+            .collect();
+
+        Ok(attachments)
+    }
+}
+
+// =============================================================================
+// Internal helper methods for attachment management
+// =============================================================================
+
+impl<'a> SqliteSkillRepository<'a> {
+    /// Load attachment filenames for a skill, grouped by type.
+    /// Returns (scripts, references, assets) as three separate vectors.
+    async fn load_attachments(
+        &self,
+        skill_id: &str,
+    ) -> DbResult<(Vec<String>, Vec<String>, Vec<String>)> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT type, filename FROM skill_attachment WHERE skill_id = ? ORDER BY filename",
+        )
+        .bind(skill_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let mut scripts = Vec::new();
+        let mut references = Vec::new();
+        let mut assets = Vec::new();
+
+        for (type_, filename) in rows {
+            match type_.as_str() {
+                "script" => scripts.push(filename),
+                "reference" => references.push(filename),
+                "asset" => assets.push(filename),
+                _ => {
+                    // Unknown type - skip with warning (could log here)
+                }
+            }
+        }
+
+        Ok((scripts, references, assets))
+    }
+
+    /// Create a skill attachment (used during skill import).
+    /// Internal method - not exposed via trait.
+    #[allow(dead_code)]
+    pub(crate) async fn create_attachment(
+        &self,
+        attachment: &SkillAttachment,
+    ) -> DbResult<SkillAttachment> {
+        let id = if attachment.id.is_empty() {
+            generate_entity_id()
+        } else {
+            attachment.id.clone()
+        };
+
+        let created_at = attachment
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
+        let updated_at = attachment
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
+
+        sqlx::query(
+            r#"
+            INSERT INTO skill_attachment (
+                id, skill_id, type, filename, content, content_hash, mime_type,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&id)
+        .bind(&attachment.skill_id)
+        .bind(&attachment.type_)
+        .bind(&attachment.filename)
+        .bind(&attachment.content)
+        .bind(&attachment.content_hash)
+        .bind(&attachment.mime_type)
+        .bind(&created_at)
+        .bind(&updated_at)
+        .execute(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(SkillAttachment {
+            id,
+            skill_id: attachment.skill_id.clone(),
+            type_: attachment.type_.clone(),
+            filename: attachment.filename.clone(),
+            content: attachment.content.clone(),
+            content_hash: attachment.content_hash.clone(),
+            mime_type: attachment.mime_type.clone(),
+            created_at: Some(created_at),
+            updated_at: Some(updated_at),
         })
     }
 }

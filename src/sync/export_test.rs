@@ -240,6 +240,9 @@ async fn test_export_skills_with_data() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
@@ -318,6 +321,9 @@ async fn test_export_skills_preserves_relationships() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
@@ -339,6 +345,9 @@ async fn test_export_skills_preserves_relationships() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
@@ -385,6 +394,9 @@ async fn test_export_skills_with_agent_skills_fields() {
         origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
         origin_metadata: Some(serde_json::json!({"commit": "abc123"})),
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };

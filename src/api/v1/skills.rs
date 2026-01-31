@@ -382,6 +382,9 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: req.project_ids,
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: None,
         updated_at: None,
     };

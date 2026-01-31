@@ -365,6 +365,39 @@ pub struct Skill {
 
     #[serde(default)]
     pub project_ids: Vec<Id>,
+
+    /// Script filenames (loaded from skill_attachment where type='script')
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub scripts: Vec<String>,
+
+    /// Reference filenames (loaded from skill_attachment where type='reference')
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub references: Vec<String>,
+
+    /// Asset filenames (loaded from skill_attachment where type='asset')
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub assets: Vec<String>,
+
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// A skill attachment (script, reference, or asset file).
+/// Part of Agent Skills Phase 2: Attachment Storage & Cache System.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillAttachment {
+    pub id: Id,
+    pub skill_id: Id,
+    /// Attachment type: 'script', 'reference', or 'asset'
+    pub type_: String,
+    /// Filename (without path, e.g., "deploy.sh", "diagram.png")
+    pub filename: String,
+    /// Base64-encoded file content
+    pub content: String,
+    /// SHA256 hash of decoded content (for cache invalidation)
+    pub content_hash: String,
+    /// MIME type (e.g., "text/x-shellscript", "image/png")
+    pub mime_type: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -390,6 +423,9 @@ mod tests {
             origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
             origin_metadata: Some(serde_json::json!({"imported_by": "test"})),
             project_ids: vec!["proj1234".to_string()],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
             created_at: Some("2026-01-31T10:00:00Z".to_string()),
             updated_at: Some("2026-01-31T10:00:00Z".to_string()),
         };
@@ -426,6 +462,9 @@ mod tests {
             origin_fetched_at: None,
             origin_metadata: None,
             project_ids: vec![],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
             created_at: Some("2026-01-31T10:00:00Z".to_string()),
             updated_at: Some("2026-01-31T10:00:00Z".to_string()),
         };

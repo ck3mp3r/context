@@ -31,6 +31,9 @@ async fn skill_create_and_get() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -79,6 +82,9 @@ async fn skill_list() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -99,6 +105,9 @@ async fn skill_list() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -128,6 +137,9 @@ async fn skill_update() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -164,6 +176,9 @@ async fn skill_delete() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -199,6 +214,9 @@ async fn skill_search() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -219,6 +237,9 @@ async fn skill_search() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -239,6 +260,9 @@ async fn skill_search() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -288,6 +312,9 @@ async fn skill_list_with_tag_filter() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -308,6 +335,9 @@ async fn skill_list_with_tag_filter() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -328,6 +358,9 @@ async fn skill_list_with_tag_filter() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -390,6 +423,9 @@ async fn skill_search_with_tag_filter() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -410,6 +446,9 @@ async fn skill_search_with_tag_filter() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -430,6 +469,9 @@ async fn skill_search_with_tag_filter() {
         origin_fetched_at: None,
         origin_metadata: None,
         project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
@@ -468,3 +510,177 @@ async fn skill_search_with_tag_filter() {
 }
 
 // Project relationship CRUD is also covered in these tests via project_ids linkage in create/update/get.
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_update_invalidates_cache() {
+    use crate::cache;
+    use crate::db::models::SkillAttachment;
+    use crate::db::sqlite::skill::SqliteSkillRepository;
+    use base64::Engine as _;
+
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    // Create a skill with an attachment
+    let skill = Skill {
+        id: "skl00015".to_string(),
+        name: "cache-test".to_string(),
+        description: Some("Test cache invalidation".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill).await.expect("Create should succeed");
+
+    // Create an attachment using the repository's internal method
+    let attachment = SkillAttachment {
+        id: String::new(),
+        skill_id: "skl00015".to_string(),
+        type_: "script".to_string(),
+        filename: "test.sh".to_string(),
+        content: base64::prelude::BASE64_STANDARD.encode(b"#!/bin/bash\necho test"),
+        content_hash: "abc123".to_string(),
+        mime_type: Some("text/x-shellscript".to_string()),
+        created_at: None,
+        updated_at: None,
+    };
+
+    // Access the pool directly to create attachment
+    let repo = SqliteSkillRepository { pool: db.pool() };
+    repo.create_attachment(&attachment)
+        .await
+        .expect("Create attachment should succeed");
+
+    // Load attachments and extract to cache
+    let attachments = repo
+        .get_attachments("skl00015")
+        .await
+        .expect("Get attachments should succeed");
+    let cache_dir =
+        cache::extract_attachments("skl00015", &attachments).expect("Extract should succeed");
+
+    // Verify cache exists
+    assert!(cache_dir.exists(), "Cache directory should exist");
+    assert!(
+        cache_dir.join("scripts/test.sh").exists(),
+        "Script file should exist in cache"
+    );
+
+    // Update the skill (this should invalidate the cache)
+    let mut updated_skill = skill.clone();
+    updated_skill.name = "updated-cache-test".to_string();
+    skills
+        .update(&updated_skill)
+        .await
+        .expect("Update should succeed");
+
+    // Verify cache was invalidated (directory should be gone)
+    assert!(
+        !cache_dir.exists(),
+        "Cache directory should be removed after update"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_delete_invalidates_cache() {
+    use crate::cache;
+    use crate::db::models::SkillAttachment;
+    use crate::db::sqlite::skill::SqliteSkillRepository;
+    use base64::Engine as _;
+
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    // Create a skill with an attachment
+    let skill = Skill {
+        id: "skl00016".to_string(),
+        name: "delete-cache-test".to_string(),
+        description: Some("Test cache invalidation on delete".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill).await.expect("Create should succeed");
+
+    // Create an attachment
+    let attachment = SkillAttachment {
+        id: String::new(),
+        skill_id: "skl00016".to_string(),
+        type_: "reference".to_string(),
+        filename: "guide.md".to_string(),
+        content: base64::prelude::BASE64_STANDARD.encode(b"# Guide"),
+        content_hash: "xyz789".to_string(),
+        mime_type: Some("text/markdown".to_string()),
+        created_at: None,
+        updated_at: None,
+    };
+
+    let repo = SqliteSkillRepository { pool: db.pool() };
+    repo.create_attachment(&attachment)
+        .await
+        .expect("Create attachment should succeed");
+
+    // Extract to cache
+    let attachments = repo
+        .get_attachments("skl00016")
+        .await
+        .expect("Get attachments should succeed");
+    let cache_dir =
+        cache::extract_attachments("skl00016", &attachments).expect("Extract should succeed");
+
+    // Verify cache exists
+    assert!(cache_dir.exists(), "Cache directory should exist");
+    assert!(
+        cache_dir.join("references/guide.md").exists(),
+        "Reference file should exist in cache"
+    );
+
+    // Delete the skill (this should invalidate the cache and CASCADE delete attachment)
+    skills
+        .delete("skl00016")
+        .await
+        .expect("Delete should succeed");
+
+    // Verify cache was invalidated
+    assert!(
+        !cache_dir.exists(),
+        "Cache directory should be removed after delete"
+    );
+
+    // Verify attachment was CASCADE deleted from database
+    let attachments_after = repo.get_attachments("skl00016").await;
+    assert!(
+        attachments_after.is_ok(),
+        "Get attachments should not fail even if skill doesn't exist"
+    );
+    assert!(
+        attachments_after.unwrap().is_empty(),
+        "Attachments should be CASCADE deleted"
+    );
+}

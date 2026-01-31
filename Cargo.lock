@@ -549,6 +549,7 @@ name = "context"
 version = "0.4.3"
 dependencies = [
  "axum",
+ "base64",
  "chrono",
  "clap",
  "codee",

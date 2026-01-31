@@ -701,6 +701,9 @@ mod tests {
             origin_fetched_at: None,
             origin_metadata: None,
             project_ids: vec!["proj0001".to_string()],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
@@ -778,6 +781,9 @@ mod tests {
             origin_fetched_at: None,
             origin_metadata: None,
             project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
@@ -831,6 +837,9 @@ mod tests {
             origin_fetched_at: None,
             origin_metadata: None,
             project_ids: vec![],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             updated_at: Some("2024-01-01T10:00:00Z".to_string()),
         };
@@ -852,6 +861,9 @@ mod tests {
             origin_fetched_at: None,
             origin_metadata: None,
             project_ids: vec!["proj0001".to_string()],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             updated_at: Some("2024-01-02T15:00:00Z".to_string()),
         };
