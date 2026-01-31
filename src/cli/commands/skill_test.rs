@@ -57,11 +57,23 @@ async fn test_skill_crud_operations() {
     // CREATE: Skill with all fields populated
     let create_result = create_skill(
         &api_client,
-        "rust-programming",
-        Some("Systems programming language"),
-        Some("Follow the Rust Book and practice daily"),
-        Some("rust,systems,programming"),
-        Some(&project_id),
+        CreateSkillRequest {
+            name: "rust-programming".to_string(),
+            description: Some("Systems programming language".to_string()),
+            instructions: Some("Follow the Rust Book and practice daily".to_string()),
+            tags: Some(vec![
+                "rust".to_string(),
+                "systems".to_string(),
+                "programming".to_string(),
+            ]),
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: Some(vec![project_id.clone()]),
+        },
     )
     .await;
     assert!(create_result.is_ok(), "Should create skill with full data");
@@ -98,11 +110,25 @@ async fn test_skill_crud_operations() {
     let update_result = update_skill(
         &api_client,
         skill_id,
-        Some("advanced-rust-programming"),
-        Some("Advanced systems programming with Rust"),
-        Some("Focus on unsafe Rust, FFI, and performance optimization"),
-        Some("rust,advanced,systems"),
-        None,
+        UpdateSkillRequest {
+            name: Some("advanced-rust-programming".to_string()),
+            description: Some("Advanced systems programming with Rust".to_string()),
+            instructions: Some(
+                "Focus on unsafe Rust, FFI, and performance optimization".to_string(),
+            ),
+            tags: Some(vec![
+                "rust".to_string(),
+                "advanced".to_string(),
+                "systems".to_string(),
+            ]),
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
     )
     .await;
     assert!(update_result.is_ok(), "Should update skill");
@@ -169,33 +195,57 @@ async fn test_list_skills_with_filters() {
     // Create multiple skills
     create_skill(
         &api_client,
-        "rust",
-        Some("Systems language"),
-        Some("Practice systems programming"),
-        Some("rust,systems"),
-        Some(&project_id),
+        CreateSkillRequest {
+            name: "rust".to_string(),
+            description: Some("Systems language".to_string()),
+            instructions: Some("Practice systems programming".to_string()),
+            tags: Some(vec!["rust".to_string(), "systems".to_string()]),
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: Some(vec![project_id.clone()]),
+        },
     )
     .await
     .expect("Failed to create skill 1");
 
     create_skill(
         &api_client,
-        "python",
-        Some("High-level language"),
-        Some("Learn Python basics"),
-        Some("python,scripting"),
-        None,
+        CreateSkillRequest {
+            name: "python".to_string(),
+            description: Some("High-level language".to_string()),
+            instructions: Some("Learn Python basics".to_string()),
+            tags: Some(vec!["python".to_string(), "scripting".to_string()]),
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
     )
     .await
     .expect("Failed to create skill 2");
 
     create_skill(
         &api_client,
-        "go",
-        Some("Cloud native language"),
-        Some("Build cloud apps"),
-        Some("go,cloud"),
-        Some(&project_id),
+        CreateSkillRequest {
+            name: "go".to_string(),
+            description: Some("Cloud native language".to_string()),
+            instructions: Some("Build cloud apps".to_string()),
+            tags: Some(vec!["go".to_string(), "cloud".to_string()]),
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: Some(vec![project_id.clone()]),
+        },
     )
     .await
     .expect("Failed to create skill 3");
@@ -250,11 +300,19 @@ async fn test_list_skills_pagination_and_sorting() {
     for name in ["alpha", "beta", "gamma", "delta"] {
         create_skill(
             &api_client,
-            name,
-            Some("Test description"),
-            Some("Test instructions"),
-            None,
-            None,
+            CreateSkillRequest {
+                name: name.to_string(),
+                description: Some("Test description".to_string()),
+                instructions: Some("Test instructions".to_string()),
+                tags: None,
+                license: None,
+                compatibility: None,
+                allowed_tools: None,
+                metadata: None,
+                origin_url: None,
+                origin_ref: None,
+                project_ids: None,
+            },
         )
         .await
         .expect("Failed to create skill");
@@ -316,7 +374,23 @@ async fn test_create_skill_minimal() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Attempt to create with only name (should fail - description and instructions required)
-    let result = create_skill(&api_client, "javascript", None, None, None, None).await;
+    let result = create_skill(
+        &api_client,
+        CreateSkillRequest {
+            name: "javascript".to_string(),
+            description: None,
+            instructions: None,
+            tags: None,
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
+    )
+    .await;
     assert!(
         result.is_err(),
         "Should fail - description and instructions are required"
@@ -325,11 +399,19 @@ async fn test_create_skill_minimal() {
     // Create with all required fields
     let result = create_skill(
         &api_client,
-        "javascript",
-        Some("JavaScript programming language"),
-        Some("Use for web development"),
-        None,
-        None,
+        CreateSkillRequest {
+            name: "javascript".to_string(),
+            description: Some("JavaScript programming language".to_string()),
+            instructions: Some("Use for web development".to_string()),
+            tags: None,
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
     )
     .await;
     assert!(
@@ -349,11 +431,19 @@ async fn test_update_skill_partial() {
     // Create skill
     let create_result = create_skill(
         &api_client,
-        "typescript",
-        Some("JavaScript superset"),
-        Some("Learn gradually"),
-        None,
-        None,
+        CreateSkillRequest {
+            name: "typescript".to_string(),
+            description: Some("JavaScript superset".to_string()),
+            instructions: Some("Learn gradually".to_string()),
+            tags: None,
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
     )
     .await
     .expect("Failed to create skill");
@@ -370,11 +460,19 @@ async fn test_update_skill_partial() {
     let update_result = update_skill(
         &api_client,
         skill_id,
-        Some("typescript-pro"),
-        None,
-        None,
-        None,
-        None,
+        UpdateSkillRequest {
+            name: Some("typescript-pro".to_string()),
+            description: None,
+            instructions: None,
+            tags: None,
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
     )
     .await;
     assert!(update_result.is_ok(), "Should update partial fields");
@@ -398,11 +496,19 @@ async fn test_skill_table_output() {
     // Create a skill
     create_skill(
         &api_client,
-        "docker",
-        Some("Containerization"),
-        Some("Learn container orchestration"),
-        Some("docker,devops"),
-        None,
+        CreateSkillRequest {
+            name: "docker".to_string(),
+            description: Some("Containerization".to_string()),
+            instructions: Some("Learn container orchestration".to_string()),
+            tags: Some(vec!["docker".to_string(), "devops".to_string()]),
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            project_ids: None,
+        },
     )
     .await
     .expect("Failed to create skill");

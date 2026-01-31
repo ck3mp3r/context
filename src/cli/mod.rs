@@ -367,6 +367,24 @@ enum SkillCommands {
         /// Tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// License (e.g., MIT, Apache-2.0)
+        #[arg(long)]
+        license: Option<String>,
+        /// Compatibility requirements (e.g., opencode>=0.1.0)
+        #[arg(long)]
+        compatibility: Option<String>,
+        /// Allowed tools (comma-separated)
+        #[arg(long)]
+        allowed_tools: Option<String>,
+        /// Metadata (JSON object)
+        #[arg(long)]
+        metadata: Option<String>,
+        /// Origin URL (e.g., https://github.com/user/repo)
+        #[arg(long)]
+        origin_url: Option<String>,
+        /// Origin ref (e.g., main, v1.0.0)
+        #[arg(long)]
+        origin_ref: Option<String>,
         /// Project IDs to link (comma-separated)
         #[arg(long)]
         project_ids: Option<String>,
@@ -387,6 +405,24 @@ enum SkillCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// License (e.g., MIT, Apache-2.0)
+        #[arg(long)]
+        license: Option<String>,
+        /// Compatibility requirements (e.g., opencode>=0.1.0)
+        #[arg(long)]
+        compatibility: Option<String>,
+        /// Allowed tools (comma-separated)
+        #[arg(long)]
+        allowed_tools: Option<String>,
+        /// Metadata (JSON object)
+        #[arg(long)]
+        metadata: Option<String>,
+        /// Origin URL (e.g., https://github.com/user/repo)
+        #[arg(long)]
+        origin_url: Option<String>,
+        /// Origin ref (e.g., main, v1.0.0)
+        #[arg(long)]
+        origin_ref: Option<String>,
         /// Project IDs to link (comma-separated)
         #[arg(long)]
         project_ids: Option<String>,
@@ -1166,17 +1202,30 @@ pub async fn run() -> Result<()> {
                 description,
                 instructions,
                 tags,
+                license,
+                compatibility,
+                allowed_tools,
+                metadata,
+                origin_url,
+                origin_ref,
                 project_ids,
             } => {
-                let output = commands::skill::create_skill(
-                    &api_client,
-                    &name,
-                    description.as_deref(),
-                    instructions.as_deref(),
-                    tags.as_deref(),
-                    project_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::skill::CreateSkillRequest {
+                    name,
+                    description,
+                    instructions,
+                    tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
+                    license,
+                    compatibility,
+                    allowed_tools: allowed_tools
+                        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
+                    metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
+                    origin_url,
+                    origin_ref,
+                    project_ids: project_ids
+                        .map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
+                };
+                let output = commands::skill::create_skill(&api_client, request).await?;
                 println!("{}", output);
             }
             SkillCommands::Update {
@@ -1185,18 +1234,30 @@ pub async fn run() -> Result<()> {
                 description,
                 instructions,
                 tags,
+                license,
+                compatibility,
+                allowed_tools,
+                metadata,
+                origin_url,
+                origin_ref,
                 project_ids,
             } => {
-                let output = commands::skill::update_skill(
-                    &api_client,
-                    &id,
-                    name.as_deref(),
-                    description.as_deref(),
-                    instructions.as_deref(),
-                    tags.as_deref(),
-                    project_ids.as_deref(),
-                )
-                .await?;
+                let request = commands::skill::UpdateSkillRequest {
+                    name,
+                    description,
+                    instructions,
+                    tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
+                    license,
+                    compatibility,
+                    allowed_tools: allowed_tools
+                        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
+                    metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
+                    origin_url,
+                    origin_ref,
+                    project_ids: project_ids
+                        .map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
+                };
+                let output = commands::skill::update_skill(&api_client, &id, request).await?;
                 println!("{}", output);
             }
             SkillCommands::Delete { id, force } => {

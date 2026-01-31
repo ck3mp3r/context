@@ -12,6 +12,14 @@ pub struct Skill {
     pub description: Option<String>,
     pub instructions: Option<String>,
     pub tags: Vec<String>,
+    pub license: Option<String>,
+    pub compatibility: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    pub origin_url: Option<String>,
+    pub origin_ref: Option<String>,
+    pub origin_fetched_at: Option<String>,
+    pub origin_metadata: Option<serde_json::Value>,
     pub project_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -27,6 +35,18 @@ pub struct CreateSkillRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub project_ids: Option<Vec<String>>,
 }
 
@@ -40,6 +60,18 @@ pub struct UpdateSkillRequest {
     pub instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_ids: Option<Vec<String>>,
 }
@@ -139,13 +171,43 @@ pub async fn get_skill(api_client: &ApiClient, id: &str, format: &str) -> CliRes
     if format == "json" {
         Ok(serde_json::to_string_pretty(&skill)?)
     } else {
-        Ok(format!(
-            "ID: {}\nName: {}\nDescription: {}\nInstructions: {}\nTags: {}\nProject IDs: {}\nCreated: {}\nUpdated: {}",
+        let mut output = format!(
+            "ID: {}\nName: {}\nDescription: {}\nInstructions: {}\nTags: {}",
             skill.id,
             skill.name,
             skill.description.as_deref().unwrap_or("N/A"),
             skill.instructions.as_deref().unwrap_or("N/A"),
             format_tags(Some(&skill.tags)),
+        );
+
+        // Agent Skills fields
+        if let Some(license) = &skill.license {
+            output.push_str(&format!("\nLicense: {}", license));
+        }
+        if let Some(compatibility) = &skill.compatibility {
+            output.push_str(&format!("\nCompatibility: {}", compatibility));
+        }
+        if let Some(allowed_tools) = &skill.allowed_tools {
+            output.push_str(&format!("\nAllowed Tools: {}", allowed_tools.join(", ")));
+        }
+        if let Some(metadata) = &skill.metadata {
+            output.push_str(&format!(
+                "\nMetadata: {}",
+                serde_json::to_string_pretty(metadata)?
+            ));
+        }
+        if let Some(origin_url) = &skill.origin_url {
+            output.push_str(&format!("\nOrigin URL: {}", origin_url));
+        }
+        if let Some(origin_ref) = &skill.origin_ref {
+            output.push_str(&format!("\nOrigin Ref: {}", origin_ref));
+        }
+        if let Some(origin_fetched_at) = &skill.origin_fetched_at {
+            output.push_str(&format!("\nOrigin Fetched: {}", origin_fetched_at));
+        }
+
+        output.push_str(&format!(
+            "\nProject IDs: {}\nCreated: {}\nUpdated: {}",
             if skill.project_ids.is_empty() {
                 "N/A".to_string()
             } else {
@@ -153,30 +215,20 @@ pub async fn get_skill(api_client: &ApiClient, id: &str, format: &str) -> CliRes
             },
             skill.created_at,
             skill.updated_at
-        ))
+        ));
+
+        Ok(output)
     }
 }
 
 /// Create a new skill
 pub async fn create_skill(
     api_client: &ApiClient,
-    name: &str,
-    description: Option<&str>,
-    instructions: Option<&str>,
-    tags: Option<&str>,
-    project_ids: Option<&str>,
+    request: CreateSkillRequest,
 ) -> CliResult<String> {
-    let req = CreateSkillRequest {
-        name: name.to_string(),
-        description: description.map(|s| s.to_string()),
-        instructions: instructions.map(|s| s.to_string()),
-        tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-        project_ids: project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
-    };
-
     let skill: Skill = api_client
         .post("/api/v1/skills")
-        .json(&req)
+        .json(&request)
         .send()
         .await?
         .error_for_status()?
@@ -193,23 +245,11 @@ pub async fn create_skill(
 pub async fn update_skill(
     api_client: &ApiClient,
     id: &str,
-    name: Option<&str>,
-    description: Option<&str>,
-    instructions: Option<&str>,
-    tags: Option<&str>,
-    project_ids: Option<&str>,
+    request: UpdateSkillRequest,
 ) -> CliResult<String> {
-    let req = UpdateSkillRequest {
-        name: name.map(|s| s.to_string()),
-        description: description.map(|s| s.to_string()),
-        instructions: instructions.map(|s| s.to_string()),
-        tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-        project_ids: project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
-    };
-
     let skill: Skill = api_client
         .patch(&format!("/api/v1/skills/{}", id))
-        .json(&req)
+        .json(&request)
         .send()
         .await?
         .error_for_status()?
