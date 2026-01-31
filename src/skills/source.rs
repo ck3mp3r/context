@@ -141,17 +141,67 @@ fn parse_git_url(source: &str, prefix: &str, is_ssh: bool) -> Result<SourceType,
 
 /// Fetch source to a temporary directory
 ///
-/// Returns the path to the temporary directory containing the fetched source.
-/// Caller is responsible for cleanup.
-pub fn fetch_source(_source_type: SourceType) -> Result<PathBuf, SourceError> {
-    // TODO: Implement source fetching
-    // - For Git: clone to temp dir
-    // - For HTTP: download and extract to temp dir
-    // - For local paths: verify exists and return path (no copy needed)
+/// For Git sources: clones to a temp directory and returns the path.
+/// For local paths: validates existence and returns the original path (no copy).
+///
+/// Returns the path to the directory containing the skill source.
+/// For Git sources, caller is responsible for cleanup of temp directory.
+pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
+    match source_type {
+        SourceType::GitHttps { repo_url, .. } | SourceType::GitSsh { repo_url, .. } => {
+            // Create temp directory for git clone
+            let temp_dir =
+                std::env::temp_dir().join(format!("c5t-skill-import-{}", std::process::id()));
+            std::fs::create_dir_all(&temp_dir).map_err(|e| {
+                SourceError::FileSystemError(format!("Failed to create temp directory: {}", e))
+            })?;
 
-    Err(SourceError::UnsupportedProtocol(
-        "Source fetching not yet implemented".to_string(),
-    ))
+            // Strip git+ prefix for actual git clone
+            let git_url = repo_url
+                .replace("git+https://", "https://")
+                .replace("git+ssh://", "ssh://");
+
+            // Execute git clone
+            let output = std::process::Command::new("git")
+                .arg("clone")
+                .arg("--depth")
+                .arg("1") // Shallow clone for faster fetch
+                .arg(&git_url)
+                .arg(&temp_dir)
+                .output()
+                .map_err(|e| SourceError::GitError(format!("Failed to execute git: {}", e)))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(SourceError::GitError(format!(
+                    "Git clone failed: {}",
+                    stderr
+                )));
+            }
+
+            Ok(temp_dir)
+        }
+        SourceType::LocalPath { path } => {
+            // Verify path exists
+            if !path.exists() {
+                return Err(SourceError::InvalidPath(format!(
+                    "Path does not exist: {}",
+                    path.display()
+                )));
+            }
+
+            // Verify it's a directory
+            if !path.is_dir() {
+                return Err(SourceError::InvalidPath(format!(
+                    "Path is not a directory: {}",
+                    path.display()
+                )));
+            }
+
+            // Return the path as-is (no copy needed)
+            Ok(path)
+        }
+    }
 }
 
 #[cfg(test)]
