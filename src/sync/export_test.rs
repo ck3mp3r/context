@@ -361,3 +361,85 @@ async fn test_export_skills_preserves_relationships() {
     let standalone = skills.iter().find(|s| s.id == "skill002").unwrap();
     assert_eq!(standalone.project_ids.len(), 0);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_with_agent_skills_fields() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a skill with ALL Agent Skills standard fields populated
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "deploy-kubernetes".to_string(),
+        description: Some("Deploy applications to Kubernetes cluster with validation".to_string()),
+        instructions: Some(
+            "# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string(),
+        ),
+        tags: vec!["kubernetes".to_string(), "deployment".to_string()],
+        license: Some("Apache-2.0".to_string()),
+        compatibility: Some("Requires kubectl, docker".to_string()),
+        allowed_tools: Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string()),
+        metadata: Some(serde_json::json!({"author": "ck3mp3r", "version": "1.0"})),
+        origin_url: Some("https://github.com/user/repo".to_string()),
+        origin_ref: Some("main".to_string()),
+        origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
+        origin_metadata: Some(serde_json::json!({"commit": "abc123"})),
+        project_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills().create(&skill).await.unwrap();
+
+    // Export
+    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 1);
+
+    // Read back the exported skill
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 1);
+
+    let exported = &skills[0];
+
+    // Verify core fields
+    assert_eq!(exported.id, "skill001");
+    assert_eq!(exported.name, "deploy-kubernetes");
+    assert_eq!(
+        exported.description,
+        Some("Deploy applications to Kubernetes cluster with validation".to_string())
+    );
+    assert_eq!(
+        exported.instructions,
+        Some("# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string())
+    );
+    assert_eq!(exported.tags, vec!["kubernetes", "deployment"]);
+
+    // Verify Agent Skills standard fields
+    assert_eq!(exported.license, Some("Apache-2.0".to_string()));
+    assert_eq!(
+        exported.compatibility,
+        Some("Requires kubectl, docker".to_string())
+    );
+    assert_eq!(
+        exported.allowed_tools,
+        Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string())
+    );
+    assert_eq!(
+        exported.metadata,
+        Some(serde_json::json!({"author": "ck3mp3r", "version": "1.0"}))
+    );
+
+    // Verify origin tracking fields
+    assert_eq!(
+        exported.origin_url,
+        Some("https://github.com/user/repo".to_string())
+    );
+    assert_eq!(exported.origin_ref, Some("main".to_string()));
+    assert_eq!(
+        exported.origin_fetched_at,
+        Some("2026-01-31T10:00:00Z".to_string())
+    );
+    assert_eq!(
+        exported.origin_metadata,
+        Some(serde_json::json!({"commit": "abc123"}))
+    );
+}

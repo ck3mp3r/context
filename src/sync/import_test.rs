@@ -739,3 +739,99 @@ async fn test_export_import_skills_round_trip() {
         Some("2024-01-01T15:30:00Z".to_string())
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_export_skills_agent_skills_fields_round_trip() {
+    let db1 = setup_test_db().await;
+    let db2 = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a skill in db1 with ALL Agent Skills fields populated
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "deploy-kubernetes".to_string(),
+        description: Some("Deploy applications to Kubernetes cluster with validation".to_string()),
+        instructions: Some(
+            "# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string(),
+        ),
+        tags: vec!["kubernetes".to_string(), "deployment".to_string()],
+        license: Some("Apache-2.0".to_string()),
+        compatibility: Some("Requires kubectl, docker".to_string()),
+        allowed_tools: Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string()),
+        metadata: Some(
+            serde_json::json!({"author": "ck3mp3r", "version": "1.0", "category": "deployment"}),
+        ),
+        origin_url: Some("https://github.com/user/repo".to_string()),
+        origin_ref: Some("main".to_string()),
+        origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
+        origin_metadata: Some(serde_json::json!({"commit": "abc123", "branch": "main"})),
+        project_ids: vec![],
+        created_at: Some("2024-01-01T12:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T15:30:00Z".to_string()),
+    };
+    db1.skills().create(&skill).await.unwrap();
+
+    // Export from db1
+    let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
+    assert_eq!(export_summary.skills, 1);
+
+    // Import to db2
+    let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
+    assert_eq!(import_summary.skills, 1);
+
+    // Verify ALL fields survived round-trip
+    let imported = db2.skills().get("skill001").await.unwrap();
+
+    // Core fields
+    assert_eq!(imported.id, "skill001");
+    assert_eq!(imported.name, "deploy-kubernetes");
+    assert_eq!(
+        imported.description,
+        Some("Deploy applications to Kubernetes cluster with validation".to_string())
+    );
+    assert_eq!(
+        imported.instructions,
+        Some("# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string())
+    );
+    assert_eq!(imported.tags, vec!["kubernetes", "deployment"]);
+
+    // Agent Skills standard fields
+    assert_eq!(imported.license, Some("Apache-2.0".to_string()));
+    assert_eq!(
+        imported.compatibility,
+        Some("Requires kubectl, docker".to_string())
+    );
+    assert_eq!(
+        imported.allowed_tools,
+        Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string())
+    );
+    assert_eq!(
+        imported.metadata,
+        Some(serde_json::json!({"author": "ck3mp3r", "version": "1.0", "category": "deployment"}))
+    );
+
+    // Origin tracking fields
+    assert_eq!(
+        imported.origin_url,
+        Some("https://github.com/user/repo".to_string())
+    );
+    assert_eq!(imported.origin_ref, Some("main".to_string()));
+    assert_eq!(
+        imported.origin_fetched_at,
+        Some("2026-01-31T10:00:00Z".to_string())
+    );
+    assert_eq!(
+        imported.origin_metadata,
+        Some(serde_json::json!({"commit": "abc123", "branch": "main"}))
+    );
+
+    // Timestamps
+    assert_eq!(
+        imported.created_at,
+        Some("2024-01-01T12:00:00Z".to_string())
+    );
+    assert_eq!(
+        imported.updated_at,
+        Some("2024-01-01T15:30:00Z".to_string())
+    );
+}
