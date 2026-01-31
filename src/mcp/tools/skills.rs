@@ -47,6 +47,18 @@ pub struct CreateSkillParams {
     pub instructions: Option<String>,
     #[schemars(description = "Tags")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "License (e.g., 'MIT', 'Apache-2.0')")]
+    pub license: Option<String>,
+    #[schemars(description = "Compatibility requirements (e.g., 'opencode>=0.1.0')")]
+    pub compatibility: Option<String>,
+    #[schemars(description = "Allowed tools")]
+    pub allowed_tools: Option<Vec<String>>,
+    #[schemars(description = "Arbitrary metadata as JSON")]
+    pub metadata: Option<serde_json::Value>,
+    #[schemars(description = "Origin URL (e.g., 'https://github.com/user/repo')")]
+    pub origin_url: Option<String>,
+    #[schemars(description = "Origin ref (e.g., 'main', 'v1.0.0')")]
+    pub origin_ref: Option<String>,
     #[schemars(description = "Linked projects")]
     pub project_ids: Option<Vec<String>>,
 }
@@ -63,6 +75,18 @@ pub struct UpdateSkillParams {
     pub instructions: Option<String>,
     #[schemars(description = "Tags (optional)")]
     pub tags: Option<Vec<String>>,
+    #[schemars(description = "License (optional)")]
+    pub license: Option<String>,
+    #[schemars(description = "Compatibility requirements (optional)")]
+    pub compatibility: Option<String>,
+    #[schemars(description = "Allowed tools (optional)")]
+    pub allowed_tools: Option<Vec<String>>,
+    #[schemars(description = "Metadata (optional)")]
+    pub metadata: Option<serde_json::Value>,
+    #[schemars(description = "Origin URL (optional)")]
+    pub origin_url: Option<String>,
+    #[schemars(description = "Origin ref (optional)")]
+    pub origin_ref: Option<String>,
     #[schemars(description = "Linked projects (optional)")]
     pub project_ids: Option<Vec<String>>,
 }
@@ -195,12 +219,16 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             description: params.0.description.clone(),
             instructions: params.0.instructions.clone(),
             tags: params.0.tags.clone().unwrap_or_default(),
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
+            license: params.0.license.clone(),
+            compatibility: params.0.compatibility.clone(),
+            allowed_tools: params
+                .0
+                .allowed_tools
+                .clone()
+                .map(|v| serde_json::to_string(&v).unwrap()),
+            metadata: params.0.metadata.clone(),
+            origin_url: params.0.origin_url.clone(),
+            origin_ref: params.0.origin_ref.clone(),
             origin_fetched_at: None,
             origin_metadata: None,
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
@@ -258,6 +286,24 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
         if let Some(tags) = &params.0.tags {
             skill.tags = tags.clone();
         }
+        if let Some(license) = &params.0.license {
+            skill.license = Some(license.clone());
+        }
+        if let Some(compatibility) = &params.0.compatibility {
+            skill.compatibility = Some(compatibility.clone());
+        }
+        if let Some(allowed_tools) = &params.0.allowed_tools {
+            skill.allowed_tools = Some(serde_json::to_string(allowed_tools).unwrap());
+        }
+        if let Some(metadata) = &params.0.metadata {
+            skill.metadata = Some(metadata.clone());
+        }
+        if let Some(origin_url) = &params.0.origin_url {
+            skill.origin_url = Some(origin_url.clone());
+        }
+        if let Some(origin_ref) = &params.0.origin_ref {
+            skill.origin_ref = Some(origin_ref.clone());
+        }
         if let Some(project_ids) = &params.0.project_ids {
             skill.project_ids = project_ids.clone();
         }
@@ -269,25 +315,13 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             )
         })?;
 
-        let updated = self
-            .db
-            .skills()
-            .get(&params.0.skill_id)
-            .await
-            .map_err(|e| {
-                McpError::internal_error(
-                    "database_error",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
-
         // Broadcast SkillUpdated notification
         self.notifier.notify(UpdateMessage::SkillUpdated {
-            skill_id: params.0.skill_id.clone(),
+            skill_id: skill.id.clone(),
         });
 
         Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&updated).unwrap(),
+            serde_json::to_string_pretty(&skill).unwrap(),
         )]))
     }
 

@@ -56,6 +56,12 @@ async fn test_create_and_get_skill() {
         description: Some("Systems programming with Rust".to_string()),
         instructions: Some("Focus on async/await and error handling".to_string()),
         tags: Some(vec!["programming".to_string(), "rust".to_string()]),
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
         project_ids: None,
     };
 
@@ -151,6 +157,12 @@ async fn test_update_skill() {
         description: Some("Advanced Python programming".to_string()),
         instructions: Some("Focus on asyncio and type hints".to_string()),
         tags: Some(vec!["lang".to_string(), "advanced".to_string()]),
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
         project_ids: None,
     };
 
@@ -606,4 +618,43 @@ async fn test_list_skills_with_sort_and_order() {
     assert_eq!(items[0]["name"], "alpha-skill");
     assert_eq!(items[1]["name"], "beta-skill");
     assert_eq!(items[2]["name"], "gamma-skill");
+}
+
+// --- Agent Skills Specification Tests ---
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_skill_with_agent_skills_fields() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+
+    let create_params = CreateSkillParams {
+        name: "agent-skill".to_string(),
+        description: Some("A skill with Agent Skills metadata".to_string()),
+        instructions: Some("Follow these steps".to_string()),
+        tags: Some(vec!["agent".to_string(), "spec".to_string()]),
+        license: Some("MIT".to_string()),
+        compatibility: Some("opencode>=0.1.0".to_string()),
+        allowed_tools: Some(vec!["read".to_string(), "write".to_string()]),
+        metadata: Some(serde_json::json!({"author": "test"})),
+        origin_url: Some("https://github.com/example/skill".to_string()),
+        origin_ref: Some("main".to_string()),
+        project_ids: None,
+    };
+
+    let result = tools
+        .create_skill(Parameters(create_params))
+        .await
+        .expect("create should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let created: Skill = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(created.name, "agent-skill");
+    assert_eq!(created.license, Some("MIT".to_string()));
+    assert_eq!(created.compatibility, Some("opencode>=0.1.0".to_string()));
 }
