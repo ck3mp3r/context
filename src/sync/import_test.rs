@@ -442,10 +442,18 @@ async fn test_import_skills_creates_new() {
     // Create a skill
     let skill = Skill {
         id: "skill001".to_string(),
-        name: "Test Skill".to_string(),
+        name: "test-skill".to_string(),
         description: Some("A test skill".to_string()),
         instructions: Some("Do something".to_string()),
         tags: vec!["test".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
@@ -465,7 +473,7 @@ async fn test_import_skills_creates_new() {
 
     // Verify skill was created
     let imported_skill = db.skills().get("skill001").await.unwrap();
-    assert_eq!(imported_skill.name, "Test Skill");
+    assert_eq!(imported_skill.name, "test-skill");
     assert_eq!(imported_skill.description, Some("A test skill".to_string()));
     assert_eq!(
         imported_skill.instructions,
@@ -498,10 +506,18 @@ async fn test_import_skills_updates_existing() {
     // Create initial skill
     let skill_v1 = Skill {
         id: "skill001".to_string(),
-        name: "Original Name".to_string(),
+        name: "original-name".to_string(),
         description: Some("Original description".to_string()),
         instructions: Some("Original instructions".to_string()),
         tags: vec!["v1".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
@@ -511,10 +527,18 @@ async fn test_import_skills_updates_existing() {
     // Create modified version for import
     let skill_v2 = Skill {
         id: "skill001".to_string(),
-        name: "Updated Name".to_string(),
+        name: "updated-name".to_string(),
         description: Some("Updated description".to_string()),
         instructions: Some("Updated instructions".to_string()),
         tags: vec!["v2".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-02T15:00:00Z".to_string()),
@@ -538,7 +562,7 @@ async fn test_import_skills_updates_existing() {
 
     // Verify it was updated
     let updated_skill = db.skills().get("skill001").await.unwrap();
-    assert_eq!(updated_skill.name, "Updated Name");
+    assert_eq!(updated_skill.name, "updated-name");
     assert_eq!(
         updated_skill.description,
         Some("Updated description".to_string())
@@ -586,10 +610,18 @@ async fn test_import_skills_preserves_project_relationships() {
     // Create skill linked to multiple projects
     let skill = Skill {
         id: "skill001".to_string(),
-        name: "Multi-Project Skill".to_string(),
-        description: None,
-        instructions: None,
+        name: "multi-project-skill".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
@@ -658,10 +690,18 @@ async fn test_export_import_skills_round_trip() {
 
     let skill = Skill {
         id: "skill001".to_string(),
-        name: "Round-trip Skill".to_string(),
+        name: "round-trip-skill".to_string(),
         description: Some("Testing round-trip".to_string()),
         instructions: Some("Should survive export/import".to_string()),
         tags: vec!["test".to_string(), "round-trip".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T12:00:00Z".to_string()),
         updated_at: Some("2024-01-01T15:30:00Z".to_string()),
@@ -679,7 +719,7 @@ async fn test_export_import_skills_round_trip() {
     // Verify data integrity
     let imported_skill = db2.skills().get("skill001").await.unwrap();
     assert_eq!(imported_skill.id, "skill001");
-    assert_eq!(imported_skill.name, "Round-trip Skill");
+    assert_eq!(imported_skill.name, "round-trip-skill");
     assert_eq!(
         imported_skill.description,
         Some("Testing round-trip".to_string())

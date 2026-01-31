@@ -11,30 +11,30 @@ async fn setup_db() -> SqliteDatabase {
     db
 }
 
-fn make_skill(id: &str, name: &str, desc: Option<&str>, instructions: Option<&str>) -> Skill {
-    Skill {
-        id: id.to_string(),
-        name: name.to_string(),
-        description: desc.map(|s| s.to_string()),
-        instructions: instructions.map(|s| s.to_string()),
-        tags: vec![],
-        project_ids: vec![],
-        created_at: Some("2025-01-01 00:00:00".to_string()),
-        updated_at: Some("2025-01-01 00:00:00".to_string()),
-    }
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn skill_create_and_get() {
     let db = setup_db().await;
     let skills = db.skills();
 
-    let skill = make_skill(
-        "skl00001",
-        "Rust",
-        Some("Systems programming"),
-        Some("Use Rust book"),
-    );
+    let skill = Skill {
+        id: "skl00001".to_string(),
+        name: "rust".to_string(),
+        description: Some("Systems programming".to_string()),
+        instructions: Some("Use Rust book".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+
     skills.create(&skill).await.expect("Create should succeed");
 
     let retrieved = skills.get("skl00001").await.expect("Get should succeed");
@@ -64,14 +64,45 @@ async fn skill_list() {
     assert!(result.items.is_empty());
 
     // Add skills
-    skills
-        .create(&make_skill("skl00002", "First", Some("Desc one"), None))
-        .await
-        .unwrap();
-    skills
-        .create(&make_skill("skl00003", "Second", Some("Desc two"), None))
-        .await
-        .unwrap();
+    let skill1 = Skill {
+        id: "skl00002".to_string(),
+        name: "first".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill1).await.unwrap();
+
+    let skill2 = Skill {
+        id: "skl00003".to_string(),
+        name: "second".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill2).await.unwrap();
 
     let result = skills.list(None).await.expect("List should succeed");
     assert_eq!(result.items.len(), 2);
@@ -82,16 +113,33 @@ async fn skill_update() {
     let db = setup_db().await;
     let skills = db.skills();
 
-    let mut skill = make_skill("skl00004", "Original Name", Some("Original desc"), None);
+    let mut skill = Skill {
+        id: "skl00004".to_string(),
+        name: "original-name".to_string(),
+        description: Some("Original desc".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill).await.expect("Create should succeed");
 
-    skill.name = "Updated Name".to_string();
+    skill.name = "updated-name".to_string();
     skill.description = Some("Updated desc".to_string());
     skill.tags = vec!["updated".to_string()];
     skills.update(&skill).await.expect("Update should succeed");
 
     let retrieved = skills.get("skl00004").await.expect("Get should succeed");
-    assert_eq!(retrieved.name, "Updated Name");
+    assert_eq!(retrieved.name, "updated-name");
     assert_eq!(retrieved.description, Some("Updated desc".to_string()));
     assert_eq!(retrieved.tags, vec!["updated".to_string()]);
 }
@@ -101,7 +149,24 @@ async fn skill_delete() {
     let db = setup_db().await;
     let skills = db.skills();
 
-    let skill = make_skill("skl00005", "To Delete", Some("Desc"), None);
+    let skill = Skill {
+        id: "skl00005".to_string(),
+        name: "to-delete".to_string(),
+        description: Some("Desc".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill).await.expect("Create should succeed");
 
     skills
@@ -119,33 +184,65 @@ async fn skill_search() {
     let skills = db.skills();
 
     // Create skills with specific content
-    skills
-        .create(&make_skill(
-            "skl00006",
-            "API Design",
-            Some("REST endpoints for user mgmt"),
-            None,
-        ))
-        .await
-        .unwrap();
-    skills
-        .create(&make_skill(
-            "skl00007",
-            "Database",
-            Some("SQLite tables for data"),
-            None,
-        ))
-        .await
-        .unwrap();
-    skills
-        .create(&make_skill(
-            "skl00008",
-            "Frontend",
-            Some("React components"),
-            None,
-        ))
-        .await
-        .unwrap();
+    let skill1 = Skill {
+        id: "skl00006".to_string(),
+        name: "api-design".to_string(),
+        description: Some("REST endpoints for user mgmt".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill1).await.unwrap();
+
+    let skill2 = Skill {
+        id: "skl00007".to_string(),
+        name: "database".to_string(),
+        description: Some("SQLite tables for data".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill2).await.unwrap();
+
+    let skill3 = Skill {
+        id: "skl00008".to_string(),
+        name: "frontend".to_string(),
+        description: Some("React components".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+    skills.create(&skill3).await.unwrap();
 
     // Search for "data" - should find 1 skill
     let results = skills
@@ -160,7 +257,7 @@ async fn skill_search() {
         .await
         .expect("Search should succeed");
     assert_eq!(results.items.len(), 1);
-    assert_eq!(results.items[0].name, "Frontend");
+    assert_eq!(results.items[0].name, "frontend");
 
     // Search for nonexistent term
     let results = skills
@@ -176,16 +273,64 @@ async fn skill_list_with_tag_filter() {
     let skills = db.skills();
 
     // Create skills with different tags
-    let mut skill1 = make_skill("skl00009", "Rust", None, None);
-    skill1.tags = vec!["rust".to_string(), "programming".to_string()];
+    let skill1 = Skill {
+        id: "skl00009".to_string(),
+        name: "rust".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec!["rust".to_string(), "programming".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill1).await.unwrap();
 
-    let mut skill2 = make_skill("skl00010", "Python", None, None);
-    skill2.tags = vec!["python".to_string(), "programming".to_string()];
+    let skill2 = Skill {
+        id: "skl00010".to_string(),
+        name: "python".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec!["python".to_string(), "programming".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill2).await.unwrap();
 
-    let mut skill3 = make_skill("skl00011", "Cooking", None, None);
-    skill3.tags = vec!["cooking".to_string()];
+    let skill3 = Skill {
+        id: "skl00011".to_string(),
+        name: "cooking".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec!["cooking".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill3).await.unwrap();
 
     // Filter by "rust" tag - should find 1
@@ -198,7 +343,7 @@ async fn skill_list_with_tag_filter() {
         .await
         .expect("List should succeed");
     assert_eq!(results.items.len(), 1);
-    assert_eq!(results.items[0].name, "Rust");
+    assert_eq!(results.items[0].name, "rust");
 
     // Filter by "programming" tag - should find 2
     let query = SkillQuery {
@@ -230,26 +375,64 @@ async fn skill_search_with_tag_filter() {
     let skills = db.skills();
 
     // Create skills with different tags and content
-    let mut skill1 = make_skill("skl00012", "API Design", Some("REST API patterns"), None);
-    skill1.tags = vec!["api".to_string(), "backend".to_string()];
+    let skill1 = Skill {
+        id: "skl00012".to_string(),
+        name: "API Design".to_string(),
+        description: Some("REST API patterns".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec!["api".to_string(), "backend".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill1).await.unwrap();
 
-    let mut skill2 = make_skill(
-        "skl00013",
-        "API Testing",
-        Some("Testing API endpoints"),
-        None,
-    );
-    skill2.tags = vec!["api".to_string(), "testing".to_string()];
+    let skill2 = Skill {
+        id: "skl00013".to_string(),
+        name: "API Testing".to_string(),
+        description: Some("Testing API endpoints".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec!["api".to_string(), "testing".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill2).await.unwrap();
 
-    let mut skill3 = make_skill(
-        "skl00014",
-        "Frontend APIs",
-        Some("Calling APIs from React"),
-        None,
-    );
-    skill3.tags = vec!["frontend".to_string()];
+    let skill3 = Skill {
+        id: "skl00014".to_string(),
+        name: "Frontend APIs".to_string(),
+        description: Some("Calling APIs from React".to_string()),
+        instructions: Some("Test instructions".to_string()),
+        tags: vec!["frontend".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
+        project_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
     skills.create(&skill3).await.unwrap();
 
     // Search for "API" with no tag filter - should find all 3

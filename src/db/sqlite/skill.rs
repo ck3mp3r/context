@@ -3,7 +3,7 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
-use crate::db::models::{Skill, SkillQuery};
+use crate::db::models::{SKILL_DESCRIPTION_MAX, Skill, SkillQuery};
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{DbError, DbResult, ListResult, SkillRepository};
 
@@ -12,8 +12,102 @@ pub struct SqliteSkillRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+/// Standard column list for SELECT queries (without table alias)
+const SKILL_COLS: &str = "id, name, description, instructions, tags, license, compatibility, allowed_tools, metadata, origin_url, origin_ref, origin_fetched_at, origin_metadata, created_at, updated_at";
+
+/// Standard column list for SELECT queries (with 's.' table alias)
+const SKILL_COLS_ALIASED: &str = "s.id, s.name, s.description, s.instructions, s.tags, s.license, s.compatibility, s.allowed_tools, s.metadata, s.origin_url, s.origin_ref, s.origin_fetched_at, s.origin_metadata, s.created_at, s.updated_at";
+
+/// Parse a database row into a Skill struct (without project_ids)
+fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
+    let tags_json: String = row.get("tags");
+    let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+    // Parse JSON fields
+    let metadata: Option<serde_json::Value> = row
+        .get::<Option<String>, _>("metadata")
+        .and_then(|s| serde_json::from_str(&s).ok());
+
+    let origin_metadata: Option<serde_json::Value> = row
+        .get::<Option<String>, _>("origin_metadata")
+        .and_then(|s| serde_json::from_str(&s).ok());
+
+    Skill {
+        id: row.get("id"),
+        name: row.get("name"),
+        description: row.get("description"),
+        instructions: row.get("instructions"),
+        tags,
+        license: row.get("license"),
+        compatibility: row.get("compatibility"),
+        allowed_tools: row.get("allowed_tools"),
+        metadata,
+        origin_url: row.get("origin_url"),
+        origin_ref: row.get("origin_ref"),
+        origin_fetched_at: row.get("origin_fetched_at"),
+        origin_metadata,
+        project_ids: vec![], // Loaded separately via join table
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+/// Validates skill for database storage.
+///
+/// Database validation (NOT filesystem-specific):
+/// - name: required, not empty (any characters allowed - it's just a DB field)
+/// - description: required, not empty, max 1024 chars  
+/// - instructions: required, not empty
+///
+/// Note: When exporting to filesystem (Agent Skills format), the sync layer
+/// will sanitize the name to meet filesystem requirements (lowercase, hyphens, etc.)
+fn validate_skill(skill: &Skill) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate name (required, not empty)
+    if skill.name.trim().is_empty() {
+        errors.push("Skill name cannot be empty".to_string());
+    }
+
+    // Validate description (required, not empty, max length)
+    match &skill.description {
+        Some(desc) => {
+            if desc.trim().is_empty() {
+                errors.push("Skill description cannot be empty".to_string());
+            } else if desc.len() > SKILL_DESCRIPTION_MAX {
+                errors.push(format!(
+                    "Skill description exceeds maximum length of {} characters ({} chars)",
+                    SKILL_DESCRIPTION_MAX,
+                    desc.len()
+                ));
+            }
+        }
+        None => errors.push("Skill description is required".to_string()),
+    }
+
+    // Validate instructions (required, not empty)
+    match &skill.instructions {
+        Some(inst) if inst.trim().is_empty() => {
+            errors.push("Skill instructions cannot be empty".to_string());
+        }
+        None => errors.push("Skill instructions are required".to_string()),
+        _ => {} // Valid
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     async fn create(&self, skill: &Skill) -> DbResult<Skill> {
+        // Validate skill
+        validate_skill(skill)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if skill.id.is_empty() {
             generate_entity_id()
@@ -36,14 +130,50 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
 
+        // Serialize JSON fields
+        let metadata_json = skill
+            .metadata
+            .as_ref()
+            .map(|m| {
+                serde_json::to_string(m).map_err(|e| DbError::Database {
+                    message: format!("Failed to serialize metadata: {}", e),
+                })
+            })
+            .transpose()?;
+
+        let origin_metadata_json = skill
+            .origin_metadata
+            .as_ref()
+            .map(|m| {
+                serde_json::to_string(m).map_err(|e| DbError::Database {
+                    message: format!("Failed to serialize origin_metadata: {}", e),
+                })
+            })
+            .transpose()?;
+
         sqlx::query(
-            r#"INSERT INTO skill (id, name, description, instructions, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+            r#"
+            INSERT INTO skill (
+                id, name, description, instructions, tags,
+                license, compatibility, allowed_tools, metadata,
+                origin_url, origin_ref, origin_fetched_at, origin_metadata,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
         )
         .bind(&id)
         .bind(&skill.name)
         .bind(&skill.description)
         .bind(&skill.instructions)
         .bind(tags_json)
+        .bind(&skill.license)
+        .bind(&skill.compatibility)
+        .bind(&skill.allowed_tools)
+        .bind(metadata_json)
+        .bind(&skill.origin_url)
+        .bind(&skill.origin_ref)
+        .bind(&skill.origin_fetched_at)
+        .bind(origin_metadata_json)
         .bind(&created_at)
         .bind(&updated_at)
         .execute(self.pool)
@@ -70,6 +200,14 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             description: skill.description.clone(),
             instructions: skill.instructions.clone(),
             tags: skill.tags.clone(),
+            license: skill.license.clone(),
+            compatibility: skill.compatibility.clone(),
+            allowed_tools: skill.allowed_tools.clone(),
+            metadata: skill.metadata.clone(),
+            origin_url: skill.origin_url.clone(),
+            origin_ref: skill.origin_ref.clone(),
+            origin_fetched_at: skill.origin_fetched_at.clone(),
+            origin_metadata: skill.origin_metadata.clone(),
             project_ids: skill.project_ids.clone(),
             created_at: Some(created_at),
             updated_at: Some(updated_at),
@@ -77,22 +215,19 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     }
 
     async fn get(&self, id: &str) -> DbResult<Skill> {
-        let row = sqlx::query(
-            "SELECT id, name, description, instructions, tags, created_at, updated_at FROM skill WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
+        let sql = format!("SELECT {} FROM skill WHERE id = ?", SKILL_COLS);
+        let row = sqlx::query(&sql)
+            .bind(id)
+            .fetch_optional(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
 
         if let Some(row) = row {
-            let tags_json: String = row.get("tags");
-            let tags: Vec<String> =
-                serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
-                    message: format!("Failed to parse tags JSON: {}", e),
-                })?;
+            let mut skill = row_to_skill(&row);
+
+            // Load project relationships
             let project_ids: Vec<String> =
                 sqlx::query_scalar("SELECT project_id FROM project_skill WHERE skill_id = ?")
                     .bind(id)
@@ -101,16 +236,9 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                     .map_err(|e| DbError::Database {
                         message: e.to_string(),
                     })?;
-            Ok(Skill {
-                id: row.get("id"),
-                name: row.get("name"),
-                description: row.get("description"),
-                instructions: row.get("instructions"),
-                tags,
-                project_ids,
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-            })
+
+            skill.project_ids = project_ids;
+            Ok(skill)
         } else {
             Err(DbError::NotFound {
                 entity_type: "Skill".to_string(),
@@ -144,17 +272,9 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
                 bind_values.extend(tags.clone());
             }
-            (
-                "DISTINCT s.id, s.name, s.description, s.instructions, s.tags, s.created_at, s.updated_at",
-                from,
-                "s.",
-            )
+            (format!("DISTINCT {}", SKILL_COLS_ALIASED), from, "s.")
         } else {
-            (
-                "id, name, description, instructions, tags, created_at, updated_at",
-                "FROM skill".to_string(),
-                "",
-            )
+            (SKILL_COLS.to_string(), "FROM skill".to_string(), "")
         };
         let where_clause = if !where_conditions.is_empty() {
             format!("WHERE {}", where_conditions.join(" AND "))
@@ -200,23 +320,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
-        let items: Vec<Skill> = rows
-            .into_iter()
-            .map(|row| {
-                let tags_json: String = row.get("tags");
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-                Skill {
-                    id: row.get("id"),
-                    name: row.get("name"),
-                    description: row.get("description"),
-                    instructions: row.get("instructions"),
-                    tags,
-                    project_ids: vec![], // relationships managed separately
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
-                }
-            })
-            .collect();
+        let items: Vec<Skill> = rows.iter().map(row_to_skill).collect();
         let mut count_query = sqlx::query_scalar(&count_sql);
         for value in &bind_values {
             count_query = count_query.bind(value);
@@ -236,21 +340,51 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     }
 
     async fn update(&self, skill: &Skill) -> DbResult<()> {
+        // Validate skill
+        validate_skill(skill)?;
+
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
+
         let tags_json = serde_json::to_string(&skill.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
+
+        // Serialize JSON fields
+        let metadata_json = skill
+            .metadata
+            .as_ref()
+            .map(|m| {
+                serde_json::to_string(m).map_err(|e| DbError::Database {
+                    message: format!("Failed to serialize metadata: {}", e),
+                })
+            })
+            .transpose()?;
+
+        let origin_metadata_json = skill
+            .origin_metadata
+            .as_ref()
+            .map(|m| {
+                serde_json::to_string(m).map_err(|e| DbError::Database {
+                    message: format!("Failed to serialize origin_metadata: {}", e),
+                })
+            })
+            .transpose()?;
+
         let updated_at = skill
             .updated_at
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(current_timestamp);
+
         let result = sqlx::query(
             r#"
             UPDATE skill
-            SET name = ?, description = ?, instructions = ?, tags = ?, updated_at = ?
+            SET name = ?, description = ?, instructions = ?, tags = ?,
+                license = ?, compatibility = ?, allowed_tools = ?, metadata = ?,
+                origin_url = ?, origin_ref = ?, origin_fetched_at = ?, origin_metadata = ?,
+                updated_at = ?
             WHERE id = ?
             "#,
         )
@@ -258,6 +392,14 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         .bind(&skill.description)
         .bind(&skill.instructions)
         .bind(tags_json)
+        .bind(&skill.license)
+        .bind(&skill.compatibility)
+        .bind(&skill.allowed_tools)
+        .bind(metadata_json)
+        .bind(&skill.origin_url)
+        .bind(&skill.origin_ref)
+        .bind(&skill.origin_fetched_at)
+        .bind(origin_metadata_json)
         .bind(&updated_at)
         .bind(&skill.id)
         .execute(&mut *tx)
@@ -345,10 +487,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             bind_values.push(proj.clone());
         }
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
-        let sql = format!(
-            "SELECT id, name, description, instructions, tags, created_at, updated_at FROM skill {}",
-            where_clause
-        );
+        let sql = format!("SELECT {} FROM skill {}", SKILL_COLS, where_clause);
         let mut query_builder = sqlx::query(&sql);
         for value in &bind_values {
             query_builder = query_builder.bind(value);
@@ -359,23 +498,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
-        let items: Vec<Skill> = rows
-            .into_iter()
-            .map(|row| {
-                let tags_json: String = row.get("tags");
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-                Skill {
-                    id: row.get("id"),
-                    name: row.get("name"),
-                    description: row.get("description"),
-                    instructions: row.get("instructions"),
-                    tags,
-                    project_ids: vec![], // relationships managed separately
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
-                }
-            })
-            .collect();
+        let items: Vec<Skill> = rows.iter().map(row_to_skill).collect();
         let total = items.len();
         Ok(ListResult {
             items,

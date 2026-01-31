@@ -227,10 +227,18 @@ async fn test_export_skills_with_data() {
     // Create a skill with project relationship
     let skill = Skill {
         id: "skill001".to_string(),
-        name: "Test Skill".to_string(),
+        name: "test-skill".to_string(),
         description: Some("A test skill".to_string()),
         instructions: Some("Do something".to_string()),
         tags: vec!["test".to_string(), "export".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
@@ -250,7 +258,7 @@ async fn test_export_skills_with_data() {
 
     let exported_skill = &skills[0];
     assert_eq!(exported_skill.id, "skill001");
-    assert_eq!(exported_skill.name, "Test Skill");
+    assert_eq!(exported_skill.name, "test-skill");
     assert_eq!(exported_skill.description, Some("A test skill".to_string()));
     assert_eq!(
         exported_skill.instructions,
@@ -297,10 +305,18 @@ async fn test_export_skills_preserves_relationships() {
     // Create skill linked to multiple projects
     let skill = Skill {
         id: "skill001".to_string(),
-        name: "Multi-Project Skill".to_string(),
-        description: None,
-        instructions: None,
+        name: "multi-project-skill".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
@@ -310,10 +326,18 @@ async fn test_export_skills_preserves_relationships() {
     // Create skill with no projects
     let skill_no_projects = Skill {
         id: "skill002".to_string(),
-        name: "Standalone Skill".to_string(),
-        description: None,
-        instructions: None,
+        name: "standalone-skill".to_string(),
+        description: Some("Test description".to_string()),
+        instructions: Some("Test instructions".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),

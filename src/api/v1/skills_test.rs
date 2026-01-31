@@ -66,7 +66,7 @@ async fn test_create_skill() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Test Skill",
+                        "name": "test-skill",
                         "description": "A skill description",
                         "instructions": "Follow these steps",
                         "tags": ["tag1", "tag2"],
@@ -80,7 +80,7 @@ async fn test_create_skill() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let created = json_body(response).await;
-    assert_eq!(created["name"], "Test Skill");
+    assert_eq!(created["name"], "test-skill");
     assert_eq!(created["description"], "A skill description");
     assert_eq!(created["instructions"], "Follow these steps");
     assert_eq!(created["tags"], json!(["tag1", "tag2"]));
@@ -125,7 +125,9 @@ async fn test_get_skill_by_id() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "Skill1"
+                        "name": "skill1",
+                        "description": "Test description",
+                        "instructions": "Test instructions"
                     }))
                     .unwrap(),
                 ))
@@ -150,7 +152,7 @@ async fn test_get_skill_by_id() {
     assert_eq!(response.status(), StatusCode::OK);
     let got = json_body(response).await;
     assert_eq!(got["id"], id);
-    assert_eq!(got["name"], "Skill1");
+    assert_eq!(got["name"], "skill1");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -180,7 +182,14 @@ async fn test_update_skill_patch() {
                 .method("POST")
                 .uri("/api/v1/skills")
                 .header("content-type", "application/json")
-                .body(Body::from(json!({"name": "PatchMe"}).to_string()))
+                .body(Body::from(
+                    json!({
+                        "name": "patch-me",
+                        "description": "Test description",
+                        "instructions": "Test instructions"
+                    })
+                    .to_string(),
+                ))
                 .unwrap(),
         )
         .await
@@ -197,7 +206,7 @@ async fn test_update_skill_patch() {
                 .uri(format!("/api/v1/skills/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    json!({"name": "PatchedName", "tags": ["edited"]}).to_string(),
+                    json!({"name": "patched-name", "tags": ["edited"]}).to_string(),
                 ))
                 .unwrap(),
         )
@@ -206,7 +215,7 @@ async fn test_update_skill_patch() {
     assert_eq!(response.status(), StatusCode::OK);
     let patched = json_body(response).await;
     assert_eq!(patched["id"], id);
-    assert_eq!(patched["name"], "PatchedName");
+    assert_eq!(patched["name"], "patched-name");
     assert_eq!(patched["tags"], json!(["edited"]));
 }
 
@@ -220,7 +229,7 @@ async fn test_update_skill_not_found() {
                 .method("PATCH")
                 .uri("/api/v1/skills/skl_NOTREAL")
                 .header("content-type", "application/json")
-                .body(Body::from(json!({"name": "X"}).to_string()))
+                .body(Body::from(json!({"name": "x"}).to_string()))
                 .unwrap(),
         )
         .await
@@ -239,7 +248,14 @@ async fn test_update_skill_put() {
                 .method("POST")
                 .uri("/api/v1/skills")
                 .header("content-type", "application/json")
-                .body(Body::from(json!({"name": "PutMe"}).to_string()))
+                .body(Body::from(
+                    json!({
+                        "name": "put-me",
+                        "description": "Test description",
+                        "instructions": "Test instructions"
+                    })
+                    .to_string(),
+                ))
                 .unwrap(),
         )
         .await
@@ -256,7 +272,12 @@ async fn test_update_skill_put() {
                 .uri(format!("/api/v1/skills/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    json!({"name": "PutName", "description": "desc"}).to_string(),
+                    json!({
+                        "name": "put-name",
+                        "description": "desc",
+                        "instructions": "instructions"
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
@@ -265,7 +286,7 @@ async fn test_update_skill_put() {
     assert_eq!(response.status(), StatusCode::OK);
     let put = json_body(response).await;
     assert_eq!(put["id"], id);
-    assert_eq!(put["name"], "PutName");
+    assert_eq!(put["name"], "put-name");
     assert_eq!(put["description"], "desc");
 }
 
@@ -280,7 +301,14 @@ async fn test_delete_skill() {
                 .method("POST")
                 .uri("/api/v1/skills")
                 .header("content-type", "application/json")
-                .body(Body::from(json!({"name": "DeleteMe"}).to_string()))
+                .body(Body::from(
+                    json!({
+                        "name": "delete-me",
+                        "description": "Test description",
+                        "instructions": "Test instructions"
+                    })
+                    .to_string(),
+                ))
                 .unwrap(),
         )
         .await
@@ -347,7 +375,12 @@ async fn test_list_skills_non_empty() {
                     .uri("/api/v1/skills")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        json!({"name": format!("Skill{}", i)}).to_string(),
+                        json!({
+                            "name": format!("Skill{}", i),
+                            "description": "Test description",
+                            "instructions": "Test instructions"
+                        })
+                        .to_string(),
                     ))
                     .unwrap(),
             )

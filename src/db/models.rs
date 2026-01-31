@@ -22,6 +22,13 @@ pub const NOTE_SOFT_MAX: usize = 50_000; // ~12,500 tokens
 pub const NOTE_HARD_MAX: usize = 100_000; // ~25,000 tokens
 
 // =============================================================================
+// Skill Constants (Agent Skills Specification)
+// =============================================================================
+
+/// Maximum length for skill description (Agent Skills standard).
+pub const SKILL_DESCRIPTION_MAX: usize = 1_024;
+
+// =============================================================================
 // Query Types for Pagination and Sorting
 // =============================================================================
 
@@ -324,7 +331,8 @@ pub struct Note {
     pub updated_at: Option<String>,
 }
 
-/// A skill entity following the Note pattern for core fields.
+/// A skill entity following Agent Skills specification (https://agentskills.io/specification).
+/// Skills store reusable instructions, scripts, and resources for AI agents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skill {
     pub id: Id,
@@ -332,8 +340,103 @@ pub struct Skill {
     pub description: Option<String>,
     pub instructions: Option<String>,
     pub tags: Vec<String>,
+
+    // Agent Skills standard fields (https://agentskills.io/specification)
+    /// License identifier (e.g., "Apache-2.0", "MIT", "Proprietary")
+    pub license: Option<String>,
+    /// Environment requirements (e.g., "Requires kubectl, docker")
+    pub compatibility: Option<String>,
+    /// Pre-approved tools (experimental, e.g., "Bash(kubectl:*) Bash(docker:*)")
+    pub allowed_tools: Option<String>,
+    /// Arbitrary metadata as JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+
+    // Origin tracking for provenance and updates
+    /// URL where skill was imported from
+    pub origin_url: Option<String>,
+    /// Git ref or version
+    pub origin_ref: Option<String>,
+    /// When last fetched from origin
+    pub origin_fetched_at: Option<String>,
+    /// Additional origin information as JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_metadata: Option<serde_json::Value>,
+
     #[serde(default)]
     pub project_ids: Vec<Id>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_skill_serde_with_all_fields() {
+        let skill = Skill {
+            id: "abc12345".to_string(),
+            name: "deploy-kubernetes".to_string(),
+            description: Some("Deploy applications to Kubernetes".to_string()),
+            instructions: Some("# Instructions\n\n...".to_string()),
+            tags: vec!["kubernetes".to_string(), "deployment".to_string()],
+            license: Some("Apache-2.0".to_string()),
+            compatibility: Some("Requires kubectl, docker".to_string()),
+            allowed_tools: Some("Bash(kubectl:*) Bash(docker:*)".to_string()),
+            metadata: Some(serde_json::json!({"author": "test", "version": "1.0"})),
+            origin_url: Some("https://github.com/user/repo".to_string()),
+            origin_ref: Some("main".to_string()),
+            origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
+            origin_metadata: Some(serde_json::json!({"imported_by": "test"})),
+            project_ids: vec!["proj1234".to_string()],
+            created_at: Some("2026-01-31T10:00:00Z".to_string()),
+            updated_at: Some("2026-01-31T10:00:00Z".to_string()),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(json.contains("deploy-kubernetes"));
+        assert!(json.contains("Apache-2.0"));
+        assert!(json.contains("origin_url"));
+
+        // Test deserialization
+        let deserialized: Skill = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, skill);
+    }
+
+    #[test]
+    fn test_skill_serde_realistic_minimal() {
+        // A realistic minimal skill has at minimum: name, description, and instructions
+        let skill = Skill {
+            id: "abc12345".to_string(),
+            name: "deploy-kubernetes".to_string(),
+            description: Some("Deploy applications to Kubernetes cluster".to_string()),
+            instructions: Some(
+                "# Deployment Skill\n\n## Steps\n1. Validate manifests\n2. Apply changes"
+                    .to_string(),
+            ),
+            tags: vec!["kubernetes".to_string()],
+            license: None,
+            compatibility: None,
+            allowed_tools: None,
+            metadata: None,
+            origin_url: None,
+            origin_ref: None,
+            origin_fetched_at: None,
+            origin_metadata: None,
+            project_ids: vec![],
+            created_at: Some("2026-01-31T10:00:00Z".to_string()),
+            updated_at: Some("2026-01-31T10:00:00Z".to_string()),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(json.contains("deploy-kubernetes"));
+        assert!(json.contains("Deploy applications"));
+
+        // Test deserialization
+        let deserialized: Skill = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, skill);
+    }
 }

@@ -57,7 +57,7 @@ async fn test_skill_crud_operations() {
     // CREATE: Skill with all fields populated
     let create_result = create_skill(
         &api_client,
-        "Rust Programming",
+        "rust-programming",
         Some("Systems programming language"),
         Some("Follow the Rust Book and practice daily"),
         Some("rust,systems,programming"),
@@ -82,7 +82,7 @@ async fn test_skill_crud_operations() {
         .expect("Failed to get skill");
     let fetched_skill: serde_json::Value = serde_json::from_str(&get_result).unwrap();
 
-    assert_eq!(fetched_skill["name"], "Rust Programming");
+    assert_eq!(fetched_skill["name"], "rust-programming");
     assert_eq!(fetched_skill["description"], "Systems programming language");
     assert_eq!(
         fetched_skill["instructions"],
@@ -98,7 +98,7 @@ async fn test_skill_crud_operations() {
     let update_result = update_skill(
         &api_client,
         skill_id,
-        Some("Advanced Rust Programming"),
+        Some("advanced-rust-programming"),
         Some("Advanced systems programming with Rust"),
         Some("Focus on unsafe Rust, FFI, and performance optimization"),
         Some("rust,advanced,systems"),
@@ -113,7 +113,7 @@ async fn test_skill_crud_operations() {
         .expect("Failed to get updated skill");
     let updated_skill: serde_json::Value = serde_json::from_str(&get_updated).unwrap();
 
-    assert_eq!(updated_skill["name"], "Advanced Rust Programming");
+    assert_eq!(updated_skill["name"], "advanced-rust-programming");
     assert_eq!(
         updated_skill["description"],
         "Advanced systems programming with Rust"
@@ -169,9 +169,9 @@ async fn test_list_skills_with_filters() {
     // Create multiple skills
     create_skill(
         &api_client,
-        "Rust",
+        "rust",
         Some("Systems language"),
-        None,
+        Some("Practice systems programming"),
         Some("rust,systems"),
         Some(&project_id),
     )
@@ -180,9 +180,9 @@ async fn test_list_skills_with_filters() {
 
     create_skill(
         &api_client,
-        "Python",
+        "python",
         Some("High-level language"),
-        None,
+        Some("Learn Python basics"),
         Some("python,scripting"),
         None,
     )
@@ -191,9 +191,9 @@ async fn test_list_skills_with_filters() {
 
     create_skill(
         &api_client,
-        "Go",
+        "go",
         Some("Cloud native language"),
-        None,
+        Some("Build cloud apps"),
         Some("go,cloud"),
         Some(&project_id),
     )
@@ -238,7 +238,7 @@ async fn test_list_skills_with_filters() {
         .expect("Should list filtered skills");
     let tagged: Vec<Skill> = serde_json::from_str(&result).unwrap();
     assert_eq!(tagged.len(), 1, "Should have 1 skill with rust tag");
-    assert_eq!(tagged[0].name, "Rust");
+    assert_eq!(tagged[0].name, "rust");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -247,10 +247,17 @@ async fn test_list_skills_pagination_and_sorting() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create skills with different names
-    for name in ["Alpha", "Beta", "Gamma", "Delta"] {
-        create_skill(&api_client, name, None, None, None, None)
-            .await
-            .expect("Failed to create skill");
+    for name in ["alpha", "beta", "gamma", "delta"] {
+        create_skill(
+            &api_client,
+            name,
+            Some("Test description"),
+            Some("Test instructions"),
+            None,
+            None,
+        )
+        .await
+        .expect("Failed to create skill");
     }
 
     // Test limit
@@ -290,8 +297,8 @@ async fn test_list_skills_pagination_and_sorting() {
         .await
         .expect("Should list sorted");
     let sorted: Vec<Skill> = serde_json::from_str(&result).unwrap();
-    assert_eq!(sorted[0].name, "Alpha", "Should be sorted alphabetically");
-    assert_eq!(sorted[3].name, "Gamma", "Should be sorted alphabetically");
+    assert_eq!(sorted[0].name, "alpha", "Should be sorted alphabetically");
+    assert_eq!(sorted[3].name, "gamma", "Should be sorted alphabetically");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -308,12 +315,30 @@ async fn test_create_skill_minimal() {
     let (url, _project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create with only required field (name)
-    let result = create_skill(&api_client, "JavaScript", None, None, None, None).await;
-    assert!(result.is_ok(), "Should create skill with minimal data");
+    // Attempt to create with only name (should fail - description and instructions required)
+    let result = create_skill(&api_client, "javascript", None, None, None, None).await;
+    assert!(
+        result.is_err(),
+        "Should fail - description and instructions are required"
+    );
+
+    // Create with all required fields
+    let result = create_skill(
+        &api_client,
+        "javascript",
+        Some("JavaScript programming language"),
+        Some("Use for web development"),
+        None,
+        None,
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "Should create skill with all required fields"
+    );
 
     let output = result.unwrap();
-    assert!(output.contains("JavaScript"), "Should mention skill name");
+    assert!(output.contains("javascript"), "Should mention skill name");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -324,7 +349,7 @@ async fn test_update_skill_partial() {
     // Create skill
     let create_result = create_skill(
         &api_client,
-        "TypeScript",
+        "typescript",
         Some("JavaScript superset"),
         Some("Learn gradually"),
         None,
@@ -345,7 +370,7 @@ async fn test_update_skill_partial() {
     let update_result = update_skill(
         &api_client,
         skill_id,
-        Some("TypeScript Pro"),
+        Some("typescript-pro"),
         None,
         None,
         None,
@@ -360,7 +385,7 @@ async fn test_update_skill_partial() {
         .expect("Failed to get updated skill");
     let updated: serde_json::Value = serde_json::from_str(&get_result).unwrap();
 
-    assert_eq!(updated["name"], "TypeScript Pro");
+    assert_eq!(updated["name"], "typescript-pro");
     assert_eq!(updated["description"], "JavaScript superset"); // Unchanged
     assert_eq!(updated["instructions"], "Learn gradually"); // Unchanged
 }
@@ -373,9 +398,9 @@ async fn test_skill_table_output() {
     // Create a skill
     create_skill(
         &api_client,
-        "Docker",
+        "docker",
         Some("Containerization"),
-        None,
+        Some("Learn container orchestration"),
         Some("docker,devops"),
         None,
     )
@@ -393,7 +418,7 @@ async fn test_skill_table_output() {
         .await
         .expect("Should list in table format");
 
-    assert!(result.contains("Docker"), "Table should contain skill name");
+    assert!(result.contains("docker"), "Table should contain skill name");
     assert!(result.contains("ID"), "Table should have ID header");
     assert!(result.contains("Name"), "Table should have Name header");
     assert!(result.contains("Tags"), "Table should have Tags header");

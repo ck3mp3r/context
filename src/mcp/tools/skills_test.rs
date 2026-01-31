@@ -52,7 +52,7 @@ async fn test_create_and_get_skill() {
 
     // Create skill
     let create_params = CreateSkillParams {
-        name: "Rust Programming".to_string(),
+        name: "rust-programming".to_string(),
         description: Some("Systems programming with Rust".to_string()),
         instructions: Some("Focus on async/await and error handling".to_string()),
         tags: Some(vec!["programming".to_string(), "rust".to_string()]),
@@ -70,7 +70,7 @@ async fn test_create_and_get_skill() {
     };
     let created: Skill = serde_json::from_str(content_text).unwrap();
 
-    assert_eq!(created.name, "Rust Programming");
+    assert_eq!(created.name, "rust-programming");
     assert_eq!(
         created.description,
         Some("Systems programming with Rust".to_string())
@@ -98,7 +98,7 @@ async fn test_create_and_get_skill() {
     let fetched: Skill = serde_json::from_str(content_text).unwrap();
 
     assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.name, "Rust Programming");
+    assert_eq!(fetched.name, "rust-programming");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -126,10 +126,18 @@ async fn test_update_skill() {
     // Create skill
     let skill = Skill {
         id: String::new(),
-        name: "Python".to_string(),
+        name: "python".to_string(),
         description: Some("Python programming".to_string()),
-        instructions: None,
+        instructions: Some("Learn Python fundamentals".to_string()),
         tags: vec!["lang".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
@@ -139,7 +147,7 @@ async fn test_update_skill() {
     // Update skill
     let update_params = UpdateSkillParams {
         skill_id: created.id.clone(),
-        name: Some("Advanced Python".to_string()),
+        name: Some("advanced-python".to_string()),
         description: Some("Advanced Python programming".to_string()),
         instructions: Some("Focus on asyncio and type hints".to_string()),
         tags: Some(vec!["lang".to_string(), "advanced".to_string()]),
@@ -157,7 +165,7 @@ async fn test_update_skill() {
     };
     let updated: Skill = serde_json::from_str(content_text).unwrap();
 
-    assert_eq!(updated.name, "Advanced Python");
+    assert_eq!(updated.name, "advanced-python");
     assert_eq!(
         updated.description,
         Some("Advanced Python programming".to_string())
@@ -182,10 +190,18 @@ async fn test_delete_skill() {
     // Create skill
     let skill = Skill {
         id: String::new(),
-        name: "JavaScript".to_string(),
+        name: "javascript".to_string(),
         description: Some("Web programming".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
@@ -223,20 +239,36 @@ async fn test_search_skills_single_match() {
     // Create two skills
     let rust = Skill {
         id: String::new(),
-        name: "Rust".to_string(),
+        name: "rust".to_string(),
         description: Some("Systems programming language".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec!["lang".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
     };
     let python = Skill {
         id: String::new(),
-        name: "Python".to_string(),
+        name: "python".to_string(),
         description: Some("High-level programming".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec!["lang".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
@@ -246,7 +278,7 @@ async fn test_search_skills_single_match() {
 
     // Search for "Rust"
     let params = SearchSkillsParams {
-        query: "Rust".to_string(),
+        query: "rust".to_string(),
         tags: None,
         project_id: None,
         limit: None,
@@ -267,7 +299,7 @@ async fn test_search_skills_single_match() {
 
     assert_eq!(json["total"], 1);
     let items = json["items"].as_array().unwrap();
-    assert_eq!(items[0]["name"], "Rust");
+    assert_eq!(items[0]["name"], "rust");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -280,20 +312,36 @@ async fn test_search_skills_with_tag_filter() {
     // Create skills
     let async_skill = Skill {
         id: String::new(),
-        name: "Rust Async".to_string(),
+        name: "rust-async".to_string(),
         description: Some("Async programming in Rust".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec!["rust".to_string(), "async".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
     };
     let basics_skill = Skill {
         id: String::new(),
-        name: "Rust Basics".to_string(),
+        name: "rust-basics".to_string(),
         description: Some("Basic Rust syntax and types".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec!["rust".to_string(), "basics".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
@@ -303,7 +351,7 @@ async fn test_search_skills_with_tag_filter() {
 
     // Search for "Rust" with "async" tag filter
     let params = SearchSkillsParams {
-        query: "Rust".to_string(),
+        query: "rust".to_string(),
         tags: Some(vec!["async".to_string()]),
         project_id: None,
         limit: None,
@@ -324,7 +372,7 @@ async fn test_search_skills_with_tag_filter() {
 
     assert_eq!(json["total"], 1);
     let items = json["items"].as_array().unwrap();
-    assert_eq!(items[0]["name"], "Rust Async");
+    assert_eq!(items[0]["name"], "rust-async");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -368,20 +416,36 @@ async fn test_list_skills_with_tag_filter() {
     // Create skills with different tags
     let skill1 = Skill {
         id: String::new(),
-        name: "Work Skill".to_string(),
+        name: "work-skill".to_string(),
         description: Some("For work projects".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec!["work".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
     };
     let skill2 = Skill {
         id: String::new(),
-        name: "Personal Skill".to_string(),
+        name: "personal-skill".to_string(),
         description: Some("For personal projects".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec!["personal".to_string()],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: None,
         updated_at: None,
@@ -414,7 +478,7 @@ async fn test_list_skills_with_tag_filter() {
 
     assert_eq!(json["total"], 1);
     let items = json["items"].as_array().unwrap();
-    assert_eq!(items[0]["name"], "Work Skill");
+    assert_eq!(items[0]["name"], "work-skill");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -426,10 +490,18 @@ async fn test_list_skills_with_sort_and_order() {
     // Create skills with specific timestamps for sorting
     let skill1 = Skill {
         id: String::new(),
-        name: "Alpha Skill".to_string(),
+        name: "alpha-skill".to_string(),
         description: Some("First skill".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: Some("2025-01-01 10:00:00".to_string()),
         updated_at: Some("2025-01-01 10:00:00".to_string()),
@@ -437,10 +509,18 @@ async fn test_list_skills_with_sort_and_order() {
 
     let skill2 = Skill {
         id: String::new(),
-        name: "Beta Skill".to_string(),
+        name: "beta-skill".to_string(),
         description: Some("Second skill".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: Some("2025-01-02 10:00:00".to_string()),
         updated_at: Some("2025-01-02 10:00:00".to_string()),
@@ -448,10 +528,18 @@ async fn test_list_skills_with_sort_and_order() {
 
     let skill3 = Skill {
         id: String::new(),
-        name: "Gamma Skill".to_string(),
+        name: "gamma-skill".to_string(),
         description: Some("Third skill".to_string()),
-        instructions: None,
+        instructions: Some("Learn web programming".to_string()),
         tags: vec![],
+        license: None,
+        compatibility: None,
+        allowed_tools: None,
+        metadata: None,
+        origin_url: None,
+        origin_ref: None,
+        origin_fetched_at: None,
+        origin_metadata: None,
         project_ids: vec![],
         created_at: Some("2025-01-03 10:00:00".to_string()),
         updated_at: Some("2025-01-03 10:00:00".to_string()),
@@ -487,9 +575,9 @@ async fn test_list_skills_with_sort_and_order() {
     assert_eq!(json["total"], 3);
     let items = json["items"].as_array().unwrap();
     // Should be ordered by created_at DESC: skill3, skill2, skill1
-    assert_eq!(items[0]["name"], "Gamma Skill");
-    assert_eq!(items[1]["name"], "Beta Skill");
-    assert_eq!(items[2]["name"], "Alpha Skill");
+    assert_eq!(items[0]["name"], "gamma-skill");
+    assert_eq!(items[1]["name"], "beta-skill");
+    assert_eq!(items[2]["name"], "alpha-skill");
 
     // Test sorting by name ASC
     let params = ListSkillsParams {
@@ -515,7 +603,7 @@ async fn test_list_skills_with_sort_and_order() {
     assert_eq!(json["total"], 3);
     let items = json["items"].as_array().unwrap();
     // Should be ordered by name ASC
-    assert_eq!(items[0]["name"], "Alpha Skill");
-    assert_eq!(items[1]["name"], "Beta Skill");
-    assert_eq!(items[2]["name"], "Gamma Skill");
+    assert_eq!(items[0]["name"], "alpha-skill");
+    assert_eq!(items[1]["name"], "beta-skill");
+    assert_eq!(items[2]["name"], "gamma-skill");
 }

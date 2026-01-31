@@ -12,6 +12,19 @@ CREATE TABLE IF NOT EXISTS skill (
     description TEXT,
     instructions TEXT,
     tags TEXT NOT NULL DEFAULT '[]',
+    
+    -- Agent Skills standard fields (https://agentskills.io/specification)
+    license TEXT,                    -- e.g., "Apache-2.0", "MIT", "Proprietary"
+    compatibility TEXT,              -- e.g., "Requires kubectl, docker"
+    allowed_tools TEXT,              -- e.g., "Bash(kubectl:*) Bash(docker:*)"
+    metadata TEXT,                   -- JSON: arbitrary key-value pairs
+    
+    -- Origin tracking for provenance and updates
+    origin_url TEXT,                 -- Where skill was imported from
+    origin_ref TEXT,                 -- Git ref or version
+    origin_fetched_at TEXT,          -- When last fetched
+    origin_metadata TEXT,            -- JSON: additional origin info
+    
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
