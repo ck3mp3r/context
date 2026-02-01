@@ -148,7 +148,8 @@ fn parse_git_url(source: &str, prefix: &str, is_ssh: bool) -> Result<SourceType,
 /// For local paths: validates existence and returns the original path (no copy).
 ///
 /// Returns the path to the directory containing the skill source.
-/// For Git sources, caller is responsible for cleanup of temp directory.
+/// Temp directories are created with predictable names: /tmp/c5t-skill-import-{pid}
+/// Caller is responsible for cleanup using the same pattern.
 #[allow(dead_code)] // Used when import is implemented
 pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
     match source_type {
@@ -156,6 +157,17 @@ pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
             // Create temp directory for git clone
             let temp_dir =
                 std::env::temp_dir().join(format!("c5t-skill-import-{}", std::process::id()));
+
+            // Remove existing temp dir if it exists (from previous failed import)
+            if temp_dir.exists() {
+                std::fs::remove_dir_all(&temp_dir).map_err(|e| {
+                    SourceError::FileSystemError(format!(
+                        "Failed to remove existing temp directory: {}",
+                        e
+                    ))
+                })?;
+            }
+
             std::fs::create_dir_all(&temp_dir).map_err(|e| {
                 SourceError::FileSystemError(format!("Failed to create temp directory: {}", e))
             })?;
@@ -177,6 +189,8 @@ pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
+                // Cleanup temp dir on git failure
+                std::fs::remove_dir_all(&temp_dir).ok();
                 return Err(SourceError::GitError(format!(
                     "Git clone failed: {}",
                     stderr
