@@ -159,8 +159,8 @@ This is a test skill.
 
         let skill = result.unwrap();
         assert_eq!(skill.name, "test-skill");
-        assert_eq!(skill.description, None);
-        assert!(skill.instructions.contains("# Test Skill"));
+        assert_eq!(skill.description, ""); // No description provided
+        assert!(skill.content.contains("# Test Skill"));
     }
 
     #[test]
@@ -191,21 +191,11 @@ Use this skill for testing purposes.
 
         let skill = result.unwrap();
         assert_eq!(skill.name, "full-skill");
-        assert_eq!(
-            skill.description,
-            Some("A complete skill example".to_string())
-        );
-        assert_eq!(skill.license, Some("MIT".to_string()));
-        assert_eq!(skill.compatibility, Some("openai, anthropic".to_string()));
-        assert_eq!(
-            skill.allowed_tools,
-            Some(vec![
-                "read".to_string(),
-                "write".to_string(),
-                "execute".to_string()
-            ])
-        );
-        assert!(skill.instructions.contains("# Full Skill"));
+        assert_eq!(skill.description, "A complete skill example");
+        // All other fields are in content, not parsed separately
+        assert!(skill.content.contains("license: MIT"));
+        assert!(skill.content.contains("compatibility: openai, anthropic"));
+        assert!(skill.content.contains("# Full Skill"));
     }
 
     #[test]

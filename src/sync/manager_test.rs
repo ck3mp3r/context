@@ -429,17 +429,18 @@ async fn test_status_returns_correct_skills_count_from_db() {
     let skill1 = Skill {
         id: "skill001".to_string(),
         name: "test-skill-1".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: test-skill-1
+description: Test description
+---
+
+# Test Skill 1
+
+Test instructions
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -450,17 +451,18 @@ async fn test_status_returns_correct_skills_count_from_db() {
     let skill2 = Skill {
         id: "skill002".to_string(),
         name: "test-skill-2".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: test-skill-2
+description: Test description
+---
+
+# Test Skill 2
+
+Test instructions
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -509,17 +511,16 @@ async fn test_count_jsonl_entities_counts_skills_jsonl() {
         Skill {
             id: "skill001".to_string(),
             name: "skill-1".to_string(),
-            description: None,
-            instructions: None,
+            description: "Skill 1".to_string(),
+            content: r#"---
+name: skill-1
+description: Skill 1
+---
+
+# Skill 1
+"#
+            .to_string(),
             tags: vec![],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec![],
             scripts: vec![],
             references: vec![],
@@ -530,17 +531,16 @@ async fn test_count_jsonl_entities_counts_skills_jsonl() {
         Skill {
             id: "skill002".to_string(),
             name: "skill-2".to_string(),
-            description: None,
-            instructions: None,
+            description: "Skill 2".to_string(),
+            content: r#"---
+name: skill-2
+description: Skill 2
+---
+
+# Skill 2
+"#
+            .to_string(),
             tags: vec![],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec![],
             scripts: vec![],
             references: vec![],
@@ -551,17 +551,16 @@ async fn test_count_jsonl_entities_counts_skills_jsonl() {
         Skill {
             id: "skill003".to_string(),
             name: "skill-3".to_string(),
-            description: None,
-            instructions: None,
+            description: "Skill 3".to_string(),
+            content: r#"---
+name: skill-3
+description: Skill 3
+---
+
+# Skill 3
+"#
+            .to_string(),
             tags: vec![],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec![],
             scripts: vec![],
             references: vec![],

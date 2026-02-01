@@ -228,17 +228,18 @@ async fn test_export_skills_with_data() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "test-skill".to_string(),
-        description: Some("A test skill".to_string()),
-        instructions: Some("Do something".to_string()),
+        description: "A test skill".to_string(),
+        content: r#"---
+name: test-skill
+description: A test skill
+---
+
+# Test Skill
+
+Do something useful.
+"#
+        .to_string(),
         tags: vec!["test".to_string(), "export".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         scripts: vec![],
         references: vec![],
@@ -262,11 +263,8 @@ async fn test_export_skills_with_data() {
     let exported_skill = &skills[0];
     assert_eq!(exported_skill.id, "skill001");
     assert_eq!(exported_skill.name, "test-skill");
-    assert_eq!(exported_skill.description, Some("A test skill".to_string()));
-    assert_eq!(
-        exported_skill.instructions,
-        Some("Do something".to_string())
-    );
+    assert_eq!(exported_skill.description, "A test skill");
+    assert!(exported_skill.content.contains("Do something"));
     assert_eq!(exported_skill.tags, vec!["test", "export"]);
     assert_eq!(exported_skill.project_ids, vec!["proj0001"]);
 }
@@ -309,17 +307,18 @@ async fn test_export_skills_preserves_relationships() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "multi-project-skill".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: multi-project-skill
+description: Test description
+---
+
+# Multi-Project Skill
+
+Test instructions.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
         scripts: vec![],
         references: vec![],
@@ -333,17 +332,18 @@ async fn test_export_skills_preserves_relationships() {
     let skill_no_projects = Skill {
         id: "skill002".to_string(),
         name: "standalone-skill".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: standalone-skill
+description: Test description
+---
+
+# Standalone Skill
+
+Test instructions.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -380,19 +380,31 @@ async fn test_export_skills_with_agent_skills_fields() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "deploy-kubernetes".to_string(),
-        description: Some("Deploy applications to Kubernetes cluster with validation".to_string()),
-        instructions: Some(
-            "# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string(),
-        ),
+        description: "Deploy applications to Kubernetes cluster with validation".to_string(),
+        content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes cluster with validation
+license: Apache-2.0
+compatibility: Requires kubectl, docker
+allowed-tools: ["Bash(kubectl:*)","Bash(docker:*)"]
+metadata:
+  author: ck3mp3r
+  version: "1.0"
+origin:
+  url: https://github.com/user/repo
+  ref: main
+  fetched_at: "2026-01-31T10:00:00Z"
+  metadata:
+    commit: abc123
+---
+
+# Deployment Steps
+
+1. Run validation
+2. Apply manifests
+"#
+        .to_string(),
         tags: vec!["kubernetes".to_string(), "deployment".to_string()],
-        license: Some("Apache-2.0".to_string()),
-        compatibility: Some("Requires kubectl, docker".to_string()),
-        allowed_tools: Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string()),
-        metadata: Some(serde_json::json!({"author": "ck3mp3r", "version": "1.0"})),
-        origin_url: Some("https://github.com/user/repo".to_string()),
-        origin_ref: Some("main".to_string()),
-        origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
-        origin_metadata: Some(serde_json::json!({"commit": "abc123"})),
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -417,41 +429,36 @@ async fn test_export_skills_with_agent_skills_fields() {
     assert_eq!(exported.name, "deploy-kubernetes");
     assert_eq!(
         exported.description,
-        Some("Deploy applications to Kubernetes cluster with validation".to_string())
+        "Deploy applications to Kubernetes cluster with validation"
     );
-    assert_eq!(
-        exported.instructions,
-        Some("# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string())
-    );
+    assert!(exported.content.contains("# Deployment Steps"));
+    assert!(exported.content.contains("Run validation"));
     assert_eq!(exported.tags, vec!["kubernetes", "deployment"]);
 
-    // Verify Agent Skills standard fields
-    assert_eq!(exported.license, Some("Apache-2.0".to_string()));
-    assert_eq!(
-        exported.compatibility,
-        Some("Requires kubectl, docker".to_string())
+    // Verify Agent Skills standard fields are in content
+    assert!(exported.content.contains("license: Apache-2.0"));
+    assert!(
+        exported
+            .content
+            .contains("compatibility: Requires kubectl, docker")
     );
-    assert_eq!(
-        exported.allowed_tools,
-        Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string())
+    assert!(
+        exported
+            .content
+            .contains(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#)
     );
-    assert_eq!(
-        exported.metadata,
-        Some(serde_json::json!({"author": "ck3mp3r", "version": "1.0"}))
-    );
+    assert!(exported.content.contains("author: ck3mp3r"));
 
-    // Verify origin tracking fields
-    assert_eq!(
-        exported.origin_url,
-        Some("https://github.com/user/repo".to_string())
+    // Verify origin tracking fields are in content (these are now in frontmatter, not separate DB fields)
+    assert!(
+        exported
+            .content
+            .contains("url: https://github.com/user/repo")
     );
-    assert_eq!(exported.origin_ref, Some("main".to_string()));
-    assert_eq!(
-        exported.origin_fetched_at,
-        Some("2026-01-31T10:00:00Z".to_string())
-    );
-    assert_eq!(
-        exported.origin_metadata,
-        Some(serde_json::json!({"commit": "abc123"}))
+    assert!(exported.content.contains("ref: main"));
+    assert!(
+        exported
+            .content
+            .contains("fetched_at: 2026-01-31T10:00:00Z")
     );
 }

@@ -443,17 +443,18 @@ async fn test_import_skills_creates_new() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "test-skill".to_string(),
-        description: Some("A test skill".to_string()),
-        instructions: Some("Do something".to_string()),
+        description: "A test skill".to_string(),
+        content: r#"---
+name: test-skill
+description: A test skill
+---
+
+# Test Skill
+
+Do something
+"#
+        .to_string(),
         tags: vec!["test".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         scripts: vec![],
         references: vec![],
@@ -477,11 +478,8 @@ async fn test_import_skills_creates_new() {
     // Verify skill was created
     let imported_skill = db.skills().get("skill001").await.unwrap();
     assert_eq!(imported_skill.name, "test-skill");
-    assert_eq!(imported_skill.description, Some("A test skill".to_string()));
-    assert_eq!(
-        imported_skill.instructions,
-        Some("Do something".to_string())
-    );
+    assert_eq!(imported_skill.description, "A test skill");
+    assert!(imported_skill.content.contains("Do something"));
     assert_eq!(imported_skill.tags, vec!["test"]);
     assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
 }
@@ -510,17 +508,18 @@ async fn test_import_skills_updates_existing() {
     let skill_v1 = Skill {
         id: "skill001".to_string(),
         name: "original-name".to_string(),
-        description: Some("Original description".to_string()),
-        instructions: Some("Original instructions".to_string()),
+        description: "Original description".to_string(),
+        content: r#"---
+name: original-name
+description: Original description
+---
+
+# Original Skill
+
+Original instructions
+"#
+        .to_string(),
         tags: vec!["v1".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -534,17 +533,18 @@ async fn test_import_skills_updates_existing() {
     let skill_v2 = Skill {
         id: "skill001".to_string(),
         name: "updated-name".to_string(),
-        description: Some("Updated description".to_string()),
-        instructions: Some("Updated instructions".to_string()),
+        description: "Updated description".to_string(),
+        content: r#"---
+name: updated-name
+description: Updated description
+---
+
+# Updated Skill
+
+Updated instructions
+"#
+        .to_string(),
         tags: vec!["v2".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         scripts: vec![],
         references: vec![],
@@ -572,14 +572,8 @@ async fn test_import_skills_updates_existing() {
     // Verify it was updated
     let updated_skill = db.skills().get("skill001").await.unwrap();
     assert_eq!(updated_skill.name, "updated-name");
-    assert_eq!(
-        updated_skill.description,
-        Some("Updated description".to_string())
-    );
-    assert_eq!(
-        updated_skill.instructions,
-        Some("Updated instructions".to_string())
-    );
+    assert_eq!(updated_skill.description, "Updated description");
+    assert!(updated_skill.content.contains("Updated instructions"));
     assert_eq!(updated_skill.tags, vec!["v2"]);
     assert_eq!(updated_skill.project_ids, vec!["proj0001"]);
 }
@@ -620,17 +614,18 @@ async fn test_import_skills_preserves_project_relationships() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "multi-project-skill".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: multi-project-skill
+description: Test description
+---
+
+# Multi-Project Skill
+
+Test instructions
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
         scripts: vec![],
         references: vec![],
@@ -703,17 +698,18 @@ async fn test_export_import_skills_round_trip() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "round-trip-skill".to_string(),
-        description: Some("Testing round-trip".to_string()),
-        instructions: Some("Should survive export/import".to_string()),
+        description: "Testing round-trip".to_string(),
+        content: r#"---
+name: round-trip-skill
+description: Testing round-trip
+---
+
+# Round Trip Skill
+
+Should survive export/import
+"#
+        .to_string(),
         tags: vec!["test".to_string(), "round-trip".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec!["proj0001".to_string()],
         scripts: vec![],
         references: vec![],
@@ -735,13 +731,11 @@ async fn test_export_import_skills_round_trip() {
     let imported_skill = db2.skills().get("skill001").await.unwrap();
     assert_eq!(imported_skill.id, "skill001");
     assert_eq!(imported_skill.name, "round-trip-skill");
-    assert_eq!(
-        imported_skill.description,
-        Some("Testing round-trip".to_string())
-    );
-    assert_eq!(
-        imported_skill.instructions,
-        Some("Should survive export/import".to_string())
+    assert_eq!(imported_skill.description, "Testing round-trip");
+    assert!(
+        imported_skill
+            .content
+            .contains("Should survive export/import")
     );
     assert_eq!(imported_skill.tags, vec!["test", "round-trip"]);
     assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
@@ -765,21 +759,33 @@ async fn test_import_export_skills_agent_skills_fields_round_trip() {
     let skill = Skill {
         id: "skill001".to_string(),
         name: "deploy-kubernetes".to_string(),
-        description: Some("Deploy applications to Kubernetes cluster with validation".to_string()),
-        instructions: Some(
-            "# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string(),
-        ),
+        description: "Deploy applications to Kubernetes cluster with validation".to_string(),
+        content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes cluster with validation
+license: Apache-2.0
+compatibility: Requires kubectl, docker
+allowed-tools: ["Bash(kubectl:*)", "Bash(docker:*)"]
+metadata:
+  author: ck3mp3r
+  version: "1.0"
+  category: deployment
+origin:
+  url: https://github.com/user/repo
+  ref: main
+  fetched_at: 2026-01-31T10:00:00Z
+  metadata:
+    commit: abc123
+    branch: main
+---
+
+# Deployment Steps
+
+1. Run validation
+2. Apply manifests
+"#
+        .to_string(),
         tags: vec!["kubernetes".to_string(), "deployment".to_string()],
-        license: Some("Apache-2.0".to_string()),
-        compatibility: Some("Requires kubectl, docker".to_string()),
-        allowed_tools: Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string()),
-        metadata: Some(
-            serde_json::json!({"author": "ck3mp3r", "version": "1.0", "category": "deployment"}),
-        ),
-        origin_url: Some("https://github.com/user/repo".to_string()),
-        origin_ref: Some("main".to_string()),
-        origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
-        origin_metadata: Some(serde_json::json!({"commit": "abc123", "branch": "main"})),
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -805,43 +811,39 @@ async fn test_import_export_skills_agent_skills_fields_round_trip() {
     assert_eq!(imported.name, "deploy-kubernetes");
     assert_eq!(
         imported.description,
-        Some("Deploy applications to Kubernetes cluster with validation".to_string())
+        "Deploy applications to Kubernetes cluster with validation"
     );
-    assert_eq!(
-        imported.instructions,
-        Some("# Deployment Steps\n\n1. Run validation\n2. Apply manifests".to_string())
-    );
+    assert!(imported.content.contains("# Deployment Steps"));
+    assert!(imported.content.contains("Run validation"));
+    assert!(imported.content.contains("Apply manifests"));
     assert_eq!(imported.tags, vec!["kubernetes", "deployment"]);
 
-    // Agent Skills standard fields
-    assert_eq!(imported.license, Some("Apache-2.0".to_string()));
-    assert_eq!(
-        imported.compatibility,
-        Some("Requires kubectl, docker".to_string())
+    // Agent Skills standard fields (now in content frontmatter)
+    assert!(imported.content.contains("license: Apache-2.0"));
+    assert!(
+        imported
+            .content
+            .contains("compatibility: Requires kubectl, docker")
     );
-    assert_eq!(
-        imported.allowed_tools,
-        Some(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#.to_string())
-    );
-    assert_eq!(
-        imported.metadata,
-        Some(serde_json::json!({"author": "ck3mp3r", "version": "1.0", "category": "deployment"}))
-    );
+    assert!(imported.content.contains(r#"["Bash(kubectl:*)""#));
+    assert!(imported.content.contains("author: ck3mp3r"));
+    assert!(imported.content.contains(r#"version: "1.0""#));
+    assert!(imported.content.contains("category: deployment"));
 
-    // Origin tracking fields
-    assert_eq!(
-        imported.origin_url,
-        Some("https://github.com/user/repo".to_string())
+    // Origin tracking fields (now in content frontmatter)
+    assert!(
+        imported
+            .content
+            .contains("url: https://github.com/user/repo")
     );
-    assert_eq!(imported.origin_ref, Some("main".to_string()));
-    assert_eq!(
-        imported.origin_fetched_at,
-        Some("2026-01-31T10:00:00Z".to_string())
+    assert!(imported.content.contains("ref: main"));
+    assert!(
+        imported
+            .content
+            .contains("fetched_at: 2026-01-31T10:00:00Z")
     );
-    assert_eq!(
-        imported.origin_metadata,
-        Some(serde_json::json!({"commit": "abc123", "branch": "main"}))
-    );
+    assert!(imported.content.contains("commit: abc123"));
+    assert!(imported.content.contains("branch: main"));
 
     // Timestamps
     assert_eq!(
@@ -864,17 +866,26 @@ async fn test_import_skills_upsert_updates_agent_skills_fields() {
     let initial_skill = Skill {
         id: "skill002".to_string(),
         name: "initial-name".to_string(),
-        description: Some("Initial description".to_string()),
-        instructions: Some("Initial instructions".to_string()),
+        description: "Initial description".to_string(),
+        content: r#"---
+name: initial-name
+description: Initial description
+license: MIT
+compatibility: opencode>=0.1.0
+allowed-tools: ["Bash(echo:*)"]
+metadata:
+  version: "1.0"
+origin:
+  url: https://github.com/original/repo
+  ref: main
+---
+
+# Initial Skill
+
+Initial instructions
+"#
+        .to_string(),
         tags: vec!["tag1".to_string()],
-        license: Some("MIT".to_string()),
-        compatibility: Some("opencode>=0.1.0".to_string()),
-        allowed_tools: Some(r#"["Bash(echo:*)"]"#.to_string()),
-        metadata: Some(serde_json::json!({"version": "1.0"})),
-        origin_url: Some("https://github.com/original/repo".to_string()),
-        origin_ref: Some("main".to_string()),
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -892,23 +903,36 @@ async fn test_import_skills_upsert_updates_agent_skills_fields() {
     let modified_skill = Skill {
         id: "skill002".to_string(),
         name: "updated-name".to_string(),
-        description: Some("Updated description with new content".to_string()),
-        instructions: Some("Updated instructions with changes".to_string()),
+        description: "Updated description with new content".to_string(),
+        content: r#"---
+name: updated-name
+description: Updated description with new content
+license: Apache-2.0
+compatibility: Requires kubectl >= 1.30, docker >= 20.10
+allowed-tools: ["Bash(kubectl:*)", "Bash(docker:*)", "Bash(helm:*)"]
+metadata:
+  version: "2.0"
+  author: updated
+  new_field: added
+origin:
+  url: https://github.com/updated/repo
+  ref: v2.0.0
+  fetched_at: 2026-01-31T19:00:00Z
+  metadata:
+    commit: xyz789
+    updated: true
+---
+
+# Updated Skill
+
+Updated instructions with changes
+"#
+        .to_string(),
         tags: vec![
             "tag1".to_string(),
             "tag2".to_string(),
             "updated".to_string(),
         ],
-        license: Some("Apache-2.0".to_string()), // CHANGED
-        compatibility: Some("Requires kubectl >= 1.30, docker >= 20.10".to_string()), // CHANGED
-        allowed_tools: Some(r#"["Bash(kubectl:*)","Bash(docker:*)","Bash(helm:*)"]"#.to_string()), // CHANGED
-        metadata: Some(
-            serde_json::json!({"version": "2.0", "author": "updated", "new_field": "added"}),
-        ), // CHANGED
-        origin_url: Some("https://github.com/updated/repo".to_string()), // CHANGED
-        origin_ref: Some("v2.0.0".to_string()),                          // CHANGED
-        origin_fetched_at: Some("2026-01-31T19:00:00Z".to_string()),     // CHANGED
-        origin_metadata: Some(serde_json::json!({"commit": "xyz789", "updated": true})), // CHANGED
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -931,45 +955,36 @@ async fn test_import_skills_upsert_updates_agent_skills_fields() {
 
     // Core fields should be updated
     assert_eq!(updated.name, "updated-name");
-    assert_eq!(
-        updated.description,
-        Some("Updated description with new content".to_string())
-    );
-    assert_eq!(
-        updated.instructions,
-        Some("Updated instructions with changes".to_string())
+    assert_eq!(updated.description, "Updated description with new content");
+    assert!(
+        updated
+            .content
+            .contains("Updated instructions with changes")
     );
     assert_eq!(updated.tags, vec!["tag1", "tag2", "updated"]);
 
-    // **CRITICAL**: Agent Skills fields should be updated via UPSERT
-    assert_eq!(updated.license, Some("Apache-2.0".to_string())); // Must be updated
-    assert_eq!(
-        updated.compatibility,
-        Some("Requires kubectl >= 1.30, docker >= 20.10".to_string())
+    // **CRITICAL**: Agent Skills fields should be updated via UPSERT (now in content frontmatter)
+    assert!(updated.content.contains("license: Apache-2.0")); // Must be updated
+    assert!(
+        updated
+            .content
+            .contains("compatibility: Requires kubectl >= 1.30, docker >= 20.10")
     ); // Must be updated
-    assert_eq!(
-        updated.allowed_tools,
-        Some(r#"["Bash(kubectl:*)","Bash(docker:*)","Bash(helm:*)"]"#.to_string())
-    ); // Must be updated
-    assert_eq!(
-        updated.metadata,
-        Some(serde_json::json!({"version": "2.0", "author": "updated", "new_field": "added"}))
-    ); // Must be updated
+    assert!(updated.content.contains(r#"["Bash(kubectl:*)""#)); // Must be updated
+    assert!(updated.content.contains(r#"version: "2.0""#)); // Must be updated
+    assert!(updated.content.contains("author: updated")); // Must be updated
+    assert!(updated.content.contains("new_field: added")); // Must be updated
 
-    // **CRITICAL**: Origin tracking fields should be updated via UPSERT
-    assert_eq!(
-        updated.origin_url,
-        Some("https://github.com/updated/repo".to_string())
+    // **CRITICAL**: Origin tracking fields should be updated via UPSERT (now in content frontmatter)
+    assert!(
+        updated
+            .content
+            .contains("url: https://github.com/updated/repo")
     ); // Must be updated
-    assert_eq!(updated.origin_ref, Some("v2.0.0".to_string())); // Must be updated
-    assert_eq!(
-        updated.origin_fetched_at,
-        Some("2026-01-31T19:00:00Z".to_string())
-    ); // Must be updated
-    assert_eq!(
-        updated.origin_metadata,
-        Some(serde_json::json!({"commit": "xyz789", "updated": true}))
-    ); // Must be updated
+    assert!(updated.content.contains("ref: v2.0.0")); // Must be updated
+    assert!(updated.content.contains("fetched_at: 2026-01-31T19:00:00Z")); // Must be updated
+    assert!(updated.content.contains("commit: xyz789")); // Must be updated
+    assert!(updated.content.contains("updated: true")); // Must be updated
 
     // Timestamps
     assert_eq!(updated.created_at, Some("2024-01-01T10:00:00Z".to_string())); // Should not change

@@ -892,14 +892,8 @@ Updated instructions for the skill.
         // Verify it was updated
         let updated_skill = db.skills().get("skill001").await.unwrap();
         assert_eq!(updated_skill.name, "Updated Name");
-        assert_eq!(
-            updated_skill.description,
-            Some("Updated description".to_string())
-        );
-        assert_eq!(
-            updated_skill.instructions,
-            Some("Updated instructions".to_string())
-        );
+        assert_eq!(updated_skill.description, "Updated description");
+        assert!(updated_skill.content.contains("Updated instructions"));
         assert_eq!(updated_skill.tags, vec!["v2"]);
         assert_eq!(updated_skill.project_ids, vec!["proj0001"]);
         assert_eq!(
