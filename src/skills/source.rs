@@ -34,6 +34,7 @@ pub enum SourceError {
 }
 
 /// Represents the type of skill source
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum SourceType {
     /// Git repository via HTTPS with optional subpath
@@ -63,6 +64,7 @@ pub enum SourceType {
 /// `git+https://domain/org/repo/path/to/skill`
 ///                    ^^^^^^^^^^^^^^^^ ^^^^^^^^^^^^^^
 ///                    repo URL         subpath (optional)
+#[allow(dead_code)]
 pub fn parse_source(source: &str) -> Result<SourceType, SourceError> {
     let source = source.trim();
 
@@ -102,6 +104,7 @@ pub fn parse_source(source: &str) -> Result<SourceType, SourceError> {
 /// Format: git+https://github.com/user/repo/path/to/skill
 ///         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^----^^^^^^^^^^^
 ///         prefix     repo_url                 subpath (optional)
+#[allow(dead_code)]
 fn parse_git_url(source: &str, prefix: &str, is_ssh: bool) -> Result<SourceType, SourceError> {
     let without_prefix = source.trim_start_matches(prefix);
 

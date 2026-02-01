@@ -60,6 +60,7 @@ pub struct AttachmentData {
 /// ```
 ///
 /// Returns a list of all found attachments with their content encoded.
+#[allow(dead_code)]
 pub fn scan_attachments(_base_dir: &Path) -> Result<Vec<AttachmentData>, ScannerError> {
     // TODO: Implement attachment scanning
     // 1. Check for scripts/ directory, scan all files

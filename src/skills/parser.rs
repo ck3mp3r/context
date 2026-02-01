@@ -26,6 +26,7 @@ pub enum ParserError {
 }
 
 /// Parsed SKILL.md content - minimal extraction for DB indexing
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillMd {
     /// Skill name (required for DB indexing)
@@ -38,6 +39,7 @@ pub struct SkillMd {
 }
 
 /// Minimal frontmatter structure for extracting only name + description
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MinimalFrontmatter {
     name: String,
@@ -60,6 +62,7 @@ struct MinimalFrontmatter {
 ///
 /// Markdown content here...
 /// ```
+#[allow(dead_code)]
 pub fn parse_skill_md(path: &Path) -> Result<SkillMd, ParserError> {
     // 1. Read full file content
     let content = std::fs::read_to_string(path).map_err(|e| {
@@ -104,6 +107,7 @@ pub fn parse_skill_md(path: &Path) -> Result<SkillMd, ParserError> {
 /// ---
 /// body content
 /// ```
+#[allow(dead_code)]
 fn extract_frontmatter(content: &str) -> Result<(String, String), ParserError> {
     let lines: Vec<&str> = content.lines().collect();
 
