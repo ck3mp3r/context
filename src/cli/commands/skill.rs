@@ -13,6 +13,9 @@ pub struct Skill {
     pub content: String,
     pub tags: Vec<String>,
     pub project_ids: Vec<String>,
+    pub scripts: Vec<String>,
+    pub references: Vec<String>,
+    pub assets: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -220,31 +223,52 @@ pub async fn delete_skill(api_client: &ApiClient, id: &str, force: bool) -> CliR
 ///
 /// Source formats:
 /// - Local: ./path/to/skill, /abs/path/to/skill, file:///path/to/skill
-/// - Git: git+https://github.com/user/repo/path/to/skill, git+ssh://git@github.com/user/repo/path/to/skill
-/// - Archive: https://example.com/skill.zip, https://example.com/skill.tar.gz
+/// - Git: git+https://github.com/user/repo (FUTURE - not yet implemented)
 ///
-/// The path within the source can be:
-/// 1. Embedded in the URL (e.g., git+https://github.com/user/repo/path/to/skill)
-/// 2. Specified via --path flag (e.g., --path path/to/skill)
-///
-/// This function:
-/// 1. Parses the source URL to extract protocol, repo, and path
-/// 2. Fetches the source (clone git repo, download archive, or use local path)
-/// 3. Navigates to the specified path within the source
-/// 4. Parses SKILL.md (frontmatter + body)
-/// 5. Scans scripts/, references/, assets/ directories
-/// 6. Encodes attachments as base64
-/// 7. POSTs to /api/v1/skills with complete skill data
+/// The path within the source can be specified via --path flag
 pub async fn import_skill(
     api_client: &ApiClient,
     source: &str,
     path_override: Option<&str>,
     project_ids: Option<Vec<String>>,
 ) -> CliResult<String> {
-    // TODO: Tasks 2.6, 2.7, 2.8
-    let _path_override = path_override;
-    let _project_ids = project_ids;
-    let _api_client = api_client;
+    #[derive(Serialize)]
+    struct ImportRequest {
+        source: String,
+        path: Option<String>,
+        project_ids: Option<Vec<String>>,
+    }
 
-    Ok(format!("Import from '{}' not yet implemented", source))
+    let request = ImportRequest {
+        source: source.to_string(),
+        path: path_override.map(|s| s.to_string()),
+        project_ids,
+    };
+
+    let response = api_client
+        .post("/api/v1/skills/import")
+        .json(&request)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(CliError::ApiError {
+            status: status.as_u16(),
+            message: format!("Import failed: {}", error_text),
+        });
+    }
+
+    let skill: Skill = response
+        .json()
+        .await
+        .map_err(|e| CliError::InvalidResponse {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+    Ok(format!("Imported skill: {} (ID: {})", skill.name, skill.id))
 }

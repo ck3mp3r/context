@@ -130,6 +130,10 @@ pub trait SkillRepository: Send + Sync {
         &self,
         skill_id: &str,
     ) -> impl Future<Output = DbResult<Vec<crate::db::models::SkillAttachment>>> + Send;
+    fn create_attachment(
+        &self,
+        attachment: &crate::db::models::SkillAttachment,
+    ) -> impl Future<Output = DbResult<crate::db::models::SkillAttachment>> + Send;
 }
 
 /// Repository for sync operations (import/export).

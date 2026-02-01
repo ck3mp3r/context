@@ -10,11 +10,11 @@ use super::state::AppState;
 use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
-    CreateTaskListRequest, CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest,
-    PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse,
-    ReplaceSkillRequest, RepoResponse, SkillResponse, TaskListResponse, TaskResponse,
-    UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest,
-    UpdateTaskListRequest, UpdateTaskRequest,
+    CreateTaskListRequest, CreateTaskRequest, ErrorResponse, ImportSkillRequest, NoteResponse,
+    PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
+    PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse, SkillResponse,
+    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use crate::db::Database;
@@ -80,6 +80,7 @@ macro_rules! routes {
          super::v1::list_skills,
          super::v1::get_skill,
          super::v1::create_skill,
+         super::v1::import_skill,
          super::v1::replace_skill,
          super::v1::patch_skill,
          super::v1::delete_skill,
@@ -124,6 +125,7 @@ macro_rules! routes {
              // --- Skills ---
              SkillResponse,
              CreateSkillRequest,
+             ImportSkillRequest,
              ReplaceSkillRequest,
              UpdateSkillRequest,
         )
@@ -198,6 +200,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         get "/skills" => super::v1::list_skills,
         get "/skills/{id}" => super::v1::get_skill,
         post "/skills" => super::v1::create_skill,
+        post "/skills/import" => super::v1::import_skill,
         put "/skills/{id}" => super::v1::replace_skill,
         patch "/skills/{id}" => super::v1::patch_skill,
         delete "/skills/{id}" => super::v1::delete_skill,

@@ -152,7 +152,7 @@ fn parse_git_url(source: &str, prefix: &str, is_ssh: bool) -> Result<SourceType,
 #[allow(dead_code)] // Used when import is implemented
 pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
     match source_type {
-        SourceType::GitHttps { repo_url, .. } | SourceType::GitSsh { repo_url, .. } => {
+        SourceType::GitHttps { repo_url, path } | SourceType::GitSsh { repo_url, path } => {
             // Create temp directory for git clone
             let temp_dir =
                 std::env::temp_dir().join(format!("c5t-skill-import-{}", std::process::id()));
@@ -183,7 +183,14 @@ pub fn fetch_source(source_type: SourceType) -> Result<PathBuf, SourceError> {
                 )));
             }
 
-            Ok(temp_dir)
+            // Navigate to subpath if specified
+            let final_path = if let Some(subpath) = path {
+                temp_dir.join(subpath)
+            } else {
+                temp_dir
+            };
+
+            Ok(final_path)
         }
         SourceType::LocalPath { path } => {
             // Verify path exists
@@ -293,5 +300,47 @@ mod tests {
     fn test_parse_unsupported_protocol() {
         let result = parse_source("https://example.com/skill.zip");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fetch_local_path_valid() {
+        let temp = std::env::temp_dir();
+        let source_type = SourceType::LocalPath { path: temp.clone() };
+        let result = fetch_source(source_type);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), temp);
+    }
+
+    #[test]
+    fn test_fetch_local_path_nonexistent() {
+        let path = PathBuf::from("/this/does/not/exist");
+        let source_type = SourceType::LocalPath { path };
+        let result = fetch_source(source_type);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SourceError::InvalidPath(msg) => assert!(msg.contains("does not exist")),
+            _ => panic!("Expected InvalidPath error"),
+        }
+    }
+
+    #[test]
+    fn test_fetch_local_path_file_not_dir() {
+        // Create a temp file (not directory)
+        let temp_file = std::env::temp_dir().join(format!("test-file-{}", std::process::id()));
+        std::fs::write(&temp_file, "test").unwrap();
+
+        let source_type = SourceType::LocalPath {
+            path: temp_file.clone(),
+        };
+        let result = fetch_source(source_type);
+
+        // Cleanup
+        std::fs::remove_file(&temp_file).ok();
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SourceError::InvalidPath(msg) => assert!(msg.contains("not a directory")),
+            _ => panic!("Expected InvalidPath error"),
+        }
     }
 }

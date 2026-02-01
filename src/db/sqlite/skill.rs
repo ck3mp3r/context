@@ -460,54 +460,8 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
 
         Ok(attachments)
     }
-}
 
-// =============================================================================
-// Internal helper methods for attachment management
-// =============================================================================
-
-impl<'a> SqliteSkillRepository<'a> {
-    /// Load attachment filenames for a skill, grouped by type.
-    /// Returns (scripts, references, assets) as three separate vectors.
-    async fn load_attachments(
-        &self,
-        skill_id: &str,
-    ) -> DbResult<(Vec<String>, Vec<String>, Vec<String>)> {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT type, filename FROM skill_attachment WHERE skill_id = ? ORDER BY filename",
-        )
-        .bind(skill_id)
-        .fetch_all(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
-
-        let mut scripts = Vec::new();
-        let mut references = Vec::new();
-        let mut assets = Vec::new();
-
-        for (type_, filename) in rows {
-            match type_.as_str() {
-                "script" => scripts.push(filename),
-                "reference" => references.push(filename),
-                "asset" => assets.push(filename),
-                _ => {
-                    // Unknown type - skip with warning (could log here)
-                }
-            }
-        }
-
-        Ok((scripts, references, assets))
-    }
-
-    /// Create a skill attachment (used during skill import).
-    /// Internal method - not exposed via trait.
-    #[allow(dead_code)]
-    pub(crate) async fn create_attachment(
-        &self,
-        attachment: &SkillAttachment,
-    ) -> DbResult<SkillAttachment> {
+    async fn create_attachment(&self, attachment: &SkillAttachment) -> DbResult<SkillAttachment> {
         let id = if attachment.id.is_empty() {
             generate_entity_id()
         } else {
@@ -559,5 +513,45 @@ impl<'a> SqliteSkillRepository<'a> {
             created_at: Some(created_at),
             updated_at: Some(updated_at),
         })
+    }
+}
+
+// =============================================================================
+// Internal helper methods for attachment management
+// =============================================================================
+
+impl<'a> SqliteSkillRepository<'a> {
+    /// Load attachment filenames for a skill, grouped by type.
+    /// Returns (scripts, references, assets) as three separate vectors.
+    async fn load_attachments(
+        &self,
+        skill_id: &str,
+    ) -> DbResult<(Vec<String>, Vec<String>, Vec<String>)> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT type, filename FROM skill_attachment WHERE skill_id = ? ORDER BY filename",
+        )
+        .bind(skill_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let mut scripts = Vec::new();
+        let mut references = Vec::new();
+        let mut assets = Vec::new();
+
+        for (type_, filename) in rows {
+            match type_.as_str() {
+                "script" => scripts.push(filename),
+                "reference" => references.push(filename),
+                "asset" => assets.push(filename),
+                _ => {
+                    // Unknown type - skip with warning (could log here)
+                }
+            }
+        }
+
+        Ok((scripts, references, assets))
     }
 }

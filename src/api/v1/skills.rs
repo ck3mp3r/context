@@ -36,8 +36,8 @@ pub struct SkillResponse {
     pub scripts: Vec<String>,
     pub references: Vec<String>,
     pub assets: Vec<String>,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 impl From<Skill> for SkillResponse {
@@ -52,8 +52,8 @@ impl From<Skill> for SkillResponse {
             scripts: s.scripts,
             references: s.references,
             assets: s.assets,
-            created_at: s.created_at,
-            updated_at: s.updated_at,
+            created_at: s.created_at.unwrap_or_default(),
+            updated_at: s.updated_at.unwrap_or_default(),
         }
     }
 }
@@ -472,4 +472,58 @@ pub async fn delete_skill<D: Database, G: GitOps + Send + Sync>(
     });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// =============================================================================
+// Import Skill
+// =============================================================================
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ImportSkillRequest {
+    /// Source location (local path, git URL)
+    #[schema(example = "./path/to/skill")]
+    pub source: String,
+    /// Optional subpath within source
+    #[schema(example = "skills/deploy")]
+    pub path: Option<String>,
+    /// Project IDs to link
+    pub project_ids: Option<Vec<String>>,
+}
+
+/// Import a skill from a source (local filesystem or git repository)
+#[utoipa::path(
+    post,
+    path = "/api/v1/skills/import",
+    tag = "skills",
+    request_body = ImportSkillRequest,
+    responses(
+        (status = 201, description = "Skill imported successfully", body = SkillResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Import failed", body = ErrorResponse)
+    )
+)]
+pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Json(req): Json<ImportSkillRequest>,
+) -> Result<(StatusCode, Json<SkillResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+
+    // Call the import function from skills module
+    let skill = crate::skills::import_skill(db, &req.source, req.path.as_deref(), req.project_ids)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Import failed: {}", e),
+                }),
+            )
+        })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillCreated {
+        skill_id: skill.id.clone(),
+    });
+
+    Ok((StatusCode::CREATED, Json(skill.into())))
 }
