@@ -19,17 +19,18 @@ async fn skill_create_and_get() {
     let skill = Skill {
         id: "skl00001".to_string(),
         name: "rust".to_string(),
-        description: Some("Systems programming".to_string()),
-        instructions: Some("Use Rust book".to_string()),
+        description: "Systems programming".to_string(),
+        content: r#"---
+name: rust
+description: Systems programming
+---
+
+# Rust Programming
+
+Use Rust book for learning systems programming.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -44,7 +45,7 @@ async fn skill_create_and_get() {
     assert_eq!(retrieved.id, skill.id);
     assert_eq!(retrieved.name, skill.name);
     assert_eq!(retrieved.description, skill.description);
-    assert_eq!(retrieved.instructions, skill.instructions);
+    assert_eq!(retrieved.content, skill.content);
     assert_eq!(retrieved.tags, skill.tags);
 }
 
@@ -70,17 +71,18 @@ async fn skill_list() {
     let skill1 = Skill {
         id: "skl00002".to_string(),
         name: "first".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: first
+description: Test description
+---
+
+# First Skill
+
+Test instructions for the first skill.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -93,17 +95,18 @@ async fn skill_list() {
     let skill2 = Skill {
         id: "skl00003".to_string(),
         name: "second".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: second
+description: Test description
+---
+
+# Second Skill
+
+Test instructions for the second skill.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -125,17 +128,18 @@ async fn skill_update() {
     let mut skill = Skill {
         id: "skl00004".to_string(),
         name: "original-name".to_string(),
-        description: Some("Original desc".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Original desc".to_string(),
+        content: r#"---
+name: original-name
+description: Original desc
+---
+
+# Original Skill
+
+Test instructions for original skill.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -146,13 +150,13 @@ async fn skill_update() {
     skills.create(&skill).await.expect("Create should succeed");
 
     skill.name = "updated-name".to_string();
-    skill.description = Some("Updated desc".to_string());
+    skill.description = "Updated desc".to_string();
     skill.tags = vec!["updated".to_string()];
     skills.update(&skill).await.expect("Update should succeed");
 
     let retrieved = skills.get("skl00004").await.expect("Get should succeed");
     assert_eq!(retrieved.name, "updated-name");
-    assert_eq!(retrieved.description, Some("Updated desc".to_string()));
+    assert_eq!(retrieved.description, "Updated desc");
     assert_eq!(retrieved.tags, vec!["updated".to_string()]);
 }
 
@@ -164,17 +168,18 @@ async fn skill_delete() {
     let skill = Skill {
         id: "skl00005".to_string(),
         name: "to-delete".to_string(),
-        description: Some("Desc".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Desc".to_string(),
+        content: r#"---
+name: to-delete
+description: Desc
+---
+
+# Skill to Delete
+
+Test instructions.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -202,17 +207,18 @@ async fn skill_search() {
     let skill1 = Skill {
         id: "skl00006".to_string(),
         name: "api-design".to_string(),
-        description: Some("REST endpoints for user mgmt".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "REST endpoints for user mgmt".to_string(),
+        content: r#"---
+name: api-design
+description: REST endpoints for user mgmt
+---
+
+# API Design
+
+Test instructions for API design.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -225,17 +231,18 @@ async fn skill_search() {
     let skill2 = Skill {
         id: "skl00007".to_string(),
         name: "database".to_string(),
-        description: Some("SQLite tables for data".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "SQLite tables for data".to_string(),
+        content: r#"---
+name: database
+description: SQLite tables for data
+---
+
+# Database
+
+Test instructions for database.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -248,17 +255,18 @@ async fn skill_search() {
     let skill3 = Skill {
         id: "skl00008".to_string(),
         name: "frontend".to_string(),
-        description: Some("React components".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "React components".to_string(),
+        content: r#"---
+name: frontend
+description: React components
+---
+
+# Frontend
+
+Test instructions for frontend.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -300,17 +308,18 @@ async fn skill_list_with_tag_filter() {
     let skill1 = Skill {
         id: "skl00009".to_string(),
         name: "rust".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: rust
+description: Test description
+---
+
+# Rust
+
+Test instructions.
+"#
+        .to_string(),
         tags: vec!["rust".to_string(), "programming".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -323,17 +332,18 @@ async fn skill_list_with_tag_filter() {
     let skill2 = Skill {
         id: "skl00010".to_string(),
         name: "python".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: python
+description: Test description
+---
+
+# Python
+
+Test instructions.
+"#
+        .to_string(),
         tags: vec!["python".to_string(), "programming".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -346,17 +356,18 @@ async fn skill_list_with_tag_filter() {
     let skill3 = Skill {
         id: "skl00011".to_string(),
         name: "cooking".to_string(),
-        description: Some("Test description".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test description".to_string(),
+        content: r#"---
+name: cooking
+description: Test description
+---
+
+# Cooking
+
+Test instructions.
+"#
+        .to_string(),
         tags: vec!["cooking".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -411,17 +422,18 @@ async fn skill_search_with_tag_filter() {
     let skill1 = Skill {
         id: "skl00012".to_string(),
         name: "API Design".to_string(),
-        description: Some("REST API patterns".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "REST API patterns".to_string(),
+        content: r#"---
+name: API Design
+description: REST API patterns
+---
+
+# API Design
+
+Test instructions for API design.
+"#
+        .to_string(),
         tags: vec!["api".to_string(), "backend".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -434,17 +446,18 @@ async fn skill_search_with_tag_filter() {
     let skill2 = Skill {
         id: "skl00013".to_string(),
         name: "API Testing".to_string(),
-        description: Some("Testing API endpoints".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Testing API endpoints".to_string(),
+        content: r#"---
+name: API Testing
+description: Testing API endpoints
+---
+
+# API Testing
+
+Test instructions for API testing.
+"#
+        .to_string(),
         tags: vec!["api".to_string(), "testing".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -457,17 +470,18 @@ async fn skill_search_with_tag_filter() {
     let skill3 = Skill {
         id: "skl00014".to_string(),
         name: "Frontend APIs".to_string(),
-        description: Some("Calling APIs from React".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Calling APIs from React".to_string(),
+        content: r#"---
+name: Frontend APIs
+description: Calling APIs from React
+---
+
+# Frontend APIs
+
+Test instructions for frontend APIs.
+"#
+        .to_string(),
         tags: vec!["frontend".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -525,17 +539,18 @@ async fn skill_update_invalidates_cache() {
     let skill = Skill {
         id: "skl00015".to_string(),
         name: "cache-test".to_string(),
-        description: Some("Test cache invalidation".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test cache invalidation".to_string(),
+        content: r#"---
+name: cache-test
+description: Test cache invalidation
+---
+
+# Cache Test
+
+Test instructions for cache invalidation.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -608,17 +623,18 @@ async fn skill_delete_invalidates_cache() {
     let skill = Skill {
         id: "skl00016".to_string(),
         name: "delete-cache-test".to_string(),
-        description: Some("Test cache invalidation on delete".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test cache invalidation on delete".to_string(),
+        content: r#"---
+name: delete-cache-test
+description: Test cache invalidation on delete
+---
+
+# Delete Cache Test
+
+Test instructions for cache invalidation on delete.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],

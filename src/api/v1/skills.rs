@@ -23,26 +23,19 @@ use super::ErrorResponse;
 pub struct SkillResponse {
     #[schema(example = "skl00123")]
     pub id: String,
-    #[schema(example = "Rust")]
+    #[schema(example = "deploy-kubernetes")]
     pub name: String,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
+    #[schema(example = "Deploy apps to K8s cluster")]
+    pub description: String,
+    #[schema(
+        example = "---\nname: deploy-kubernetes\ndescription: Deploy apps\n---\n# Instructions"
+    )]
+    pub content: String,
     pub tags: Vec<String>,
-    #[schema(example = "MIT")]
-    pub license: Option<String>,
-    #[schema(example = "opencode>=0.1.0")]
-    pub compatibility: Option<String>,
-    pub allowed_tools: Option<Vec<String>>,
-    pub metadata: Option<serde_json::Value>,
-    #[schema(example = "https://github.com/example/skill")]
-    pub origin_url: Option<String>,
-    #[schema(example = "main")]
-    pub origin_ref: Option<String>,
-    pub origin_fetched_at: Option<String>,
-    pub origin_metadata: Option<serde_json::Value>,
     pub project_ids: Vec<String>,
+    pub scripts: Vec<String>,
+    pub references: Vec<String>,
+    pub assets: Vec<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -53,19 +46,12 @@ impl From<Skill> for SkillResponse {
             id: s.id,
             name: s.name,
             description: s.description,
-            instructions: s.instructions,
+            content: s.content,
             tags: s.tags,
-            license: s.license,
-            compatibility: s.compatibility,
-            allowed_tools: s
-                .allowed_tools
-                .and_then(|json| serde_json::from_str(&json).ok()),
-            metadata: s.metadata,
-            origin_url: s.origin_url,
-            origin_ref: s.origin_ref,
-            origin_fetched_at: s.origin_fetched_at,
-            origin_metadata: s.origin_metadata,
             project_ids: s.project_ids,
+            scripts: s.scripts,
+            references: s.references,
+            assets: s.assets,
             created_at: s.created_at,
             updated_at: s.updated_at,
         }
@@ -104,72 +90,48 @@ pub struct ListSkillsQuery {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateSkillRequest {
-    #[schema(example = "Rust")]
+    #[schema(example = "deploy-kubernetes")]
     pub name: String,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
+    #[schema(example = "Deploy apps to K8s cluster")]
+    pub description: String,
+    #[schema(
+        example = "---\nname: deploy-kubernetes\ndescription: Deploy apps\n---\n# Instructions"
+    )]
+    pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[schema(example = "MIT")]
-    pub license: Option<String>,
-    #[schema(example = "opencode>=0.1.0")]
-    pub compatibility: Option<String>,
-    pub allowed_tools: Option<Vec<String>>,
-    pub metadata: Option<serde_json::Value>,
-    #[schema(example = "https://github.com/example/skill")]
-    pub origin_url: Option<String>,
-    #[schema(example = "main")]
-    pub origin_ref: Option<String>,
     #[serde(default)]
     pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReplaceSkillRequest {
-    #[schema(example = "Rust")]
+    #[schema(example = "deploy-kubernetes")]
     pub name: String,
-    #[schema(example = "Low-level systems programming")]
-    pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
+    #[schema(example = "Deploy apps to K8s cluster")]
+    pub description: String,
+    #[schema(
+        example = "---\nname: deploy-kubernetes\ndescription: Deploy apps\n---\n# Instructions"
+    )]
+    pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[schema(example = "MIT")]
-    pub license: Option<String>,
-    #[schema(example = "opencode>=0.1.0")]
-    pub compatibility: Option<String>,
-    pub allowed_tools: Option<Vec<String>>,
-    pub metadata: Option<serde_json::Value>,
-    #[schema(example = "https://github.com/example/skill")]
-    pub origin_url: Option<String>,
-    #[schema(example = "main")]
-    pub origin_ref: Option<String>,
     #[serde(default)]
     pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateSkillRequest {
-    #[schema(example = "Rust")]
+    #[schema(example = "deploy-kubernetes")]
     pub name: Option<String>,
-    #[schema(example = "Low-level systems programming")]
+    #[schema(example = "Deploy apps to K8s cluster")]
     pub description: Option<String>,
-    #[schema(example = "Follow the Rust Book")]
-    pub instructions: Option<String>,
+    #[schema(
+        example = "---\nname: deploy-kubernetes\ndescription: Deploy apps\n---\n# Instructions"
+    )]
+    pub content: Option<String>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
-    #[schema(example = "MIT")]
-    pub license: Option<String>,
-    #[schema(example = "opencode>=0.1.0")]
-    pub compatibility: Option<String>,
-    pub allowed_tools: Option<Vec<String>>,
-    pub metadata: Option<serde_json::Value>,
-    #[schema(example = "https://github.com/example/skill")]
-    pub origin_url: Option<String>,
-    #[schema(example = "main")]
-    pub origin_ref: Option<String>,
     #[serde(default)]
     pub project_ids: Option<Vec<String>>,
 }
@@ -214,16 +176,8 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     })?;
     skill.name = req.name;
     skill.description = req.description;
-    skill.instructions = req.instructions;
+    skill.content = req.content;
     skill.tags = req.tags;
-    skill.license = req.license;
-    skill.compatibility = req.compatibility;
-    skill.allowed_tools = req
-        .allowed_tools
-        .map(|v| serde_json::to_string(&v).unwrap());
-    skill.metadata = req.metadata;
-    skill.origin_url = req.origin_url;
-    skill.origin_ref = req.origin_ref;
     skill.project_ids = req.project_ids;
     repo.update(&skill).await.map_err(|e| match e {
         DbError::Validation { .. } => (
@@ -369,18 +323,8 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         id: crate::db::utils::generate_entity_id(),
         name: req.name,
         description: req.description,
-        instructions: req.instructions,
+        content: req.content,
         tags: req.tags,
-        license: req.license,
-        compatibility: req.compatibility,
-        allowed_tools: req
-            .allowed_tools
-            .map(|v| serde_json::to_string(&v).unwrap()),
-        metadata: req.metadata,
-        origin_url: req.origin_url,
-        origin_ref: req.origin_ref,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: req.project_ids,
         scripts: vec![],
         references: vec![],
@@ -449,31 +393,13 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
         skill.name = name;
     }
     if let Some(description) = req.description {
-        skill.description = Some(description);
+        skill.description = description;
     }
-    if let Some(instructions) = req.instructions {
-        skill.instructions = Some(instructions);
+    if let Some(content) = req.content {
+        skill.content = content;
     }
     if let Some(tags) = req.tags {
         skill.tags = tags;
-    }
-    if let Some(license) = req.license {
-        skill.license = Some(license);
-    }
-    if let Some(compatibility) = req.compatibility {
-        skill.compatibility = Some(compatibility);
-    }
-    if let Some(allowed_tools) = req.allowed_tools {
-        skill.allowed_tools = Some(serde_json::to_string(&allowed_tools).unwrap());
-    }
-    if let Some(metadata) = req.metadata {
-        skill.metadata = Some(metadata);
-    }
-    if let Some(origin_url) = req.origin_url {
-        skill.origin_url = Some(origin_url);
-    }
-    if let Some(origin_ref) = req.origin_ref {
-        skill.origin_ref = Some(origin_ref);
     }
     if let Some(project_ids) = req.project_ids {
         skill.project_ids = project_ids;

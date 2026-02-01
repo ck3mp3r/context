@@ -689,17 +689,18 @@ mod tests {
         let skill = Skill {
             id: "skill001".to_string(),
             name: "test-skill".to_string(),
-            description: Some("A test skill".to_string()),
-            instructions: Some("Do something".to_string()),
+            description: "A test skill".to_string(),
+            content: r#"---
+name: test-skill
+description: A test skill
+---
+
+# Test Skill
+
+Do something useful with this skill.
+"#
+            .to_string(),
             tags: vec!["test".to_string()],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec!["proj0001".to_string()],
             scripts: vec![],
             references: vec![],
@@ -720,11 +721,8 @@ mod tests {
         // Verify skill data and relationships
         let imported_skill = db2.skills().get("skill001").await.unwrap();
         assert_eq!(imported_skill.name, "test-skill");
-        assert_eq!(imported_skill.description, Some("A test skill".to_string()));
-        assert_eq!(
-            imported_skill.instructions,
-            Some("Do something".to_string())
-        );
+        assert_eq!(imported_skill.description, "A test skill");
+        assert!(imported_skill.content.contains("Do something"));
         assert_eq!(imported_skill.tags, vec!["test"]);
         assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
     }
@@ -769,17 +767,18 @@ mod tests {
         let skill = Skill {
             id: "skill001".to_string(),
             name: "multi-project-skill".to_string(),
-            description: Some("Test description".to_string()),
-            instructions: Some("Test instructions".to_string()),
+            description: "Test description".to_string(),
+            content: r#"---
+name: multi-project-skill
+description: Test description
+---
+
+# Multi-Project Skill
+
+Test instructions for multi-project skill.
+"#
+            .to_string(),
             tags: vec![],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
             scripts: vec![],
             references: vec![],
@@ -825,17 +824,18 @@ mod tests {
         let skill_v1 = Skill {
             id: "skill001".to_string(),
             name: "original-name".to_string(),
-            description: Some("Original description".to_string()),
-            instructions: Some("Original instructions".to_string()),
+            description: "Original description".to_string(),
+            content: r#"---
+name: original-name
+description: Original description
+---
+
+# Original Skill
+
+Original instructions for the skill.
+"#
+            .to_string(),
             tags: vec!["v1".to_string()],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec![],
             scripts: vec![],
             references: vec![],
@@ -849,17 +849,18 @@ mod tests {
         let skill_v2 = Skill {
             id: "skill001".to_string(),
             name: "Updated Name".to_string(),
-            description: Some("Updated description".to_string()),
-            instructions: Some("Updated instructions".to_string()),
+            description: "Updated description".to_string(),
+            content: r#"---
+name: Updated Name
+description: Updated description
+---
+
+# Updated Skill
+
+Updated instructions for the skill.
+"#
+            .to_string(),
             tags: vec!["v2".to_string()],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec!["proj0001".to_string()],
             scripts: vec![],
             references: vec![],

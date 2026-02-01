@@ -333,35 +333,17 @@ pub struct Note {
 
 /// A skill entity following Agent Skills specification (https://agentskills.io/specification).
 /// Skills store reusable instructions, scripts, and resources for AI agents.
+///
+/// The `content` field stores the complete SKILL.md file (YAML frontmatter + Markdown body).
+/// LLMs parse the frontmatter themselves - we only extract name/description for DB indexing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skill {
     pub id: Id,
     pub name: String,
-    pub description: Option<String>,
-    pub instructions: Option<String>,
+    pub description: String,
+    /// Full SKILL.md content (YAML frontmatter + Markdown body)
+    pub content: String,
     pub tags: Vec<String>,
-
-    // Agent Skills standard fields (https://agentskills.io/specification)
-    /// License identifier (e.g., "Apache-2.0", "MIT", "Proprietary")
-    pub license: Option<String>,
-    /// Environment requirements (e.g., "Requires kubectl, docker")
-    pub compatibility: Option<String>,
-    /// Pre-approved tools (experimental, e.g., "Bash(kubectl:*) Bash(docker:*)")
-    pub allowed_tools: Option<String>,
-    /// Arbitrary metadata as JSON
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
-
-    // Origin tracking for provenance and updates
-    /// URL where skill was imported from
-    pub origin_url: Option<String>,
-    /// Git ref or version
-    pub origin_ref: Option<String>,
-    /// When last fetched from origin
-    pub origin_fetched_at: Option<String>,
-    /// Additional origin information as JSON
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_metadata: Option<serde_json::Value>,
 
     #[serde(default)]
     pub project_ids: Vec<Id>,
@@ -411,17 +393,29 @@ mod tests {
         let skill = Skill {
             id: "abc12345".to_string(),
             name: "deploy-kubernetes".to_string(),
-            description: Some("Deploy applications to Kubernetes".to_string()),
-            instructions: Some("# Instructions\n\n...".to_string()),
+            description: "Deploy applications to Kubernetes".to_string(),
+            content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes
+license: Apache-2.0
+compatibility: Requires kubectl, docker
+allowed-tools: Bash(kubectl:*) Bash(docker:*)
+metadata:
+  author: test
+  version: "1.0"
+origin:
+  url: https://github.com/user/repo
+  ref: main
+  fetched_at: 2026-01-31T10:00:00Z
+  imported_by: test
+---
+
+# Instructions
+
+Run the deployment scripts...
+"#
+            .to_string(),
             tags: vec!["kubernetes".to_string(), "deployment".to_string()],
-            license: Some("Apache-2.0".to_string()),
-            compatibility: Some("Requires kubectl, docker".to_string()),
-            allowed_tools: Some("Bash(kubectl:*) Bash(docker:*)".to_string()),
-            metadata: Some(serde_json::json!({"author": "test", "version": "1.0"})),
-            origin_url: Some("https://github.com/user/repo".to_string()),
-            origin_ref: Some("main".to_string()),
-            origin_fetched_at: Some("2026-01-31T10:00:00Z".to_string()),
-            origin_metadata: Some(serde_json::json!({"imported_by": "test"})),
             project_ids: vec!["proj1234".to_string()],
             scripts: vec![],
             references: vec![],
@@ -433,8 +427,7 @@ mod tests {
         // Test serialization
         let json = serde_json::to_string(&skill).unwrap();
         assert!(json.contains("deploy-kubernetes"));
-        assert!(json.contains("Apache-2.0"));
-        assert!(json.contains("origin_url"));
+        assert!(json.contains("content"));
 
         // Test deserialization
         let deserialized: Skill = serde_json::from_str(&json).unwrap();
@@ -443,24 +436,24 @@ mod tests {
 
     #[test]
     fn test_skill_serde_realistic_minimal() {
-        // A realistic minimal skill has at minimum: name, description, and instructions
+        // A realistic minimal skill has full SKILL.md in content field
         let skill = Skill {
             id: "abc12345".to_string(),
             name: "deploy-kubernetes".to_string(),
-            description: Some("Deploy applications to Kubernetes cluster".to_string()),
-            instructions: Some(
-                "# Deployment Skill\n\n## Steps\n1. Validate manifests\n2. Apply changes"
-                    .to_string(),
-            ),
+            description: "Deploy applications to Kubernetes cluster".to_string(),
+            content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes cluster
+---
+
+# Deployment Skill
+
+## Steps
+1. Validate manifests
+2. Apply changes
+"#
+            .to_string(),
             tags: vec!["kubernetes".to_string()],
-            license: None,
-            compatibility: None,
-            allowed_tools: None,
-            metadata: None,
-            origin_url: None,
-            origin_ref: None,
-            origin_fetched_at: None,
-            origin_metadata: None,
             project_ids: vec![],
             scripts: vec![],
             references: vec![],

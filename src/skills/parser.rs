@@ -1,8 +1,7 @@
-//! SKILL.md parsing
+//! SKILL.md parsing (simplified)
 //!
-//! Parses SKILL.md files according to the Agent Skills specification:
-//! - YAML frontmatter (metadata)
-//! - Markdown body (instructions)
+//! Parses SKILL.md files to extract ONLY name and description for DB indexing.
+//! The full SKILL.md content is stored as-is - LLMs parse frontmatter themselves.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -26,41 +25,35 @@ pub enum ParserError {
     InvalidFormat,
 }
 
-/// Parsed SKILL.md content
+/// Parsed SKILL.md content - minimal extraction for DB indexing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillMd {
-    // Required fields from YAML frontmatter
+    /// Skill name (required for DB indexing)
     pub name: String,
-
-    // Optional fields from YAML frontmatter
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub license: Option<String>,
-    #[serde(default)]
-    pub compatibility: Option<String>,
-    #[serde(default)]
-    pub allowed_tools: Option<Vec<String>>,
-
-    // Additional metadata (flexible JSON)
-    #[serde(flatten, default)]
-    pub metadata: Option<serde_json::Value>,
-
-    // Markdown body (everything after frontmatter) - will be set manually
+    /// Description (required for FTS5 search)
+    pub description: String,
+    /// Full SKILL.md content (YAML frontmatter + Markdown body)
     #[serde(skip)]
-    pub instructions: String,
+    pub content: String,
 }
 
-/// Parse a SKILL.md file
+/// Minimal frontmatter structure for extracting only name + description
+#[derive(Debug, Deserialize)]
+struct MinimalFrontmatter {
+    name: String,
+    description: Option<String>,
+}
+
+/// Parse a SKILL.md file - extracts only name/description, returns full content
 ///
 /// Expected format:
 /// ```markdown
 /// ---
 /// name: skill-name
-/// description: Optional description
-/// license: MIT
-/// compatibility: openai, anthropic
-/// allowed_tools: [tool1, tool2]
+/// description: Short description
+/// license: MIT (optional, stays in content)
+/// compatibility: openai, anthropic (optional, stays in content)
+/// allowed_tools: [tool1, tool2] (optional, stays in content)
 /// ---
 ///
 /// # Instructions
@@ -68,7 +61,7 @@ pub struct SkillMd {
 /// Markdown content here...
 /// ```
 pub fn parse_skill_md(path: &Path) -> Result<SkillMd, ParserError> {
-    // 1. Read file
+    // 1. Read full file content
     let content = std::fs::read_to_string(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             ParserError::FileNotFound(path.display().to_string())
@@ -78,27 +71,28 @@ pub fn parse_skill_md(path: &Path) -> Result<SkillMd, ParserError> {
     })?;
 
     // 2. Extract YAML frontmatter (between --- delimiters)
-    let (frontmatter, body) = extract_frontmatter(&content)?;
+    let (frontmatter, _body) = extract_frontmatter(&content)?;
 
-    // 3. Parse YAML to struct
-    let mut skill: SkillMd =
+    // 3. Parse ONLY name + description from YAML
+    let minimal: MinimalFrontmatter =
         serde_yaml::from_str(&frontmatter).map_err(|e| ParserError::YamlError(e.to_string()))?;
 
-    // 4. Set Markdown body (everything after frontmatter)
-    skill.instructions = body.trim().to_string();
-
-    // 5. Validate required fields
-    if skill.name.is_empty() {
+    // 4. Validate required fields
+    if minimal.name.is_empty() {
         return Err(ParserError::MissingField("name".to_string()));
     }
 
-    if skill.instructions.is_empty() {
-        return Err(ParserError::MissingField(
-            "instructions (Markdown body)".to_string(),
-        ));
-    }
+    let description = minimal
+        .description
+        .filter(|d| !d.is_empty())
+        .ok_or_else(|| ParserError::MissingField("description".to_string()))?;
 
-    Ok(skill)
+    // 5. Return name + description + full content
+    Ok(SkillMd {
+        name: minimal.name,
+        description,
+        content, // Full SKILL.md as-is!
+    })
 }
 
 /// Extract YAML frontmatter and Markdown body from content

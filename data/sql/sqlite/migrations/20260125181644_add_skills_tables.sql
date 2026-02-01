@@ -9,22 +9,9 @@
 CREATE TABLE IF NOT EXISTS skill (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
     name TEXT NOT NULL,
-    description TEXT,
-    instructions TEXT,
+    description TEXT NOT NULL,
+    content TEXT NOT NULL,          -- Full SKILL.md (frontmatter + body)
     tags TEXT NOT NULL DEFAULT '[]',
-    
-    -- Agent Skills standard fields (https://agentskills.io/specification)
-    license TEXT,                    -- e.g., "Apache-2.0", "MIT", "Proprietary"
-    compatibility TEXT,              -- e.g., "Requires kubectl, docker"
-    allowed_tools TEXT,              -- e.g., "Bash(kubectl:*) Bash(docker:*)"
-    metadata TEXT,                   -- JSON: arbitrary key-value pairs
-    
-    -- Origin tracking for provenance and updates
-    origin_url TEXT,                 -- Where skill was imported from
-    origin_ref TEXT,                 -- Git ref or version
-    origin_fetched_at TEXT,          -- When last fetched
-    origin_metadata TEXT,            -- JSON: additional origin info
-    
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -59,40 +46,40 @@ CREATE VIRTUAL TABLE IF NOT EXISTS skill_fts USING fts5(
     id UNINDEXED,
     name,
     description,
-    instructions,
+    content,
     tags
 );
 
 -- Populate from existing data (empty initially, but ready for future data)
-INSERT INTO skill_fts (id, name, description, instructions, tags)
+INSERT INTO skill_fts (id, name, description, content, tags)
 SELECT 
     id,
     name,
-    COALESCE(description, ''),
-    COALESCE(instructions, ''),
+    description,
+    content,
     COALESCE(tags, '[]')
 FROM skill;
 
 -- Sync triggers
 CREATE TRIGGER IF NOT EXISTS skill_fts_insert AFTER INSERT ON skill BEGIN
-    INSERT INTO skill_fts (id, name, description, instructions, tags)
+    INSERT INTO skill_fts (id, name, description, content, tags)
     VALUES (
         new.id,
         new.name,
-        COALESCE(new.description, ''),
-        COALESCE(new.instructions, ''),
+        new.description,
+        new.content,
         COALESCE(new.tags, '[]')
     );
 END;
 
 CREATE TRIGGER IF NOT EXISTS skill_fts_update AFTER UPDATE ON skill BEGIN
     DELETE FROM skill_fts WHERE id = old.id;
-    INSERT INTO skill_fts (id, name, description, instructions, tags)
+    INSERT INTO skill_fts (id, name, description, content, tags)
     VALUES (
         new.id,
         new.name,
-        COALESCE(new.description, ''),
-        COALESCE(new.instructions, ''),
+        new.description,
+        new.content,
         COALESCE(new.tags, '[]')
     );
 END;

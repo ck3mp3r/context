@@ -66,17 +66,18 @@ async fn test_search_skills_single_match() {
     let rust = Skill {
         id: String::new(),
         name: "rust".to_string(),
-        description: Some("Systems programming language".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "Systems programming language".to_string(),
+        content: r#"---
+name: rust
+description: Systems programming language
+---
+
+# Rust Programming
+
+Learn web programming with Rust.
+"#
+        .to_string(),
         tags: vec!["lang".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -87,17 +88,18 @@ async fn test_search_skills_single_match() {
     let python = Skill {
         id: String::new(),
         name: "python".to_string(),
-        description: Some("High-level programming".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "High-level programming".to_string(),
+        content: r#"---
+name: python
+description: High-level programming
+---
+
+# Python Programming
+
+Learn web programming with Python.
+"#
+        .to_string(),
         tags: vec!["lang".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -145,17 +147,18 @@ async fn test_search_skills_with_tag_filter() {
     let async_skill = Skill {
         id: String::new(),
         name: "rust-async".to_string(),
-        description: Some("Async programming in Rust".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "Async programming in Rust".to_string(),
+        content: r#"---
+name: rust-async
+description: Async programming in Rust
+---
+
+# Async Rust
+
+Learn web programming with async Rust.
+"#
+        .to_string(),
         tags: vec!["rust".to_string(), "async".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -166,17 +169,18 @@ async fn test_search_skills_with_tag_filter() {
     let basics_skill = Skill {
         id: String::new(),
         name: "rust-basics".to_string(),
-        description: Some("Basic Rust syntax and types".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "Basic Rust syntax and types".to_string(),
+        content: r#"---
+name: rust-basics
+description: Basic Rust syntax and types
+---
+
+# Rust Basics
+
+Learn web programming basics in Rust.
+"#
+        .to_string(),
         tags: vec!["rust".to_string(), "basics".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -255,17 +259,18 @@ async fn test_list_skills_with_tag_filter() {
     let skill1 = Skill {
         id: String::new(),
         name: "work-skill".to_string(),
-        description: Some("For work projects".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "For work projects".to_string(),
+        content: r#"---
+name: work-skill
+description: For work projects
+---
+
+# Work Skill
+
+Learn web programming for work.
+"#
+        .to_string(),
         tags: vec!["work".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -276,17 +281,18 @@ async fn test_list_skills_with_tag_filter() {
     let skill2 = Skill {
         id: String::new(),
         name: "personal-skill".to_string(),
-        description: Some("For personal projects".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "For personal projects".to_string(),
+        content: r#"---
+name: personal-skill
+description: For personal projects
+---
+
+# Personal Skill
+
+Learn web programming for personal projects.
+"#
+        .to_string(),
         tags: vec!["personal".to_string()],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -335,17 +341,18 @@ async fn test_list_skills_with_sort_and_order() {
     let skill1 = Skill {
         id: String::new(),
         name: "alpha-skill".to_string(),
-        description: Some("First skill".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "First skill".to_string(),
+        content: r#"---
+name: alpha-skill
+description: First skill
+---
+
+# Alpha Skill
+
+Learn web programming.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -357,17 +364,18 @@ async fn test_list_skills_with_sort_and_order() {
     let skill2 = Skill {
         id: String::new(),
         name: "beta-skill".to_string(),
-        description: Some("Second skill".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "Second skill".to_string(),
+        content: r#"---
+name: beta-skill
+description: Second skill
+---
+
+# Beta Skill
+
+Learn web programming.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -379,17 +387,18 @@ async fn test_list_skills_with_sort_and_order() {
     let skill3 = Skill {
         id: String::new(),
         name: "gamma-skill".to_string(),
-        description: Some("Third skill".to_string()),
-        instructions: Some("Learn web programming".to_string()),
+        description: "Third skill".to_string(),
+        content: r#"---
+name: gamma-skill
+description: Third skill
+---
+
+# Gamma Skill
+
+Learn web programming.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -473,17 +482,18 @@ async fn test_get_skill_with_cache_extraction() {
     let skill = Skill {
         id: "skl00001".to_string(),
         name: "test-skill".to_string(),
-        description: Some("Test skill with attachments".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Test skill with attachments".to_string(),
+        content: r#"---
+name: test-skill
+description: Test skill with attachments
+---
+
+# Test Skill
+
+Test instructions for skill with attachments.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
@@ -559,17 +569,18 @@ async fn test_get_skill_without_attachments_no_cache() {
     let skill = Skill {
         id: "skl00002".to_string(),
         name: "no-attachments".to_string(),
-        description: Some("Skill without attachments".to_string()),
-        instructions: Some("Test instructions".to_string()),
+        description: "Skill without attachments".to_string(),
+        content: r#"---
+name: no-attachments
+description: Skill without attachments
+---
+
+# No Attachments
+
+Test instructions for skill without attachments.
+"#
+        .to_string(),
         tags: vec![],
-        license: None,
-        compatibility: None,
-        allowed_tools: None,
-        metadata: None,
-        origin_url: None,
-        origin_ref: None,
-        origin_fetched_at: None,
-        origin_metadata: None,
         project_ids: vec![],
         scripts: vec![],
         references: vec![],
