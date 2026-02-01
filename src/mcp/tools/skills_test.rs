@@ -472,7 +472,14 @@ Learn web programming.
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_skill_with_cache_extraction() {
+    use crate::sync::set_base_path;
     use base64::Engine as _;
+    use std::thread;
+
+    // Set temp base path for this test - unique per thread
+    let thread_id = format!("{:?}", thread::current().id());
+    let temp_base = std::env::temp_dir().join(format!("test-mcp-cache-{}", thread_id));
+    set_base_path(temp_base.clone());
 
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
@@ -560,6 +567,12 @@ Test instructions for skill with attachments.
 
     // Clean up cache for this test
     let _ = std::fs::remove_dir_all(cache_dir);
+
+    // Clean up temp base
+    let _ = std::fs::remove_dir_all(&temp_base);
+
+    // Clear the global base path for other tests
+    crate::sync::clear_base_path();
 }
 
 #[tokio::test(flavor = "multi_thread")]
