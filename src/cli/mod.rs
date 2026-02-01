@@ -445,6 +445,9 @@ enum SkillCommands {
         /// Project IDs to link (comma-separated)
         #[arg(long)]
         project_ids: Option<String>,
+        /// Update existing skill if it already exists (upsert behavior)
+        #[arg(long)]
+        update: bool,
     },
 }
 
@@ -1376,6 +1379,7 @@ pub async fn run() -> Result<()> {
                 source,
                 path,
                 project_ids,
+                update,
             } => {
                 let project_id_vec =
                     project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect());
@@ -1384,6 +1388,7 @@ pub async fn run() -> Result<()> {
                     &source,
                     path.as_deref(),
                     project_id_vec,
+                    update,
                 )
                 .await?;
                 println!("{}", output);

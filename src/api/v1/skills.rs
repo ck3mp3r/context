@@ -488,6 +488,9 @@ pub struct ImportSkillRequest {
     pub path: Option<String>,
     /// Project IDs to link
     pub project_ids: Option<Vec<String>>,
+    /// If true, update existing skill; if false, fail on duplicate
+    #[serde(default)]
+    pub update: bool,
 }
 
 /// Import a skill from a source (local filesystem or git repository)
@@ -509,16 +512,22 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
     let db = state.db();
 
     // Call the import function from skills module
-    let skill = crate::skills::import_skill(db, &req.source, req.path.as_deref(), req.project_ids)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Import failed: {}", e),
-                }),
-            )
-        })?;
+    let skill = crate::skills::import_skill(
+        db,
+        &req.source,
+        req.path.as_deref(),
+        req.project_ids,
+        req.update,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Import failed: {}", e),
+            }),
+        )
+    })?;
 
     // Broadcast notification
     state.notifier().notify(UpdateMessage::SkillCreated {

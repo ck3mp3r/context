@@ -231,18 +231,21 @@ pub async fn import_skill(
     source: &str,
     path_override: Option<&str>,
     project_ids: Option<Vec<String>>,
+    update: bool,
 ) -> CliResult<String> {
     #[derive(Serialize)]
     struct ImportRequest {
         source: String,
         path: Option<String>,
         project_ids: Option<Vec<String>>,
+        update: bool,
     }
 
     let request = ImportRequest {
         source: source.to_string(),
         path: path_override.map(|s| s.to_string()),
         project_ids,
+        update,
     };
 
     let response = api_client
