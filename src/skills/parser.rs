@@ -140,12 +140,13 @@ mod tests {
 
     #[test]
     fn test_parse_minimal_skill_md() {
-        // Create a temp file with minimal SKILL.md
+        // Create a temp file with minimal SKILL.md (name + description required)
         let temp_dir = tempfile::tempdir().unwrap();
         let skill_path = temp_dir.path().join("SKILL.md");
 
         let content = r#"---
 name: test-skill
+description: A minimal test skill
 ---
 
 # Test Skill
@@ -159,7 +160,7 @@ This is a test skill.
 
         let skill = result.unwrap();
         assert_eq!(skill.name, "test-skill");
-        assert_eq!(skill.description, ""); // No description provided
+        assert_eq!(skill.description, "A minimal test skill");
         assert!(skill.content.contains("# Test Skill"));
     }
 
@@ -234,8 +235,9 @@ description: Missing name field
         let temp_dir = tempfile::tempdir().unwrap();
         let skill_path = temp_dir.path().join("SKILL.md");
 
+        // Missing description should fail
         let content = r#"---
-name: no-body
+name: no-description
 ---
 "#;
         std::fs::write(&skill_path, content).unwrap();

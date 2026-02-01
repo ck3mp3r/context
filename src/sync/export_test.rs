@@ -459,6 +459,6 @@ origin:
     assert!(
         exported
             .content
-            .contains("fetched_at: 2026-01-31T10:00:00Z")
+            .contains(r#"fetched_at: "2026-01-31T10:00:00Z""#)
     );
 }

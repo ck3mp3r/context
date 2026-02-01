@@ -389,8 +389,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
-        where_conditions
-            .push("(name LIKE ? OR description LIKE ? OR instructions LIKE ?)".to_string());
+        where_conditions.push("(name LIKE ? OR description LIKE ? OR content LIKE ?)".to_string());
         let like_term = format!("%{}%", search_term);
         bind_values.push(like_term.clone());
         bind_values.push(like_term.clone());
