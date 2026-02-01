@@ -28,14 +28,23 @@ use crate::sync::get_data_dir;
 
 /// Get the base cache directory for skills.
 /// Returns: `~/.local/share/c5t-dev/cache/skills/` (debug) or `~/.local/share/c5t/cache/skills/` (release)
-pub fn get_skills_cache_dir() -> PathBuf {
-    get_data_dir(None).join("cache").join("skills")
+///
+/// # Arguments
+/// * `data_home_override` - Optional data home directory override (for tests, pass a temp directory)
+pub fn get_skills_cache_dir(data_home_override: Option<PathBuf>) -> PathBuf {
+    get_data_dir(data_home_override)
+        .join("cache")
+        .join("skills")
 }
 
 /// Get the cache directory for a specific skill.
 /// Returns: `~/.local/share/c5t-dev/cache/skills/<skill-id>/` (debug) or `~/.local/share/c5t/cache/skills/<skill-id>/` (release)
-pub fn get_skill_cache_dir(skill_id: &str) -> PathBuf {
-    get_skills_cache_dir().join(skill_id)
+///
+/// # Arguments
+/// * `skill_id` - Skill ID
+/// * `data_home_override` - Optional data home directory override (for tests, pass a temp directory)
+pub fn get_skill_cache_dir(skill_id: &str, data_home_override: Option<PathBuf>) -> PathBuf {
+    get_skills_cache_dir(data_home_override).join(skill_id)
 }
 
 /// Extract skill attachments to cache.
@@ -48,14 +57,16 @@ pub fn get_skill_cache_dir(skill_id: &str) -> PathBuf {
 /// # Arguments
 /// * `skill_id` - Skill ID
 /// * `attachments` - List of attachments to extract
+/// * `data_home_override` - Optional data home directory override (for tests, pass a temp directory)
 ///
 /// # Returns
 /// Path to skill cache directory
 pub fn extract_attachments(
     skill_id: &str,
     attachments: &[SkillAttachment],
+    data_home_override: Option<PathBuf>,
 ) -> Result<PathBuf, DbError> {
-    let cache_dir = get_skill_cache_dir(skill_id);
+    let cache_dir = get_skill_cache_dir(skill_id, data_home_override);
 
     // Extract each attachment
     for attachment in attachments {
@@ -123,8 +134,9 @@ pub fn extract_attachments(
 ///
 /// # Arguments
 /// * `skill_id` - Skill ID to invalidate cache for
-pub fn invalidate_cache(skill_id: &str) -> Result<(), DbError> {
-    let cache_dir = get_skill_cache_dir(skill_id);
+/// * `base_dir` - Optional base directory for cache (defaults to standard cache location). Tests should pass a temp directory.
+pub fn invalidate_cache(skill_id: &str, base_dir: Option<PathBuf>) -> Result<(), DbError> {
+    let cache_dir = get_skill_cache_dir(skill_id, base_dir);
 
     if cache_dir.exists() {
         fs::remove_dir_all(&cache_dir).map_err(|e| DbError::Database {
@@ -142,8 +154,11 @@ pub fn invalidate_cache(skill_id: &str) -> Result<(), DbError> {
 /// Clear all skill caches.
 ///
 /// Removes the entire skills cache directory. Useful for cleanup or troubleshooting.
-pub fn clear_all_caches() -> Result<(), DbError> {
-    let cache_dir = get_skills_cache_dir();
+///
+/// # Arguments
+/// * `base_dir` - Optional base directory for cache (defaults to standard cache location)
+pub fn clear_all_caches(base_dir: Option<PathBuf>) -> Result<(), DbError> {
+    let cache_dir = get_skills_cache_dir(base_dir);
 
     if cache_dir.exists() {
         fs::remove_dir_all(&cache_dir).map_err(|e| DbError::Database {
@@ -164,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_get_skills_cache_dir() {
-        let cache_dir = get_skills_cache_dir();
+        let cache_dir = get_skills_cache_dir(None);
         // Should use XDG data dir + cache/skills
         assert!(cache_dir.to_string_lossy().contains("cache/skills"));
         assert!(cache_dir.to_string_lossy().contains("c5t"));
@@ -172,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_get_skill_cache_dir() {
-        let cache_dir = get_skill_cache_dir("abc12345");
+        let cache_dir = get_skill_cache_dir("abc12345", None);
         // Should use XDG data dir + cache/skills/<id>
         assert!(
             cache_dir
@@ -187,6 +202,10 @@ mod tests {
         use crate::db::utils::generate_entity_id;
 
         let skill_id = generate_entity_id();
+
+        // Use a temp directory for testing
+        let temp_base = std::env::temp_dir().join(format!("test-cache-{}", std::process::id()));
+        let temp_base_clone = temp_base.clone();
 
         // Create test attachments with relative paths (like real scanner output)
         let script_content = "#!/bin/bash\necho 'Hello'";
@@ -229,8 +248,9 @@ mod tests {
             },
         ];
 
-        // Extract attachments
-        let cache_dir = extract_attachments(&skill_id, &attachments).unwrap();
+        // Extract attachments to temp directory
+        let cache_dir =
+            extract_attachments(&skill_id, &attachments, Some(temp_base.clone())).unwrap();
 
         // Verify files exist at correct paths
         assert!(cache_dir.join("scripts/test.sh").exists());
@@ -256,8 +276,8 @@ mod tests {
             assert_eq!(perms.mode() & 0o111, 0o111); // Check executable bits
         }
 
-        // Cleanup
-        invalidate_cache(&skill_id).unwrap();
+        // Cleanup temp directory
+        invalidate_cache(&skill_id, Some(temp_base_clone)).unwrap();
         assert!(!cache_dir.exists());
     }
 
@@ -266,17 +286,20 @@ mod tests {
         use crate::db::utils::generate_entity_id;
 
         let skill_id = generate_entity_id();
-        let cache_dir = get_skill_cache_dir(&skill_id);
+        let temp_base =
+            std::env::temp_dir().join(format!("test-cache-invalidate-{}", std::process::id()));
+        let temp_base_clone = temp_base.clone();
+        let cache_dir = get_skill_cache_dir(&skill_id, Some(temp_base.clone()));
 
         // Create cache directory
         fs::create_dir_all(&cache_dir).unwrap();
         assert!(cache_dir.exists());
 
         // Invalidate
-        invalidate_cache(&skill_id).unwrap();
+        invalidate_cache(&skill_id, Some(temp_base.clone())).unwrap();
         assert!(!cache_dir.exists());
 
         // Invalidating non-existent cache should not error
-        invalidate_cache(&skill_id).unwrap();
+        invalidate_cache(&skill_id, Some(temp_base_clone)).unwrap();
     }
 }

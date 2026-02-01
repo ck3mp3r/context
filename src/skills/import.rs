@@ -116,14 +116,7 @@ pub async fn import_skill<D: Database>(
 
         // Generate deterministic skill ID from name (8-char hex checksum)
         // This ensures same skill name = same ID, preventing duplicates
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(parsed.name.as_bytes());
-        let hash = hasher.finalize();
-        let skill_id = format!(
-            "{:x}",
-            &hash[..4].iter().fold(0u32, |acc, &b| (acc << 8) | b as u32)
-        );
+        let skill_id = super::generate_skill_id(&parsed.name);
 
         // Create skill
         let skill = Skill {

@@ -20,3 +20,17 @@ pub use cache::{
 
 // Re-export import functions
 pub use import::{ImportError, import_skill};
+
+/// Generate deterministic skill ID from skill name.
+/// Uses SHA256 hash of name, truncated to 8-char hex (first 4 bytes).
+/// Same name = same ID.
+pub fn generate_skill_id(name: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(name.as_bytes());
+    let hash = hasher.finalize();
+    format!(
+        "{:x}",
+        &hash[..4].iter().fold(0u32, |acc, &b| (acc << 8) | b as u32)
+    )
+}
