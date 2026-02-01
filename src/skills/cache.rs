@@ -185,13 +185,12 @@ mod tests {
     fn test_extract_attachments() {
         use crate::db::utils::generate_entity_id;
         use crate::sync::set_base_path;
-        use std::thread;
 
         let skill_id = generate_entity_id();
 
-        // Use a temp directory for testing - unique per thread
-        let thread_id = format!("{:?}", thread::current().id());
-        let temp_base = std::env::temp_dir().join(format!("test-cache-{}", thread_id));
+        // Use a temp directory for testing - unique per test invocation
+        let unique_id = generate_entity_id();
+        let temp_base = std::env::temp_dir().join(format!("test-cache-{}", unique_id));
         set_base_path(temp_base.clone());
 
         // Create test attachments with relative paths (like real scanner output)
@@ -277,13 +276,12 @@ mod tests {
     fn test_invalidate_cache() {
         use crate::db::utils::generate_entity_id;
         use crate::sync::set_base_path;
-        use std::thread;
 
         let skill_id = generate_entity_id();
 
-        // Use unique temp directory per thread
-        let thread_id = format!("{:?}", thread::current().id());
-        let temp_base = std::env::temp_dir().join(format!("test-cache-invalidate-{}", thread_id));
+        // Use unique temp directory per test invocation
+        let unique_id = generate_entity_id();
+        let temp_base = std::env::temp_dir().join(format!("test-cache-invalidate-{}", unique_id));
         set_base_path(temp_base.clone());
         let cache_dir = get_skill_cache_dir(&skill_id);
 

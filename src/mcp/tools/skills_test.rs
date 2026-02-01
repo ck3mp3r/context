@@ -472,13 +472,13 @@ Learn web programming.
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_skill_with_cache_extraction() {
+    use crate::db::utils::generate_entity_id;
     use crate::sync::set_base_path;
     use base64::Engine as _;
-    use std::thread;
 
-    // Set temp base path for this test - unique per thread
-    let thread_id = format!("{:?}", thread::current().id());
-    let temp_base = std::env::temp_dir().join(format!("test-mcp-cache-{}", thread_id));
+    // Set temp base path for this test - unique per test invocation
+    let unique_id = generate_entity_id();
+    let temp_base = std::env::temp_dir().join(format!("test-mcp-cache-{}", unique_id));
     set_base_path(temp_base.clone());
 
     let db = SqliteDatabase::in_memory().await.unwrap();
