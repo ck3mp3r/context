@@ -511,7 +511,7 @@ Test instructions for skill with attachments.
     .bind("att00001")
     .bind("skl00001")
     .bind("script")
-    .bind("deploy.sh")
+    .bind("scripts/deploy.sh") // Use relative path like real scanner
     .bind(&content_base64)
     .bind("abc123")
     .bind("text/x-shellscript")
@@ -542,7 +542,10 @@ Test instructions for skill with attachments.
     // Verify skill data
     assert_eq!(json["id"], "skl00001");
     assert_eq!(json["name"], "test-skill");
-    assert_eq!(json["scripts"].as_array().unwrap(), &vec!["deploy.sh"]);
+    assert_eq!(
+        json["scripts"].as_array().unwrap(),
+        &vec!["scripts/deploy.sh"]
+    ); // Full relative path
 
     // Verify cache_path exists and points to valid directory
     let cache_path = json["cache_path"]

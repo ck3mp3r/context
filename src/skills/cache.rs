@@ -1,19 +1,21 @@
 //! Cache management for skill attachments.
 //!
-//! Skills can have attachments (scripts, references, assets) stored as base64-encoded
-//! content in the database. When a skill is loaded via `c5t_get_skill`, attachments
-//! are extracted to a local cache directory for agent execution.
+//! Skills can have attachments stored as base64-encoded content in the database.
+//! When a skill is loaded via `c5t_get_skill`, attachments are extracted to a local
+//! cache directory preserving the exact directory structure from the source.
 //!
-//! Cache structure:
+//! Cache structure (example from docx skill):
 //! ```text
-//! .context/cache/skills/<skill-id>/
+//! ~/.local/share/c5t-dev/cache/skills/<skill-id>/  (debug builds)
+//! ~/.local/share/c5t/cache/skills/<skill-id>/      (release builds)
+//!   ├── docx-js.md
+//!   ├── ooxml.md
 //!   ├── scripts/
-//!   │   ├── deploy.sh      (executable if .sh/.bash)
-//!   │   └── rollback.sh
-//!   ├── references/
-//!   │   └── architecture.md
-//!   └── assets/
-//!       └── diagram.png
+//!   │   ├── __init__.py
+//!   │   ├── document.py
+//!   │   └── utilities.py
+//!   └── ooxml/
+//!       └── document.xml
 //! ```
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
@@ -22,27 +24,26 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::db::{DbError, SkillAttachment};
+use crate::sync::get_data_dir;
 
 /// Get the base cache directory for skills.
-/// Returns: `.context/cache/skills/`
+/// Returns: `~/.local/share/c5t-dev/cache/skills/` (debug) or `~/.local/share/c5t/cache/skills/` (release)
 pub fn get_skills_cache_dir() -> PathBuf {
-    PathBuf::from(".context").join("cache").join("skills")
+    get_data_dir(None).join("cache").join("skills")
 }
 
 /// Get the cache directory for a specific skill.
-/// Returns: `.context/cache/skills/<skill-id>/`
+/// Returns: `~/.local/share/c5t-dev/cache/skills/<skill-id>/` (debug) or `~/.local/share/c5t/cache/skills/<skill-id>/` (release)
 pub fn get_skill_cache_dir(skill_id: &str) -> PathBuf {
     get_skills_cache_dir().join(skill_id)
 }
 
 /// Extract skill attachments to cache.
 ///
-/// Creates cache directory structure and writes all attachments organized by type:
-/// - scripts/ → type='script'
-/// - references/ → type='reference'
-/// - assets/ → type='asset'
+/// Preserves the exact directory structure from the source skill.
+/// The `filename` field contains relative paths (e.g., "docx-js.md", "scripts/__init__.py", "ooxml/document.xml").
 ///
-/// For scripts with .sh or .bash extensions, sets executable permissions.
+/// For shell scripts (.sh, .bash), sets executable permissions.
 ///
 /// # Arguments
 /// * `skill_id` - Skill ID
@@ -56,27 +57,17 @@ pub fn extract_attachments(
 ) -> Result<PathBuf, DbError> {
     let cache_dir = get_skill_cache_dir(skill_id);
 
-    // Create base cache directory and type subdirectories
-    fs::create_dir_all(cache_dir.join("scripts")).map_err(|e| DbError::Database {
-        message: format!("Failed to create scripts cache directory: {}", e),
-    })?;
-    fs::create_dir_all(cache_dir.join("references")).map_err(|e| DbError::Database {
-        message: format!("Failed to create references cache directory: {}", e),
-    })?;
-    fs::create_dir_all(cache_dir.join("assets")).map_err(|e| DbError::Database {
-        message: format!("Failed to create assets cache directory: {}", e),
-    })?;
-
     // Extract each attachment
     for attachment in attachments {
-        let subdir = match attachment.type_.as_str() {
-            "script" => "scripts",
-            "reference" => "references",
-            "asset" => "assets",
-            _ => continue, // Skip unknown types
-        };
+        // filename is a relative path like "docx-js.md" or "scripts/__init__.py"
+        let file_path = cache_dir.join(&attachment.filename);
 
-        let file_path = cache_dir.join(subdir).join(&attachment.filename);
+        // Create parent directories if needed
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| DbError::Database {
+                message: format!("Failed to create directory {}: {}", parent.display(), e),
+            })?;
+        }
 
         // Decode base64 content
         let content = BASE64
@@ -98,9 +89,7 @@ pub fn extract_attachments(
 
         // Set executable permissions for shell scripts
         #[cfg(unix)]
-        if attachment.type_ == "script"
-            && (attachment.filename.ends_with(".sh") || attachment.filename.ends_with(".bash"))
-        {
+        if attachment.filename.ends_with(".sh") || attachment.filename.ends_with(".bash") {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = fs::metadata(&file_path)
                 .map_err(|e| DbError::Database {
@@ -176,13 +165,21 @@ mod tests {
     #[test]
     fn test_get_skills_cache_dir() {
         let cache_dir = get_skills_cache_dir();
-        assert_eq!(cache_dir, PathBuf::from(".context/cache/skills"));
+        // Should use XDG data dir + cache/skills
+        assert!(cache_dir.to_string_lossy().contains("cache/skills"));
+        assert!(cache_dir.to_string_lossy().contains("c5t"));
     }
 
     #[test]
     fn test_get_skill_cache_dir() {
         let cache_dir = get_skill_cache_dir("abc12345");
-        assert_eq!(cache_dir, PathBuf::from(".context/cache/skills/abc12345"));
+        // Should use XDG data dir + cache/skills/<id>
+        assert!(
+            cache_dir
+                .to_string_lossy()
+                .contains("cache/skills/abc12345")
+        );
+        assert!(cache_dir.to_string_lossy().contains("c5t"));
     }
 
     #[test]
@@ -191,16 +188,17 @@ mod tests {
 
         let skill_id = generate_entity_id();
 
-        // Create test attachments
+        // Create test attachments with relative paths (like real scanner output)
         let script_content = "#!/bin/bash\necho 'Hello'";
         let reference_content = "# Documentation\n\nThis is a reference.";
+        let nested_content = "<xml/>";
 
         let attachments = vec![
             SkillAttachment {
                 id: generate_entity_id(),
                 skill_id: skill_id.clone(),
                 type_: "script".to_string(),
-                filename: "test.sh".to_string(),
+                filename: "scripts/test.sh".to_string(), // Relative path
                 content: BASE64.encode(script_content),
                 content_hash: "abc123".to_string(),
                 mime_type: Some("text/x-shellscript".to_string()),
@@ -211,10 +209,21 @@ mod tests {
                 id: generate_entity_id(),
                 skill_id: skill_id.clone(),
                 type_: "reference".to_string(),
-                filename: "README.md".to_string(),
+                filename: "README.md".to_string(), // Root-level file
                 content: BASE64.encode(reference_content),
                 content_hash: "def456".to_string(),
                 mime_type: Some("text/markdown".to_string()),
+                created_at: None,
+                updated_at: None,
+            },
+            SkillAttachment {
+                id: generate_entity_id(),
+                skill_id: skill_id.clone(),
+                type_: "reference".to_string(),
+                filename: "ooxml/document.xml".to_string(), // Nested path
+                content: BASE64.encode(nested_content),
+                content_hash: "ghi789".to_string(),
+                mime_type: Some("application/xml".to_string()),
                 created_at: None,
                 updated_at: None,
             },
@@ -223,21 +232,20 @@ mod tests {
         // Extract attachments
         let cache_dir = extract_attachments(&skill_id, &attachments).unwrap();
 
-        // Verify directory structure
-        assert!(cache_dir.join("scripts").exists());
-        assert!(cache_dir.join("references").exists());
-        assert!(cache_dir.join("assets").exists());
-
-        // Verify files exist
+        // Verify files exist at correct paths
         assert!(cache_dir.join("scripts/test.sh").exists());
-        assert!(cache_dir.join("references/README.md").exists());
+        assert!(cache_dir.join("README.md").exists());
+        assert!(cache_dir.join("ooxml/document.xml").exists());
 
         // Verify content
         let script_read = fs::read_to_string(cache_dir.join("scripts/test.sh")).unwrap();
         assert_eq!(script_read, script_content);
 
-        let reference_read = fs::read_to_string(cache_dir.join("references/README.md")).unwrap();
+        let reference_read = fs::read_to_string(cache_dir.join("README.md")).unwrap();
         assert_eq!(reference_read, reference_content);
+
+        let nested_read = fs::read_to_string(cache_dir.join("ooxml/document.xml")).unwrap();
+        assert_eq!(nested_read, nested_content);
 
         // Verify executable permissions on Unix
         #[cfg(unix)]
