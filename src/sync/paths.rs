@@ -38,7 +38,9 @@ static BASE_PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 ///
 /// # Example
 /// ```no_run
+/// use context::sync::set_base_path;
 /// use std::path::PathBuf;
+///
 /// // API startup
 /// set_base_path(PathBuf::from("/home/user/.local/share"));
 ///
