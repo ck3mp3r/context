@@ -728,6 +728,64 @@ enum TaskListCommands {
     },
 }
 
+/// Helper function to build SKILL.md content from individual CLI arguments
+fn build_skill_md_content(
+    name: &str,
+    description: Option<&String>,
+    instructions: Option<&String>,
+    license: Option<&String>,
+    compatibility: Option<&String>,
+    allowed_tools: Option<&Vec<String>>,
+    metadata: Option<&serde_json::Value>,
+    origin_url: Option<&String>,
+    origin_ref: Option<&String>,
+) -> String {
+    let mut frontmatter = format!("---\nname: {}\n", name);
+
+    if let Some(desc) = description {
+        frontmatter.push_str(&format!("description: {}\n", desc));
+    }
+
+    if let Some(lic) = license {
+        frontmatter.push_str(&format!("license: {}\n", lic));
+    }
+
+    if let Some(compat) = compatibility {
+        frontmatter.push_str(&format!("compatibility: {}\n", compat));
+    }
+
+    if let Some(tools) = allowed_tools {
+        if !tools.is_empty() {
+            frontmatter.push_str(&format!("allowed-tools: {}\n", tools.join(", ")));
+        }
+    }
+
+    if let Some(meta) = metadata {
+        frontmatter.push_str(&format!(
+            "metadata: {}\n",
+            serde_json::to_string(meta).unwrap_or_default()
+        ));
+    }
+
+    if let Some(url) = origin_url {
+        frontmatter.push_str("origin:\n");
+        frontmatter.push_str(&format!("  url: {}\n", url));
+        if let Some(ref_str) = origin_ref {
+            frontmatter.push_str(&format!("  ref: {}\n", ref_str));
+        }
+    }
+
+    frontmatter.push_str("---\n\n");
+
+    // Add instructions as the body
+    if let Some(inst) = instructions {
+        frontmatter.push_str(inst);
+        frontmatter.push('\n');
+    }
+
+    frontmatter
+}
+
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     let api_client = api_client::ApiClient::new(cli.api_url);
@@ -1221,18 +1279,28 @@ pub async fn run() -> Result<()> {
                 origin_ref,
                 project_ids,
             } => {
+                // Build SKILL.md content from individual CLI args
+                let allowed_tools_vec =
+                    allowed_tools.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+                let metadata_val = metadata.and_then(|m| serde_json::from_str(&m).ok());
+
+                let content = build_skill_md_content(
+                    &name,
+                    description.as_ref(),
+                    instructions.as_ref(),
+                    license.as_ref(),
+                    compatibility.as_ref(),
+                    allowed_tools_vec.as_ref(),
+                    metadata_val.as_ref(),
+                    origin_url.as_ref(),
+                    origin_ref.as_ref(),
+                );
+
                 let request = commands::skill::CreateSkillRequest {
-                    name,
-                    description,
-                    instructions,
+                    name: name.clone(),
+                    description: description.unwrap_or_else(|| name.clone()),
+                    content,
                     tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-                    license,
-                    compatibility,
-                    allowed_tools: allowed_tools
-                        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-                    metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
-                    origin_url,
-                    origin_ref,
                     project_ids: project_ids
                         .map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
                 };
@@ -1253,18 +1321,45 @@ pub async fn run() -> Result<()> {
                 origin_ref,
                 project_ids,
             } => {
+                // If any frontmatter field is provided, rebuild content
+                let content = if description.is_some()
+                    || instructions.is_some()
+                    || license.is_some()
+                    || compatibility.is_some()
+                    || allowed_tools.is_some()
+                    || metadata.is_some()
+                    || origin_url.is_some()
+                    || origin_ref.is_some()
+                {
+                    let allowed_tools_vec =
+                        allowed_tools.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+                    let metadata_val = metadata.and_then(|m| serde_json::from_str(&m).ok());
+
+                    // For update, we use name if provided, otherwise we'll use a placeholder
+                    // The API will reject updates without a name field in content
+                    let name_for_content =
+                        name.as_ref().map(|s| s.as_str()).unwrap_or("placeholder");
+
+                    Some(build_skill_md_content(
+                        name_for_content,
+                        description.as_ref(),
+                        instructions.as_ref(),
+                        license.as_ref(),
+                        compatibility.as_ref(),
+                        allowed_tools_vec.as_ref(),
+                        metadata_val.as_ref(),
+                        origin_url.as_ref(),
+                        origin_ref.as_ref(),
+                    ))
+                } else {
+                    None
+                };
+
                 let request = commands::skill::UpdateSkillRequest {
                     name,
                     description,
-                    instructions,
+                    content,
                     tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-                    license,
-                    compatibility,
-                    allowed_tools: allowed_tools
-                        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-                    metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
-                    origin_url,
-                    origin_ref,
                     project_ids: project_ids
                         .map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
                 };

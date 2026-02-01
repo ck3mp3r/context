@@ -68,7 +68,7 @@ async fn test_create_skill() {
                     serde_json::to_vec(&json!({
                         "name": "test-skill",
                         "description": "A skill description",
-                        "instructions": "Follow these steps",
+                        "content": "---\nname: test-skill\ndescription: A skill description\n---\n\nFollow these steps",
                         "tags": ["tag1", "tag2"],
                         "project_ids": []
                     }))
@@ -82,7 +82,12 @@ async fn test_create_skill() {
     let created = json_body(response).await;
     assert_eq!(created["name"], "test-skill");
     assert_eq!(created["description"], "A skill description");
-    assert_eq!(created["instructions"], "Follow these steps");
+    assert!(
+        created["content"]
+            .as_str()
+            .unwrap()
+            .contains("Follow these steps")
+    );
     assert_eq!(created["tags"], json!(["tag1", "tag2"]));
     assert!(!created["id"].as_str().unwrap().is_empty());
 }
@@ -127,7 +132,7 @@ async fn test_get_skill_by_id() {
                     serde_json::to_vec(&json!({
                         "name": "skill1",
                         "description": "Test description",
-                        "instructions": "Test instructions"
+                        "content": "---\nname: skill1\ndescription: Test description\n---\n\nTest instructions"
                     }))
                     .unwrap(),
                 ))
@@ -186,7 +191,7 @@ async fn test_update_skill_patch() {
                     json!({
                         "name": "patch-me",
                         "description": "Test description",
-                        "instructions": "Test instructions"
+                        "content": "---\nname: patch-me\ndescription: Test description\n---\n\nTest instructions"
                     })
                     .to_string(),
                 ))
@@ -252,7 +257,7 @@ async fn test_update_skill_put() {
                     json!({
                         "name": "put-me",
                         "description": "Test description",
-                        "instructions": "Test instructions"
+                        "content": "---\nname: put-me\ndescription: Test description\n---\n\nTest instructions"
                     })
                     .to_string(),
                 ))
@@ -275,7 +280,7 @@ async fn test_update_skill_put() {
                     json!({
                         "name": "put-name",
                         "description": "desc",
-                        "instructions": "instructions"
+                        "content": "---\nname: put-name\ndescription: desc\n---\n\ninstructions"
                     })
                     .to_string(),
                 ))
@@ -305,7 +310,7 @@ async fn test_delete_skill() {
                     json!({
                         "name": "delete-me",
                         "description": "Test description",
-                        "instructions": "Test instructions"
+                        "content": "---\nname: delete-me\ndescription: Test description\n---\n\nTest instructions"
                     })
                     .to_string(),
                 ))
@@ -378,7 +383,7 @@ async fn test_list_skills_non_empty() {
                         json!({
                             "name": format!("Skill{}", i),
                             "description": "Test description",
-                            "instructions": "Test instructions"
+                            "content": format!("---\nname: Skill{}\ndescription: Test description\n---\n\nTest instructions", i)
                         })
                         .to_string(),
                     ))
@@ -427,14 +432,23 @@ async fn test_create_skill_with_agent_skills_fields() {
                     serde_json::to_vec(&json!({
                         "name": "agent-skill",
                         "description": "A skill with Agent Skills metadata",
-                        "instructions": "Follow these steps",
+                        "content": r#"---
+name: agent-skill
+description: A skill with Agent Skills metadata
+license: MIT
+compatibility: opencode>=0.1.0
+allowed-tools: ["read", "write", "edit"]
+metadata:
+  author: test
+  version: "1.0.0"
+origin:
+  url: https://github.com/example/skill
+  ref: main
+---
+
+Follow these steps
+"#,
                         "tags": ["agent", "spec"],
-                        "license": "MIT",
-                        "compatibility": "opencode>=0.1.0",
-                        "allowed_tools": ["read", "write", "edit"],
-                        "metadata": {"author": "test", "version": "1.0.0"},
-                        "origin_url": "https://github.com/example/skill",
-                        "origin_ref": "main",
                         "project_ids": []
                     }))
                     .unwrap(),
@@ -446,15 +460,15 @@ async fn test_create_skill_with_agent_skills_fields() {
     assert_eq!(response.status(), StatusCode::CREATED);
     let created = json_body(response).await;
     assert_eq!(created["name"], "agent-skill");
-    assert_eq!(created["license"], "MIT");
-    assert_eq!(created["compatibility"], "opencode>=0.1.0");
-    assert_eq!(created["allowed_tools"], json!(["read", "write", "edit"]));
-    assert_eq!(
-        created["metadata"],
-        json!({"author": "test", "version": "1.0.0"})
-    );
-    assert_eq!(created["origin_url"], "https://github.com/example/skill");
-    assert_eq!(created["origin_ref"], "main");
+    // Verify Agent Skills fields are in content
+    let content = created["content"].as_str().unwrap();
+    assert!(content.contains("license: MIT"));
+    assert!(content.contains("compatibility: opencode>=0.1.0"));
+    assert!(content.contains(r#"["read", "write", "edit"]"#));
+    assert!(content.contains("author: test"));
+    assert!(content.contains(r#"version: "1.0.0""#));
+    assert!(content.contains("url: https://github.com/example/skill"));
+    assert!(content.contains("ref: main"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -473,13 +487,21 @@ async fn test_get_skill_returns_agent_skills_fields() {
                     serde_json::to_vec(&json!({
                         "name": "full-skill",
                         "description": "Complete skill",
-                        "instructions": "Instructions",
-                        "license": "Apache-2.0",
-                        "compatibility": "opencode>=0.2.0",
-                        "allowed_tools": ["grep", "glob"],
-                        "metadata": {"category": "development"},
-                        "origin_url": "git://example.com/repo.git",
-                        "origin_ref": "v1.0.0"
+                        "content": r#"---
+name: full-skill
+description: Complete skill
+license: Apache-2.0
+compatibility: opencode>=0.2.0
+allowed-tools: ["grep", "glob"]
+metadata:
+  category: development
+origin:
+  url: git://example.com/repo.git
+  ref: v1.0.0
+---
+
+Instructions
+"#
                     }))
                     .unwrap(),
                 ))
@@ -505,12 +527,14 @@ async fn test_get_skill_returns_agent_skills_fields() {
     let got = json_body(response).await;
     assert_eq!(got["id"], id);
     assert_eq!(got["name"], "full-skill");
-    assert_eq!(got["license"], "Apache-2.0");
-    assert_eq!(got["compatibility"], "opencode>=0.2.0");
-    assert_eq!(got["allowed_tools"], json!(["grep", "glob"]));
-    assert_eq!(got["metadata"], json!({"category": "development"}));
-    assert_eq!(got["origin_url"], "git://example.com/repo.git");
-    assert_eq!(got["origin_ref"], "v1.0.0");
+    // Verify Agent Skills fields are in content
+    let content = got["content"].as_str().unwrap();
+    assert!(content.contains("license: Apache-2.0"));
+    assert!(content.contains("compatibility: opencode>=0.2.0"));
+    assert!(content.contains(r#"["grep", "glob"]"#));
+    assert!(content.contains("category: development"));
+    assert!(content.contains("url: git://example.com/repo.git"));
+    assert!(content.contains("ref: v1.0.0"));
     // origin_fetched_at and origin_metadata are auto-managed, not user-provided
 }
 
@@ -530,7 +554,7 @@ async fn test_patch_skill_agent_skills_fields() {
                     json!({
                         "name": "patch-test",
                         "description": "Initial description",
-                        "instructions": "Initial instructions"
+                        "content": "---\nname: patch-test\ndescription: Initial description\n---\n\nInitial instructions"
                     })
                     .to_string(),
                 ))
@@ -551,10 +575,18 @@ async fn test_patch_skill_agent_skills_fields() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "license": "MIT",
-                        "compatibility": "opencode>=1.0.0",
-                        "allowed_tools": ["task"],
-                        "origin_url": "https://agentskills.io/skills/example"
+                        "content": r#"---
+name: patch-test
+description: Initial description
+license: MIT
+compatibility: opencode>=1.0.0
+allowed-tools: ["task"]
+origin:
+  url: https://agentskills.io/skills/example
+---
+
+Initial instructions
+"#
                     })
                     .to_string(),
                 ))
@@ -565,13 +597,12 @@ async fn test_patch_skill_agent_skills_fields() {
     assert_eq!(response.status(), StatusCode::OK);
     let patched = json_body(response).await;
     assert_eq!(patched["id"], id);
-    assert_eq!(patched["license"], "MIT");
-    assert_eq!(patched["compatibility"], "opencode>=1.0.0");
-    assert_eq!(patched["allowed_tools"], json!(["task"]));
-    assert_eq!(
-        patched["origin_url"],
-        "https://agentskills.io/skills/example"
-    );
+    // Verify Agent Skills fields are in updated content
+    let content = patched["content"].as_str().unwrap();
+    assert!(content.contains("license: MIT"));
+    assert!(content.contains("compatibility: opencode>=1.0.0"));
+    assert!(content.contains(r#"["task"]"#));
+    assert!(content.contains("url: https://agentskills.io/skills/example"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -590,7 +621,7 @@ async fn test_put_skill_agent_skills_fields() {
                     json!({
                         "name": "put-test",
                         "description": "Test",
-                        "instructions": "Test"
+                        "content": "---\nname: put-test\ndescription: Test\n---\n\nTest"
                     })
                     .to_string(),
                 ))
@@ -613,9 +644,16 @@ async fn test_put_skill_agent_skills_fields() {
                     json!({
                         "name": "replaced-skill",
                         "description": "Replaced",
-                        "instructions": "New instructions",
-                        "license": "GPL-3.0",
-                        "metadata": {"type": "utility"}
+                        "content": r#"---
+name: replaced-skill
+description: Replaced
+license: GPL-3.0
+metadata:
+  type: utility
+---
+
+New instructions
+"#
                     })
                     .to_string(),
                 ))
@@ -627,6 +665,8 @@ async fn test_put_skill_agent_skills_fields() {
     let put = json_body(response).await;
     assert_eq!(put["id"], id);
     assert_eq!(put["name"], "replaced-skill");
-    assert_eq!(put["license"], "GPL-3.0");
-    assert_eq!(put["metadata"], json!({"type": "utility"}));
+    // Verify Agent Skills fields are in content
+    let content = put["content"].as_str().unwrap();
+    assert!(content.contains("license: GPL-3.0"));
+    assert!(content.contains("type: utility"));
 }

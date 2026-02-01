@@ -9,17 +9,9 @@ use tabled::{Table, Tabled};
 pub struct Skill {
     pub id: String,
     pub name: String,
-    pub description: Option<String>,
-    pub instructions: Option<String>,
+    pub description: String,
+    pub content: String,
     pub tags: Vec<String>,
-    pub license: Option<String>,
-    pub compatibility: Option<String>,
-    pub allowed_tools: Option<Vec<String>>,
-    pub metadata: Option<serde_json::Value>,
-    pub origin_url: Option<String>,
-    pub origin_ref: Option<String>,
-    pub origin_fetched_at: Option<String>,
-    pub origin_metadata: Option<serde_json::Value>,
     pub project_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -28,24 +20,10 @@ pub struct Skill {
 #[derive(Debug, Serialize)]
 pub struct CreateSkillRequest {
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
+    pub description: String,
+    pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub license: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compatibility: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_tools: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_ids: Option<Vec<String>>,
 }
@@ -57,21 +35,9 @@ pub struct UpdateSkillRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub license: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compatibility: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_tools: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_ids: Option<Vec<String>>,
 }
@@ -171,51 +137,21 @@ pub async fn get_skill(api_client: &ApiClient, id: &str, format: &str) -> CliRes
     if format == "json" {
         Ok(serde_json::to_string_pretty(&skill)?)
     } else {
-        let mut output = format!(
-            "ID: {}\nName: {}\nDescription: {}\nInstructions: {}\nTags: {}",
+        let output = format!(
+            "ID: {}\nName: {}\nDescription: {}\nTags: {}\nProject IDs: {}\nCreated: {}\nUpdated: {}\n\nContent:\n{}",
             skill.id,
             skill.name,
-            skill.description.as_deref().unwrap_or("N/A"),
-            skill.instructions.as_deref().unwrap_or("N/A"),
+            &skill.description,
             format_tags(Some(&skill.tags)),
-        );
-
-        // Agent Skills fields
-        if let Some(license) = &skill.license {
-            output.push_str(&format!("\nLicense: {}", license));
-        }
-        if let Some(compatibility) = &skill.compatibility {
-            output.push_str(&format!("\nCompatibility: {}", compatibility));
-        }
-        if let Some(allowed_tools) = &skill.allowed_tools {
-            output.push_str(&format!("\nAllowed Tools: {}", allowed_tools.join(", ")));
-        }
-        if let Some(metadata) = &skill.metadata {
-            output.push_str(&format!(
-                "\nMetadata: {}",
-                serde_json::to_string_pretty(metadata)?
-            ));
-        }
-        if let Some(origin_url) = &skill.origin_url {
-            output.push_str(&format!("\nOrigin URL: {}", origin_url));
-        }
-        if let Some(origin_ref) = &skill.origin_ref {
-            output.push_str(&format!("\nOrigin Ref: {}", origin_ref));
-        }
-        if let Some(origin_fetched_at) = &skill.origin_fetched_at {
-            output.push_str(&format!("\nOrigin Fetched: {}", origin_fetched_at));
-        }
-
-        output.push_str(&format!(
-            "\nProject IDs: {}\nCreated: {}\nUpdated: {}",
             if skill.project_ids.is_empty() {
                 "N/A".to_string()
             } else {
                 skill.project_ids.join(", ")
             },
             skill.created_at,
-            skill.updated_at
-        ));
+            skill.updated_at,
+            skill.content
+        );
 
         Ok(output)
     }
