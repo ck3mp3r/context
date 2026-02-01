@@ -13,18 +13,12 @@ pub fn SkillCard(
     #[prop(optional)] on_click: Option<Callback<String>>,
 ) -> impl IntoView {
     // Create a preview of the description (first 200 chars)
-    let preview_content = skill
-        .description
-        .as_ref()
-        .map(|desc| {
-            if desc.chars().count() > 200 {
-                let truncated: String = desc.chars().take(200).collect();
-                format!("{}...", truncated)
-            } else {
-                desc.clone()
-            }
-        })
-        .unwrap_or_else(|| "No description".to_string());
+    let preview_content = if skill.description.chars().count() > 200 {
+        let truncated: String = skill.description.chars().take(200).collect();
+        format!("{}...", truncated)
+    } else {
+        skill.description.clone()
+    };
 
     let skill_id = skill.id.clone();
     let href = if on_click.is_some() {
@@ -223,45 +217,102 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                                         </div>
                                     </div>
 
-                                    // Description
-                                    {skill.description.as_ref().map(|desc| {
+                                    // Parse and display frontmatter as table, then markdown body
+                                    {
+                                        // Parse YAML frontmatter
+                                        let (frontmatter_lines, markdown_content) = if skill.content.starts_with("---") {
+                                            // Find the closing ---
+                                            if let Some(end_idx) = skill.content[3..].find("\n---") {
+                                                let frontmatter = &skill.content[4..3 + end_idx]; // Skip opening ---\n
+                                                let body = &skill.content[3 + end_idx + 4..]; // Skip past closing ---
+                                                (frontmatter.lines().collect::<Vec<_>>(), body)
+                                            } else {
+                                                (vec![], skill.content.as_str())
+                                            }
+                                        } else {
+                                            (vec![], skill.content.as_str())
+                                        };
+
+                                        // Strip relative file links from markdown to prevent 404s
+                                        // Convert [text](path/to/file.md) -> **text** (bold text instead of link)
+                                        let markdown_without_links = markdown_content
+                                            .lines()
+                                            .map(|line| {
+                                                // Match markdown links: [text](url)
+                                                let mut result = line.to_string();
+                                                // Regex-like replacement for [text](relative/path)
+                                                while let Some(start) = result.find("](") {
+                                                    if let Some(link_start) = result[..start].rfind('[') {
+                                                        if let Some(end) = result[start + 2..].find(')') {
+                                                            let link_text = &result[link_start + 1..start];
+                                                            let link_url = &result[start + 2..start + 2 + end];
+
+                                                            // Only strip relative file links (not http/https)
+                                                            if !link_url.starts_with("http://") && !link_url.starts_with("https://") {
+                                                                // Replace [text](relative/path) with **text**
+                                                                let replacement = format!("**{}**", link_text);
+                                                                result.replace_range(link_start..start + 2 + end + 1, &replacement);
+                                                            } else {
+                                                                break; // Keep external links, move on
+                                                            }
+                                                        } else {
+                                                            break;
+                                                        }
+                                                    } else {
+                                                        break;
+                                                    }
+                                                }
+                                                result
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join("\n");
+
+                                        // Render markdown body
                                         let mut options = Options::empty();
                                         options.insert(Options::ENABLE_STRIKETHROUGH);
                                         options.insert(Options::ENABLE_TABLES);
                                         options.insert(Options::ENABLE_FOOTNOTES);
                                         options.insert(Options::ENABLE_TASKLISTS);
 
-                                        let parser = Parser::new_ext(desc, options);
+                                        let parser = Parser::new_ext(markdown_without_links.trim(), options);
                                         let mut html_output = String::new();
                                         html::push_html(&mut html_output, parser);
 
                                         view! {
                                             <div class="mb-6">
-                                                <h4 class="text-sm font-semibold text-ctp-subtext1 mb-2">"Description"</h4>
-                                                <div class="prose prose-invert max-w-none" inner_html=html_output></div>
+                                                // Frontmatter table
+                                                {(!frontmatter_lines.is_empty()).then(|| {
+                                                    view! {
+                                                        <div class="mb-4 bg-ctp-surface0 border border-ctp-surface2 rounded-lg p-4">
+                                                            <h4 class="text-sm font-semibold text-ctp-subtext1 mb-3">"Metadata"</h4>
+                                                            <table class="w-full text-sm">
+                                                                <tbody>
+                                                                    {frontmatter_lines.iter().filter_map(|line| {
+                                                                        let trimmed = line.trim();
+                                                                        if trimmed.is_empty() || trimmed.starts_with("#") {
+                                                                            None
+                                                                        } else if let Some((key, value)) = trimmed.split_once(':') {
+                                                                            Some(view! {
+                                                                                <tr class="border-b border-ctp-surface1 last:border-0">
+                                                                                    <td class="py-2 pr-4 text-ctp-subtext1 font-medium align-top">{key.trim()}</td>
+                                                                                    <td class="py-2 text-ctp-text">{value.trim()}</td>
+                                                                                </tr>
+                                                                            })
+                                                                        } else {
+                                                                            None
+                                                                        }
+                                                                    }).collect::<Vec<_>>()}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    }
+                                                })}
+
+                                                // Markdown body
+                                                <div class="bg-ctp-surface1 rounded-lg p-6 overflow-auto prose prose-invert max-w-none" inner_html=html_output></div>
                                             </div>
                                         }
-                                    })}
-
-                                    // Instructions
-                                    {skill.instructions.as_ref().map(|inst| {
-                                        let mut options = Options::empty();
-                                        options.insert(Options::ENABLE_STRIKETHROUGH);
-                                        options.insert(Options::ENABLE_TABLES);
-                                        options.insert(Options::ENABLE_FOOTNOTES);
-                                        options.insert(Options::ENABLE_TASKLISTS);
-
-                                        let parser = Parser::new_ext(inst, options);
-                                        let mut html_output = String::new();
-                                        html::push_html(&mut html_output, parser);
-
-                                        view! {
-                                            <div class="mb-6">
-                                                <h4 class="text-sm font-semibold text-ctp-subtext1 mb-2">"Instructions"</h4>
-                                                <div class="bg-ctp-surface1 rounded-lg p-4 overflow-auto max-h-96 prose prose-invert max-w-none" inner_html=html_output></div>
-                                            </div>
-                                        }
-                                    })}
+                                    }
 
                                     // Tags
                                     {(!skill.tags.is_empty()).then(|| {

@@ -97,10 +97,20 @@ pub struct Note {
 pub struct Skill {
     pub id: String,
     pub name: String,
-    pub description: Option<String>,
-    pub instructions: Option<String>,
+    pub description: String,
+    /// Full SKILL.md content (YAML frontmatter + Markdown body)
+    pub content: String,
     pub tags: Vec<String>,
     pub project_ids: Vec<String>,
+    /// Script filenames (from skill_attachment where type='script')
+    #[serde(default)]
+    pub scripts: Vec<String>,
+    /// Reference filenames (from skill_attachment where type='reference')
+    #[serde(default)]
+    pub references: Vec<String>,
+    /// Asset filenames (from skill_attachment where type='asset')
+    #[serde(default)]
+    pub assets: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
