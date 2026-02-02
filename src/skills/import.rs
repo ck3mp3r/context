@@ -252,13 +252,15 @@ This is a test skill for import testing.
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_duplicate_without_update_fails() {
+        use crate::db::utils::generate_entity_id;
+
         let db = SqliteDatabase::in_memory()
             .await
             .expect("Failed to create in-memory database");
         db.migrate().expect("Migration should succeed");
 
-        // Create a temporary skill directory
-        let temp_dir = std::env::temp_dir().join(format!("test-skill-{}", std::process::id()));
+        // Create a temporary skill directory with unique ID to avoid conflicts
+        let temp_dir = std::env::temp_dir().join(format!("test-skill-{}", generate_entity_id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         // Create SKILL.md
@@ -297,14 +299,16 @@ description: A test skill
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_duplicate_with_update_succeeds() {
+        use crate::db::utils::generate_entity_id;
+
         let db = SqliteDatabase::in_memory()
             .await
             .expect("Failed to create in-memory database");
         db.migrate().expect("Migration should succeed");
 
-        // Create a temporary skill directory
+        // Create a temporary skill directory with unique ID to avoid conflicts
         let temp_dir =
-            std::env::temp_dir().join(format!("test-skill-update-{}", std::process::id()));
+            std::env::temp_dir().join(format!("test-skill-update-{}", generate_entity_id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         // Create SKILL.md

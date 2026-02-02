@@ -160,7 +160,7 @@ pub async fn import_all<D: Database>(
         tracing::debug!("Importing skills");
         let skills: Vec<Skill> = read_jsonl(&skills_file)?;
         for skill in skills {
-            // Upsert skill
+            // Upsert skill (will have filename arrays from export)
             match db.skills().get(&skill.id).await {
                 Ok(_existing) => {
                     db.skills().update(&skill).await?;

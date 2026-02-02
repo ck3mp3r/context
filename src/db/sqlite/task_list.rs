@@ -529,6 +529,16 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         })
     }
 
+    async fn count(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_list")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, task_list: &TaskList) -> DbResult<()> {
         // Fetch current to detect status transitions
         let current = self.get(&task_list.id).await?;

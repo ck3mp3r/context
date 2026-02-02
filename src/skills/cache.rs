@@ -263,13 +263,14 @@ mod tests {
 
         // Cleanup temp directory
         invalidate_cache(&skill_id).unwrap();
+
+        // Clear the global base path BEFORE final assertions to avoid race conditions
+        crate::sync::clear_base_path();
+
         assert!(!cache_dir.exists());
 
         // Clean up temp base directory
         let _ = std::fs::remove_dir_all(&temp_base);
-
-        // Clear the global base path for other tests
-        crate::sync::clear_base_path();
     }
 
     #[test]

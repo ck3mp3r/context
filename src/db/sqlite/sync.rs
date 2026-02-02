@@ -349,6 +349,41 @@ async fn import_all_with_transaction(
         }
     }
 
+    // ========== Import Skill Attachments ==========
+    let attachments_file = input_dir.join("skills_attachments.jsonl");
+    if attachments_file.exists() {
+        use crate::db::SkillAttachment;
+        let attachments: Vec<SkillAttachment> = read_jsonl(&attachments_file)?;
+        for attachment in attachments {
+            // Upsert attachment
+            sqlx::query(
+                "INSERT INTO skill_attachment (id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   skill_id = excluded.skill_id,
+                   type = excluded.type,
+                   filename = excluded.filename,
+                   content = excluded.content,
+                   content_hash = excluded.content_hash,
+                   mime_type = excluded.mime_type,
+                   updated_at = excluded.updated_at",
+            )
+            .bind(&attachment.id)
+            .bind(&attachment.skill_id)
+            .bind(&attachment.type_)
+            .bind(&attachment.filename)
+            .bind(&attachment.content)
+            .bind(&attachment.content_hash)
+            .bind(&attachment.mime_type)
+            .bind(&attachment.created_at)
+            .bind(&attachment.updated_at)
+            .execute(&mut **tx)
+            .await?;
+
+            summary.attachments += 1;
+        }
+    }
+
     Ok(summary)
 }
 
@@ -425,12 +460,22 @@ async fn export_all_from_pool(
     let skills_repo = SqliteSkillRepository { pool };
     let skills_list = skills_repo.list(None).await?;
     let mut skills = Vec::new();
+    let mut all_attachments = Vec::new();
     for skill in skills_list.items {
         let full_skill = skills_repo.get(&skill.id).await?;
+        let attachments = skills_repo.get_attachments(&full_skill.id).await?;
         skills.push(full_skill);
+        all_attachments.extend(attachments);
     }
     write_jsonl(&output_dir.join("skills.jsonl"), &skills)?;
     summary.skills = skills.len();
+
+    // Export skill attachments - one attachment per line
+    write_jsonl(
+        &output_dir.join("skills_attachments.jsonl"),
+        &all_attachments,
+    )?;
+    summary.attachments = all_attachments.len();
 
     Ok(summary)
 }

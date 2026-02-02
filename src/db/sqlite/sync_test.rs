@@ -8,6 +8,7 @@ mod tests {
         SyncRepository, TaskList, TaskListRepository, TaskListStatus,
     };
     use crate::sync::write_jsonl;
+    use base64::prelude::*;
     use tempfile::TempDir;
 
     async fn setup_test_db() -> SqliteDatabase {
@@ -710,13 +711,43 @@ Do something useful with this skill.
         };
         db1.skills().create(&skill).await.unwrap();
 
+        // Create attachments for the skill
+        use crate::db::SkillAttachment;
+        let attachment1 = SkillAttachment {
+            id: "attach01".to_string(),
+            skill_id: "skill001".to_string(),
+            type_: "script".to_string(),
+            filename: "test.sh".to_string(),
+            content: BASE64_STANDARD.encode("#!/bin/bash\necho test"),
+            content_hash: "hash123".to_string(),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        db1.skills().create_attachment(&attachment1).await.unwrap();
+
+        let attachment2 = SkillAttachment {
+            id: "attach02".to_string(),
+            skill_id: "skill001".to_string(),
+            type_: "reference".to_string(),
+            filename: "docs.md".to_string(),
+            content: BASE64_STANDARD.encode("# Documentation"),
+            content_hash: "hash456".to_string(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        db1.skills().create_attachment(&attachment2).await.unwrap();
+
         // Export from db1
         let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
         assert_eq!(export_summary.skills, 1, "Should export 1 skill");
+        assert_eq!(export_summary.attachments, 2, "Should export 2 attachments");
 
         // Import to db2
         let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();
         assert_eq!(import_summary.skills, 1, "Should import 1 skill");
+        assert_eq!(import_summary.attachments, 2, "Should import 2 attachments");
 
         // Verify skill data and relationships
         let imported_skill = db2.skills().get("skill001").await.unwrap();
@@ -725,6 +756,24 @@ Do something useful with this skill.
         assert!(imported_skill.content.contains("Do something"));
         assert_eq!(imported_skill.tags, vec!["test"]);
         assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
+
+        // Verify attachments were imported
+        let imported_attachments = db2.skills().get_attachments("skill001").await.unwrap();
+        assert_eq!(imported_attachments.len(), 2, "Should import 2 attachments");
+
+        let script = imported_attachments
+            .iter()
+            .find(|a| a.type_ == "script")
+            .unwrap();
+        assert_eq!(script.filename, "test.sh");
+        assert_eq!(script.content_hash, "hash123");
+
+        let reference = imported_attachments
+            .iter()
+            .find(|a| a.type_ == "reference")
+            .unwrap();
+        assert_eq!(reference.filename, "docs.md");
+        assert_eq!(reference.content_hash, "hash456");
     }
 
     #[tokio::test(flavor = "multi_thread")]

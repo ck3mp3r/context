@@ -220,18 +220,9 @@ impl<G: GitOps> SyncManager<G> {
             "Export complete"
         );
 
-        // Add all JSONL files
-        let files = vec![
-            "repos.jsonl".to_string(),
-            "projects.jsonl".to_string(),
-            "lists.jsonl".to_string(),
-            "tasks.jsonl".to_string(),
-            "notes.jsonl".to_string(),
-            "skills.jsonl".to_string(),
-            "skills_attachments.jsonl".to_string(),
-        ];
-        tracing::debug!("Adding files to git");
-        self.git.add_files(&self.sync_dir, &files)?;
+        // Add all JSONL files (git add .)
+        tracing::debug!("Adding all files to git");
+        self.git.add_files(&self.sync_dir, &[".".to_string()])?;
 
         // Commit with timestamp-based message if not provided
         let commit_msg = message.unwrap_or_else(|| {
@@ -367,12 +358,13 @@ impl<G: GitOps> SyncManager<G> {
 
         // Count entities in database
         let db_counts = EntityCounts {
-            repos: db.repos().list(None).await?.total,
-            projects: db.projects().list(None).await?.total,
-            task_lists: db.task_lists().list(None).await?.total,
-            tasks: db.tasks().list(None).await?.total,
-            notes: db.notes().list(None).await?.total,
-            skills: db.skills().list(None).await?.total,
+            repos: db.repos().count().await?,
+            projects: db.projects().count().await?,
+            task_lists: db.task_lists().count().await?,
+            tasks: db.tasks().count().await?,
+            notes: db.notes().count().await?,
+            skills: db.skills().count().await?,
+            attachments: db.skills().count_attachments().await?,
         };
 
         // Count entities in JSONL files
@@ -400,14 +392,19 @@ impl<G: GitOps> SyncManager<G> {
 
     /// Count entities in JSONL files.
     async fn count_jsonl_entities(&self) -> Option<EntityCounts> {
-        use crate::db::{Note, Project, Repo, Skill, Task, TaskList};
+        use crate::db::{Note, Project, Repo, Skill, SkillAttachment, Task, TaskList};
 
-        let repos: Vec<Repo> = read_jsonl(&self.sync_dir.join("repos.jsonl")).ok()?;
-        let projects: Vec<Project> = read_jsonl(&self.sync_dir.join("projects.jsonl")).ok()?;
-        let task_lists: Vec<TaskList> = read_jsonl(&self.sync_dir.join("lists.jsonl")).ok()?;
-        let tasks: Vec<Task> = read_jsonl(&self.sync_dir.join("tasks.jsonl")).ok()?;
-        let notes: Vec<Note> = read_jsonl(&self.sync_dir.join("notes.jsonl")).ok()?;
-        let skills: Vec<Skill> = read_jsonl(&self.sync_dir.join("skills.jsonl")).ok()?;
+        let repos: Vec<Repo> = read_jsonl(&self.sync_dir.join("repos.jsonl")).unwrap_or_default();
+        let projects: Vec<Project> =
+            read_jsonl(&self.sync_dir.join("projects.jsonl")).unwrap_or_default();
+        let task_lists: Vec<TaskList> =
+            read_jsonl(&self.sync_dir.join("lists.jsonl")).unwrap_or_default();
+        let tasks: Vec<Task> = read_jsonl(&self.sync_dir.join("tasks.jsonl")).unwrap_or_default();
+        let notes: Vec<Note> = read_jsonl(&self.sync_dir.join("notes.jsonl")).unwrap_or_default();
+        let skills: Vec<Skill> =
+            read_jsonl(&self.sync_dir.join("skills.jsonl")).unwrap_or_default();
+        let attachments: Vec<SkillAttachment> =
+            read_jsonl(&self.sync_dir.join("skills_attachments.jsonl")).unwrap_or_default();
 
         Some(EntityCounts {
             repos: repos.len(),
@@ -416,6 +413,7 @@ impl<G: GitOps> SyncManager<G> {
             tasks: tasks.len(),
             notes: notes.len(),
             skills: skills.len(),
+            attachments: attachments.len(),
         })
     }
 }
@@ -446,10 +444,17 @@ pub struct EntityCounts {
     pub tasks: usize,
     pub notes: usize,
     pub skills: usize,
+    pub attachments: usize,
 }
 
 impl EntityCounts {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes + self.skills
+        self.repos
+            + self.projects
+            + self.task_lists
+            + self.tasks
+            + self.notes
+            + self.skills
+            + self.attachments
     }
 }

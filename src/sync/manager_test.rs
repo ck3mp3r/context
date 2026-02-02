@@ -406,6 +406,7 @@ async fn test_entity_counts_includes_skills_field() {
         tasks: 4,
         notes: 5,
         skills: 6,
+        attachments: 7,
     };
 
     assert_eq!(counts.repos, 1);
@@ -414,7 +415,8 @@ async fn test_entity_counts_includes_skills_field() {
     assert_eq!(counts.tasks, 4);
     assert_eq!(counts.notes, 5);
     assert_eq!(counts.skills, 6);
-    assert_eq!(counts.total(), 21); // Sum of all counts
+    assert_eq!(counts.attachments, 7);
+    assert_eq!(counts.total(), 28); // Sum of all counts (1+2+3+4+5+6+7)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -598,14 +600,8 @@ async fn test_export_adds_skills_jsonl_to_git_files() {
         .expect_add_files()
         .times(1)
         .withf(|_, files: &[String]| {
-            // Verify ALL required JSONL files are included
-            files.contains(&"skills.jsonl".to_string())
-                && files.contains(&"skills_attachments.jsonl".to_string())
-                && files.contains(&"repos.jsonl".to_string())
-                && files.contains(&"projects.jsonl".to_string())
-                && files.contains(&"lists.jsonl".to_string())
-                && files.contains(&"tasks.jsonl".to_string())
-                && files.contains(&"notes.jsonl".to_string())
+            // Verify git add . is used to add all files
+            files.len() == 1 && files[0] == "."
         })
         .returning(|_, _| Ok(mock_output(0, "", "")));
     mock_git

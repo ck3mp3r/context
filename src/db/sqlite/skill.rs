@@ -287,6 +287,16 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         })
     }
 
+    async fn count(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM skill")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, skill: &Skill) -> DbResult<()> {
         // Validate skill
         validate_skill(skill)?;
@@ -459,6 +469,16 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             .collect();
 
         Ok(attachments)
+    }
+
+    async fn count_attachments(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM skill_attachment")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
     }
 
     async fn create_attachment(&self, attachment: &SkillAttachment) -> DbResult<SkillAttachment> {

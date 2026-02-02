@@ -101,7 +101,7 @@ pub async fn export_all<D: Database>(
     summary.notes = notes.len();
     tracing::debug!(count = notes.len(), "Exported notes");
 
-    // Export skills - get full entities with relationships (WITHOUT attachments)
+    // Export skills with attachment filenames (computed fields)
     tracing::debug!("Fetching skills");
     let skills_list = db.skills().list(None).await?;
     let mut skills = Vec::new();
@@ -117,10 +117,18 @@ pub async fn export_all<D: Database>(
     tracing::debug!(count = skills.len(), "Exported skills");
 
     // Export skill attachments - one attachment per line
-    write_jsonl(
-        &output_dir.join("skills_attachments.jsonl"),
-        &all_attachments,
-    )?;
+    let attachments_path = output_dir.join("skills_attachments.jsonl");
+    tracing::warn!(
+        "ABOUT TO WRITE {} attachments to {:?}",
+        all_attachments.len(),
+        attachments_path
+    );
+    write_jsonl(&attachments_path, &all_attachments)?;
+    tracing::warn!(
+        "WROTE {} attachments to {:?}",
+        all_attachments.len(),
+        attachments_path
+    );
     summary.attachments = all_attachments.len();
     tracing::debug!(count = all_attachments.len(), "Exported skill attachments");
 
