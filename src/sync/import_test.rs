@@ -2,7 +2,7 @@ use crate::db::{
     Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
     SkillAttachment, SkillRepository, SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
 };
-use crate::sync::export::{SkillExport, export_all};
+use crate::sync::export::export_all;
 use crate::sync::import::*;
 use crate::sync::jsonl::write_jsonl;
 use base64::prelude::*;
@@ -1027,50 +1027,54 @@ This skill has attachments.
     };
     let reference_b64 = BASE64_STANDARD.encode(reference_content);
 
-    let skill_export = SkillExport {
-        skill: Skill {
-            id: "sk001234".to_string(),
-            name: "test-skill".to_string(),
-            description: "Test skill with attachments".to_string(),
-            content: skill_content.to_string(),
-            tags: vec![],
-            project_ids: vec![],
-            scripts: vec![],
-            references: vec![],
-            assets: vec![],
+    let skill = Skill {
+        id: "sk001234".to_string(),
+        name: "test-skill".to_string(),
+        description: "Test skill with attachments".to_string(),
+        content: skill_content.to_string(),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+    };
+
+    let attachments = vec![
+        SkillAttachment {
+            id: "at001234".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "script".to_string(),
+            filename: "run.sh".to_string(),
+            content: script_b64.clone(),
+            content_hash: script_hash.clone(),
+            mime_type: Some("text/x-shellscript".to_string()),
             created_at: Some("2024-01-01T10:00:00Z".to_string()),
             updated_at: Some("2024-01-01T10:00:00Z".to_string()),
         },
-        attachments: vec![
-            SkillAttachment {
-                id: "at001234".to_string(),
-                skill_id: "sk001234".to_string(),
-                type_: "script".to_string(),
-                filename: "run.sh".to_string(),
-                content: script_b64.clone(),
-                content_hash: script_hash.clone(),
-                mime_type: Some("text/x-shellscript".to_string()),
-                created_at: Some("2024-01-01T10:00:00Z".to_string()),
-                updated_at: Some("2024-01-01T10:00:00Z".to_string()),
-            },
-            SkillAttachment {
-                id: "at005678".to_string(),
-                skill_id: "sk001234".to_string(),
-                type_: "reference".to_string(),
-                filename: "README.md".to_string(),
-                content: reference_b64.clone(),
-                content_hash: reference_hash.clone(),
-                mime_type: Some("text/markdown".to_string()),
-                created_at: Some("2024-01-01T10:00:00Z".to_string()),
-                updated_at: Some("2024-01-01T10:00:00Z".to_string()),
-            },
-        ],
-    };
+        SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        },
+    ];
 
-    // Write to JSONL and import
+    // Write to separate JSONL files and import
     write_jsonl(
         &temp_dir.path().join("skills.jsonl"),
-        std::slice::from_ref(&skill_export),
+        std::slice::from_ref(&skill),
+    )
+    .unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &attachments,
     )
     .unwrap();
     import_all(&db, temp_dir.path()).await.unwrap();
@@ -1105,35 +1109,41 @@ This skill has attachments.
     };
     let modified_b64 = BASE64_STANDARD.encode(modified_script);
 
-    let updated_export = SkillExport {
-        skill: skill_export.skill.clone(),
-        attachments: vec![
-            SkillAttachment {
-                id: "at001234".to_string(),
-                skill_id: "sk001234".to_string(),
-                type_: "script".to_string(),
-                filename: "run.sh".to_string(),
-                content: modified_b64.clone(),
-                content_hash: modified_hash.clone(),
-                mime_type: Some("text/x-shellscript".to_string()),
-                created_at: Some("2024-01-01T10:00:00Z".to_string()),
-                updated_at: Some("2024-01-02T10:00:00Z".to_string()),
-            },
-            SkillAttachment {
-                id: "at005678".to_string(),
-                skill_id: "sk001234".to_string(),
-                type_: "reference".to_string(),
-                filename: "README.md".to_string(),
-                content: reference_b64.clone(),
-                content_hash: reference_hash.clone(),
-                mime_type: Some("text/markdown".to_string()),
-                created_at: Some("2024-01-01T10:00:00Z".to_string()),
-                updated_at: Some("2024-01-01T10:00:00Z".to_string()),
-            },
-        ],
-    };
+    let updated_attachments_export = vec![
+        SkillAttachment {
+            id: "at001234".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "script".to_string(),
+            filename: "run.sh".to_string(),
+            content: modified_b64.clone(),
+            content_hash: modified_hash.clone(),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-02T10:00:00Z".to_string()),
+        },
+        SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        },
+    ];
 
-    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[updated_export]).unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills.jsonl"),
+        std::slice::from_ref(&skill),
+    )
+    .unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &updated_attachments_export,
+    )
+    .unwrap();
     import_all(&db, temp_dir.path()).await.unwrap();
 
     // Verify attachment updated
@@ -1155,22 +1165,28 @@ This skill has attachments.
     assert_eq!(unchanged_ref.content_hash, reference_hash);
 
     // Test 3: Re-import with attachment removed (should delete it)
-    let minimal_export = SkillExport {
-        skill: skill_export.skill.clone(),
-        attachments: vec![SkillAttachment {
-            id: "at005678".to_string(),
-            skill_id: "sk001234".to_string(),
-            type_: "reference".to_string(),
-            filename: "README.md".to_string(),
-            content: reference_b64.clone(),
-            content_hash: reference_hash.clone(),
-            mime_type: Some("text/markdown".to_string()),
-            created_at: Some("2024-01-01T10:00:00Z".to_string()),
-            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
-        }],
-    };
+    let minimal_attachments_export = vec![SkillAttachment {
+        id: "at005678".to_string(),
+        skill_id: "sk001234".to_string(),
+        type_: "reference".to_string(),
+        filename: "README.md".to_string(),
+        content: reference_b64.clone(),
+        content_hash: reference_hash.clone(),
+        mime_type: Some("text/markdown".to_string()),
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+    }];
 
-    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[minimal_export]).unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills.jsonl"),
+        std::slice::from_ref(&skill),
+    )
+    .unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &minimal_attachments_export,
+    )
+    .unwrap();
     import_all(&db, temp_dir.path()).await.unwrap();
 
     // Verify script attachment deleted

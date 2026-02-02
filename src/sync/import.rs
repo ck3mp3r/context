@@ -1,10 +1,9 @@
 //! Import JSONL files into database.
 
 use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
 };
-use crate::sync::export::SkillExport;
 use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
@@ -155,27 +154,49 @@ pub async fn import_all<D: Database>(
         tracing::debug!(count = summary.notes, "Imported notes");
     }
 
-    // Import skills with attachments
+    // Import skills
     let skills_file = input_dir.join("skills.jsonl");
     if skills_file.exists() {
         tracing::debug!("Importing skills");
-        let skill_exports: Vec<SkillExport> = read_jsonl(&skills_file)?;
-        for skill_export in skill_exports {
+        let skills: Vec<Skill> = read_jsonl(&skills_file)?;
+        for skill in skills {
             // Upsert skill
-            match db.skills().get(&skill_export.skill.id).await {
+            match db.skills().get(&skill.id).await {
                 Ok(_existing) => {
-                    db.skills().update(&skill_export.skill).await?;
+                    db.skills().update(&skill).await?;
                 }
                 Err(_) => {
-                    db.skills().create(&skill_export.skill).await?;
+                    db.skills().create(&skill).await?;
                 }
             }
+            summary.skills += 1;
+        }
+        tracing::debug!(count = summary.skills, "Imported skills");
+    }
 
+    // Import skill attachments
+    let attachments_file = input_dir.join("skills_attachments.jsonl");
+    if attachments_file.exists() {
+        tracing::debug!("Importing skill attachments");
+        let attachments: Vec<SkillAttachment> = read_jsonl(&attachments_file)?;
+
+        // Group attachments by skill_id for efficient processing
+        let mut attachments_by_skill: std::collections::HashMap<String, Vec<SkillAttachment>> =
+            std::collections::HashMap::new();
+        for attachment in attachments {
+            attachments_by_skill
+                .entry(attachment.skill_id.clone())
+                .or_default()
+                .push(attachment);
+        }
+
+        // Process each skill's attachments
+        for (skill_id, skill_attachments) in attachments_by_skill {
             // Get existing attachments for this skill
-            let existing_attachments = db.skills().get_attachments(&skill_export.skill.id).await?;
+            let existing_attachments = db.skills().get_attachments(&skill_id).await?;
 
             // Upsert attachments - compare by skill_id + type + filename
-            for attachment in &skill_export.attachments {
+            for attachment in &skill_attachments {
                 let existing = existing_attachments.iter().find(|a| {
                     a.skill_id == attachment.skill_id
                         && a.type_ == attachment.type_
@@ -193,7 +214,7 @@ pub async fn import_all<D: Database>(
                         db.skills().update_attachment(attachment).await?;
 
                         // Invalidate cache since content changed
-                        crate::skills::invalidate_cache(&skill_export.skill.id)?;
+                        crate::skills::invalidate_cache(&skill_id)?;
                     }
                     Some(_) => {
                         // Content unchanged - skip
@@ -213,14 +234,14 @@ pub async fn import_all<D: Database>(
                         db.skills().create_attachment(attachment).await?;
 
                         // Invalidate cache to include new attachment
-                        crate::skills::invalidate_cache(&skill_export.skill.id)?;
+                        crate::skills::invalidate_cache(&skill_id)?;
                     }
                 }
             }
 
             // Delete attachments that exist in DB but not in import
             for existing_att in existing_attachments {
-                let in_import = skill_export.attachments.iter().any(|a| {
+                let in_import = skill_attachments.iter().any(|a| {
                     a.skill_id == existing_att.skill_id
                         && a.type_ == existing_att.type_
                         && a.filename == existing_att.filename
@@ -235,13 +256,13 @@ pub async fn import_all<D: Database>(
                     db.skills().delete_attachment(&existing_att.id).await?;
 
                     // Invalidate cache to remove deleted attachment
-                    crate::skills::invalidate_cache(&skill_export.skill.id)?;
+                    crate::skills::invalidate_cache(&skill_id)?;
                 }
             }
 
-            summary.skills += 1;
+            summary.attachments += skill_attachments.len();
         }
-        tracing::debug!(count = summary.skills, "Imported skills with attachments");
+        tracing::debug!(count = summary.attachments, "Imported skill attachments");
     }
 
     tracing::info!(total = summary.total(), "Import all complete");
@@ -257,10 +278,17 @@ pub struct ImportSummary {
     pub tasks: usize,
     pub notes: usize,
     pub skills: usize,
+    pub attachments: usize,
 }
 
 impl ImportSummary {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes + self.skills
+        self.repos
+            + self.projects
+            + self.task_lists
+            + self.tasks
+            + self.notes
+            + self.skills
+            + self.attachments
     }
 }

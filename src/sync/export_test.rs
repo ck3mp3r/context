@@ -530,29 +530,27 @@ Run scripts/deploy.sh
     // Export
     let summary = export_all(&db, temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 1);
+    assert_eq!(summary.attachments, 2);
 
-    // Read back the exported skill with attachments
-    let skill_exports: Vec<SkillExport> =
-        read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
-    assert_eq!(skill_exports.len(), 1);
+    // Read back the exported skills
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 1);
 
-    let exported = &skill_exports[0];
+    let exported = &skills[0];
 
     // Verify skill fields
-    assert_eq!(exported.skill.id, "skill001");
-    assert_eq!(exported.skill.name, "deploy-k8s");
-    assert_eq!(exported.skill.description, "Deploy to Kubernetes");
-    assert!(exported.skill.content.contains("Run scripts/deploy.sh"));
+    assert_eq!(exported.id, "skill001");
+    assert_eq!(exported.name, "deploy-k8s");
+    assert_eq!(exported.description, "Deploy to Kubernetes");
+    assert!(exported.content.contains("Run scripts/deploy.sh"));
 
-    // Verify attachments are included
-    assert_eq!(exported.attachments.len(), 2);
+    // Read back the exported attachments
+    let attachments: Vec<SkillAttachment> =
+        read_jsonl(&temp_dir.path().join("skills_attachments.jsonl")).unwrap();
+    assert_eq!(attachments.len(), 2);
 
     // Verify script attachment
-    let script = exported
-        .attachments
-        .iter()
-        .find(|a| a.type_ == "script")
-        .unwrap();
+    let script = attachments.iter().find(|a| a.type_ == "script").unwrap();
     assert_eq!(script.filename, "deploy.sh");
     assert_eq!(script.content_hash, "abc123");
     assert_eq!(script.mime_type, Some("text/x-shellscript".to_string()));
@@ -563,11 +561,7 @@ Run scripts/deploy.sh
     assert_eq!(decoded, b"#!/bin/bash\necho 'deploying'");
 
     // Verify reference attachment
-    let reference = exported
-        .attachments
-        .iter()
-        .find(|a| a.type_ == "reference")
-        .unwrap();
+    let reference = attachments.iter().find(|a| a.type_ == "reference").unwrap();
     assert_eq!(reference.filename, "api-docs.md");
     assert_eq!(reference.content_hash, "def456");
     assert_eq!(reference.mime_type, Some("text/markdown".to_string()));
