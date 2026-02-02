@@ -598,8 +598,14 @@ async fn test_export_adds_skills_jsonl_to_git_files() {
         .expect_add_files()
         .times(1)
         .withf(|_, files: &[String]| {
-            // Verify that skills.jsonl is included in the files list
+            // Verify ALL required JSONL files are included
             files.contains(&"skills.jsonl".to_string())
+                && files.contains(&"skills_attachments.jsonl".to_string())
+                && files.contains(&"repos.jsonl".to_string())
+                && files.contains(&"projects.jsonl".to_string())
+                && files.contains(&"lists.jsonl".to_string())
+                && files.contains(&"tasks.jsonl".to_string())
+                && files.contains(&"notes.jsonl".to_string())
         })
         .returning(|_, _| Ok(mock_output(0, "", "")));
     mock_git

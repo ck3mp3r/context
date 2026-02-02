@@ -228,6 +228,7 @@ impl<G: GitOps> SyncManager<G> {
             "tasks.jsonl".to_string(),
             "notes.jsonl".to_string(),
             "skills.jsonl".to_string(),
+            "skills_attachments.jsonl".to_string(),
         ];
         tracing::debug!("Adding files to git");
         self.git.add_files(&self.sync_dir, &files)?;
