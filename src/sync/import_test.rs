@@ -1,10 +1,11 @@
 use crate::db::{
     Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
-    SkillRepository, SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
+    SkillAttachment, SkillRepository, SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
 };
-use crate::sync::export::export_all;
+use crate::sync::export::{SkillExport, export_all};
 use crate::sync::import::*;
 use crate::sync::jsonl::write_jsonl;
+use base64::prelude::*;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> SqliteDatabase {
@@ -989,4 +990,192 @@ Updated instructions with changes
     // Timestamps
     assert_eq!(updated.created_at, Some("2024-01-01T10:00:00Z".to_string())); // Should not change
     assert_eq!(updated.updated_at, Some("2026-01-31T19:00:00Z".to_string())); // Should be updated
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_with_attachments_upsert() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create skill with attachments
+    let skill_content = r#"---
+name: test-skill
+description: Test skill with attachments
+version: "1.0.0"
+---
+
+# Test Skill
+
+This skill has attachments.
+"#;
+
+    let script_content = b"#!/bin/bash\necho 'test script'";
+    let script_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(script_content);
+        format!("{:x}", hasher.finalize())
+    };
+    let script_b64 = BASE64_STANDARD.encode(script_content);
+
+    let reference_content = b"# Reference Doc\nSome documentation";
+    let reference_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(reference_content);
+        format!("{:x}", hasher.finalize())
+    };
+    let reference_b64 = BASE64_STANDARD.encode(reference_content);
+
+    let skill_export = SkillExport {
+        skill: Skill {
+            id: "sk001234".to_string(),
+            name: "test-skill".to_string(),
+            description: "Test skill with attachments".to_string(),
+            content: skill_content.to_string(),
+            tags: vec![],
+            project_ids: vec![],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        },
+        attachments: vec![
+            SkillAttachment {
+                id: "at001234".to_string(),
+                skill_id: "sk001234".to_string(),
+                type_: "script".to_string(),
+                filename: "run.sh".to_string(),
+                content: script_b64.clone(),
+                content_hash: script_hash.clone(),
+                mime_type: Some("text/x-shellscript".to_string()),
+                created_at: Some("2024-01-01T10:00:00Z".to_string()),
+                updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            },
+            SkillAttachment {
+                id: "at005678".to_string(),
+                skill_id: "sk001234".to_string(),
+                type_: "reference".to_string(),
+                filename: "README.md".to_string(),
+                content: reference_b64.clone(),
+                content_hash: reference_hash.clone(),
+                mime_type: Some("text/markdown".to_string()),
+                created_at: Some("2024-01-01T10:00:00Z".to_string()),
+                updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            },
+        ],
+    };
+
+    // Write to JSONL and import
+    write_jsonl(
+        &temp_dir.path().join("skills.jsonl"),
+        std::slice::from_ref(&skill_export),
+    )
+    .unwrap();
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    // Verify skill created
+    let imported_skill = db.skills().get("sk001234").await.unwrap();
+    assert_eq!(imported_skill.name, "test-skill");
+
+    // Verify attachments created
+    let attachments = db.skills().get_attachments("sk001234").await.unwrap();
+    assert_eq!(attachments.len(), 2);
+
+    let script_att = attachments.iter().find(|a| a.filename == "run.sh").unwrap();
+    assert_eq!(script_att.type_, "script");
+    assert_eq!(script_att.content_hash, script_hash);
+    assert_eq!(script_att.content, script_b64);
+
+    let ref_att = attachments
+        .iter()
+        .find(|a| a.filename == "README.md")
+        .unwrap();
+    assert_eq!(ref_att.type_, "reference");
+    assert_eq!(ref_att.content_hash, reference_hash);
+
+    // Test 2: Re-import with changed attachment content (should update + invalidate cache)
+    let modified_script = b"#!/bin/bash\necho 'modified script'";
+    let modified_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(modified_script);
+        format!("{:x}", hasher.finalize())
+    };
+    let modified_b64 = BASE64_STANDARD.encode(modified_script);
+
+    let updated_export = SkillExport {
+        skill: skill_export.skill.clone(),
+        attachments: vec![
+            SkillAttachment {
+                id: "at001234".to_string(),
+                skill_id: "sk001234".to_string(),
+                type_: "script".to_string(),
+                filename: "run.sh".to_string(),
+                content: modified_b64.clone(),
+                content_hash: modified_hash.clone(),
+                mime_type: Some("text/x-shellscript".to_string()),
+                created_at: Some("2024-01-01T10:00:00Z".to_string()),
+                updated_at: Some("2024-01-02T10:00:00Z".to_string()),
+            },
+            SkillAttachment {
+                id: "at005678".to_string(),
+                skill_id: "sk001234".to_string(),
+                type_: "reference".to_string(),
+                filename: "README.md".to_string(),
+                content: reference_b64.clone(),
+                content_hash: reference_hash.clone(),
+                mime_type: Some("text/markdown".to_string()),
+                created_at: Some("2024-01-01T10:00:00Z".to_string()),
+                updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            },
+        ],
+    };
+
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[updated_export]).unwrap();
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    // Verify attachment updated
+    let updated_attachments = db.skills().get_attachments("sk001234").await.unwrap();
+    assert_eq!(updated_attachments.len(), 2);
+
+    let updated_script = updated_attachments
+        .iter()
+        .find(|a| a.filename == "run.sh")
+        .unwrap();
+    assert_eq!(updated_script.content_hash, modified_hash);
+    assert_eq!(updated_script.content, modified_b64);
+
+    // Reference should be unchanged
+    let unchanged_ref = updated_attachments
+        .iter()
+        .find(|a| a.filename == "README.md")
+        .unwrap();
+    assert_eq!(unchanged_ref.content_hash, reference_hash);
+
+    // Test 3: Re-import with attachment removed (should delete it)
+    let minimal_export = SkillExport {
+        skill: skill_export.skill.clone(),
+        attachments: vec![SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        }],
+    };
+
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[minimal_export]).unwrap();
+    import_all(&db, temp_dir.path()).await.unwrap();
+
+    // Verify script attachment deleted
+    let final_attachments = db.skills().get_attachments("sk001234").await.unwrap();
+    assert_eq!(final_attachments.len(), 1);
+    assert_eq!(final_attachments[0].filename, "README.md");
+    assert!(final_attachments.iter().all(|a| a.filename != "run.sh"));
 }

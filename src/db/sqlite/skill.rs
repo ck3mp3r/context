@@ -514,6 +514,42 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             updated_at: Some(updated_at),
         })
     }
+
+    async fn update_attachment(&self, attachment: &SkillAttachment) -> DbResult<()> {
+        let updated_at = current_timestamp();
+
+        sqlx::query(
+            r#"
+            UPDATE skill_attachment
+            SET content = ?, content_hash = ?, mime_type = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&attachment.content)
+        .bind(&attachment.content_hash)
+        .bind(&attachment.mime_type)
+        .bind(&updated_at)
+        .bind(&attachment.id)
+        .execute(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn delete_attachment(&self, id: &str) -> DbResult<()> {
+        sqlx::query("DELETE FROM skill_attachment WHERE id = ?")
+            .bind(id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        Ok(())
+    }
 }
 
 // =============================================================================

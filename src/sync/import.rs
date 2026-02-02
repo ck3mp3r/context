@@ -1,9 +1,10 @@
 //! Import JSONL files into database.
 
 use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
     SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
 };
+use crate::sync::export::SkillExport;
 use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
@@ -154,23 +155,93 @@ pub async fn import_all<D: Database>(
         tracing::debug!(count = summary.notes, "Imported notes");
     }
 
-    // Import skills
+    // Import skills with attachments
     let skills_file = input_dir.join("skills.jsonl");
     if skills_file.exists() {
         tracing::debug!("Importing skills");
-        let skills: Vec<Skill> = read_jsonl(&skills_file)?;
-        for skill in skills {
-            match db.skills().get(&skill.id).await {
+        let skill_exports: Vec<SkillExport> = read_jsonl(&skills_file)?;
+        for skill_export in skill_exports {
+            // Upsert skill
+            match db.skills().get(&skill_export.skill.id).await {
                 Ok(_existing) => {
-                    db.skills().update(&skill).await?;
+                    db.skills().update(&skill_export.skill).await?;
                 }
                 Err(_) => {
-                    db.skills().create(&skill).await?;
+                    db.skills().create(&skill_export.skill).await?;
                 }
             }
+
+            // Get existing attachments for this skill
+            let existing_attachments = db.skills().get_attachments(&skill_export.skill.id).await?;
+
+            // Upsert attachments - compare by skill_id + type + filename
+            for attachment in &skill_export.attachments {
+                let existing = existing_attachments.iter().find(|a| {
+                    a.skill_id == attachment.skill_id
+                        && a.type_ == attachment.type_
+                        && a.filename == attachment.filename
+                });
+
+                match existing {
+                    Some(existing_att) if existing_att.content_hash != attachment.content_hash => {
+                        // Content changed - update attachment
+                        tracing::debug!(
+                            skill_id = %attachment.skill_id,
+                            filename = %attachment.filename,
+                            "Updating attachment (content changed)"
+                        );
+                        db.skills().update_attachment(attachment).await?;
+
+                        // Invalidate cache since content changed
+                        crate::skills::invalidate_cache(&skill_export.skill.id)?;
+                    }
+                    Some(_) => {
+                        // Content unchanged - skip
+                        tracing::debug!(
+                            skill_id = %attachment.skill_id,
+                            filename = %attachment.filename,
+                            "Skipping attachment (unchanged)"
+                        );
+                    }
+                    None => {
+                        // New attachment - create
+                        tracing::debug!(
+                            skill_id = %attachment.skill_id,
+                            filename = %attachment.filename,
+                            "Creating new attachment"
+                        );
+                        db.skills().create_attachment(attachment).await?;
+
+                        // Invalidate cache to include new attachment
+                        crate::skills::invalidate_cache(&skill_export.skill.id)?;
+                    }
+                }
+            }
+
+            // Delete attachments that exist in DB but not in import
+            for existing_att in existing_attachments {
+                let in_import = skill_export.attachments.iter().any(|a| {
+                    a.skill_id == existing_att.skill_id
+                        && a.type_ == existing_att.type_
+                        && a.filename == existing_att.filename
+                });
+
+                if !in_import {
+                    tracing::debug!(
+                        skill_id = %existing_att.skill_id,
+                        filename = %existing_att.filename,
+                        "Deleting attachment (not in import)"
+                    );
+                    db.skills().delete_attachment(&existing_att.id).await?;
+
+                    // Invalidate cache to remove deleted attachment
+                    crate::skills::invalidate_cache(&skill_export.skill.id)?;
+                }
+            }
+
             summary.skills += 1;
         }
-        tracing::debug!(count = summary.skills, "Imported skills");
+        tracing::debug!(count = summary.skills, "Imported skills with attachments");
     }
 
     tracing::info!(total = summary.total(), "Import all complete");
