@@ -1,9 +1,10 @@
 use crate::db::{
     Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
-    SkillRepository, SqliteDatabase,
+    SkillAttachment, SkillRepository, SqliteDatabase,
 };
 use crate::sync::export::*;
 use crate::sync::jsonl::read_jsonl;
+use base64::prelude::*;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> SqliteDatabase {
@@ -461,4 +462,117 @@ origin:
             .content
             .contains(r#"fetched_at: "2026-01-31T10:00:00Z""#)
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_with_attachments() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a skill with attachments
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "deploy-k8s".to_string(),
+        description: "Deploy to Kubernetes".to_string(),
+        content: r#"---
+name: deploy-k8s
+description: Deploy to Kubernetes
+---
+
+# Deployment
+
+Run scripts/deploy.sh
+"#
+        .to_string(),
+        tags: vec!["kubernetes".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills().create(&skill).await.unwrap();
+
+    // Create attachments for the skill
+    let script_attachment = SkillAttachment {
+        id: "att00001".to_string(),
+        skill_id: "skill001".to_string(),
+        type_: "script".to_string(),
+        filename: "deploy.sh".to_string(),
+        content: base64::prelude::BASE64_STANDARD.encode(b"#!/bin/bash\necho 'deploying'"),
+        content_hash: "abc123".to_string(),
+        mime_type: Some("text/x-shellscript".to_string()),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills()
+        .create_attachment(&script_attachment)
+        .await
+        .unwrap();
+
+    let reference_attachment = SkillAttachment {
+        id: "att00002".to_string(),
+        skill_id: "skill001".to_string(),
+        type_: "reference".to_string(),
+        filename: "api-docs.md".to_string(),
+        content: base64::prelude::BASE64_STANDARD.encode(b"# API Documentation"),
+        content_hash: "def456".to_string(),
+        mime_type: Some("text/markdown".to_string()),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+    };
+    db.skills()
+        .create_attachment(&reference_attachment)
+        .await
+        .unwrap();
+
+    // Export
+    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 1);
+
+    // Read back the exported skill with attachments
+    let skill_exports: Vec<SkillExport> =
+        read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skill_exports.len(), 1);
+
+    let exported = &skill_exports[0];
+
+    // Verify skill fields
+    assert_eq!(exported.skill.id, "skill001");
+    assert_eq!(exported.skill.name, "deploy-k8s");
+    assert_eq!(exported.skill.description, "Deploy to Kubernetes");
+    assert!(exported.skill.content.contains("Run scripts/deploy.sh"));
+
+    // Verify attachments are included
+    assert_eq!(exported.attachments.len(), 2);
+
+    // Verify script attachment
+    let script = exported
+        .attachments
+        .iter()
+        .find(|a| a.type_ == "script")
+        .unwrap();
+    assert_eq!(script.filename, "deploy.sh");
+    assert_eq!(script.content_hash, "abc123");
+    assert_eq!(script.mime_type, Some("text/x-shellscript".to_string()));
+    // Verify base64 content can be decoded
+    let decoded = base64::prelude::BASE64_STANDARD
+        .decode(&script.content)
+        .unwrap();
+    assert_eq!(decoded, b"#!/bin/bash\necho 'deploying'");
+
+    // Verify reference attachment
+    let reference = exported
+        .attachments
+        .iter()
+        .find(|a| a.type_ == "reference")
+        .unwrap();
+    assert_eq!(reference.filename, "api-docs.md");
+    assert_eq!(reference.content_hash, "def456");
+    assert_eq!(reference.mime_type, Some("text/markdown".to_string()));
+    let decoded = base64::prelude::BASE64_STANDARD
+        .decode(&reference.content)
+        .unwrap();
+    assert_eq!(decoded, b"# API Documentation");
 }
