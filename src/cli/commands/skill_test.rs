@@ -309,3 +309,81 @@ async fn test_skill_table_output() {
     assert!(result.contains("Name"), "Table should have Name header");
     assert!(result.contains("Tags"), "Table should have Tags header");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_skill_metadata() {
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill without tags or projects
+    let import_result = import_skill(
+        &api_client,
+        "tests/fixtures/skills/docker",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    // Extract skill ID from import result
+    let skill_id = import_result
+        .split("ID: ")
+        .nth(1)
+        .unwrap()
+        .trim_end_matches(')')
+        .trim();
+
+    // Update tags
+    let _update_result = update_skill(
+        &api_client,
+        skill_id,
+        Some(vec!["tag1".to_string(), "tag2".to_string()]),
+        None,
+    )
+    .await
+    .expect("Failed to update tags");
+
+    // Verify tags were updated
+    let skill_json = get_skill(&api_client, skill_id, "json")
+        .await
+        .expect("Failed to get skill");
+    let skill: Skill = serde_json::from_str(&skill_json).unwrap();
+    assert_eq!(skill.tags, vec!["tag1", "tag2"]);
+    assert!(
+        skill.project_ids.is_empty(),
+        "Projects should still be empty"
+    );
+
+    // Update projects
+    let _update_result = update_skill(&api_client, skill_id, None, Some(vec![project_id.clone()]))
+        .await
+        .expect("Failed to update projects");
+
+    // Verify projects were updated (tags should still be there)
+    let skill_json = get_skill(&api_client, skill_id, "json")
+        .await
+        .expect("Failed to get skill");
+    let skill: Skill = serde_json::from_str(&skill_json).unwrap();
+    assert_eq!(skill.tags, vec!["tag1", "tag2"], "Tags should be preserved");
+    assert_eq!(skill.project_ids, vec![project_id]);
+
+    // Update both
+    let _update_result = update_skill(
+        &api_client,
+        skill_id,
+        Some(vec!["newtag".to_string()]),
+        Some(vec![]),
+    )
+    .await
+    .expect("Failed to update both");
+
+    // Verify both were updated
+    let skill_json = get_skill(&api_client, skill_id, "json")
+        .await
+        .expect("Failed to get skill");
+    let skill: Skill = serde_json::from_str(&skill_json).unwrap();
+    assert_eq!(skill.tags, vec!["newtag"]);
+    assert!(skill.project_ids.is_empty(), "Projects should be cleared");
+}

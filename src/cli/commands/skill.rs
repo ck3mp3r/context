@@ -212,3 +212,46 @@ pub async fn import_skill(
 
     Ok(format!("Imported skill: {} (ID: {})", skill.name, skill.id))
 }
+
+/// Update skill metadata (tags, project_ids)
+pub async fn update_skill(
+    api_client: &ApiClient,
+    skill_id: &str,
+    tags: Option<Vec<String>>,
+    project_ids: Option<Vec<String>>,
+) -> CliResult<String> {
+    #[derive(Serialize)]
+    struct UpdateRequest {
+        tags: Option<Vec<String>>,
+        project_ids: Option<Vec<String>>,
+    }
+
+    let request = UpdateRequest { tags, project_ids };
+
+    let response = api_client
+        .patch(&format!("/api/v1/skills/{}", skill_id))
+        .json(&request)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(CliError::ApiError {
+            status: status.as_u16(),
+            message: format!("Update failed: {}", error_text),
+        });
+    }
+
+    let skill: Skill = response
+        .json()
+        .await
+        .map_err(|e| CliError::InvalidResponse {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+    Ok(format!("Updated skill: {} (ID: {})", skill.name, skill.id))
+}

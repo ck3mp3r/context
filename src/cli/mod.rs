@@ -378,6 +378,14 @@ enum SkillCommands {
         #[arg(long)]
         update: bool,
     },
+    /// Update skill metadata
+    Update {
+        id: String,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        project_ids: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1163,6 +1171,19 @@ pub async fn run() -> Result<()> {
                     update,
                 )
                 .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Update {
+                id,
+                tags,
+                project_ids,
+            } => {
+                let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+                let project_ids_vec =
+                    project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect());
+                let output =
+                    commands::skill::update_skill(&api_client, &id, tags_vec, project_ids_vec)
+                        .await?;
                 println!("{}", output);
             }
         },
