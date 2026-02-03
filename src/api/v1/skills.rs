@@ -488,6 +488,8 @@ pub struct ImportSkillRequest {
     pub path: Option<String>,
     /// Project IDs to link
     pub project_ids: Option<Vec<String>>,
+    /// Tags to apply to the skill
+    pub tags: Option<Vec<String>>,
     /// If true, update existing skill; if false, fail on duplicate
     #[serde(default)]
     pub update: bool,
@@ -517,6 +519,7 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
         &req.source,
         req.path.as_deref(),
         req.project_ids,
+        req.tags,
         req.update,
     )
     .await

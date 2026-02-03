@@ -353,80 +353,6 @@ enum SkillCommands {
         #[arg(long)]
         json: bool,
     },
-    /// Create a new skill
-    Create {
-        /// Skill name
-        #[arg(long)]
-        name: String,
-        /// Description
-        #[arg(long)]
-        description: Option<String>,
-        /// Instructions
-        #[arg(long)]
-        instructions: Option<String>,
-        /// Tags (comma-separated)
-        #[arg(long)]
-        tags: Option<String>,
-        /// License (e.g., MIT, Apache-2.0)
-        #[arg(long)]
-        license: Option<String>,
-        /// Compatibility requirements (e.g., opencode>=0.1.0)
-        #[arg(long)]
-        compatibility: Option<String>,
-        /// Allowed tools (comma-separated)
-        #[arg(long)]
-        allowed_tools: Option<String>,
-        /// Metadata (JSON object)
-        #[arg(long)]
-        metadata: Option<String>,
-        /// Origin URL (e.g., https://github.com/user/repo)
-        #[arg(long)]
-        origin_url: Option<String>,
-        /// Origin ref (e.g., main, v1.0.0)
-        #[arg(long)]
-        origin_ref: Option<String>,
-        /// Project IDs to link (comma-separated)
-        #[arg(long)]
-        project_ids: Option<String>,
-    },
-    /// Update a skill
-    Update {
-        /// Skill ID
-        id: String,
-        /// New name
-        #[arg(long)]
-        name: Option<String>,
-        /// New description
-        #[arg(long)]
-        description: Option<String>,
-        /// New instructions
-        #[arg(long)]
-        instructions: Option<String>,
-        /// New tags (comma-separated)
-        #[arg(long)]
-        tags: Option<String>,
-        /// License (e.g., MIT, Apache-2.0)
-        #[arg(long)]
-        license: Option<String>,
-        /// Compatibility requirements (e.g., opencode>=0.1.0)
-        #[arg(long)]
-        compatibility: Option<String>,
-        /// Allowed tools (comma-separated)
-        #[arg(long)]
-        allowed_tools: Option<String>,
-        /// Metadata (JSON object)
-        #[arg(long)]
-        metadata: Option<String>,
-        /// Origin URL (e.g., https://github.com/user/repo)
-        #[arg(long)]
-        origin_url: Option<String>,
-        /// Origin ref (e.g., main, v1.0.0)
-        #[arg(long)]
-        origin_ref: Option<String>,
-        /// Project IDs to link (comma-separated)
-        #[arg(long)]
-        project_ids: Option<String>,
-    },
     /// Delete a skill
     Delete {
         /// Skill ID
@@ -445,6 +371,9 @@ enum SkillCommands {
         /// Project IDs to link (comma-separated)
         #[arg(long)]
         project_ids: Option<String>,
+        /// Tags to apply (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
         /// Update existing skill if it already exists (upsert behavior)
         #[arg(long)]
         update: bool,
@@ -729,67 +658,6 @@ enum TaskListCommands {
         #[arg(long)]
         json: bool,
     },
-}
-
-/// Parameters for building SKILL.md content
-struct SkillMdBuilder<'a> {
-    name: &'a str,
-    description: Option<&'a String>,
-    instructions: Option<&'a String>,
-    license: Option<&'a String>,
-    compatibility: Option<&'a String>,
-    allowed_tools: Option<&'a Vec<String>>,
-    metadata: Option<&'a serde_json::Value>,
-    origin_url: Option<&'a String>,
-    origin_ref: Option<&'a String>,
-}
-
-/// Helper function to build SKILL.md content from individual CLI arguments
-fn build_skill_md_content(params: SkillMdBuilder) -> String {
-    let mut frontmatter = format!("---\nname: {}\n", params.name);
-
-    if let Some(desc) = params.description {
-        frontmatter.push_str(&format!("description: {}\n", desc));
-    }
-
-    if let Some(lic) = params.license {
-        frontmatter.push_str(&format!("license: {}\n", lic));
-    }
-
-    if let Some(compat) = params.compatibility {
-        frontmatter.push_str(&format!("compatibility: {}\n", compat));
-    }
-
-    if let Some(tools) = params.allowed_tools
-        && !tools.is_empty()
-    {
-        frontmatter.push_str(&format!("allowed-tools: {}\n", tools.join(", ")));
-    }
-
-    if let Some(meta) = params.metadata {
-        frontmatter.push_str(&format!(
-            "metadata: {}\n",
-            serde_json::to_string(meta).unwrap_or_default()
-        ));
-    }
-
-    if let Some(url) = params.origin_url {
-        frontmatter.push_str("origin:\n");
-        frontmatter.push_str(&format!("  url: {}\n", url));
-        if let Some(ref_str) = params.origin_ref {
-            frontmatter.push_str(&format!("  ref: {}\n", ref_str));
-        }
-    }
-
-    frontmatter.push_str("---\n\n");
-
-    // Add instructions as the body
-    if let Some(inst) = params.instructions {
-        frontmatter.push_str(inst);
-        frontmatter.push('\n');
-    }
-
-    frontmatter
 }
 
 pub async fn run() -> Result<()> {
@@ -1272,105 +1140,6 @@ pub async fn run() -> Result<()> {
                 .await?;
                 println!("{}", output);
             }
-            SkillCommands::Create {
-                name,
-                description,
-                instructions,
-                tags,
-                license,
-                compatibility,
-                allowed_tools,
-                metadata,
-                origin_url,
-                origin_ref,
-                project_ids,
-            } => {
-                // Build SKILL.md content from individual CLI args
-                let allowed_tools_vec =
-                    allowed_tools.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
-                let metadata_val = metadata.and_then(|m| serde_json::from_str(&m).ok());
-
-                let content = build_skill_md_content(SkillMdBuilder {
-                    name: &name,
-                    description: description.as_ref(),
-                    instructions: instructions.as_ref(),
-                    license: license.as_ref(),
-                    compatibility: compatibility.as_ref(),
-                    allowed_tools: allowed_tools_vec.as_ref(),
-                    metadata: metadata_val.as_ref(),
-                    origin_url: origin_url.as_ref(),
-                    origin_ref: origin_ref.as_ref(),
-                });
-
-                let request = commands::skill::CreateSkillRequest {
-                    name: name.clone(),
-                    description: description.unwrap_or_else(|| name.clone()),
-                    content,
-                    tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-                    project_ids: project_ids
-                        .map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
-                };
-                let output = commands::skill::create_skill(&api_client, request).await?;
-                println!("{}", output);
-            }
-            SkillCommands::Update {
-                id,
-                name,
-                description,
-                instructions,
-                tags,
-                license,
-                compatibility,
-                allowed_tools,
-                metadata,
-                origin_url,
-                origin_ref,
-                project_ids,
-            } => {
-                // If any frontmatter field is provided, rebuild content
-                let content = if description.is_some()
-                    || instructions.is_some()
-                    || license.is_some()
-                    || compatibility.is_some()
-                    || allowed_tools.is_some()
-                    || metadata.is_some()
-                    || origin_url.is_some()
-                    || origin_ref.is_some()
-                {
-                    let allowed_tools_vec =
-                        allowed_tools.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
-                    let metadata_val = metadata.and_then(|m| serde_json::from_str(&m).ok());
-
-                    // For update, we use name if provided, otherwise we'll use a placeholder
-                    // The API will reject updates without a name field in content
-                    let name_for_content = name.as_deref().unwrap_or("placeholder");
-
-                    Some(build_skill_md_content(SkillMdBuilder {
-                        name: name_for_content,
-                        description: description.as_ref(),
-                        instructions: instructions.as_ref(),
-                        license: license.as_ref(),
-                        compatibility: compatibility.as_ref(),
-                        allowed_tools: allowed_tools_vec.as_ref(),
-                        metadata: metadata_val.as_ref(),
-                        origin_url: origin_url.as_ref(),
-                        origin_ref: origin_ref.as_ref(),
-                    }))
-                } else {
-                    None
-                };
-
-                let request = commands::skill::UpdateSkillRequest {
-                    name,
-                    description,
-                    content,
-                    tags: tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
-                    project_ids: project_ids
-                        .map(|p| p.split(',').map(|s| s.trim().to_string()).collect()),
-                };
-                let output = commands::skill::update_skill(&api_client, &id, request).await?;
-                println!("{}", output);
-            }
             SkillCommands::Delete { id, force } => {
                 let output = commands::skill::delete_skill(&api_client, &id, force).await?;
                 println!("{}", output);
@@ -1379,15 +1148,18 @@ pub async fn run() -> Result<()> {
                 source,
                 path,
                 project_ids,
+                tags,
                 update,
             } => {
                 let project_id_vec =
                     project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect());
+                let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
                 let output = commands::skill::import_skill(
                     &api_client,
                     &source,
                     path.as_deref(),
                     project_id_vec,
+                    tags_vec,
                     update,
                 )
                 .await?;

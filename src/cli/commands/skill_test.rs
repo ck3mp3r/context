@@ -54,32 +54,20 @@ async fn test_skill_crud_operations() {
     let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // CREATE: Skill with all fields populated
-    let create_result = create_skill(
+    // IMPORT: Skill from fixture
+    let import_result = import_skill(
         &api_client,
-        CreateSkillRequest {
-            name: "rust-programming".to_string(),
-            description: "Systems programming language".to_string(),
-            content: r#"---
-name: rust-programming
-description: Systems programming language
----
-
-Follow the Rust Book and practice daily"#
-                .to_string(),
-            tags: Some(vec![
-                "rust".to_string(),
-                "systems".to_string(),
-                "programming".to_string(),
-            ]),
-            project_ids: Some(vec![project_id.clone()]),
-        },
+        "tests/fixtures/skills/rust",
+        None,
+        Some(vec![project_id.clone()]),
+        None,
+        false,
     )
     .await;
-    assert!(create_result.is_ok(), "Should create skill with full data");
+    assert!(import_result.is_ok(), "Should import skill from fixture");
 
     // Extract skill ID
-    let output = create_result.unwrap();
+    let output = import_result.unwrap();
     let skill_id = output
         .split('(')
         .nth(1)
@@ -94,7 +82,7 @@ Follow the Rust Book and practice daily"#
         .expect("Failed to get skill");
     let fetched_skill: serde_json::Value = serde_json::from_str(&get_result).unwrap();
 
-    assert_eq!(fetched_skill["name"], "rust-programming");
+    assert_eq!(fetched_skill["name"], "rust");
     assert_eq!(fetched_skill["description"], "Systems programming language");
     assert!(
         fetched_skill["content"]
@@ -102,60 +90,7 @@ Follow the Rust Book and practice daily"#
             .unwrap()
             .contains("Follow the Rust Book")
     );
-    assert_eq!(
-        fetched_skill["tags"],
-        json!(["rust", "systems", "programming"])
-    );
     assert_eq!(fetched_skill["project_ids"], json!([project_id]));
-
-    // UPDATE: Change multiple fields
-    let update_result = update_skill(
-        &api_client,
-        skill_id,
-        UpdateSkillRequest {
-            name: Some("advanced-rust-programming".to_string()),
-            description: Some("Advanced systems programming with Rust".to_string()),
-            content: Some(
-                r#"---
-name: advanced-rust-programming
-description: Advanced systems programming with Rust
----
-
-Focus on unsafe Rust, FFI, and performance optimization"#
-                    .to_string(),
-            ),
-            tags: Some(vec![
-                "rust".to_string(),
-                "advanced".to_string(),
-                "systems".to_string(),
-            ]),
-            project_ids: None,
-        },
-    )
-    .await;
-    assert!(update_result.is_ok(), "Should update skill");
-
-    // GET: Verify updates
-    let get_updated = get_skill(&api_client, skill_id, "json")
-        .await
-        .expect("Failed to get updated skill");
-    let updated_skill: serde_json::Value = serde_json::from_str(&get_updated).unwrap();
-
-    assert_eq!(updated_skill["name"], "advanced-rust-programming");
-    assert_eq!(
-        updated_skill["description"],
-        "Advanced systems programming with Rust"
-    );
-    assert!(
-        updated_skill["content"]
-            .as_str()
-            .unwrap()
-            .contains("unsafe Rust, FFI")
-    );
-    assert_eq!(
-        updated_skill["tags"],
-        json!(["rust", "advanced", "systems"])
-    );
 
     // DELETE: Requires force flag
     let delete_no_force = delete_skill(&api_client, skill_id, false).await;
@@ -196,63 +131,39 @@ async fn test_list_skills_with_filters() {
     let (url, project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create multiple skills
-    create_skill(
+    // Import multiple skills with tags
+    import_skill(
         &api_client,
-        CreateSkillRequest {
-            name: "rust".to_string(),
-            description: "Systems language".to_string(),
-            content: r#"---
-name: rust
-description: Systems language
----
-
-Practice systems programming"#
-                .to_string(),
-            tags: Some(vec!["rust".to_string(), "systems".to_string()]),
-            project_ids: Some(vec![project_id.clone()]),
-        },
+        "tests/fixtures/skills/rust",
+        None,
+        Some(vec![project_id.clone()]),
+        Some(vec!["rust".to_string()]),
+        false,
     )
     .await
-    .expect("Failed to create skill 1");
+    .expect("Failed to import skill 1");
 
-    create_skill(
+    import_skill(
         &api_client,
-        CreateSkillRequest {
-            name: "python".to_string(),
-            description: "High-level language".to_string(),
-            content: r#"---
-name: python
-description: High-level language
----
-
-Learn Python basics"#
-                .to_string(),
-            tags: Some(vec!["python".to_string(), "scripting".to_string()]),
-            project_ids: None,
-        },
+        "tests/fixtures/skills/python",
+        None,
+        None,
+        Some(vec!["python".to_string()]),
+        false,
     )
     .await
-    .expect("Failed to create skill 2");
+    .expect("Failed to import skill 2");
 
-    create_skill(
+    import_skill(
         &api_client,
-        CreateSkillRequest {
-            name: "go".to_string(),
-            description: "Cloud native language".to_string(),
-            content: r#"---
-name: go
-description: Cloud native language
----
-
-Build cloud apps"#
-                .to_string(),
-            tags: Some(vec!["go".to_string(), "cloud".to_string()]),
-            project_ids: Some(vec![project_id.clone()]),
-        },
+        "tests/fixtures/skills/go",
+        None,
+        Some(vec![project_id.clone()]),
+        Some(vec!["go".to_string()]),
+        false,
     )
     .await
-    .expect("Failed to create skill 3");
+    .expect("Failed to import skill 3");
 
     // List all
     let page = PageParams {
@@ -301,27 +212,18 @@ async fn test_list_skills_pagination_and_sorting() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Create skills with different names
+    // Import skills with different names for pagination/sorting tests
     for name in ["alpha", "beta", "gamma", "delta"] {
-        create_skill(
+        import_skill(
             &api_client,
-            CreateSkillRequest {
-                name: name.to_string(),
-                description: "Test description".to_string(),
-                content: format!(
-                    r#"---
-name: {}
-description: Test description
----
-
-Test instructions"#,
-                    name
-                ),
-                tags: None,
-                project_ids: None,
-            },
+            &format!("tests/fixtures/skills/{}", name),
+            None,
+            None,
+            None,
+            false,
         )
         .await
-        .expect("Failed to create skill");
+        .unwrap_or_else(|_| panic!("Failed to import {} skill", name));
     }
 
     // Test limit
@@ -375,141 +277,21 @@ async fn test_get_skill_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_skill_minimal() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Attempt to create with only name (should fail - description and content required)
-    let result = create_skill(
-        &api_client,
-        CreateSkillRequest {
-            name: "javascript".to_string(),
-            description: "JavaScript programming language".to_string(),
-            content: "".to_string(), // Empty content should fail
-            tags: None,
-            project_ids: None,
-        },
-    )
-    .await;
-    assert!(result.is_err(), "Should fail - content cannot be empty");
-
-    // Create with all required fields
-    let result = create_skill(
-        &api_client,
-        CreateSkillRequest {
-            name: "javascript".to_string(),
-            description: "JavaScript programming language".to_string(),
-            content: r#"---
-name: javascript
-description: JavaScript programming language
----
-
-Use for web development
-"#
-            .to_string(),
-            tags: None,
-            project_ids: None,
-        },
-    )
-    .await;
-    assert!(
-        result.is_ok(),
-        "Should create skill with all required fields"
-    );
-
-    let output = result.unwrap();
-    assert!(output.contains("javascript"), "Should mention skill name");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_update_skill_partial() {
-    let (url, _project_id, _handle) = spawn_test_server().await;
-    let api_client = ApiClient::new(Some(url.clone()));
-
-    // Create skill
-    let create_result = create_skill(
-        &api_client,
-        CreateSkillRequest {
-            name: "typescript".to_string(),
-            description: "JavaScript superset".to_string(),
-            content: r#"---
-name: typescript
-description: JavaScript superset
----
-
-Learn gradually
-"#
-            .to_string(),
-            tags: None,
-            project_ids: None,
-        },
-    )
-    .await
-    .expect("Failed to create skill");
-
-    let skill_id = create_result
-        .split('(')
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .and_then(|s| s.split(':').nth(1))
-        .map(|s| s.trim())
-        .expect("Failed to extract skill ID");
-
-    // Update only name
-    let update_result = update_skill(
-        &api_client,
-        skill_id,
-        UpdateSkillRequest {
-            name: Some("typescript-pro".to_string()),
-            description: None,
-            content: None,
-            tags: None,
-            project_ids: None,
-        },
-    )
-    .await;
-    assert!(update_result.is_ok(), "Should update partial fields");
-
-    // Verify only name changed
-    let get_result = get_skill(&api_client, skill_id, "json")
-        .await
-        .expect("Failed to get updated skill");
-    let updated: serde_json::Value = serde_json::from_str(&get_result).unwrap();
-
-    assert_eq!(updated["name"], "typescript-pro");
-    assert_eq!(updated["description"], "JavaScript superset"); // Unchanged
-    assert!(
-        updated["content"]
-            .as_str()
-            .unwrap()
-            .contains("Learn gradually")
-    ); // Unchanged
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn test_skill_table_output() {
     let (url, _project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    // Create a skill
-    create_skill(
+    // Import a skill
+    import_skill(
         &api_client,
-        CreateSkillRequest {
-            name: "docker".to_string(),
-            description: "Containerization".to_string(),
-            content: r#"---
-name: docker
-description: Containerization
----
-
-Learn container orchestration"#
-                .to_string(),
-            tags: Some(vec!["docker".to_string(), "devops".to_string()]),
-            project_ids: None,
-        },
+        "tests/fixtures/skills/docker",
+        None,
+        None,
+        None,
+        false,
     )
     .await
-    .expect("Failed to create skill");
+    .expect("Failed to import skill");
 
     // Get table format
     let page = PageParams {

@@ -20,31 +20,6 @@ pub struct Skill {
     pub updated_at: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct CreateSkillRequest {
-    pub name: String,
-    pub description: String,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project_ids: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UpdateSkillRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project_ids: Option<Vec<String>>,
-}
-
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)] // total, limit, offset are part of API contract but not used in CLI
 struct SkillListResponse {
@@ -160,47 +135,6 @@ pub async fn get_skill(api_client: &ApiClient, id: &str, format: &str) -> CliRes
     }
 }
 
-/// Create a new skill
-pub async fn create_skill(
-    api_client: &ApiClient,
-    request: CreateSkillRequest,
-) -> CliResult<String> {
-    let skill: Skill = api_client
-        .post("/api/v1/skills")
-        .json(&request)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await
-        .map_err(|e| CliError::InvalidResponse {
-            message: format!("Failed to parse response: {}", e),
-        })?;
-
-    Ok(format!("Created skill: {} (ID: {})", skill.name, skill.id))
-}
-
-/// Update a skill
-pub async fn update_skill(
-    api_client: &ApiClient,
-    id: &str,
-    request: UpdateSkillRequest,
-) -> CliResult<String> {
-    let skill: Skill = api_client
-        .patch(&format!("/api/v1/skills/{}", id))
-        .json(&request)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await
-        .map_err(|e| CliError::InvalidResponse {
-            message: format!("Failed to parse response: {}", e),
-        })?;
-
-    Ok(format!("Updated skill: {} (ID: {})", skill.name, skill.id))
-}
-
 /// Delete a skill
 pub async fn delete_skill(api_client: &ApiClient, id: &str, force: bool) -> CliResult<String> {
     // Safety check: require --force flag
@@ -231,6 +165,7 @@ pub async fn import_skill(
     source: &str,
     path_override: Option<&str>,
     project_ids: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
     update: bool,
 ) -> CliResult<String> {
     #[derive(Serialize)]
@@ -238,6 +173,7 @@ pub async fn import_skill(
         source: String,
         path: Option<String>,
         project_ids: Option<Vec<String>>,
+        tags: Option<Vec<String>>,
         update: bool,
     }
 
@@ -245,6 +181,7 @@ pub async fn import_skill(
         source: source.to_string(),
         path: path_override.map(|s| s.to_string()),
         project_ids,
+        tags,
         update,
     };
 

@@ -42,6 +42,7 @@ pub enum ImportError {
 /// * `source` - Source URL/path (git+https://, git+ssh://, file://, local path)
 /// * `subpath` - Optional subpath within the source (e.g., "skills/deploy")
 /// * `project_ids` - Optional list of project IDs to link
+/// * `tags` - Optional list of tags to apply
 /// * `upsert` - If true, update existing skill if it exists; if false, fail on duplicate
 ///
 /// # Returns
@@ -62,6 +63,7 @@ pub enum ImportError {
 ///     "git+https://github.com/agentskills/deploy-k8s",
 ///     Some("skills/deploy"),
 ///     Some(vec!["project123".to_string()]),
+///     Some(vec!["kubernetes".to_string(), "deployment".to_string()]),
 ///     false
 /// ).await?;
 ///
@@ -71,6 +73,7 @@ pub enum ImportError {
 ///     "git+https://github.com/agentskills/deploy-k8s",
 ///     Some("skills/deploy"),
 ///     Some(vec!["project123".to_string()]),
+///     Some(vec!["kubernetes".to_string()]),
 ///     true
 /// ).await?;
 /// ```
@@ -79,6 +82,7 @@ pub async fn import_skill<D: Database>(
     source: &str,
     subpath: Option<&str>,
     project_ids: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
     upsert: bool,
 ) -> Result<Skill, ImportError> {
     // Parse source URL to determine type (git+https, git+ssh, local path)
@@ -124,7 +128,7 @@ pub async fn import_skill<D: Database>(
             name: parsed.name,
             description: parsed.description,
             content: parsed.content,
-            tags: vec![],
+            tags: tags.unwrap_or_default(),
             project_ids: project_ids.unwrap_or_default(),
             scripts: attachments
                 .iter()
@@ -237,7 +241,7 @@ This is a test skill for import testing.
         std::fs::write(temp_dir.join("scripts/test.sh"), "#!/bin/bash\necho test").unwrap();
 
         // Import the skill (no upsert)
-        let result = import_skill(&db, temp_dir.to_str().unwrap(), None, None, false).await;
+        let result = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, false).await;
 
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
@@ -278,11 +282,11 @@ description: A test skill
         .unwrap();
 
         // First import should succeed
-        let result1 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, false).await;
+        let result1 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, false).await;
         assert!(result1.is_ok(), "First import should succeed");
 
         // Second import without update flag should fail
-        let result2 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, false).await;
+        let result2 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, false).await;
         assert!(result2.is_err(), "Second import without update should fail");
 
         match result2.unwrap_err() {
@@ -326,7 +330,7 @@ description: Original description
         .unwrap();
 
         // First import
-        let result1 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, false).await;
+        let result1 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, false).await;
         assert!(result1.is_ok(), "First import should succeed");
         let skill1 = result1.unwrap();
         assert_eq!(skill1.description, "Original description");
@@ -345,7 +349,7 @@ description: Updated description
         .unwrap();
 
         // Second import with update flag should succeed
-        let result2 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, true).await;
+        let result2 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, true).await;
         assert!(result2.is_ok(), "Second import with update should succeed");
         let skill2 = result2.unwrap();
         assert_eq!(skill2.id, skill1.id, "ID should be the same");
