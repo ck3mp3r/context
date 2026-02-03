@@ -200,22 +200,49 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                             }.into_any()
                         } else if let Some(skill) = skill_data.get() {
                             view! {
-                                <div class="p-6">
-                                    // Close button
-                                    <button
-                                        on:click=move |_| open.set(false)
-                                        class="absolute top-4 right-4 text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2 z-10"
-                                    >
-                                        "✕"
-                                    </button>
+                                <div class="flex flex-col overflow-x-hidden break-words" style="height: 100vh; max-width: 100%;">
+                                    // Fixed header with close button
+                                    <div class="flex-shrink-0 p-4">
+                                        <button
+                                            on:click=move |_| open.set(false)
+                                            class="absolute top-4 right-4 text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2 z-10"
+                                        >
+                                            "✕"
+                                        </button>
+                                    </div>
 
-                                    // Title and ID
-                                    <div class="mb-6">
-                                        <div class="flex items-center gap-3 mb-2">
+                                    // Fixed metadata header
+                                    <div class="flex-shrink-0 p-6 border-b border-ctp-surface1">
+                                        <div class="flex items-center gap-3 mb-4">
                                             <CopyableId id=skill.id.clone()/>
                                             <h2 class="text-2xl font-bold text-ctp-text">{skill.name.clone()}</h2>
                                         </div>
+
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex flex-wrap gap-2">
+                                                {(!skill.tags.is_empty())
+                                                    .then(|| {
+                                                        skill.tags
+                                                            .iter()
+                                                            .map(|tag| {
+                                                                view! {
+                                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                        {tag.clone()}
+                                                                    </span>
+                                                                }
+                                                            })
+                                                            .collect::<Vec<_>>()
+                                                    })}
+                                            </div>
+                                            <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
+                                                <span>"Created: " {skill.created_at.clone()}</span>
+                                                <span>"Updated: " {skill.updated_at.clone()}</span>
+                                            </div>
+                                        </div>
                                     </div>
+
+                                    // Scrollable content
+                                    <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0 p-6" style="word-wrap: break-word; overflow-wrap: break-word;">
 
                                     // Parse and display frontmatter as table, then markdown body
                                     {
@@ -283,9 +310,9 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                                                 // Frontmatter table
                                                 {(!frontmatter_lines.is_empty()).then(|| {
                                                     view! {
-                                                        <div class="mb-4 bg-ctp-surface0 border border-ctp-surface2 rounded-lg p-4">
+                                                        <div class="mb-4 bg-ctp-surface0 border border-ctp-surface2 rounded-lg p-4 overflow-x-auto">
                                                             <h4 class="text-sm font-semibold text-ctp-subtext1 mb-3">"Metadata"</h4>
-                                                            <table class="w-full text-sm">
+                                                            <table class="w-full text-sm table-fixed">
                                                                 <tbody>
                                                                     {frontmatter_lines.iter().filter_map(|line| {
                                                                         let trimmed = line.trim();
@@ -294,8 +321,8 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                                                                         } else if let Some((key, value)) = trimmed.split_once(':') {
                                                                             Some(view! {
                                                                                 <tr class="border-b border-ctp-surface1 last:border-0">
-                                                                                    <td class="py-2 pr-4 text-ctp-subtext1 font-medium align-top">{key.trim()}</td>
-                                                                                    <td class="py-2 text-ctp-text">{value.trim()}</td>
+                                                                                    <td class="py-2 pr-4 text-ctp-subtext1 font-medium align-top w-1/3">{key.trim()}</td>
+                                                                                    <td class="py-2 text-ctp-text break-words">{value.trim()}</td>
                                                                                 </tr>
                                                                             })
                                                                         } else {
@@ -309,41 +336,14 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                                                 })}
 
                                                 // Markdown body
-                                                <div class="bg-ctp-surface1 rounded-lg p-6 overflow-auto prose prose-invert max-w-none" inner_html=html_output></div>
+                                                <div
+                                                    class="prose prose-invert max-w-none"
+                                                    style="word-wrap: break-word; overflow-wrap: break-word;"
+                                                    inner_html=html_output
+                                                ></div>
                                             </div>
                                         }
                                     }
-
-                                    // Tags
-                                    {(!skill.tags.is_empty()).then(|| {
-                                        view! {
-                                            <div class="mb-6">
-                                                <h4 class="text-sm font-semibold text-ctp-subtext1 mb-2">"Tags"</h4>
-                                                <div class="flex flex-wrap gap-2">
-                                                    {skill.tags.iter().map(|tag| {
-                                                        view! {
-                                                            <span class="bg-ctp-surface2 text-ctp-text text-sm px-3 py-1 rounded">
-                                                                {tag.clone()}
-                                                            </span>
-                                                        }
-                                                    }).collect::<Vec<_>>()}
-                                                </div>
-                                            </div>
-                                        }
-                                    })}
-
-                                    // Metadata
-                                    <div class="border-t border-ctp-surface1 pt-4 mt-4">
-                                        <div class="grid grid-cols-2 gap-4 text-sm">
-                                            <div>
-                                                <span class="text-ctp-subtext1">"Created:"</span>
-                                                <p class="text-ctp-text">{skill.created_at.clone()}</p>
-                                            </div>
-                                            <div>
-                                                <span class="text-ctp-subtext1">"Updated:"</span>
-                                                <p class="text-ctp-text">{skill.updated_at.clone()}</p>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                             }.into_any()
