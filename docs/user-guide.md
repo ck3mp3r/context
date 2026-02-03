@@ -449,6 +449,15 @@ c5t skill get skill123
 # Get skill as JSON
 c5t skill get skill123 --json
 
+# Update skill metadata (tags, projects)
+c5t skill update skill123 --tags kubernetes,deployment,production
+
+# Update skill projects only
+c5t skill update skill123 --project-ids abc12345,def67890
+
+# Update both tags and projects
+c5t skill update skill123 --tags kubernetes --project-ids abc12345
+
 # Delete skill
 c5t skill delete skill123 --force
 ```
