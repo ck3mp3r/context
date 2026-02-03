@@ -414,6 +414,33 @@ c5t note search --query "rust AND async"
 c5t note get --id note123
 ```
 
+**Skills:**
+```bash
+# List skills
+c5t skill list
+
+# List skills with specific tags
+c5t skill list --tags deployment,kubernetes
+
+# List skills for a project
+c5t skill list --project-id abc12345
+
+# Create skill from SKILL.md file
+c5t skill create --file path/to/SKILL.md --project-ids abc12345
+
+# Search skills
+c5t skill search --query "kubernetes deployment"
+
+# Get skill details (shows full SKILL.md content)
+c5t skill get --id skill123
+
+# Update skill from file
+c5t skill update --id skill123 --file path/to/SKILL.md
+
+# Delete skill
+c5t skill delete --id skill123 --force
+```
+
 ### Output Formats
 
 Use `--format` flag to control output:
