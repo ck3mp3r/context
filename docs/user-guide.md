@@ -425,20 +425,32 @@ c5t skill list --tags deployment,kubernetes
 # List skills for a project
 c5t skill list --project-id abc12345
 
-# Create skill from SKILL.md file
-c5t skill create --file path/to/SKILL.md --project-ids abc12345
+# Import skill from local directory
+c5t skill import ./path/to/skill
 
-# Search skills
-c5t skill search --query "kubernetes deployment"
+# Import skill with tags
+c5t skill import ./path/to/skill --tags rust,systems,programming
+
+# Import skill linked to projects
+c5t skill import ./path/to/skill --project-ids abc12345,def67890
+
+# Import skill with tags and projects
+c5t skill import ./path/to/skill --tags kubernetes,deployment --project-ids abc12345
+
+# Import from subdirectory in repo
+c5t skill import ./skills-repo --path deploy-k8s
+
+# Update existing skill (upsert)
+c5t skill import ./path/to/skill --update
 
 # Get skill details (shows full SKILL.md content)
-c5t skill get --id skill123
+c5t skill get skill123
 
-# Update skill from file
-c5t skill update --id skill123 --file path/to/SKILL.md
+# Get skill as JSON
+c5t skill get skill123 --json
 
 # Delete skill
-c5t skill delete --id skill123 --force
+c5t skill delete skill123 --force
 ```
 
 ### Output Formats

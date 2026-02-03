@@ -50,10 +50,9 @@
 
 ### Skills
 - `GET /api/v1/skills` - List skills (filter by tags, project_id)
-- `POST /api/v1/skills` - Create skill (provide full SKILL.md content)
+- `POST /api/v1/skills/import` - Import skill from source (local path or git repo)
 - `GET /api/v1/skills/:id` - Get skill (returns full content with frontmatter)
-- `PUT /api/v1/skills/:id` - Replace skill (full update with complete SKILL.md)
-- `PATCH /api/v1/skills/:id` - Partial update skill
+- `PATCH /api/v1/skills/:id` - Partial update skill (update tags, project_ids, etc.)
 - `DELETE /api/v1/skills/:id` - Delete skill
 - `GET /api/v1/skills/search?q=query` - Full-text search (searches name, description, content, tags)
 
@@ -98,14 +97,24 @@ curl "http://localhost:3737/api/v1/notes/search?q=rust+async"
 # Search skills
 curl "http://localhost:3737/api/v1/skills/search?q=kubernetes+deployment"
 
-# Create skill
-curl -X POST http://localhost:3737/api/v1/skills \
+# Import skill from local directory
+curl -X POST http://localhost:3737/api/v1/skills/import \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Deploy to K8s",
-    "description": "Kubernetes deployment workflow",
-    "content": "---\nname: Deploy to K8s\ndescription: Kubernetes deployment workflow\nlicense: MIT\n---\n\n# Deploy to K8s\n\n## Steps\n1. Build image\n2. Push to registry\n3. Apply manifests",
-    "tags": ["deployment", "kubernetes"]
+    "source": "./path/to/skill",
+    "tags": ["deployment", "kubernetes"],
+    "project_ids": ["abc12345"],
+    "update": false
+  }'
+
+# Import skill from git repository
+curl -X POST http://localhost:3737/api/v1/skills/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "git+https://github.com/user/skills-repo",
+    "path": "deploy-k8s",
+    "tags": ["deployment", "kubernetes"],
+    "update": true
   }'
 
 # Complete a task
