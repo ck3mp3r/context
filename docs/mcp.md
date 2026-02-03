@@ -289,9 +289,9 @@ Skills are reusable, searchable instructions and capabilities for AI agents. The
 
 ### What are Skills?
 
-A **Skill** is a named set of instructions that can be:
+A **Skill** is a named set of instructions stored as a complete SKILL.md file (YAML frontmatter + Markdown body). Skills can be:
 - **Created** - Define once, reuse many times
-- **Searched** - Full-text search across name, description, instructions, and tags
+- **Searched** - Full-text search across name, description, content, and tags
 - **Linked** - Associate with projects for organization
 - **Versioned** - Track when created and updated
 - **Tagged** - Categorize for easy discovery
@@ -301,15 +301,58 @@ A **Skill** is a named set of instructions that can be:
 ```rust
 pub struct Skill {
     pub id: String,                // 8-char hex ID
-    pub name: String,              // Required: Skill name/title
-    pub description: Option<String>, // Optional: Brief description
-    pub instructions: Option<String>, // Optional: Detailed instructions (Markdown)
+    pub name: String,              // Required: Skill name/title (from frontmatter)
+    pub description: String,       // Required: Brief description (from frontmatter)
+    pub content: String,           // Required: Full SKILL.md (frontmatter + body)
     pub tags: Vec<String>,         // Tags for categorization
     pub project_ids: Vec<String>,  // Link to projects (8-char hex IDs)
+    pub scripts: Vec<String>,      // Script filenames (if any)
+    pub references: Vec<String>,   // Reference filenames (if any)
+    pub assets: Vec<String>,       // Asset filenames (if any)
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
 ```
+
+### SKILL.md Format
+
+Skills are stored as complete SKILL.md files with YAML frontmatter followed by Markdown content:
+
+```markdown
+---
+name: skill-name
+description: Brief one-line description
+license: MIT
+compatibility: ["linux", "macos"]
+version: 1.0.0
+# ... any other metadata fields
+---
+
+# Skill Title
+
+Your skill instructions in Markdown format...
+
+## Prerequisites
+- Requirement 1
+- Requirement 2
+
+## Steps
+1. Do this
+2. Do that
+
+## Examples
+\`\`\`bash
+# Example command
+echo "Hello"
+\`\`\`
+```
+
+**Key Points:**
+- **Frontmatter is flexible** - Add any YAML fields you need (license, version, compatibility, etc.)
+- **Agents parse frontmatter** - LLMs receive full `content` and extract metadata themselves
+- **Name and description are required** - Extracted for database indexing and search
+- **Forward compatible** - New frontmatter fields work without schema changes
+- **LLM-friendly** - Agents work with familiar Markdown + YAML format
 
 ### Use Cases
 
@@ -318,7 +361,16 @@ pub struct Skill {
 create_skill({
   name: "Deploy to Kubernetes",
   description: "Standard deployment workflow for K8s applications",
-  instructions: `
+  content: `---
+name: Deploy to Kubernetes
+description: Standard deployment workflow for K8s applications
+license: MIT
+compatibility: ["linux", "macos"]
+version: 1.0.0
+---
+
+# Deploy to Kubernetes
+
 ## Prerequisites
 - Docker image built and tagged
 - kubectl configured with cluster access
@@ -345,7 +397,15 @@ create_skill({
 create_skill({
   name: "TDD Workflow - Rust",
   description: "Test-Driven Development process for Rust projects",
-  instructions: `
+  content: `---
+name: TDD Workflow - Rust
+description: Test-Driven Development process for Rust projects
+license: CC0-1.0
+version: 1.0.0
+---
+
+# TDD Workflow - Rust
+
 ## RED → GREEN → REFACTOR
 
 ### 1. RED - Write Failing Test
@@ -381,7 +441,15 @@ create_skill({
 create_skill({
   name: "Code Review Checklist",
   description: "Comprehensive code review process",
-  instructions: `
+  content: `---
+name: Code Review Checklist
+description: Comprehensive code review process
+license: CC-BY-4.0
+version: 1.0.0
+---
+
+# Code Review Checklist
+
 ## Security
 - [ ] No hardcoded secrets or credentials
 - [ ] Input validation and sanitization
@@ -416,7 +484,16 @@ create_skill({
 create_skill({
   name: "REST API Client - Best Practices",
   description: "Resilient HTTP client implementation patterns",
-  instructions: `
+  content: `---
+name: REST API Client - Best Practices
+description: Resilient HTTP client implementation patterns
+license: MIT
+compatibility: ["rust"]
+version: 1.0.0
+---
+
+# REST API Client - Best Practices
+
 ## Client Configuration
 - Connection pooling
 - Timeouts (connect, read, total)
@@ -491,12 +568,21 @@ list_skills({
 - Include technology/domain: "Deploy to K8s", "TDD Workflow - Rust"
 - Be specific: "API Error Handling" not just "Error Handling"
 
-**Instructions:**
-- Use Markdown for formatting
+**Content Structure:**
+- Always include YAML frontmatter with `name` and `description` (required)
+- Use Markdown for the body
 - Include code examples
 - Add prerequisites
 - Document edge cases
 - Keep focused (one skill = one capability)
+
+**Frontmatter Fields:**
+- `name` (required) - Skill name/title
+- `description` (required) - Brief one-line description
+- `license` (recommended) - License identifier (e.g., MIT, Apache-2.0, CC0-1.0)
+- `compatibility` (optional) - Array of compatible platforms (e.g., ["linux", "macos"])
+- `version` (optional) - Semantic version (e.g., 1.0.0)
+- Add any custom fields you need - agents parse them from the frontmatter
 
 **Tags:**
 - Use consistent tag conventions
@@ -510,56 +596,37 @@ list_skills({
 - Create variations for different tech stacks
 - Update rather than duplicate
 
-### CLI Commands
+### Why This Design?
 
-```bash
-# List all skills
-c5t skill list
-
-# List skills with specific tags
-c5t skill list --tags deployment,kubernetes
-
-# List skills for a project
-c5t skill list --project-id a1b2c3d4
-
-# Search skills
-c5t skill search "kubernetes deployment"
-
-# Get skill details
-c5t skill get abc12345
-
-# Create new skill
-c5t skill create \
-  --name "Deploy to K8s" \
-  --description "Kubernetes deployment workflow" \
-  --instructions "1. Build\n2. Push\n3. Deploy" \
-  --tags deployment,kubernetes \
-  --project-ids a1b2c3d4
-
-# Update skill
-c5t skill update abc12345 \
-  --instructions "Updated instructions..."
-
-# Delete skill
-c5t skill delete abc12345 --force
-
-# Output as JSON
-c5t skill list --json
-```
+**Benefits of storing full SKILL.md:**
+1. **LLM-friendly** - Agents work with familiar Markdown + YAML format
+2. **Flexible** - Add any frontmatter fields without schema changes
+3. **Forward compatible** - New metadata fields work immediately
+4. **Simple** - One field contains everything
+5. **Searchable** - Full-text search includes all content and frontmatter
 
 ### Integration with Agent Workflows
 
-Skills work seamlessly with session notes and task lists:
+Skills work seamlessly with session notes and task lists. Agents receive the full SKILL.md content and parse frontmatter as needed:
 
 ```javascript
 // 1. Find relevant skill for current task
 search_skills({ query: "deployment kubernetes" })
-// Returns: [{ id: "skill123", name: "Deploy to K8s", ... }]
+// Returns: [{ id: "skill123", name: "Deploy to K8s", content: "---\nname: ...", ... }]
 
-// 2. Get full instructions
+// 2. Get full skill with content
 get_skill({ skill_id: "skill123" })
+// Returns: { id: "skill123", content: "---\nname: Deploy to K8s\n...\n# Instructions\n..." }
 
-// 3. Update session note with skill reference
+// 3. Agent parses frontmatter from content field
+// Example parsing (pseudo-code):
+const skill = get_skill({ skill_id: "skill123" });
+const [frontmatter, body] = parseFrontmatter(skill.content);
+// frontmatter.license => "MIT"
+// frontmatter.compatibility => ["linux", "macos"]
+// body => "# Deploy to K8s\n\n## Prerequisites..."
+
+// 4. Update session note with skill reference
 update_note({
   note_id: "session_note_id",
   content: `
@@ -568,6 +635,8 @@ Deploying microservice to K8s cluster
 
 ## Using Skill
 Following skill 'Deploy to K8s' (skill123)
+- License: ${frontmatter.license}
+- Compatibility: ${frontmatter.compatibility}
 
 ## Progress
 - [x] Build Docker image
@@ -577,7 +646,7 @@ Following skill 'Deploy to K8s' (skill123)
   `
 })
 
-// 4. Create task list based on skill
+// 5. Create task list based on skill
 create_task_list({
   title: "Deploy Microservice",
   description: "Following Deploy to K8s skill (skill123)",

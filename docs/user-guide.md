@@ -139,13 +139,28 @@ backlog → todo → in_progress → review → done
 
 ### Skills
 
-**Skills** are reusable instructions and capabilities for AI agents and developers.
+**Skills** are reusable instructions and capabilities stored as complete SKILL.md files (YAML frontmatter + Markdown body).
 
 - Store workflows, checklists, patterns, and best practices
-- Support full-text search (FTS5) across name, description, instructions, and tags
+- Support full-text search (FTS5) across name, description, content, and tags
 - Can be linked to multiple projects for organization
-- Use Markdown for detailed instructions
+- Use YAML frontmatter for metadata (name, description, license, version, etc.)
+- Use Markdown for detailed instructions and examples
 - Examples: "Deploy to K8s", "TDD Workflow - Rust", "Code Review Checklist"
+
+**SKILL.md Format:**
+```markdown
+---
+name: Skill Name
+description: Brief one-line description
+license: MIT
+version: 1.0.0
+---
+
+# Skill Title
+
+Instructions in Markdown...
+```
 
 **When to use Skills vs Notes:**
 - **Skills**: Reusable processes, workflows, patterns that apply across projects

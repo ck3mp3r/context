@@ -69,14 +69,16 @@ updated_at TEXT
 
 ### skill
 ```sql
-id           TEXT PRIMARY KEY    -- 8-char hex
-name         TEXT NOT NULL       -- Skill name/title
-description  TEXT                -- Optional description
-instructions TEXT                -- Optional detailed instructions (Markdown)
-tags         TEXT                -- JSON array
-created_at   TEXT
-updated_at   TEXT
+id          TEXT PRIMARY KEY    -- 8-char hex
+name        TEXT NOT NULL       -- Skill name/title (extracted from frontmatter)
+description TEXT NOT NULL       -- Brief description (extracted from frontmatter)
+content     TEXT NOT NULL       -- Full SKILL.md (YAML frontmatter + Markdown body)
+tags        TEXT                -- JSON array
+created_at  TEXT
+updated_at  TEXT
 ```
+
+**Schema Design**: The `content` field stores the complete SKILL.md file including YAML frontmatter and Markdown body. The `name` and `description` fields are extracted from the frontmatter for database indexing and search. LLMs receive the full `content` and parse the frontmatter themselves, providing flexibility and forward compatibility.
 
 ## Relationship Tables
 
@@ -127,9 +129,11 @@ PRIMARY KEY (project_id, skill_id)
 ### skill_fts
 ```sql
 -- FTS5 virtual table for skill search
--- Indexes: name, description, instructions, tags
+-- Indexes: name, description, content, tags
 -- Triggered on INSERT/UPDATE/DELETE
 ```
+
+The `content` field includes both YAML frontmatter and Markdown body, enabling search across all skill metadata and instructions.
 
 ## Constraints
 

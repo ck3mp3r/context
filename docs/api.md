@@ -50,12 +50,12 @@
 
 ### Skills
 - `GET /api/v1/skills` - List skills (filter by tags, project_id)
-- `POST /api/v1/skills` - Create skill
-- `GET /api/v1/skills/:id` - Get skill
-- `PUT /api/v1/skills/:id` - Replace skill (full update)
+- `POST /api/v1/skills` - Create skill (provide full SKILL.md content)
+- `GET /api/v1/skills/:id` - Get skill (returns full content with frontmatter)
+- `PUT /api/v1/skills/:id` - Replace skill (full update with complete SKILL.md)
 - `PATCH /api/v1/skills/:id` - Partial update skill
 - `DELETE /api/v1/skills/:id` - Delete skill
-- `GET /api/v1/skills/search?q=query` - Full-text search
+- `GET /api/v1/skills/search?q=query` - Full-text search (searches name, description, content, tags)
 
 ## Running
 
@@ -101,7 +101,12 @@ curl "http://localhost:3737/api/v1/skills/search?q=kubernetes+deployment"
 # Create skill
 curl -X POST http://localhost:3737/api/v1/skills \
   -H "Content-Type: application/json" \
-  -d '{"name": "Deploy to K8s", "description": "Kubernetes deployment workflow", "instructions": "1. Build image\n2. Push to registry\n3. Apply manifests"}'
+  -d '{
+    "name": "Deploy to K8s",
+    "description": "Kubernetes deployment workflow",
+    "content": "---\nname: Deploy to K8s\ndescription: Kubernetes deployment workflow\nlicense: MIT\n---\n\n# Deploy to K8s\n\n## Steps\n1. Build image\n2. Push to registry\n3. Apply manifests",
+    "tags": ["deployment", "kubernetes"]
+  }'
 
 # Complete a task
 curl -X PATCH http://localhost:3737/api/v1/tasks/abc12345/complete
