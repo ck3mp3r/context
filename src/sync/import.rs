@@ -192,6 +192,9 @@ pub async fn import_all<D: Database>(
 
         // Process each skill's attachments
         for (skill_id, skill_attachments) in attachments_by_skill {
+            // Get skill for cache invalidation (need skill name)
+            let skill = db.skills().get(&skill_id).await?;
+
             // Get existing attachments for this skill
             let existing_attachments = db.skills().get_attachments(&skill_id).await?;
 
@@ -214,7 +217,7 @@ pub async fn import_all<D: Database>(
                         db.skills().update_attachment(attachment).await?;
 
                         // Invalidate cache since content changed
-                        crate::skills::invalidate_cache(&skill_id)?;
+                        crate::skills::invalidate_cache(&skill.name)?;
                     }
                     Some(_) => {
                         // Content unchanged - skip
@@ -234,7 +237,7 @@ pub async fn import_all<D: Database>(
                         db.skills().create_attachment(attachment).await?;
 
                         // Invalidate cache to include new attachment
-                        crate::skills::invalidate_cache(&skill_id)?;
+                        crate::skills::invalidate_cache(&skill.name)?;
                     }
                 }
             }
@@ -256,7 +259,7 @@ pub async fn import_all<D: Database>(
                     db.skills().delete_attachment(&existing_att.id).await?;
 
                     // Invalidate cache to remove deleted attachment
-                    crate::skills::invalidate_cache(&skill_id)?;
+                    crate::skills::invalidate_cache(&skill.name)?;
                 }
             }
 

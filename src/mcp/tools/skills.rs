@@ -161,13 +161,23 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
                     )
                 })?;
 
-            let cache_dir = crate::skills::extract_attachments(&params.0.skill_id, &attachments)
-                .map_err(|e| {
+            // Parse skill name from content for cache directory
+            let skill_name =
+                crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
                     McpError::internal_error(
-                        "cache_error",
+                        "parse_error",
                         Some(serde_json::json!({"error": e.to_string()})),
                     )
                 })?;
+
+            let cache_dir =
+                crate::skills::extract_attachments(&skill_name, &skill.content, &attachments)
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            "cache_error",
+                            Some(serde_json::json!({"error": e.to_string()})),
+                        )
+                    })?;
 
             Some(cache_dir.to_string_lossy().to_string())
         } else {

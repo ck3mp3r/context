@@ -7,6 +7,8 @@
 //! - Attachment scanning and encoding
 
 mod cache;
+#[cfg(test)]
+mod cache_test;
 mod import;
 mod parser;
 mod scanner;
@@ -15,7 +17,7 @@ mod source;
 // Re-export cache functions
 pub use cache::{
     clear_all_caches, extract_attachments, get_skill_cache_dir, get_skills_cache_dir,
-    invalidate_cache,
+    invalidate_cache, parse_skill_name_from_content,
 };
 
 // Re-export import functions

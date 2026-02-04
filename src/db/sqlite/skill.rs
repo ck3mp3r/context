@@ -363,12 +363,15 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         })?;
 
         // Invalidate cache after successful update
-        crate::skills::invalidate_cache(&skill.id)?;
+        crate::skills::invalidate_cache(&skill.name)?;
 
         Ok(())
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
+        // Fetch skill to get name for cache invalidation
+        let skill = self.get(id).await?;
+
         let result = sqlx::query("DELETE FROM skill WHERE id = ?")
             .bind(id)
             .execute(self.pool)
@@ -384,7 +387,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         }
 
         // Invalidate cache after successful delete
-        crate::skills::invalidate_cache(id)?;
+        crate::skills::invalidate_cache(&skill.name)?;
 
         Ok(())
     }
