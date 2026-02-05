@@ -22,11 +22,18 @@ pub const NOTE_SOFT_MAX: usize = 50_000; // ~12,500 tokens
 pub const NOTE_HARD_MAX: usize = 100_000; // ~25,000 tokens
 
 // =============================================================================
+// Skill Constants (Agent Skills Specification)
+// =============================================================================
+
+/// Maximum length for skill description (Agent Skills standard).
+pub const SKILL_DESCRIPTION_MAX: usize = 1_024;
+
+// =============================================================================
 // Query Types for Pagination and Sorting
 // =============================================================================
 
 /// Sort order for list queries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, utoipa::ToSchema)]
 pub enum SortOrder {
     #[default]
     Asc,
@@ -38,7 +45,7 @@ pub enum SortOrder {
 // =============================================================================
 
 /// Base pagination and sorting options - composed into entity-specific queries.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize, utoipa::ToSchema)]
 pub struct PageSort {
     /// Maximum number of items to return.
     pub limit: Option<usize>,
@@ -112,6 +119,16 @@ pub struct NoteQuery {
     /// Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL).
     /// Omit to return both parent notes and subnotes.
     pub note_type: Option<String>,
+}
+
+/// Query for Skills - pagination + tags/project filters.
+#[derive(Debug, Clone, Default)]
+pub struct SkillQuery {
+    pub page: PageSort,
+    /// Filter by tags (OR logic - matches if ANY tag matches).
+    pub tags: Option<Vec<String>>,
+    /// Filter by project ID (skills with project_id in project_ids array).
+    pub project_id: Option<String>,
 }
 
 /// Result of a paginated list query.
@@ -312,4 +329,146 @@ pub struct Note {
     pub subnote_count: Option<i32>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+/// A skill entity following Agent Skills specification (https://agentskills.io/specification).
+/// Skills store reusable instructions, scripts, and resources for AI agents.
+///
+/// The `content` field stores the complete SKILL.md file (YAML frontmatter + Markdown body).
+/// LLMs parse the frontmatter themselves - we only extract name/description for DB indexing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Skill {
+    pub id: Id,
+    pub name: String,
+    pub description: String,
+    /// Full SKILL.md content (YAML frontmatter + Markdown body)
+    pub content: String,
+    pub tags: Vec<String>,
+
+    #[serde(default)]
+    pub project_ids: Vec<Id>,
+
+    /// Script filenames (loaded from skill_attachment where type='script')
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub scripts: Vec<String>,
+
+    /// Reference filenames (loaded from skill_attachment where type='reference')
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub references: Vec<String>,
+
+    /// Asset filenames (loaded from skill_attachment where type='asset')
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub assets: Vec<String>,
+
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// A skill attachment (script, reference, or asset file).
+/// Part of Agent Skills Phase 2: Attachment Storage & Cache System.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillAttachment {
+    pub id: Id,
+    pub skill_id: Id,
+    /// Attachment type: 'script', 'reference', or 'asset'
+    pub type_: String,
+    /// Filename (without path, e.g., "deploy.sh", "diagram.png")
+    pub filename: String,
+    /// Base64-encoded file content
+    pub content: String,
+    /// SHA256 hash of decoded content (for cache invalidation)
+    pub content_hash: String,
+    /// MIME type (e.g., "text/x-shellscript", "image/png")
+    pub mime_type: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_skill_serde_with_all_fields() {
+        let skill = Skill {
+            id: "abc12345".to_string(),
+            name: "deploy-kubernetes".to_string(),
+            description: "Deploy applications to Kubernetes".to_string(),
+            content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes
+license: Apache-2.0
+compatibility: Requires kubectl, docker
+allowed-tools: Bash(kubectl:*) Bash(docker:*)
+metadata:
+  author: test
+  version: "1.0"
+origin:
+  url: https://github.com/user/repo
+  ref: main
+  fetched_at: 2026-01-31T10:00:00Z
+  imported_by: test
+---
+
+# Instructions
+
+Run the deployment scripts...
+"#
+            .to_string(),
+            tags: vec!["kubernetes".to_string(), "deployment".to_string()],
+            project_ids: vec!["proj1234".to_string()],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
+            created_at: Some("2026-01-31T10:00:00Z".to_string()),
+            updated_at: Some("2026-01-31T10:00:00Z".to_string()),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(json.contains("deploy-kubernetes"));
+        assert!(json.contains("content"));
+
+        // Test deserialization
+        let deserialized: Skill = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, skill);
+    }
+
+    #[test]
+    fn test_skill_serde_realistic_minimal() {
+        // A realistic minimal skill has full SKILL.md in content field
+        let skill = Skill {
+            id: "abc12345".to_string(),
+            name: "deploy-kubernetes".to_string(),
+            description: "Deploy applications to Kubernetes cluster".to_string(),
+            content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes cluster
+---
+
+# Deployment Skill
+
+## Steps
+1. Validate manifests
+2. Apply changes
+"#
+            .to_string(),
+            tags: vec!["kubernetes".to_string()],
+            project_ids: vec![],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
+            created_at: Some("2026-01-31T10:00:00Z".to_string()),
+            updated_at: Some("2026-01-31T10:00:00Z".to_string()),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(json.contains("deploy-kubernetes"));
+        assert!(json.contains("Deploy applications"));
+
+        // Test deserialization
+        let deserialized: Skill = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, skill);
+    }
 }

@@ -1,7 +1,8 @@
 //! Export database entities to JSONL files.
 
 use crate::db::{
-    Database, NoteRepository, ProjectRepository, RepoRepository, TaskListRepository, TaskRepository,
+    Database, NoteRepository, ProjectRepository, RepoRepository, SkillRepository,
+    TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::Path;
@@ -23,12 +24,14 @@ pub enum ExportError {
 
 /// Export all database entities to JSONL files in the specified directory.
 ///
-/// Creates 5 files:
+/// Creates 7 files:
 /// - repos.jsonl
 /// - projects.jsonl
 /// - lists.jsonl
 /// - tasks.jsonl
 /// - notes.jsonl
+/// - skills.jsonl
+/// - skills_attachments.jsonl
 ///
 /// # Arguments
 /// * `db` - Database instance
@@ -98,6 +101,37 @@ pub async fn export_all<D: Database>(
     summary.notes = notes.len();
     tracing::debug!(count = notes.len(), "Exported notes");
 
+    // Export skills with attachment filenames (computed fields)
+    tracing::debug!("Fetching skills");
+    let skills_list = db.skills().list(None).await?;
+    let mut skills = Vec::new();
+    let mut all_attachments = Vec::new();
+    for skill in skills_list.items {
+        let full_skill = db.skills().get(&skill.id).await?;
+        let attachments = db.skills().get_attachments(&full_skill.id).await?;
+        skills.push(full_skill);
+        all_attachments.extend(attachments);
+    }
+    write_jsonl(&output_dir.join("skills.jsonl"), &skills)?;
+    summary.skills = skills.len();
+    tracing::debug!(count = skills.len(), "Exported skills");
+
+    // Export skill attachments - one attachment per line
+    let attachments_path = output_dir.join("skills_attachments.jsonl");
+    tracing::warn!(
+        "ABOUT TO WRITE {} attachments to {:?}",
+        all_attachments.len(),
+        attachments_path
+    );
+    write_jsonl(&attachments_path, &all_attachments)?;
+    tracing::warn!(
+        "WROTE {} attachments to {:?}",
+        all_attachments.len(),
+        attachments_path
+    );
+    summary.attachments = all_attachments.len();
+    tracing::debug!(count = all_attachments.len(), "Exported skill attachments");
+
     tracing::info!(total = summary.total(), "Export all complete");
     Ok(summary)
 }
@@ -110,10 +144,18 @@ pub struct ExportSummary {
     pub task_lists: usize,
     pub tasks: usize,
     pub notes: usize,
+    pub skills: usize,
+    pub attachments: usize,
 }
 
 impl ExportSummary {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes
+        self.repos
+            + self.projects
+            + self.task_lists
+            + self.tasks
+            + self.notes
+            + self.skills
+            + self.attachments
     }
 }

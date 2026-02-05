@@ -2,6 +2,7 @@ pub mod api;
 pub mod note;
 pub mod project;
 pub mod repo;
+pub mod skill;
 pub mod sync;
 pub mod task;
 pub mod task_list;
@@ -18,6 +19,10 @@ pub struct PageParams<'a> {
 #[cfg(test)]
 #[path = "note_test.rs"]
 mod note_test;
+
+#[cfg(test)]
+#[path = "skill_test.rs"]
+mod skill_test;
 
 #[cfg(test)]
 #[path = "project_test.rs"]

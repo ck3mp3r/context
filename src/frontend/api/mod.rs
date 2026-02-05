@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use std::marker::PhantomData;
 
-use crate::models::{ApiError, Note, Paginated, Project, Repo, Task, TaskList, TaskStats};
+use crate::models::{ApiError, Note, Paginated, Project, Repo, Skill, Task, TaskList, TaskStats};
 
 // Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
 #[cfg(debug_assertions)]
@@ -37,6 +37,12 @@ impl ListEndpoint for Repo {
 impl ListEndpoint for Note {
     fn endpoint() -> &'static str {
         "notes"
+    }
+}
+
+impl ListEndpoint for Skill {
+    fn endpoint() -> &'static str {
+        "skills"
     }
 }
 
@@ -331,6 +337,34 @@ pub mod notes {
 
     pub async fn delete(id: &str) -> Result<()> {
         let url = format!("{}/notes/{}", API_BASE, id);
+        let response = Request::delete(&url)
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        if response.status() >= 200 && response.status() < 300 {
+            Ok(())
+        } else {
+            let error = response
+                .json::<ApiError>()
+                .await
+                .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+            Err(ApiClientError::Server(error))
+        }
+    }
+}
+
+/// Skills API
+pub mod skills {
+    use super::*;
+
+    pub async fn get(id: &str) -> Result<Skill> {
+        let url = format!("{}/skills/{}", API_BASE, id);
+        handle_response(Request::get(&url)).await
+    }
+
+    pub async fn delete(id: &str) -> Result<()> {
+        let url = format!("{}/skills/{}", API_BASE, id);
         let response = Request::delete(&url)
             .send()
             .await

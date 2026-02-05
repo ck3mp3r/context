@@ -137,6 +137,35 @@ backlog → todo → in_progress → review → done
 - Types: `manual` (user-created), `archived_todo` (auto-generated from completed tasks)
 - Tag-based linking: Use `parent:NOTE_ID`, `related:NOTE_ID` to chain notes
 
+### Skills
+
+**Skills** are reusable instructions and capabilities stored as complete SKILL.md files (YAML frontmatter + Markdown body).
+
+- Store workflows, checklists, patterns, and best practices
+- Support full-text search (FTS5) across name, description, content, and tags
+- Can be linked to multiple projects for organization
+- Use YAML frontmatter for metadata (name, description, license, version, etc.)
+- Use Markdown for detailed instructions and examples
+- Examples: "Deploy to K8s", "TDD Workflow - Rust", "Code Review Checklist"
+
+**SKILL.md Format:**
+```markdown
+---
+name: Skill Name
+description: Brief one-line description
+license: MIT
+version: 1.0.0
+---
+
+# Skill Title
+
+Instructions in Markdown...
+```
+
+**When to use Skills vs Notes:**
+- **Skills**: Reusable processes, workflows, patterns that apply across projects
+- **Notes**: Project-specific documentation, meeting notes, one-time decisions
+
 ### IDs
 
 All entities use **8-character lowercase hexadecimal IDs** (e.g., `a1b2c3d4`).
@@ -383,6 +412,54 @@ c5t note search --query "rust AND async"
 
 # Get note
 c5t note get --id note123
+```
+
+**Skills:**
+```bash
+# List skills
+c5t skill list
+
+# List skills with specific tags
+c5t skill list --tags deployment,kubernetes
+
+# List skills for a project
+c5t skill list --project-id abc12345
+
+# Import skill from local directory
+c5t skill import ./path/to/skill
+
+# Import skill with tags
+c5t skill import ./path/to/skill --tags rust,systems,programming
+
+# Import skill linked to projects
+c5t skill import ./path/to/skill --project-ids abc12345,def67890
+
+# Import skill with tags and projects
+c5t skill import ./path/to/skill --tags kubernetes,deployment --project-ids abc12345
+
+# Import from subdirectory in repo
+c5t skill import ./skills-repo --path deploy-k8s
+
+# Update existing skill (upsert)
+c5t skill import ./path/to/skill --update
+
+# Get skill details (shows full SKILL.md content)
+c5t skill get skill123
+
+# Get skill as JSON
+c5t skill get skill123 --json
+
+# Update skill metadata (tags, projects)
+c5t skill update skill123 --tags kubernetes,deployment,production
+
+# Update skill projects only
+c5t skill update skill123 --project-ids abc12345,def67890
+
+# Update both tags and projects
+c5t skill update skill123 --tags kubernetes --project-ids abc12345
+
+# Delete skill
+c5t skill delete skill123 --force
 ```
 
 ### Output Formats

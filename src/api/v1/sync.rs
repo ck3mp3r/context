@@ -141,6 +141,8 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
                 "task_lists": summary.task_lists,
                 "tasks": summary.tasks,
                 "notes": summary.notes,
+                "skills": summary.skills,
+                "attachments": summary.attachments,
                 "total": summary.total(),
             }
         })),
@@ -185,6 +187,8 @@ pub async fn import_sync<D: Database, G: GitOps + Send + Sync>(
                 "task_lists": summary.task_lists,
                 "tasks": summary.tasks,
                 "notes": summary.notes,
+                "skills": summary.skills,
+                "attachments": summary.attachments,
                 "total": summary.total(),
             }
         })),
@@ -236,6 +240,8 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync>(
             "task_lists": counts.task_lists,
             "tasks": counts.tasks,
             "notes": counts.notes,
+            "skills": counts.skills,
+            "attachments": counts.attachments,
             "total": counts.total(),
         })),
         "sync_files": status.jsonl_counts.as_ref().map(|counts| serde_json::json!({
@@ -244,6 +250,8 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync>(
             "task_lists": counts.task_lists,
             "tasks": counts.tasks,
             "notes": counts.notes,
+            "skills": counts.skills,
+            "attachments": counts.attachments,
             "total": counts.total(),
         })),
     });

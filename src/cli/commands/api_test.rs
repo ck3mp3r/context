@@ -122,13 +122,14 @@ fn test_verbosity_levels() {
 }
 
 #[test]
-fn test_get_db_path_with_home() {
+fn test_get_db_path_with_custom_home() {
     // Test get_db_path with custom home directory
-    use crate::sync::get_db_path;
+    use crate::sync::{get_db_path, set_base_path};
     use std::path::PathBuf;
 
     let custom_home = PathBuf::from("/custom/home");
-    let db_path = get_db_path(Some(custom_home.clone()));
+    set_base_path(custom_home.clone());
+    let db_path = get_db_path();
 
     assert!(db_path.starts_with(custom_home));
     assert!(db_path.to_string_lossy().contains("c5t"));
@@ -139,7 +140,7 @@ fn test_get_db_path_without_home() {
     // Test get_db_path with default home directory
     use crate::sync::get_db_path;
 
-    let db_path = get_db_path(None);
+    let db_path = get_db_path();
 
     // Should use default path
     assert!(db_path.to_string_lossy().contains("c5t"));

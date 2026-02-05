@@ -29,4 +29,4 @@ pub use git::{GitError, GitOps, RealGit};
 pub use import::{ImportError, ImportSummary, import_all};
 pub use jsonl::{JsonlError, read_jsonl, write_jsonl};
 pub use manager::{EntityCounts, GitStatus, InitResult, SyncError, SyncManager, SyncStatus};
-pub use paths::{get_data_dir, get_db_path, get_sync_dir};
+pub use paths::{clear_base_path, get_data_dir, get_db_path, get_sync_dir, set_base_path};

@@ -3,7 +3,7 @@ use crate::sync::paths::*;
 #[test]
 fn test_get_data_dir_contains_c5t_test() {
     // Just verify it ends with c5t-dev (debug) or c5t (release)
-    let path = get_data_dir(None);
+    let path = get_data_dir();
     #[cfg(debug_assertions)]
     assert!(path.ends_with("c5t-dev"));
     #[cfg(not(debug_assertions))]
@@ -22,7 +22,7 @@ fn test_get_sync_dir_contains_sync() {
 
 #[test]
 fn test_get_db_path_ends_with_context_db() {
-    let path = get_db_path(None);
+    let path = get_db_path();
     #[cfg(debug_assertions)]
     assert!(path.ends_with("c5t-dev/context.db"));
     #[cfg(not(debug_assertions))]

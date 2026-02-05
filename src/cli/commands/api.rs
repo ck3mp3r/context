@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, Result};
 use crate::api::{self, Config};
 use crate::db::Database;
 use crate::db::sqlite::SqliteDatabase;
-use crate::sync::get_db_path;
+use crate::sync::{get_db_path, set_base_path};
 
 /// Run the API server
 pub async fn run(
@@ -18,8 +18,13 @@ pub async fn run(
     verbosity: u8,
     enable_docs: bool,
 ) -> Result<()> {
-    // Use the same logic as the old c5t-api binary
-    let db_path = get_db_path(home);
+    // Set the global base path if provided (API startup singleton pattern)
+    if let Some(home_path) = home {
+        set_base_path(home_path);
+    }
+
+    // Use the singleton to get db path
+    let db_path = get_db_path();
 
     println!("Opening database at {:?}", db_path);
 

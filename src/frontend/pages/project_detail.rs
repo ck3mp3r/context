@@ -5,10 +5,10 @@ use leptos_router::hooks::use_params_map;
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
     CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
-    SortControls, TaskListCard, TaskListDetailModal,
+    SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
-use crate::models::{Note, Paginated, Project, Repo, TaskList, UpdateMessage};
+use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
 #[component]
@@ -22,10 +22,12 @@ pub fn ProjectDetail() -> impl IntoView {
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
+    let (skills_data, set_skills_data) = signal(None::<Result<Paginated<Skill>, ApiClientError>>);
 
     const TASK_LIST_PAGE_SIZE: usize = 12;
     const NOTE_PAGE_SIZE: usize = 12;
     const REPO_PAGE_SIZE: usize = 12;
+    const SKILL_PAGE_SIZE: usize = 12;
 
     // Hooks for task lists tab
     let task_list_pagination = use_pagination();
@@ -66,6 +68,19 @@ pub fn ProjectDetail() -> impl IntoView {
         }),
     );
 
+    // Hooks for skills tab
+    let skill_pagination = use_pagination();
+    let skill_search = use_search(Callback::new(move |_| {
+        skill_pagination.set_page.set(0);
+    }));
+    let skill_sort = use_sort(
+        "created_at",
+        "desc",
+        Callback::new(move |_| {
+            skill_pagination.set_page.set(0);
+        }),
+    );
+
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
 
@@ -78,6 +93,10 @@ pub fn ProjectDetail() -> impl IntoView {
     let task_list_modal_open = RwSignal::new(false);
     let selected_task_list = RwSignal::new(None::<TaskList>);
 
+    // Skill detail modal state
+    let skill_modal_open = RwSignal::new(false);
+    let selected_skill_id = RwSignal::new(String::new());
+
     // WebSocket updates
     let ws_updates = use_websocket_updates();
 
@@ -85,6 +104,7 @@ pub fn ProjectDetail() -> impl IntoView {
     let (note_refetch_trigger, set_note_refetch_trigger) = signal(0u32);
     let (task_list_refetch_trigger, set_task_list_refetch_trigger) = signal(0u32);
     let (repo_refetch_trigger, set_repo_refetch_trigger) = signal(0u32);
+    let (skill_refetch_trigger, set_skill_refetch_trigger) = signal(0u32);
     let (project_refetch_trigger, set_project_refetch_trigger) = signal(0u32);
 
     // Watch for WebSocket updates and trigger refetch when anything changes
@@ -114,6 +134,14 @@ pub fn ProjectDetail() -> impl IntoView {
                         &"Repo updated via WebSocket, refetching project repos...".into(),
                     );
                     set_repo_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                }
+                UpdateMessage::SkillCreated { .. }
+                | UpdateMessage::SkillUpdated { .. }
+                | UpdateMessage::SkillDeleted { .. } => {
+                    web_sys::console::log_1(
+                        &"Skill updated via WebSocket, refetching project skills...".into(),
+                    );
+                    set_skill_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
                 UpdateMessage::ProjectUpdated { .. } => {
                     web_sys::console::log_1(
@@ -247,6 +275,35 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
+    // Fetch skills for this project (with pagination)
+    Effect::new(move || {
+        let id = project_id();
+        let current_page = skill_pagination.page.get();
+        let current_sort = skill_sort.sort_field.get();
+        let current_order = skill_sort.sort_order.get();
+        let current_search = skill_search.search_query.get();
+        let _ = skill_refetch_trigger.get();
+        if !id.is_empty() {
+            spawn_local(async move {
+                let offset = current_page * SKILL_PAGE_SIZE;
+
+                let mut builder = QueryBuilder::<Skill>::new()
+                    .limit(SKILL_PAGE_SIZE)
+                    .offset(offset)
+                    .sort(current_sort)
+                    .order(current_order)
+                    .param("project_id", id);
+
+                if !current_search.trim().is_empty() {
+                    builder = builder.search(current_search);
+                }
+
+                let result = builder.fetch().await;
+                set_skills_data.set(Some(result));
+            });
+        }
+    });
+
     view! {
         <div class="container mx-auto p-6">
             {move || match project_data.get() {
@@ -351,6 +408,19 @@ pub fn ProjectDetail() -> impl IntoView {
                                     >
 
                                         "Notes"
+                                    </button>
+                                    <button
+                                        on:click=move |_| set_active_tab.set("skills")
+                                        class=move || {
+                                            if active_tab.get() == "skills" {
+                                                "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
+                                            } else {
+                                                "pb-3 border-b-2 border-transparent text-ctp-subtext0 hover:text-ctp-text"
+                                            }
+                                        }
+                                    >
+
+                                        "Skills"
                                     </button>
                                     <button
                                         on:click=move |_| set_active_tab.set("repos")
@@ -657,6 +727,98 @@ pub fn ProjectDetail() -> impl IntoView {
                                                         }
                                                     }}
 
+                                            </div>
+                                        }
+                                            .into_any()
+                                        }
+                                        "skills" => {
+                                            view! {
+                                                <div>
+                                                    // Search input and sort controls
+                                                    <div class="mb-4 flex gap-4 items-center">
+                                                        <div class="flex-1">
+                                                            <SearchInput
+                                                                value=skill_search.search_input
+                                                                on_change=skill_search.on_debounced_change
+                                                                on_immediate_change=skill_search.on_immediate_change
+                                                                placeholder="Search skills by name or tags..."
+                                                            />
+                                                        </div>
+                                                        <SortControls
+                                                            sort_field=skill_sort.sort_field
+                                                            sort_order=skill_sort.sort_order
+                                                            on_sort_change=skill_sort.on_sort_change
+                                                            on_order_change=skill_sort.on_order_change
+                                                            fields=vec![
+                                                                ("name".to_string(), "Name".to_string()),
+                                                                ("created_at".to_string(), "Created".to_string()),
+                                                            ]
+                                                        />
+                                                    </div>
+
+                                                    {move || match skills_data.get() {
+                                                        None => {
+                                                            view! { <p class="text-ctp-subtext0">"Loading skills..."</p> }.into_any()
+                                                        }
+                                                        Some(Ok(paginated)) => {
+                                                            if paginated.items.is_empty() {
+                                                                view! {
+                                                                    <p class="text-ctp-subtext0">
+                                                                        {if skill_search.search_query.get().trim().is_empty() {
+                                                                            "No skills found. Add one to get started!"
+                                                                        } else {
+                                                                            "No skills found matching your search."
+                                                                        }}
+                                                                    </p>
+                                                                }
+                                                                    .into_any()
+                                                            } else {
+                                                                let total_pages = paginated.total.div_ceil(SKILL_PAGE_SIZE);
+                                                                view! {
+                                                                    <div>
+                                                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
+                                                                            {paginated
+                                                                                .items
+                                                                                .iter()
+                                                                                .map(|skill| {
+                                                                                    view! {
+                                                                                        <SkillCard
+                                                                                            skill=skill.clone()
+                                                                                            on_click=Callback::new(move |id: String| {
+                                                                                                selected_skill_id.set(id);
+                                                                                                skill_modal_open.set(true);
+                                                                                            })
+                                                                                        />
+                                                                                    }
+                                                                                })
+                                                                                .collect::<Vec<_>>()}
+                                                                        </div>
+
+                                                                        <Pagination
+                                                                            current_page=skill_pagination.page
+                                                                            total_pages=total_pages
+                                                                            on_prev=skill_pagination.on_prev
+                                                                            on_next=skill_pagination.on_next
+                                                                            show_summary=true
+                                                                            total_items=paginated.total
+                                                                            page_size=SKILL_PAGE_SIZE
+                                                                            item_name="skills".to_string()
+                                                                        />
+                                                                    </div>
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                        }
+                                                        Some(Err(err)) => {
+                                                            view! {
+                                                                <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                                    <p class="text-ctp-red">{err.to_string()}</p>
+                                                                </div>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                    }}
+
                                                 </div>
                                             }
                                                 .into_any()
@@ -703,6 +865,20 @@ pub fn ProjectDetail() -> impl IntoView {
                         <TaskListDetailModal
                             task_list=selected_task_list.read_only()
                             open=task_list_modal_open
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
+
+            // Skill detail modal - only render when open
+            {move || {
+                if skill_modal_open.get() {
+                    Some(view! {
+                        <SkillDetailModal
+                            skill_id=selected_skill_id.read_only()
+                            open=skill_modal_open
                         />
                     })
                 } else {

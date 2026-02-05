@@ -1,8 +1,8 @@
 //! Import JSONL files into database.
 
 use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Task,
-    TaskList, TaskListRepository, TaskRepository,
+    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::Path;
@@ -28,12 +28,13 @@ pub enum ImportError {
 
 /// Import all JSONL files from the specified directory into the database.
 ///
-/// Reads 5 files:
+/// Reads 6 files:
 /// - repos.jsonl
 /// - projects.jsonl
 /// - lists.jsonl
 /// - tasks.jsonl
 /// - notes.jsonl
+/// - skills.jsonl
 ///
 /// Uses upsert logic: if entity exists (by ID), update it; otherwise create it.
 ///
@@ -56,6 +57,7 @@ pub async fn import_all<D: Database>(
     // 3. Task Lists (references projects)
     // 4. Tasks (references task_lists)
     // 5. Notes (can reference projects and repos)
+    // 6. Skills (can reference projects)
 
     // Import projects FIRST (no dependencies)
     let projects_file = input_dir.join("projects.jsonl");
@@ -152,6 +154,120 @@ pub async fn import_all<D: Database>(
         tracing::debug!(count = summary.notes, "Imported notes");
     }
 
+    // Import skills
+    let skills_file = input_dir.join("skills.jsonl");
+    if skills_file.exists() {
+        tracing::debug!("Importing skills");
+        let skills: Vec<Skill> = read_jsonl(&skills_file)?;
+        for skill in skills {
+            // Upsert skill (will have filename arrays from export)
+            match db.skills().get(&skill.id).await {
+                Ok(_existing) => {
+                    db.skills().update(&skill).await?;
+                }
+                Err(_) => {
+                    db.skills().create(&skill).await?;
+                }
+            }
+            summary.skills += 1;
+        }
+        tracing::debug!(count = summary.skills, "Imported skills");
+    }
+
+    // Import skill attachments
+    let attachments_file = input_dir.join("skills_attachments.jsonl");
+    if attachments_file.exists() {
+        tracing::debug!("Importing skill attachments");
+        let attachments: Vec<SkillAttachment> = read_jsonl(&attachments_file)?;
+
+        // Group attachments by skill_id for efficient processing
+        let mut attachments_by_skill: std::collections::HashMap<String, Vec<SkillAttachment>> =
+            std::collections::HashMap::new();
+        for attachment in attachments {
+            attachments_by_skill
+                .entry(attachment.skill_id.clone())
+                .or_default()
+                .push(attachment);
+        }
+
+        // Process each skill's attachments
+        for (skill_id, skill_attachments) in attachments_by_skill {
+            // Get skill for cache invalidation (need skill name)
+            let skill = db.skills().get(&skill_id).await?;
+
+            // Get existing attachments for this skill
+            let existing_attachments = db.skills().get_attachments(&skill_id).await?;
+
+            // Upsert attachments - compare by skill_id + type + filename
+            for attachment in &skill_attachments {
+                let existing = existing_attachments.iter().find(|a| {
+                    a.skill_id == attachment.skill_id
+                        && a.type_ == attachment.type_
+                        && a.filename == attachment.filename
+                });
+
+                match existing {
+                    Some(existing_att) if existing_att.content_hash != attachment.content_hash => {
+                        // Content changed - update attachment
+                        tracing::debug!(
+                            skill_id = %attachment.skill_id,
+                            filename = %attachment.filename,
+                            "Updating attachment (content changed)"
+                        );
+                        db.skills().update_attachment(attachment).await?;
+
+                        // Invalidate cache since content changed
+                        crate::skills::invalidate_cache(&skill.name)?;
+                    }
+                    Some(_) => {
+                        // Content unchanged - skip
+                        tracing::debug!(
+                            skill_id = %attachment.skill_id,
+                            filename = %attachment.filename,
+                            "Skipping attachment (unchanged)"
+                        );
+                    }
+                    None => {
+                        // New attachment - create
+                        tracing::debug!(
+                            skill_id = %attachment.skill_id,
+                            filename = %attachment.filename,
+                            "Creating new attachment"
+                        );
+                        db.skills().create_attachment(attachment).await?;
+
+                        // Invalidate cache to include new attachment
+                        crate::skills::invalidate_cache(&skill.name)?;
+                    }
+                }
+            }
+
+            // Delete attachments that exist in DB but not in import
+            for existing_att in existing_attachments {
+                let in_import = skill_attachments.iter().any(|a| {
+                    a.skill_id == existing_att.skill_id
+                        && a.type_ == existing_att.type_
+                        && a.filename == existing_att.filename
+                });
+
+                if !in_import {
+                    tracing::debug!(
+                        skill_id = %existing_att.skill_id,
+                        filename = %existing_att.filename,
+                        "Deleting attachment (not in import)"
+                    );
+                    db.skills().delete_attachment(&existing_att.id).await?;
+
+                    // Invalidate cache to remove deleted attachment
+                    crate::skills::invalidate_cache(&skill.name)?;
+                }
+            }
+
+            summary.attachments += skill_attachments.len();
+        }
+        tracing::debug!(count = summary.attachments, "Imported skill attachments");
+    }
+
     tracing::info!(total = summary.total(), "Import all complete");
     Ok(summary)
 }
@@ -164,10 +280,18 @@ pub struct ImportSummary {
     pub task_lists: usize,
     pub tasks: usize,
     pub notes: usize,
+    pub skills: usize,
+    pub attachments: usize,
 }
 
 impl ImportSummary {
     pub fn total(&self) -> usize {
-        self.repos + self.projects + self.task_lists + self.tasks + self.notes
+        self.repos
+            + self.projects
+            + self.task_lists
+            + self.tasks
+            + self.notes
+            + self.skills
+            + self.attachments
     }
 }

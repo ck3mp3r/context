@@ -654,6 +654,16 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         })
     }
 
+    async fn count(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM note")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, note: &Note) -> DbResult<()> {
         // Validate content size
         validate_note_size(&note.content)?;

@@ -306,6 +306,16 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         })
     }
 
+    async fn count(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM repo")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, repo: &Repo) -> DbResult<()> {
         // Use transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {

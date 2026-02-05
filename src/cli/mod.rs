@@ -83,6 +83,11 @@ enum Commands {
         #[command(subcommand)]
         command: RepoCommands,
     },
+    /// Skill management
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommands,
+    },
     /// Sync operations
     Sync {
         #[command(subcommand)]
@@ -311,6 +316,78 @@ enum NoteCommands {
         /// Force deletion without confirmation
         #[arg(long)]
         force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillCommands {
+    /// List skills
+    List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+        /// Filter by project ID
+        #[arg(long)]
+        project_id: Option<String>,
+        /// Filter by tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Maximum number of skills to return
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Number of items to skip (for pagination)
+        #[arg(long)]
+        offset: Option<u32>,
+        /// Field to sort by (name, created_at)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort order (asc, desc)
+        #[arg(long)]
+        order: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Get a skill by ID
+    Get {
+        /// Skill ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a skill
+    Delete {
+        /// Skill ID
+        id: String,
+        /// Force deletion without confirmation
+        #[arg(long)]
+        force: bool,
+    },
+    /// Import a skill from a source (local path, git repository, or archive URL)
+    Import {
+        /// Source location (examples: ./path, /abs/path, file:///path, git+https://github.com/user/repo, https://example.com/skill.zip)
+        source: String,
+        /// Subpath within the source (optional, for monorepos with multiple skills)
+        #[arg(long)]
+        path: Option<String>,
+        /// Project IDs to link (comma-separated)
+        #[arg(long)]
+        project_ids: Option<String>,
+        /// Tags to apply (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Update existing skill if it already exists (upsert behavior)
+        #[arg(long)]
+        update: bool,
+    },
+    /// Update skill metadata
+    Update {
+        id: String,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        project_ids: Option<String>,
     },
 }
 
@@ -1036,6 +1113,85 @@ pub async fn run() -> Result<()> {
             }
             NoteCommands::Delete { id, force } => {
                 let output = commands::note::delete_note(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+        },
+        Some(Commands::Skill { command }) => match command {
+            SkillCommands::List {
+                query,
+                project_id,
+                tags,
+                limit,
+                offset,
+                sort,
+                order,
+                json,
+            } => {
+                let page = commands::PageParams {
+                    limit,
+                    offset,
+                    sort: sort.as_deref(),
+                    order: order.as_deref(),
+                };
+                let filter = commands::skill::ListSkillsFilter {
+                    query: query.as_deref(),
+                    project_id: project_id.as_deref(),
+                    tags: tags.as_deref(),
+                    page,
+                };
+                let output = commands::skill::list_skills(
+                    &api_client,
+                    filter,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Get { id, json } => {
+                let output = commands::skill::get_skill(
+                    &api_client,
+                    &id,
+                    if json { "json" } else { "table" },
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Delete { id, force } => {
+                let output = commands::skill::delete_skill(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            SkillCommands::Import {
+                source,
+                path,
+                project_ids,
+                tags,
+                update,
+            } => {
+                let project_id_vec =
+                    project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect());
+                let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+                let output = commands::skill::import_skill(
+                    &api_client,
+                    &source,
+                    path.as_deref(),
+                    project_id_vec,
+                    tags_vec,
+                    update,
+                )
+                .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Update {
+                id,
+                tags,
+                project_ids,
+            } => {
+                let tags_vec = tags.map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+                let project_ids_vec =
+                    project_ids.map(|p| p.split(',').map(|s| s.trim().to_string()).collect());
+                let output =
+                    commands::skill::update_skill(&api_client, &id, tags_vec, project_ids_vec)
+                        .await?;
                 println!("{}", output);
             }
         },

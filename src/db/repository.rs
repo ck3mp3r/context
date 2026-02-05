@@ -23,6 +23,7 @@ pub trait ProjectRepository: Send + Sync {
         &self,
         query: Option<&ProjectQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
@@ -40,6 +41,7 @@ pub trait RepoRepository: Send + Sync {
         &self,
         query: Option<&RepoQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Repo>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
@@ -52,6 +54,7 @@ pub trait TaskListRepository: Send + Sync {
         &self,
         query: Option<&TaskListQuery>,
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn search(
         &self,
         search_term: &str,
@@ -59,16 +62,6 @@ pub trait TaskListRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
-    fn link_project(
-        &self,
-        task_list_id: &str,
-        project_id: &str,
-    ) -> impl Future<Output = DbResult<()>> + Send;
-    fn link_repo(
-        &self,
-        task_list_id: &str,
-        repo_id: &str,
-    ) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for Task operations.
@@ -79,6 +72,7 @@ pub trait TaskRepository: Send + Sync {
         &self,
         query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn search(
         &self,
         search_term: &str,
@@ -104,6 +98,7 @@ pub trait NoteRepository: Send + Sync {
         &self,
         query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn list_metadata_only(
         &self,
         query: Option<&NoteQuery>,
@@ -115,6 +110,42 @@ pub trait NoteRepository: Send + Sync {
         search_term: &str,
         query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+}
+
+/// Repository for Skill operations.
+pub trait SkillRepository: Send + Sync {
+    fn create(
+        &self,
+        skill: &crate::db::models::Skill,
+    ) -> impl Future<Output = DbResult<crate::db::models::Skill>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::db::models::Skill>> + Send;
+    fn list(
+        &self,
+        query: Option<&crate::db::models::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::db::models::Skill>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn update(&self, skill: &crate::db::models::Skill)
+    -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&crate::db::models::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::db::models::Skill>>> + Send;
+    fn get_attachments(
+        &self,
+        skill_id: &str,
+    ) -> impl Future<Output = DbResult<Vec<crate::db::models::SkillAttachment>>> + Send;
+    fn count_attachments(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn create_attachment(
+        &self,
+        attachment: &crate::db::models::SkillAttachment,
+    ) -> impl Future<Output = DbResult<crate::db::models::SkillAttachment>> + Send;
+    fn update_attachment(
+        &self,
+        attachment: &crate::db::models::SkillAttachment,
+    ) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete_attachment(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for sync operations (import/export).
@@ -157,6 +188,10 @@ pub trait Database: Send + Sync {
     type Sync<'a>: SyncRepository
     where
         Self: 'a;
+    /// The skill repository type.
+    type Skills<'a>: SkillRepository
+    where
+        Self: 'a;
 
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
@@ -178,4 +213,7 @@ pub trait Database: Send + Sync {
 
     /// Get the sync repository.
     fn sync(&self) -> Self::Sync<'_>;
+
+    /// Get the skill repository.
+    fn skills(&self) -> Self::Skills<'_>;
 }

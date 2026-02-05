@@ -9,12 +9,14 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::static_assets::serve_frontend;
 use super::v1::{
-    CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateTaskListRequest,
-    CreateTaskRequest, ErrorResponse, NoteResponse, PatchNoteRequest, PatchProjectRequest,
-    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, RepoResponse,
+    CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
+    CreateTaskListRequest, CreateTaskRequest, ErrorResponse, ImportSkillRequest, NoteResponse,
+    PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
+    PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse, SkillResponse,
     TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateTaskListRequest, UpdateTaskRequest,
+    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
+
 use crate::db::Database;
 
 /// Build routes with generic database and git types.
@@ -36,9 +38,9 @@ macro_rules! routes {
 /// OpenAPI documentation
 #[derive(OpenApi)]
 #[openapi(
-    info(
+        info(
         title = "Context API",
-        version = "0.1.0",
+        version = env!("CARGO_PKG_VERSION"),
         description = "Context/memory management API for LLM sessions",
         license(name = "MIT")
     ),
@@ -63,19 +65,26 @@ macro_rules! routes {
         super::v1::patch_task_list,
         super::v1::delete_task_list,
         super::v1::get_task_list_stats,
-        super::v1::list_tasks,
-        super::v1::get_task,
-        super::v1::create_task,
-        super::v1::update_task,
-        super::v1::patch_task,
-        super::v1::delete_task,
-        super::v1::list_notes,
-        super::v1::get_note,
-        super::v1::create_note,
-        super::v1::update_note,
-        super::v1::patch_note,
-        super::v1::delete_note,
-        super::v1::init_sync,
+         super::v1::list_tasks,
+         super::v1::get_task,
+         super::v1::create_task,
+         super::v1::update_task,
+         super::v1::patch_task,
+         super::v1::delete_task,
+         super::v1::list_notes,
+         super::v1::get_note,
+         super::v1::create_note,
+         super::v1::update_note,
+         super::v1::patch_note,
+         super::v1::delete_note,
+         super::v1::list_skills,
+         super::v1::get_skill,
+         super::v1::create_skill,
+         super::v1::import_skill,
+         super::v1::replace_skill,
+         super::v1::patch_skill,
+         super::v1::delete_skill,
+         super::v1::init_sync,
         super::v1::export_sync,
         super::v1::import_sync,
         super::v1::get_sync_status,
@@ -112,7 +121,13 @@ macro_rules! routes {
             super::v1::InitSyncRequest,
             super::v1::ExportSyncRequest,
             super::v1::SyncResponse,
-            ErrorResponse,
+             ErrorResponse,
+             // --- Skills ---
+             SkillResponse,
+             CreateSkillRequest,
+             ImportSkillRequest,
+             ReplaceSkillRequest,
+             UpdateSkillRequest,
         )
     ),
     tags(
@@ -122,9 +137,9 @@ macro_rules! routes {
         (name = "task-lists", description = "Task list management endpoints"),
         (name = "tasks", description = "Task management endpoints"),
         (name = "notes", description = "Note management endpoints with FTS search"),
-        (name = "sync", description = "Git-based sync operations")
-    )
-)]
+         (name = "sync", description = "Git-based sync operations"),
+         (name = "skills", description = "Skills management endpoints"),
+))]
 pub struct ApiDoc;
 
 /// Create the API router with OpenAPI documentation and MCP server
@@ -181,6 +196,14 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         put "/notes/{id}" => super::v1::update_note,
         patch "/notes/{id}" => super::v1::patch_note,
         delete "/notes/{id}" => super::v1::delete_note,
+        // Skills
+        get "/skills" => super::v1::list_skills,
+        get "/skills/{id}" => super::v1::get_skill,
+        post "/skills" => super::v1::create_skill,
+        post "/skills/import" => super::v1::import_skill,
+        put "/skills/{id}" => super::v1::replace_skill,
+        patch "/skills/{id}" => super::v1::patch_skill,
+        delete "/skills/{id}" => super::v1::delete_skill,
         // Sync
         post "/sync/init" => super::v1::init_sync,
         post "/sync/export" => super::v1::export_sync,

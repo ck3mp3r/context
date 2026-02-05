@@ -68,6 +68,9 @@ body {
 /* Markdown content styling */
 .prose {
   color: var(--ctp-text);
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .prose h1,
@@ -106,6 +109,8 @@ body {
   border-radius: 0.25rem;
   font-size: 0.875em;
   font-family: 'Courier New', monospace;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .prose pre {
@@ -115,11 +120,17 @@ body {
   overflow-x: auto;
   margin-top: 1em;
   margin-bottom: 1em;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .prose pre code {
   background-color: transparent;
   padding: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .prose ul,
@@ -148,6 +159,8 @@ body {
   border-collapse: collapse;
   margin-top: 1em;
   margin-bottom: 1em;
+  table-layout: fixed;
+  max-width: 100%;
 }
 
 .prose th,
@@ -155,6 +168,8 @@ body {
   border: 1px solid var(--ctp-surface1);
   padding: 0.5em;
   text-align: left;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .prose th {
@@ -188,6 +203,28 @@ body {
 }
 
 .note-detail-drawer .thaw-drawer-body {
+  padding: 0 !important;
+  flex: 1 !important;
+}
+
+.skill-detail-drawer {
+  width: 85vw !important;
+  max-width: 85vw !important;
+}
+
+/* Force the entire drawer structure to be non-scrollable and use flexbox */
+.skill-detail-drawer,
+.skill-detail-drawer > *,
+.skill-detail-drawer .thaw-overlay-drawer__content,
+.skill-detail-drawer .thaw-drawer-body {
+  height: 100% !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.skill-detail-drawer .thaw-drawer-body {
   padding: 0 !important;
   flex: 1 !important;
 }

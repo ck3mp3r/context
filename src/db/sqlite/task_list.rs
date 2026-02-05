@@ -529,6 +529,16 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         })
     }
 
+    async fn count(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_list")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, task_list: &TaskList) -> DbResult<()> {
         // Fetch current to detect status transitions
         let current = self.get(&task_list.id).await?;
@@ -650,100 +660,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
-
-        Ok(())
-    }
-
-    async fn link_project(&self, task_list_id: &str, project_id: &str) -> DbResult<()> {
-        // Check if task list exists
-        let task_list_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM task_list WHERE id = ?")
-                .bind(task_list_id)
-                .fetch_one(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-
-        if task_list_count == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "TaskList".to_string(),
-                id: task_list_id.to_string(),
-            });
-        }
-
-        // Check if project exists
-        let project_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project WHERE id = ?")
-            .bind(project_id)
-            .fetch_one(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
-
-        if project_count == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Project".to_string(),
-                id: project_id.to_string(),
-            });
-        }
-
-        // Update the project_id column directly
-        sqlx::query("UPDATE task_list SET project_id = ? WHERE id = ?")
-            .bind(project_id)
-            .bind(task_list_id)
-            .execute(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
-
-        Ok(())
-    }
-
-    async fn link_repo(&self, task_list_id: &str, repo_id: &str) -> DbResult<()> {
-        // Check if task list exists
-        let task_list_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM task_list WHERE id = ?")
-                .bind(task_list_id)
-                .fetch_one(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
-
-        if task_list_count == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "TaskList".to_string(),
-                id: task_list_id.to_string(),
-            });
-        }
-
-        // Check if repo exists
-        let repo_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM repo WHERE id = ?")
-            .bind(repo_id)
-            .fetch_one(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
-
-        if repo_count == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Repo".to_string(),
-                id: repo_id.to_string(),
-            });
-        }
-
-        // Insert the relationship (ignore if it already exists)
-        sqlx::query("INSERT OR IGNORE INTO task_list_repo (task_list_id, repo_id) VALUES (?, ?)")
-            .bind(task_list_id)
-            .bind(repo_id)
-            .execute(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
 
         Ok(())
     }

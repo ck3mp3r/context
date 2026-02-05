@@ -11,6 +11,9 @@ pub mod db;
 pub mod mcp;
 
 #[cfg(feature = "backend")]
+pub mod skills;
+
+#[cfg(feature = "backend")]
 pub mod sync;
 
 #[cfg(feature = "backend")]

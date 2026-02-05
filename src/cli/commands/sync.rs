@@ -165,6 +165,22 @@ pub async fn export(
                     .unwrap_or("0".to_string()),
             },
             SyncCountRow {
+                item: "Skills".to_string(),
+                count: exported
+                    .get("skills")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Attachments".to_string(),
+                count: exported
+                    .get("attachments")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
                 item: "Total".to_string(),
                 count: exported
                     .get("total")
@@ -253,6 +269,22 @@ pub async fn import(api_client: &ApiClient, remote: bool) -> CliResult<String> {
                 item: "Notes".to_string(),
                 count: imported
                     .get("notes")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Skills".to_string(),
+                count: imported
+                    .get("skills")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("0".to_string()),
+            },
+            SyncCountRow {
+                item: "Attachments".to_string(),
+                count: imported
+                    .get("attachments")
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("0".to_string()),
@@ -411,6 +443,32 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .unwrap_or("-".to_string()),
                 sync_files: sync
                     .and_then(|s| s.get("notes"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Skills".to_string(),
+                database: db
+                    .and_then(|d| d.get("skills"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("skills"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+            },
+            SyncStatusRow {
+                item: "Attachments".to_string(),
+                database: db
+                    .and_then(|d| d.get("attachments"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                sync_files: sync
+                    .and_then(|s| s.get("attachments"))
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),

@@ -48,6 +48,14 @@
 - `DELETE /api/v1/notes/:id` - Delete note
 - `GET /api/v1/notes/search?q=query` - Full-text search
 
+### Skills
+- `GET /api/v1/skills` - List skills (filter by tags, project_id)
+- `POST /api/v1/skills/import` - Import skill from source (local path or git repo)
+- `GET /api/v1/skills/:id` - Get skill (returns full content with frontmatter)
+- `PATCH /api/v1/skills/:id` - Partial update skill (update tags, project_ids, etc.)
+- `DELETE /api/v1/skills/:id` - Delete skill
+- `GET /api/v1/skills/search?q=query` - Full-text search (searches name, description, content, tags)
+
 ## Running
 
 ```sh
@@ -85,6 +93,29 @@ curl http://localhost:3737/api/v1/task-lists?status=active
 
 # Search notes
 curl "http://localhost:3737/api/v1/notes/search?q=rust+async"
+
+# Search skills
+curl "http://localhost:3737/api/v1/skills/search?q=kubernetes+deployment"
+
+# Import skill from local directory
+curl -X POST http://localhost:3737/api/v1/skills/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "./path/to/skill",
+    "tags": ["deployment", "kubernetes"],
+    "project_ids": ["abc12345"],
+    "update": false
+  }'
+
+# Import skill from git repository
+curl -X POST http://localhost:3737/api/v1/skills/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "git+https://github.com/user/skills-repo",
+    "path": "deploy-k8s",
+    "tags": ["deployment", "kubernetes"],
+    "update": true
+  }'
 
 # Complete a task
 curl -X PATCH http://localhost:3737/api/v1/tasks/abc12345/complete

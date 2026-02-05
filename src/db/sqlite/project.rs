@@ -243,6 +243,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         })
     }
 
+    async fn count(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project")
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, project: &Project) -> DbResult<()> {
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
         let external_refs_json =

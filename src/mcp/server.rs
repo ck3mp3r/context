@@ -17,8 +17,8 @@ use crate::db::Database;
 use crate::sync::RealGit;
 
 use super::tools::{
-    NoteTools, ProjectTools, RepoTools, SyncTools, TaskListTools, TaskTools, notes::*, projects::*,
-    repos::*, sync::*, task_lists::*, tasks::*,
+    NoteTools, ProjectTools, RepoTools, SkillTools, SyncTools, TaskListTools, TaskTools, notes::*,
+    projects::*, repos::*, skills::*, sync::*, task_lists::*, tasks::*,
 };
 
 /// Main MCP server coordinator
@@ -39,12 +39,14 @@ use super::tools::{
 /// - TaskListTools: Task list operations
 /// - TaskTools: Task operations
 /// - NoteTools: Note operations
+/// - SkillTools: Skill operations
 pub struct McpServer<D: Database> {
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
     task_list_tools: TaskListTools<D>,
     task_tools: TaskTools<D>,
     note_tools: NoteTools<D>,
+    skill_tools: SkillTools<D>,
     sync_tools: SyncTools<D, RealGit>,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
@@ -69,6 +71,7 @@ impl<D: Database + 'static> McpServer<D> {
             task_list_tools: TaskListTools::new(Arc::clone(&db), notifier.clone()),
             task_tools: TaskTools::new(Arc::clone(&db), notifier.clone()),
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
+            skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone()),
             sync_tools: SyncTools::with_real_git(db),
             tool_router: Self::tool_router(),
         }
@@ -321,6 +324,26 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     // =========================================================================
+    // Skill Tools
+    // =========================================================================
+
+    #[tool(description = "List skills with optional filtering")]
+    pub async fn list_skills(
+        &self,
+        params: Parameters<ListSkillsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.skill_tools.list_skills(params).await
+    }
+
+    #[tool(description = "Get a skill by ID")]
+    pub async fn get_skill(
+        &self,
+        params: Parameters<GetSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.skill_tools.get_skill(params).await
+    }
+
+    // =========================================================================
     // Sync Tools
     // =========================================================================
 
@@ -336,7 +359,7 @@ impl<D: Database + 'static> ServerHandler for McpServer<D> {
         ServerInfo {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             instructions: Some(
-                "C5T MCP Server - Manage projects, repositories, task lists, tasks, and notes"
+                "C5T MCP Server - Manage projects, repositories, task lists, tasks, notes, and skills"
                     .to_string(),
             ),
             ..Default::default()
