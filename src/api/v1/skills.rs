@@ -68,6 +68,10 @@ pub struct PaginatedSkills {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListSkillsQuery {
+    /// FTS5 search query (optional). If provided, performs full-text search.
+    #[param(example = "rust AND async")]
+    #[serde(rename = "q")]
+    pub query: Option<String>,
     /// Filter by tags (comma-separated)
     #[param(example = "rust,programming")]
     pub tags: Option<String>,
@@ -221,13 +225,13 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
 /// List skills (with optional filtering/query)
 pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
-    Query(query): Query<ListSkillsQuery>,
+    Query(api_query): Query<ListSkillsQuery>,
 ) -> Result<Json<PaginatedSkills>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
     let repo = db.skills();
 
     // Convert API query to DB query
-    let tags = query.tags.as_ref().map(|t| {
+    let tags = api_query.tags.as_ref().map(|t| {
         t.split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -236,20 +240,30 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
 
     let db_query = SkillQuery {
         page: PageSort {
-            limit: query.limit,
-            offset: query.offset,
-            sort_by: query.sort.clone(),
-            sort_order: match query.order.as_deref() {
+            limit: api_query.limit,
+            offset: api_query.offset,
+            sort_by: api_query.sort.clone(),
+            sort_order: match api_query.order.as_deref() {
                 Some("desc") => Some(SortOrder::Desc),
                 Some("asc") => Some(SortOrder::Asc),
                 _ => None,
             },
         },
         tags,
-        project_id: query.project_id.clone(),
+        project_id: api_query.project_id.clone(),
     };
 
-    let results = repo.list(Some(&db_query)).await.map_err(|e| {
+    // Route to search if query is provided, otherwise list all
+    let results = if let Some(q) = &api_query.query {
+        if !q.trim().is_empty() {
+            repo.search(q, Some(&db_query)).await
+        } else {
+            repo.list(Some(&db_query)).await
+        }
+    } else {
+        repo.list(Some(&db_query)).await
+    }
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

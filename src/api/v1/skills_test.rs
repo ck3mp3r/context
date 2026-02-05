@@ -670,3 +670,117 @@ New instructions
     assert!(content.contains("license: GPL-3.0"));
     assert!(content.contains("type: utility"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_skills_with_query_performs_search() {
+    let app = test_app().await;
+
+    // Create two skills
+    let rust_skill = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "rust-programming",
+                        "description": "Systems programming with Rust",
+                        "content": r#"---
+name: rust-programming
+description: Systems programming with Rust
+---
+
+# Rust Programming
+
+Learn systems programming with Rust.
+"#,
+                        "tags": ["programming", "systems"]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rust_skill.status(), StatusCode::CREATED);
+
+    let python_skill = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "python-web",
+                        "description": "Web development with Python",
+                        "content": r#"---
+name: python-web
+description: Web development with Python
+---
+
+# Python Web Development
+
+Learn web programming with Python and Django.
+"#,
+                        "tags": ["programming", "web"]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(python_skill.status(), StatusCode::CREATED);
+
+    // Search for "systems" - should only match rust skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/skills?q=systems")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items[0]["name"], "rust-programming");
+
+    // Search for "web" - should only match python skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/skills?q=web")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items[0]["name"], "python-web");
+
+    // Search for "programming" - should match both
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/skills?q=programming")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 2);
+}

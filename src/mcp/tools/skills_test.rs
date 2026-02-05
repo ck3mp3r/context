@@ -2,7 +2,7 @@
 
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Skill, SkillRepository, SqliteDatabase};
-use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SearchSkillsParams, SkillTools};
+use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
 use std::sync::Arc;
@@ -15,6 +15,7 @@ async fn test_list_skills_empty() {
     let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
 
     let params = ListSkillsParams {
+        query: None,
         tags: None,
         project_id: None,
         limit: None,
@@ -111,8 +112,8 @@ Learn web programming with Python.
     db.skills().create(&python).await.unwrap();
 
     // Search for "Rust"
-    let params = SearchSkillsParams {
-        query: "rust".to_string(),
+    let params = ListSkillsParams {
+        query: Some("rust".to_string()),
         tags: None,
         project_id: None,
         limit: None,
@@ -121,9 +122,9 @@ Learn web programming with Python.
         order: None,
     };
     let result = tools
-        .search_skills(Parameters(params))
+        .list_skills(Parameters(params))
         .await
-        .expect("search_skills should succeed");
+        .expect("list_skills with query should succeed");
 
     let content_text = match &result.content[0].raw {
         RawContent::Text(text) => text.text.as_str(),
@@ -192,8 +193,8 @@ Learn web programming basics in Rust.
     db.skills().create(&basics_skill).await.unwrap();
 
     // Search for "Rust" with "async" tag filter
-    let params = SearchSkillsParams {
-        query: "rust".to_string(),
+    let params = ListSkillsParams {
+        query: Some("rust".to_string()),
         tags: Some(vec!["async".to_string()]),
         project_id: None,
         limit: None,
@@ -202,9 +203,9 @@ Learn web programming basics in Rust.
         order: None,
     };
     let result = tools
-        .search_skills(Parameters(params))
+        .list_skills(Parameters(params))
         .await
-        .expect("search_skills should succeed");
+        .expect("list_skills with query and tag should succeed");
 
     let content_text = match &result.content[0].raw {
         RawContent::Text(text) => text.text.as_str(),
@@ -225,8 +226,8 @@ async fn test_search_skills_empty_results() {
     let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
 
     // Search for a non-existent string
-    let params = SearchSkillsParams {
-        query: "Nonexistent".to_string(),
+    let params = ListSkillsParams {
+        query: Some("Nonexistent".to_string()),
         tags: None,
         project_id: None,
         limit: None,
@@ -235,9 +236,9 @@ async fn test_search_skills_empty_results() {
         order: None,
     };
     let result = tools
-        .search_skills(Parameters(params))
+        .list_skills(Parameters(params))
         .await
-        .expect("search_skills should succeed");
+        .expect("list_skills with query should succeed");
 
     let content_text = match &result.content[0].raw {
         RawContent::Text(text) => text.text.as_str(),
@@ -307,6 +308,7 @@ Learn web programming for personal projects.
 
     // List only "work" skills
     let params = ListSkillsParams {
+        query: None,
         tags: Some(vec!["work".to_string()]),
         project_id: None,
         limit: None,
@@ -415,6 +417,7 @@ Learn web programming.
 
     // Test sorting by created_at DESC
     let params = ListSkillsParams {
+        query: None,
         tags: None,
         project_id: None,
         limit: None,
@@ -443,6 +446,7 @@ Learn web programming.
 
     // Test sorting by name ASC
     let params = ListSkillsParams {
+        query: None,
         tags: None,
         project_id: None,
         limit: None,
@@ -630,4 +634,255 @@ Test instructions for skill without attachments.
 
     // cache_path should be null since there are no attachments
     assert!(json["cache_path"].is_null(), "cache_path should be null");
+}
+
+// ============================================================================
+// CONSOLIDATION TESTS: list_skills with optional query parameter
+// ============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_skills_with_query_performs_search() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create two skills
+    let rust = Skill {
+        id: String::new(),
+        name: "rust".to_string(),
+        description: "Systems programming language".to_string(),
+        content: r#"---
+name: rust
+description: Systems programming language
+---
+
+# Rust Programming
+
+Learn systems programming with Rust.
+"#
+        .to_string(),
+        tags: vec!["lang".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let python = Skill {
+        id: String::new(),
+        name: "python".to_string(),
+        description: "High-level programming".to_string(),
+        content: r#"---
+name: python
+description: High-level programming
+---
+
+# Python Programming
+
+Learn web programming with Python.
+"#
+        .to_string(),
+        tags: vec!["lang".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.skills().create(&rust).await.unwrap();
+    db.skills().create(&python).await.unwrap();
+
+    // Use list_skills with query parameter - should perform FTS5 search
+    let params = ListSkillsParams {
+        query: Some("systems".to_string()),
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools
+        .list_skills(Parameters(params))
+        .await
+        .expect("list_skills with query should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Should find only rust (contains "systems")
+    assert_eq!(json["total"], 1);
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items[0]["name"], "rust");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_skills_without_query_lists_all() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create two skills
+    let rust = Skill {
+        id: String::new(),
+        name: "rust".to_string(),
+        description: "Systems programming language".to_string(),
+        content: r#"---
+name: rust
+description: Systems programming language
+---
+
+# Rust Programming
+
+Learn systems programming with Rust.
+"#
+        .to_string(),
+        tags: vec!["lang".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let python = Skill {
+        id: String::new(),
+        name: "python".to_string(),
+        description: "High-level programming".to_string(),
+        content: r#"---
+name: python
+description: High-level programming
+---
+
+# Python Programming
+
+Learn web programming with Python.
+"#
+        .to_string(),
+        tags: vec!["lang".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.skills().create(&rust).await.unwrap();
+    db.skills().create(&python).await.unwrap();
+
+    // Use list_skills WITHOUT query parameter - should list all
+    let params = ListSkillsParams {
+        query: None,
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools
+        .list_skills(Parameters(params))
+        .await
+        .expect("list_skills without query should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Should find both skills
+    assert_eq!(json["total"], 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_skills_with_query_and_tag_filter() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create skills with tags
+    let async_skill = Skill {
+        id: String::new(),
+        name: "rust-async".to_string(),
+        description: "Async programming in Rust".to_string(),
+        content: r#"---
+name: rust-async
+description: Async programming in Rust
+---
+
+# Async Rust
+
+Learn async programming with Rust.
+"#
+        .to_string(),
+        tags: vec!["rust".to_string(), "async".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let python_async = Skill {
+        id: String::new(),
+        name: "python-async".to_string(),
+        description: "Async programming in Python".to_string(),
+        content: r#"---
+name: python-async
+description: Async programming in Python
+---
+
+# Async Python
+
+Learn async programming with Python.
+"#
+        .to_string(),
+        tags: vec!["python".to_string(), "async".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.skills().create(&async_skill).await.unwrap();
+    db.skills().create(&python_async).await.unwrap();
+
+    // Search for "async" with "rust" tag filter
+    let params = ListSkillsParams {
+        query: Some("async".to_string()),
+        tags: Some(vec!["rust".to_string()]),
+        project_id: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools
+        .list_skills(Parameters(params))
+        .await
+        .expect("list_skills with query and tag should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Should find only rust-async (has "async" in content AND "rust" tag)
+    assert_eq!(json["total"], 1);
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items[0]["name"], "rust-async");
 }

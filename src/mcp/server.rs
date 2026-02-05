@@ -343,14 +343,6 @@ impl<D: Database + 'static> McpServer<D> {
         self.skill_tools.get_skill(params).await
     }
 
-    #[tool(description = "Full-text search skills using FTS5")]
-    pub async fn search_skills(
-        &self,
-        params: Parameters<SearchSkillsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.skill_tools.search_skills(params).await
-    }
-
     // =========================================================================
     // Sync Tools
     // =========================================================================

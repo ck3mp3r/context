@@ -17,6 +17,10 @@ use crate::db::SkillRepository;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListSkillsParams {
+    #[schemars(
+        description = "FTS5 search query (optional). If provided, performs full-text search. Examples: 'rust AND async' (Boolean), 'phrase', 'term*' (prefix), 'NOT deprecated' (exclude), 'api AND (error OR bug)' (complex)"
+    )]
+    pub query: Option<String>,
     #[schemars(description = "Filter by tags")]
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Filter by project ID")]
@@ -35,28 +39,6 @@ pub struct ListSkillsParams {
 pub struct GetSkillParams {
     #[schemars(description = "Skill ID")]
     pub skill_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct SearchSkillsParams {
-    #[schemars(
-        description = "FTS5 search query. Examples: 'rust AND async' (Boolean), 'phrase', 'term*' (prefix), 'NOT deprecated' (exclude), 'api AND (error OR bug)' (complex)"
-    )]
-    pub query: String,
-    #[schemars(
-        description = "Filter results by tags (optional). Can combine with search to find e.g. session skills matching a term."
-    )]
-    pub tags: Option<Vec<String>>,
-    #[schemars(description = "Filter by project ID (optional)")]
-    pub project_id: Option<String>,
-    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
-    pub limit: Option<usize>,
-    #[schemars(description = "Number of results to skip (optional)")]
-    pub offset: Option<usize>,
-    #[schemars(description = "Field to sort by (name, created_at). Default: created_at")]
-    pub sort: Option<String>,
-    #[schemars(description = "Sort order (asc, desc). Default: asc")]
-    pub order: Option<String>,
 }
 
 #[derive(Clone)]
@@ -83,13 +65,14 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
 
     // -- Tools to implement (following notes pattern)
 
-    // minimal tool to satisfy wiring in future
-    #[tool(description = "List skills placeholder")]
+    #[tool(
+        description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Supports filtering, sorting, and pagination."
+    )]
     pub async fn list_skills(
         &self,
         params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {
-        let query = crate::db::SkillQuery {
+        let db_query = crate::db::SkillQuery {
             page: crate::db::PageSort {
                 limit: params.0.limit,
                 offset: params.0.offset,
@@ -104,12 +87,26 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             project_id: params.0.project_id.clone(),
         };
 
-        let result = self.db.skills().list(Some(&query)).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
+        // Route to search if query is provided, otherwise list all
+        let result = if let Some(query) = &params.0.query {
+            self.db
+                .skills()
+                .search(query, Some(&db_query))
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        "database_error",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?
+        } else {
+            self.db.skills().list(Some(&db_query)).await.map_err(|e| {
+                McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                )
+            })?
+        };
 
         let response = json!({
             "items": result.items,
@@ -195,53 +192,6 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
         if let Some(obj) = response.as_object_mut() {
             obj.insert("cache_path".to_string(), json!(cache_path));
         }
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
-    }
-
-    #[tool(
-        description = "Full-text search skills (FTS5) with optional sorting. Supports: Boolean AND/OR/NOT, phrase, prefix. Filter results by tags/project_id. Sort by name, created_at. Returns metadata only (no large fields)."
-    )]
-    pub async fn search_skills(
-        &self,
-        params: Parameters<SearchSkillsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Build query
-        let query = crate::db::SkillQuery {
-            page: crate::db::PageSort {
-                limit: params.0.limit,
-                offset: params.0.offset,
-                sort_by: params.0.sort.clone(),
-                sort_order: match params.0.order.as_deref() {
-                    Some("desc") => Some(crate::db::SortOrder::Desc),
-                    Some("asc") => Some(crate::db::SortOrder::Asc),
-                    _ => None,
-                },
-            },
-            tags: params.0.tags.clone(),
-            project_id: params.0.project_id.clone(),
-        };
-
-        let result = self
-            .db
-            .skills()
-            .search(&params.0.query, Some(&query))
-            .await
-            .map_err(|e| {
-                McpError::internal_error(
-                    "database_error",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
-
-        let response = serde_json::json!({
-            "items": result.items,
-            "total": result.total,
-            "limit": result.limit,
-            "offset": result.offset,
-        });
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&response).unwrap(),
