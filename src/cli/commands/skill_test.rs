@@ -111,14 +111,19 @@ async fn test_list_skills_empty() {
     let (url, _project_id, _handle) = spawn_test_server().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
     };
 
-    let result = list_skills(&api_client, None, None, page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list empty skills");
 
@@ -166,39 +171,54 @@ async fn test_list_skills_with_filters() {
     .expect("Failed to import skill 3");
 
     // List all
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
     };
-    let result = list_skills(&api_client, None, None, page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list all skills");
     let all_skills: Vec<Skill> = serde_json::from_str(&result).unwrap();
     assert_eq!(all_skills.len(), 3, "Should have 3 skills");
 
     // Filter by project_id
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: Some(&project_id),
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
     };
-    let result = list_skills(&api_client, Some(&project_id), None, page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list filtered skills");
     let filtered: Vec<Skill> = serde_json::from_str(&result).unwrap();
     assert_eq!(filtered.len(), 2, "Should have 2 skills in project");
 
     // Filter by tags
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: Some("rust"),
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
     };
-    let result = list_skills(&api_client, None, Some("rust"), page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list filtered skills");
     let tagged: Vec<Skill> = serde_json::from_str(&result).unwrap();
@@ -227,39 +247,54 @@ async fn test_list_skills_pagination_and_sorting() {
     }
 
     // Test limit
-    let page = PageParams {
-        limit: Some(2),
-        offset: None,
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: Some(2),
+            offset: None,
+            sort: None,
+            order: None,
+        },
     };
-    let result = list_skills(&api_client, None, None, page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list with limit");
     let limited: Vec<Skill> = serde_json::from_str(&result).unwrap();
     assert_eq!(limited.len(), 2, "Should limit to 2 skills");
 
     // Test offset
-    let page = PageParams {
-        limit: Some(2),
-        offset: Some(2),
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: Some(2),
+            offset: Some(2),
+            sort: None,
+            order: None,
+        },
     };
-    let result = list_skills(&api_client, None, None, page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list with offset");
     let offset_skills: Vec<Skill> = serde_json::from_str(&result).unwrap();
     assert_eq!(offset_skills.len(), 2, "Should have 2 skills after offset");
 
     // Test sorting by name
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: Some("name"),
-        order: Some("asc"),
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: Some("name"),
+            order: Some("asc"),
+        },
     };
-    let result = list_skills(&api_client, None, None, page, "json")
+    let result = list_skills(&api_client, filter, "json")
         .await
         .expect("Should list sorted");
     let sorted: Vec<Skill> = serde_json::from_str(&result).unwrap();
@@ -294,13 +329,18 @@ async fn test_skill_table_output() {
     .expect("Failed to import skill");
 
     // Get table format
-    let page = PageParams {
-        limit: None,
-        offset: None,
-        sort: None,
-        order: None,
+    let filter = ListSkillsFilter {
+        query: None,
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
     };
-    let result = list_skills(&api_client, None, None, page, "table")
+    let result = list_skills(&api_client, filter, "table")
         .await
         .expect("Should list in table format");
 
@@ -386,4 +426,108 @@ async fn test_update_skill_metadata() {
     let skill: Skill = serde_json::from_str(&skill_json).unwrap();
     assert_eq!(skill.tags, vec!["newtag"]);
     assert!(skill.project_ids.is_empty(), "Projects should be cleared");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_skills_with_query_search() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import skills with different content
+    import_skill(
+        &api_client,
+        "tests/fixtures/skills/rust",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import rust skill");
+
+    import_skill(
+        &api_client,
+        "tests/fixtures/skills/python",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import python skill");
+
+    import_skill(
+        &api_client,
+        "tests/fixtures/skills/docker",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import docker skill");
+
+    // Search for "systems" - should only match rust
+    let filter = ListSkillsFilter {
+        query: Some("systems"),
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+    };
+    let result = list_skills(&api_client, filter, "json")
+        .await
+        .expect("Should search skills");
+    let searched: Vec<Skill> = serde_json::from_str(&result).unwrap();
+    assert_eq!(searched.len(), 1, "Should find 1 skill matching 'systems'");
+    assert_eq!(searched[0].name, "rust");
+
+    // Search for "container" - should match docker
+    let filter = ListSkillsFilter {
+        query: Some("container"),
+        project_id: None,
+        tags: None,
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+    };
+    let result = list_skills(&api_client, filter, "json")
+        .await
+        .expect("Should search skills");
+    let searched: Vec<Skill> = serde_json::from_str(&result).unwrap();
+    assert_eq!(
+        searched.len(),
+        1,
+        "Should find 1 skill matching 'container'"
+    );
+    assert_eq!(searched[0].name, "docker");
+
+    // Search with query AND tag filter
+    let filter = ListSkillsFilter {
+        query: Some("programming"),
+        project_id: None,
+        tags: Some("rust"),
+        page: PageParams {
+            limit: None,
+            offset: None,
+            sort: None,
+            order: None,
+        },
+    };
+    let result = list_skills(&api_client, filter, "json")
+        .await
+        .expect("Should search with filters");
+    let searched: Vec<Skill> = serde_json::from_str(&result).unwrap();
+    // Should only find rust (has "systems programming" + rust tag)
+    assert!(
+        searched.len() <= 1,
+        "Should find at most 1 skill with both query and tag"
+    );
 }

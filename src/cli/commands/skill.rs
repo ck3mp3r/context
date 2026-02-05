@@ -49,33 +49,41 @@ impl From<&Skill> for SkillDisplay {
     }
 }
 
+/// Filter parameters for listing skills
+pub struct ListSkillsFilter<'a> {
+    pub query: Option<&'a str>,
+    pub project_id: Option<&'a str>,
+    pub tags: Option<&'a str>,
+    pub page: PageParams<'a>,
+}
+
 /// List skills with optional filtering
-#[allow(clippy::too_many_arguments)]
 pub async fn list_skills(
     api_client: &ApiClient,
-    project_id: Option<&str>,
-    tags: Option<&str>,
-    page: PageParams<'_>,
+    filter: ListSkillsFilter<'_>,
     format: &str,
 ) -> CliResult<String> {
     let mut request = api_client.get("/api/v1/skills");
 
-    if let Some(pid) = project_id {
+    if let Some(q) = filter.query {
+        request = request.query(&[("q", q)]);
+    }
+    if let Some(pid) = filter.project_id {
         request = request.query(&[("project_id", pid)]);
     }
-    if let Some(t) = tags {
+    if let Some(t) = filter.tags {
         request = request.query(&[("tags", t)]);
     }
-    if let Some(l) = page.limit {
+    if let Some(l) = filter.page.limit {
         request = request.query(&[("limit", l.to_string().as_str())]);
     }
-    if let Some(o) = page.offset {
+    if let Some(o) = filter.page.offset {
         request = request.query(&[("offset", o.to_string().as_str())]);
     }
-    if let Some(s) = page.sort {
+    if let Some(s) = filter.page.sort {
         request = request.query(&[("sort", s)]);
     }
-    if let Some(ord) = page.order {
+    if let Some(ord) = filter.page.order {
         request = request.query(&[("order", ord)]);
     }
 

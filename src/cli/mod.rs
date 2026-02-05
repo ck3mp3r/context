@@ -323,6 +323,9 @@ enum NoteCommands {
 enum SkillCommands {
     /// List skills
     List {
+        /// Search query (FTS5 full-text search)
+        #[arg(long, short = 'q')]
+        query: Option<String>,
         /// Filter by project ID
         #[arg(long)]
         project_id: Option<String>,
@@ -1115,6 +1118,7 @@ pub async fn run() -> Result<()> {
         },
         Some(Commands::Skill { command }) => match command {
             SkillCommands::List {
+                query,
                 project_id,
                 tags,
                 limit,
@@ -1129,11 +1133,15 @@ pub async fn run() -> Result<()> {
                     sort: sort.as_deref(),
                     order: order.as_deref(),
                 };
+                let filter = commands::skill::ListSkillsFilter {
+                    query: query.as_deref(),
+                    project_id: project_id.as_deref(),
+                    tags: tags.as_deref(),
+                    page,
+                };
                 let output = commands::skill::list_skills(
                     &api_client,
-                    project_id.as_deref(),
-                    tags.as_deref(),
-                    page,
+                    filter,
                     if json { "json" } else { "table" },
                 )
                 .await?;
