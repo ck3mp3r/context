@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort};
-use crate::mcp::tools::{apply_limit, map_db_error};
+use crate::mcp::tools::map_db_error;
 
 // =============================================================================
 // Parameter Structs
