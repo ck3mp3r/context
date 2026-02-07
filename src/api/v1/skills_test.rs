@@ -785,3 +785,220 @@ Learn web programming with Python and Django.
     let body = json_body(response).await;
     assert_eq!(body["total"], 2);
 }
+
+// --- ==== Enable/Disable Cache Management Tests ==== ---
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_enable_skill_by_id() {
+    let app = test_app().await;
+
+    // Create a skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "test-enable",
+                        "description": "Test enable",
+                        "content": "---\nname: test-enable\ndescription: Test enable\n---\n\nInstructions"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = json_body(response).await;
+    let id = created["id"].as_str().unwrap();
+
+    // Enable the skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/skills/{}/enable", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert!(body["cache_path"].as_str().unwrap().contains("test-enable"));
+    assert_eq!(body["skill_id"], id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_enable_skill_by_name() {
+    let app = test_app().await;
+
+    // Create a skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "enable-by-name",
+                        "description": "Test enable by name",
+                        "content": "---\nname: enable-by-name\ndescription: Test enable by name\n---\n\nInstructions"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Enable by name
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/enable-by-name/enable")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert!(
+        body["cache_path"]
+            .as_str()
+            .unwrap()
+            .contains("enable-by-name")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_enable_skill_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/nonexistent/enable")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_skill_by_id() {
+    let app = test_app().await;
+
+    // Create a skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "test-disable",
+                        "description": "Test disable",
+                        "content": "---\nname: test-disable\ndescription: Test disable\n---\n\nInstructions"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = json_body(response).await;
+    let id = created["id"].as_str().unwrap();
+
+    // Disable the skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/skills/{}/disable", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["skill_id"], id);
+    assert_eq!(body["skill_name"], "test-disable");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_skill_by_name() {
+    let app = test_app().await;
+
+    // Create a skill
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "name": "disable-by-name",
+                        "description": "Test disable by name",
+                        "content": "---\nname: disable-by-name\ndescription: Test disable by name\n---\n\nInstructions"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Disable by name
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/disable-by-name/disable")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["skill_name"], "disable-by-name");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_skill_not_found() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/nonexistent/disable")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

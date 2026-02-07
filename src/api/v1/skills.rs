@@ -553,3 +553,228 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
 
     Ok((StatusCode::CREATED, Json(skill.into())))
 }
+
+// =============================================================================
+// Enable/Disable Cache Management
+// =============================================================================
+
+#[derive(Serialize, ToSchema)]
+pub struct EnableSkillResponse {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub cache_path: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct DisableSkillResponse {
+    pub skill_id: String,
+    pub skill_name: String,
+}
+
+/// Enable a skill by extracting attachments to cache
+///
+/// Supports lookup by ID or name. Extracts SKILL.md and all attachments
+/// to the cache directory.
+#[utoipa::path(
+    post,
+    path = "/api/v1/skills/{id_or_name}/enable",
+    tag = "skills",
+    params(("id_or_name" = String, Path, description = "Skill ID or name")),
+    responses(
+        (status = 200, description = "Skill enabled", body = EnableSkillResponse),
+        (status = 404, description = "Skill not found", body = ErrorResponse),
+        (status = 500, description = "Enable failed", body = ErrorResponse)
+    )
+)]
+pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id_or_name): Path<String>,
+) -> Result<Json<EnableSkillResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+    let repo = db.skills();
+
+    // Try to get skill by ID first, then by name
+    let skill = match repo.get(&id_or_name).await {
+        Ok(s) => s,
+        Err(DbError::NotFound { .. }) => {
+            // Try by name
+            let query = crate::db::SkillQuery {
+                page: crate::db::PageSort {
+                    limit: Some(1),
+                    offset: None,
+                    sort_by: None,
+                    sort_order: None,
+                },
+                tags: None,
+                project_id: None,
+            };
+            let results = repo.list(Some(&query)).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+            // Filter by name (case-sensitive)
+            results
+                .items
+                .into_iter()
+                .find(|s| s.name == id_or_name)
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(ErrorResponse {
+                            error: format!("Skill '{}' not found", id_or_name),
+                        }),
+                    )
+                })?
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ));
+        }
+    };
+
+    // Parse skill name from content
+    let skill_name = crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to parse skill name: {}", e),
+            }),
+        )
+    })?;
+
+    // Get attachments
+    let attachments = repo.get_attachments(&skill.id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to get attachments: {}", e),
+            }),
+        )
+    })?;
+
+    // Extract to cache
+    let cache_path = crate::skills::extract_attachments(
+        state.skills_dir(),
+        &skill_name,
+        &skill.content,
+        &attachments,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to extract attachments: {}", e),
+            }),
+        )
+    })?;
+
+    Ok(Json(EnableSkillResponse {
+        skill_id: skill.id,
+        skill_name,
+        cache_path: cache_path.to_string_lossy().to_string(),
+    }))
+}
+
+/// Disable a skill by invalidating its cache
+///
+/// Supports lookup by ID or name. Removes all cached files for the skill.
+#[utoipa::path(
+    post,
+    path = "/api/v1/skills/{id_or_name}/disable",
+    tag = "skills",
+    params(("id_or_name" = String, Path, description = "Skill ID or name")),
+    responses(
+        (status = 200, description = "Skill disabled", body = DisableSkillResponse),
+        (status = 404, description = "Skill not found", body = ErrorResponse),
+        (status = 500, description = "Disable failed", body = ErrorResponse)
+    )
+)]
+pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id_or_name): Path<String>,
+) -> Result<Json<DisableSkillResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+    let repo = db.skills();
+
+    // Try to get skill by ID first, then by name
+    let skill = match repo.get(&id_or_name).await {
+        Ok(s) => s,
+        Err(DbError::NotFound { .. }) => {
+            // Try by name
+            let query = crate::db::SkillQuery {
+                page: crate::db::PageSort {
+                    limit: Some(1),
+                    offset: None,
+                    sort_by: None,
+                    sort_order: None,
+                },
+                tags: None,
+                project_id: None,
+            };
+            let results = repo.list(Some(&query)).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+            // Filter by name (case-sensitive)
+            results
+                .items
+                .into_iter()
+                .find(|s| s.name == id_or_name)
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(ErrorResponse {
+                            error: format!("Skill '{}' not found", id_or_name),
+                        }),
+                    )
+                })?
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ));
+        }
+    };
+
+    // Parse skill name from content
+    let skill_name = crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to parse skill name: {}", e),
+            }),
+        )
+    })?;
+
+    // Invalidate cache
+    crate::skills::invalidate_cache(&skill_name).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to invalidate cache: {}", e),
+            }),
+        )
+    })?;
+
+    Ok(Json(DisableSkillResponse {
+        skill_id: skill.id,
+        skill_name,
+    }))
+}

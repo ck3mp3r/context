@@ -471,8 +471,48 @@ c5t skill update skill123 --project-ids abc12345,def67890
 # Update both tags and projects
 c5t skill update skill123 --tags kubernetes --project-ids abc12345
 
+# Enable skill (extract attachments to cache)
+c5t skill enable skill123              # By ID
+c5t skill enable deploy-kubernetes     # By name
+
+# Disable skill (invalidate cache)
+c5t skill disable skill123             # By ID
+c5t skill disable deploy-kubernetes    # By name
+
 # Delete skill
 c5t skill delete skill123 --force
+```
+
+**Cache Management:**
+
+The `enable` command extracts skill attachments (scripts, references, assets) to the skills directory. This makes attachments available to LLMs and tools.
+
+The `disable` command removes all cached files for the skill. This is useful when:
+- Freeing up disk space
+- Forcing a fresh cache on next enable
+- Removing skills you're not actively using
+
+Skills can be enabled/disabled by either ID or name. The cache directory uses the skill name from SKILL.md frontmatter.
+
+**Skills Directory Configuration:**
+
+The skills cache location is configurable (precedence order):
+1. `--skills-dir` CLI flag (highest priority)
+2. `C5T_SKILLS_DIR` environment variable
+3. Default: `~/.local/share/c5t/skills/`
+
+Example:
+```bash
+# Use custom skills directory
+c5t api --skills-dir ~/.agents/skills
+
+# Or via environment variable
+export C5T_SKILLS_DIR=~/.agents/skills
+c5t api
+```
+
+Skills are cached to: `<skills-dir>/<skill-name>/`
+
 ```
 
 ### Output Formats
