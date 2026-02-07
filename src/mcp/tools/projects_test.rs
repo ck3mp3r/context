@@ -20,7 +20,9 @@ async fn test_list_projects_empty() {
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: None,
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -37,7 +39,8 @@ async fn test_list_projects_empty() {
         _ => panic!("Expected text content"),
     };
 
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
     // No default project in migration
     assert_eq!(projects.len(), 0);
 }
@@ -71,7 +74,9 @@ async fn test_list_projects_with_data() {
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: None,
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -86,7 +91,8 @@ async fn test_list_projects_with_data() {
         _ => panic!("Expected text content"),
     };
 
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
     // Only our test project, no default
     assert_eq!(projects.len(), 1);
     assert!(projects.iter().any(|p| p["title"] == "Test Project"));
@@ -316,7 +322,9 @@ async fn test_list_projects_respects_limit() {
     // Test 1: Without limit parameter, should return DEFAULT_LIMIT (10)
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: None,
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -327,13 +335,16 @@ async fn test_list_projects_respects_limit() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
     assert_eq!(projects.len(), 10, "Should return DEFAULT_LIMIT (10) items");
 
     // Test 2: With limit=5, should return 5
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: Some(5),
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -344,13 +355,16 @@ async fn test_list_projects_respects_limit() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
     assert_eq!(projects.len(), 5, "Should return requested 5 items");
 
     // Test 3: With limit=50 (exceeds MAX_LIMIT), should cap at MAX_LIMIT (20)
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: Some(50),
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -361,7 +375,8 @@ async fn test_list_projects_respects_limit() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
     assert_eq!(
         projects.len(),
         20,
@@ -428,7 +443,9 @@ async fn test_list_projects_with_sort_and_order() {
     // Test sorting by title ASC
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: None,
+            offset: None,
             sort: Some("title".to_string()),
             order: Some("asc".to_string()),
         }))
@@ -440,7 +457,8 @@ async fn test_list_projects_with_sort_and_order() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
 
     assert_eq!(projects.len(), 3);
     // Should be sorted by title ASC: AAA, MMM, ZZZ
@@ -451,7 +469,9 @@ async fn test_list_projects_with_sort_and_order() {
     // Test sorting by title DESC
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: None,
+            offset: None,
             sort: Some("title".to_string()),
             order: Some("desc".to_string()),
         }))
@@ -463,7 +483,8 @@ async fn test_list_projects_with_sort_and_order() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
 
     assert_eq!(projects.len(), 3);
     // Should be sorted by title DESC: ZZZ, MMM, AAA
@@ -471,13 +492,13 @@ async fn test_list_projects_with_sort_and_order() {
     assert_eq!(projects[1]["title"], "MMM Project");
     assert_eq!(projects[2]["title"], "AAA Project");
 
-    // Test sorting by created_at DESC
-    // Note: created_at is auto-generated, so we verify order logic, not exact values
     let result = tools
         .list_projects(Parameters(ListProjectsParams {
+            query: None,
             limit: None,
-            sort: Some("created_at".to_string()),
-            order: Some("desc".to_string()),
+            offset: None,
+            sort: None,
+            order: None,
         }))
         .await;
     assert!(result.is_ok());
@@ -487,7 +508,8 @@ async fn test_list_projects_with_sort_and_order() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let projects: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let projects = response["items"].as_array().unwrap();
 
     assert_eq!(projects.len(), 3);
     // Verify order is DESC by comparing timestamps
@@ -591,6 +613,9 @@ async fn test_update_project_external_ref() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_projects_by_title() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -630,11 +655,9 @@ async fn test_search_projects_by_title() {
 
     let tools = ProjectTools::new(db, ChangeNotifier::new());
 
-    use crate::mcp::tools::projects::SearchProjectsParams;
-    use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_projects(Parameters(SearchProjectsParams {
-            query: "rust".to_string(),
+        .list_projects(Parameters(ListProjectsParams {
+            query: Some("rust".to_string()),
             limit: None,
             offset: None,
             sort: None,
@@ -659,6 +682,9 @@ async fn test_search_projects_by_title() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_projects_by_description() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -698,11 +724,9 @@ async fn test_search_projects_by_description() {
 
     let tools = ProjectTools::new(db, ChangeNotifier::new());
 
-    use crate::mcp::tools::projects::SearchProjectsParams;
-    use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_projects(Parameters(SearchProjectsParams {
-            query: "machine learning".to_string(),
+        .list_projects(Parameters(ListProjectsParams {
+            query: Some("machine learning".to_string()),
             limit: None,
             offset: None,
             sort: None,
@@ -725,6 +749,9 @@ async fn test_search_projects_by_description() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_projects_by_tags() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -764,11 +791,9 @@ async fn test_search_projects_by_tags() {
 
     let tools = ProjectTools::new(db, ChangeNotifier::new());
 
-    use crate::mcp::tools::projects::SearchProjectsParams;
-    use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_projects(Parameters(SearchProjectsParams {
-            query: "typescript".to_string(),
+        .list_projects(Parameters(ListProjectsParams {
+            query: Some("typescript".to_string()),
             limit: None,
             offset: None,
             sort: None,
@@ -791,6 +816,9 @@ async fn test_search_projects_by_tags() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_projects_by_external_refs() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -830,11 +858,9 @@ async fn test_search_projects_by_external_refs() {
 
     let tools = ProjectTools::new(db, ChangeNotifier::new());
 
-    use crate::mcp::tools::projects::SearchProjectsParams;
-    use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_projects(Parameters(SearchProjectsParams {
-            query: "owner/repo#123".to_string(),
+        .list_projects(Parameters(ListProjectsParams {
+            query: Some("owner/repo#123".to_string()),
             limit: None,
             offset: None,
             sort: None,
@@ -857,6 +883,9 @@ async fn test_search_projects_by_external_refs() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_projects_with_boolean_operators() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -912,11 +941,9 @@ async fn test_search_projects_with_boolean_operators() {
 
     let tools = ProjectTools::new(db, ChangeNotifier::new());
 
-    use crate::mcp::tools::projects::SearchProjectsParams;
-    use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_projects(Parameters(SearchProjectsParams {
-            query: "rust AND backend".to_string(),
+        .list_projects(Parameters(ListProjectsParams {
+            query: Some("rust AND backend".to_string()),
             limit: None,
             offset: None,
             sort: None,
@@ -939,6 +966,9 @@ async fn test_search_projects_with_boolean_operators() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_projects_empty_results() {
+    use crate::mcp::tools::projects::ListProjectsParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -962,11 +992,9 @@ async fn test_search_projects_empty_results() {
 
     let tools = ProjectTools::new(db, ChangeNotifier::new());
 
-    use crate::mcp::tools::projects::SearchProjectsParams;
-    use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_projects(Parameters(SearchProjectsParams {
-            query: "nonexistent".to_string(),
+        .list_projects(Parameters(ListProjectsParams {
+            query: Some("nonexistent".to_string()),
             limit: None,
             offset: None,
             sort: None,
