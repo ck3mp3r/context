@@ -146,6 +146,10 @@ pub trait SkillRepository: Send + Sync {
         attachment: &crate::db::models::SkillAttachment,
     ) -> impl Future<Output = DbResult<()>> + Send;
     fn delete_attachment(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete_attachments_for_skill(
+        &self,
+        skill_id: &str,
+    ) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for sync operations (import/export).

@@ -935,3 +935,330 @@ Learn async programming with Python.
     let items = json["items"].as_array().unwrap();
     assert_eq!(items[0]["name"], "rust-async");
 }
+
+// ============================================================================
+// UPDATE_SKILL TESTS: Partial updates for tags and project_ids
+// ============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_skill_tags_only() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    // Create a skill with initial tags
+    let skill = Skill {
+        id: String::new(),
+        name: "test-skill".to_string(),
+        description: "Test skill for update".to_string(),
+        content: r#"---
+name: test-skill
+description: Test skill for update
+---
+
+# Test Skill
+
+Test content.
+"#
+        .to_string(),
+        tags: vec!["initial".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created = db.skills().create(&skill).await.unwrap();
+
+    // Update tags only
+    use crate::mcp::tools::skills::UpdateSkillParams;
+    let params = UpdateSkillParams {
+        skill_id: created.id.clone(),
+        tags: Some(vec!["updated".to_string(), "new-tag".to_string()]),
+        project_ids: None,
+    };
+
+    let result = tools
+        .update_skill(Parameters(params))
+        .await
+        .expect("update_skill should succeed");
+
+    // Parse response
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Verify tags were updated
+    assert_eq!(json["id"], created.id);
+    let tags = json["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 2);
+    assert!(tags.contains(&serde_json::json!("updated")));
+    assert!(tags.contains(&serde_json::json!("new-tag")));
+
+    // Verify project_ids unchanged (empty)
+    assert_eq!(json["project_ids"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_skill_project_ids_only() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    // Create a project first
+    use crate::db::{Project, ProjectRepository};
+    let project = Project {
+        id: String::new(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let created_project = db.projects().create(&project).await.unwrap();
+
+    // Create a skill
+    let skill = Skill {
+        id: String::new(),
+        name: "test-skill-2".to_string(),
+        description: "Test skill for project update".to_string(),
+        content: r#"---
+name: test-skill-2
+description: Test skill for project update
+---
+
+# Test Skill 2
+
+Test content.
+"#
+        .to_string(),
+        tags: vec!["test".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_skill = db.skills().create(&skill).await.unwrap();
+
+    // Update project_ids only
+    use crate::mcp::tools::skills::UpdateSkillParams;
+    let params = UpdateSkillParams {
+        skill_id: created_skill.id.clone(),
+        tags: None,
+        project_ids: Some(vec![created_project.id.clone()]),
+    };
+
+    let result = tools
+        .update_skill(Parameters(params))
+        .await
+        .expect("update_skill should succeed");
+
+    // Parse response
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Verify project_ids were updated
+    assert_eq!(json["id"], created_skill.id);
+    let project_ids = json["project_ids"].as_array().unwrap();
+    assert_eq!(project_ids.len(), 1);
+    assert_eq!(project_ids[0], created_project.id);
+
+    // Verify tags unchanged
+    let tags = json["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0], "test");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_skill_both_tags_and_project_ids() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    // Create a project
+    use crate::db::{Project, ProjectRepository};
+    let project = Project {
+        id: String::new(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let created_project = db.projects().create(&project).await.unwrap();
+
+    // Create a skill
+    let skill = Skill {
+        id: String::new(),
+        name: "test-skill-3".to_string(),
+        description: "Test skill for full update".to_string(),
+        content: r#"---
+name: test-skill-3
+description: Test skill for full update
+---
+
+# Test Skill 3
+
+Test content.
+"#
+        .to_string(),
+        tags: vec!["old".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_skill = db.skills().create(&skill).await.unwrap();
+
+    // Update both tags and project_ids
+    use crate::mcp::tools::skills::UpdateSkillParams;
+    let params = UpdateSkillParams {
+        skill_id: created_skill.id.clone(),
+        tags: Some(vec!["new".to_string(), "updated".to_string()]),
+        project_ids: Some(vec![created_project.id.clone()]),
+    };
+
+    let result = tools
+        .update_skill(Parameters(params))
+        .await
+        .expect("update_skill should succeed");
+
+    // Parse response
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Verify both were updated
+    assert_eq!(json["id"], created_skill.id);
+
+    let tags = json["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 2);
+    assert!(tags.contains(&serde_json::json!("new")));
+    assert!(tags.contains(&serde_json::json!("updated")));
+
+    let project_ids = json["project_ids"].as_array().unwrap();
+    assert_eq!(project_ids.len(), 1);
+    assert_eq!(project_ids[0], created_project.id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_skill_invalid_id() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    // Try to update non-existent skill
+    use crate::mcp::tools::skills::UpdateSkillParams;
+    let params = UpdateSkillParams {
+        skill_id: "nonexistent".to_string(),
+        tags: Some(vec!["tag".to_string()]),
+        project_ids: None,
+    };
+
+    let result = tools.update_skill(Parameters(params)).await;
+    assert!(result.is_err(), "Should fail for non-existent skill");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_skill_no_changes() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    // Create a skill
+    let skill = Skill {
+        id: String::new(),
+        name: "test-skill-4".to_string(),
+        description: "Test skill for no-op update".to_string(),
+        content: r#"---
+name: test-skill-4
+description: Test skill for no-op update
+---
+
+# Test Skill 4
+
+Test content.
+"#
+        .to_string(),
+        tags: vec!["original".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_skill = db.skills().create(&skill).await.unwrap();
+
+    // Update with no fields specified (should succeed but not change anything)
+    use crate::mcp::tools::skills::UpdateSkillParams;
+    let params = UpdateSkillParams {
+        skill_id: created_skill.id.clone(),
+        tags: None,
+        project_ids: None,
+    };
+
+    let result = tools
+        .update_skill(Parameters(params))
+        .await
+        .expect("update_skill with no changes should succeed");
+
+    // Parse response
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    // Verify nothing changed
+    assert_eq!(json["id"], created_skill.id);
+    let tags = json["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0], "original");
+    assert_eq!(json["project_ids"].as_array().unwrap().len(), 0);
+}
