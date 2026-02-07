@@ -263,3 +263,80 @@ pub async fn update_skill(
 
     Ok(format!("Updated skill: {} (ID: {})", skill.name, skill.id))
 }
+
+/// Enable a skill by extracting attachments to cache
+pub async fn enable_skill(api_client: &ApiClient, id_or_name: &str) -> CliResult<String> {
+    #[derive(Deserialize)]
+    struct EnableResponse {
+        skill_id: String,
+        skill_name: String,
+        cache_path: String,
+    }
+
+    let response = api_client
+        .post(&format!("/api/v1/skills/{}/enable", id_or_name))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(CliError::ApiError {
+            status: status.as_u16(),
+            message: format!("Enable failed: {}", error_text),
+        });
+    }
+
+    let result: EnableResponse = response
+        .json()
+        .await
+        .map_err(|e| CliError::InvalidResponse {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+    Ok(format!(
+        "Skill '{}' (ID: {}) enabled\nCache: {}",
+        result.skill_name, result.skill_id, result.cache_path
+    ))
+}
+
+/// Disable a skill by invalidating its cache
+pub async fn disable_skill(api_client: &ApiClient, id_or_name: &str) -> CliResult<String> {
+    #[derive(Deserialize)]
+    struct DisableResponse {
+        skill_id: String,
+        skill_name: String,
+    }
+
+    let response = api_client
+        .post(&format!("/api/v1/skills/{}/disable", id_or_name))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(CliError::ApiError {
+            status: status.as_u16(),
+            message: format!("Disable failed: {}", error_text),
+        });
+    }
+
+    let result: DisableResponse = response
+        .json()
+        .await
+        .map_err(|e| CliError::InvalidResponse {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+    Ok(format!(
+        "Skill '{}' (ID: {}) disabled",
+        result.skill_name, result.skill_id
+    ))
+}

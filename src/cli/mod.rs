@@ -393,6 +393,16 @@ enum SkillCommands {
         #[arg(long)]
         project_ids: Option<String>,
     },
+    /// Enable a skill (extract attachments to cache)
+    Enable {
+        /// Skill ID or name
+        id_or_name: String,
+    },
+    /// Disable a skill (invalidate cache)
+    Disable {
+        /// Skill ID or name
+        id_or_name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1197,6 +1207,14 @@ pub async fn run() -> Result<()> {
                 let output =
                     commands::skill::update_skill(&api_client, &id, tags_vec, project_ids_vec)
                         .await?;
+                println!("{}", output);
+            }
+            SkillCommands::Enable { id_or_name } => {
+                let output = commands::skill::enable_skill(&api_client, &id_or_name).await?;
+                println!("{}", output);
+            }
+            SkillCommands::Disable { id_or_name } => {
+                let output = commands::skill::disable_skill(&api_client, &id_or_name).await?;
                 println!("{}", output);
             }
         },

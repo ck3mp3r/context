@@ -10,11 +10,12 @@ use super::state::AppState;
 use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
-    CreateTaskListRequest, CreateTaskRequest, ErrorResponse, ImportSkillRequest, NoteResponse,
-    PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
-    PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse, SkillResponse,
-    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse, EnableSkillResponse,
+    ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest, PatchProjectRequest,
+    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest,
+    RepoResponse, SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
+    UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest,
+    UpdateTaskRequest,
 };
 
 use crate::db::Database;
@@ -81,6 +82,8 @@ macro_rules! routes {
          super::v1::get_skill,
          super::v1::create_skill,
          super::v1::import_skill,
+         super::v1::enable_skill,
+         super::v1::disable_skill,
          super::v1::replace_skill,
          super::v1::patch_skill,
          super::v1::delete_skill,
@@ -128,6 +131,8 @@ macro_rules! routes {
              ImportSkillRequest,
              ReplaceSkillRequest,
              UpdateSkillRequest,
+             EnableSkillResponse,
+             DisableSkillResponse,
         )
     ),
     tags(
@@ -206,6 +211,8 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         get "/skills/{id}" => super::v1::get_skill,
         post "/skills" => super::v1::create_skill,
         post "/skills/import" => super::v1::import_skill,
+        post "/skills/{id_or_name}/enable" => super::v1::enable_skill,
+        post "/skills/{id_or_name}/disable" => super::v1::disable_skill,
         put "/skills/{id}" => super::v1::replace_skill,
         patch "/skills/{id}" => super::v1::patch_skill,
         delete "/skills/{id}" => super::v1::delete_skill,

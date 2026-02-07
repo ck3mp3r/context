@@ -532,3 +532,201 @@ async fn test_list_skills_with_query_search() {
         "Should find at most 1 skill with both query and tag"
     );
 }
+
+// =============================================================================
+// Enable/Disable Cache Management Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_enable_skill_by_id() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill
+    let import_result = import_skill(
+        &api_client,
+        "tests/fixtures/skills/rust",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    // Extract skill ID
+    let skill_id = import_result
+        .split("ID: ")
+        .nth(1)
+        .unwrap()
+        .trim_end_matches(')')
+        .trim();
+
+    // Enable the skill
+    let result = enable_skill(&api_client, skill_id)
+        .await
+        .expect("Failed to enable skill");
+
+    assert!(result.contains("rust"), "Should mention skill name");
+    assert!(result.contains("enabled"), "Should confirm enabled");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_enable_skill_by_name() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill
+    import_skill(
+        &api_client,
+        "tests/fixtures/skills/docker",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    // Enable by name
+    let result = enable_skill(&api_client, "docker")
+        .await
+        .expect("Failed to enable skill by name");
+
+    assert!(result.contains("docker"), "Should mention skill name");
+    assert!(result.contains("enabled"), "Should confirm enabled");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_enable_skill_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    let result = enable_skill(&api_client, "nonexistent").await;
+    assert!(result.is_err(), "Should fail for nonexistent skill");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_skill_by_id() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill
+    let import_result = import_skill(
+        &api_client,
+        "tests/fixtures/skills/python",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    // Extract skill ID
+    let skill_id = import_result
+        .split("ID: ")
+        .nth(1)
+        .unwrap()
+        .trim_end_matches(')')
+        .trim();
+
+    // Disable the skill
+    let result = disable_skill(&api_client, skill_id)
+        .await
+        .expect("Failed to disable skill");
+
+    assert!(result.contains("python"), "Should mention skill name");
+    assert!(result.contains("disabled"), "Should confirm disabled");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_skill_by_name() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill
+    import_skill(
+        &api_client,
+        "tests/fixtures/skills/rust",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    // Disable by name
+    let result = disable_skill(&api_client, "rust")
+        .await
+        .expect("Failed to disable skill by name");
+
+    assert!(result.contains("rust"), "Should mention skill name");
+    assert!(result.contains("disabled"), "Should confirm disabled");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_skill_not_found() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    let result = disable_skill(&api_client, "nonexistent").await;
+    assert!(result.is_err(), "Should fail for nonexistent skill");
+}
+
+// =============================================================================
+// Auto-enable on Import Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_auto_enables_skill() {
+    use std::fs;
+
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill - should auto-enable and create cache
+    let import_result = import_skill(
+        &api_client,
+        "tests/fixtures/skills/rust",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    assert!(
+        import_result.contains("rust"),
+        "Import should succeed: {}",
+        import_result
+    );
+
+    // Verify cache directory was created
+    let cache_dir = std::path::Path::new("/tmp/skills/rust");
+    assert!(
+        cache_dir.exists(),
+        "Cache directory should be created automatically: {}",
+        cache_dir.display()
+    );
+
+    // Verify SKILL.md exists in cache
+    let skill_md = cache_dir.join("SKILL.md");
+    assert!(
+        skill_md.exists(),
+        "SKILL.md should be extracted to cache: {}",
+        skill_md.display()
+    );
+
+    // Verify content is correct
+    let content = fs::read_to_string(&skill_md).expect("Failed to read SKILL.md");
+    assert!(
+        content.contains("Follow the Rust Book"),
+        "SKILL.md should contain expected content"
+    );
+
+    // Cleanup
+    let _ = fs::remove_dir_all(cache_dir);
+}
