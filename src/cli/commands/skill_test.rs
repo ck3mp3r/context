@@ -674,3 +674,59 @@ async fn test_disable_skill_not_found() {
     let result = disable_skill(&api_client, "nonexistent").await;
     assert!(result.is_err(), "Should fail for nonexistent skill");
 }
+
+// =============================================================================
+// Auto-enable on Import Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_auto_enables_skill() {
+    use std::fs;
+
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url.clone()));
+
+    // Import a skill - should auto-enable and create cache
+    let import_result = import_skill(
+        &api_client,
+        "tests/fixtures/skills/rust",
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to import skill");
+
+    assert!(
+        import_result.contains("rust"),
+        "Import should succeed: {}",
+        import_result
+    );
+
+    // Verify cache directory was created
+    let cache_dir = std::path::Path::new("/tmp/skills/rust");
+    assert!(
+        cache_dir.exists(),
+        "Cache directory should be created automatically: {}",
+        cache_dir.display()
+    );
+
+    // Verify SKILL.md exists in cache
+    let skill_md = cache_dir.join("SKILL.md");
+    assert!(
+        skill_md.exists(),
+        "SKILL.md should be extracted to cache: {}",
+        skill_md.display()
+    );
+
+    // Verify content is correct
+    let content = fs::read_to_string(&skill_md).expect("Failed to read SKILL.md");
+    assert!(
+        content.contains("Follow the Rust Book"),
+        "SKILL.md should contain expected content"
+    );
+
+    // Cleanup
+    let _ = fs::remove_dir_all(cache_dir);
+}

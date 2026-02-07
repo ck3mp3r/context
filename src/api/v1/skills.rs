@@ -546,6 +546,33 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Auto-enable: Extract attachments to cache immediately after import
+    let skill_name = crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to parse skill name: {}", e),
+            }),
+        )
+    })?;
+
+    let attachments = db.skills().get_attachments(&skill.id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to get attachments: {}", e),
+            }),
+        )
+    })?;
+
+    // Extract to cache (ignore errors - cache is best-effort)
+    let _ = crate::skills::extract_attachments(
+        state.skills_dir(),
+        &skill_name,
+        &skill.content,
+        &attachments,
+    );
+
     // Broadcast notification
     state.notifier().notify(UpdateMessage::SkillCreated {
         skill_id: skill.id.clone(),
