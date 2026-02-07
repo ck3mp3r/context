@@ -573,6 +573,18 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
 
         Ok(())
     }
+
+    async fn delete_attachments_for_skill(&self, skill_id: &str) -> DbResult<()> {
+        sqlx::query("DELETE FROM skill_attachment WHERE skill_id = ?")
+            .bind(skill_id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        Ok(())
+    }
 }
 
 // =============================================================================

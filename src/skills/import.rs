@@ -174,20 +174,27 @@ pub async fn import_skill<D: Database>(
                 )));
             }
 
-            // Delete existing skill (CASCADE will delete all attachments)
+            // Update existing skill (preserves created_at timestamp)
             db.skills()
-                .delete(&skill_id)
+                .update(&skill)
+                .await
+                .map_err(|e| ImportError::Database(e.to_string()))?;
+
+            // Delete all old attachments for this skill in one query
+            // Much more efficient than iterating and deleting one by one
+            db.skills()
+                .delete_attachments_for_skill(&skill_id)
+                .await
+                .map_err(|e| ImportError::Database(e.to_string()))?;
+        } else {
+            // Create new skill
+            db.skills()
+                .create(&skill)
                 .await
                 .map_err(|e| ImportError::Database(e.to_string()))?;
         }
 
-        // Create (or re-create) skill
-        db.skills()
-            .create(&skill)
-            .await
-            .map_err(|e| ImportError::Database(e.to_string()))?;
-
-        // Create attachments
+        // Create (new) attachments - always runs for both create and update paths
         for attachment_data in attachments {
             let attachment = SkillAttachment {
                 id: String::new(),
