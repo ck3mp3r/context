@@ -3,8 +3,7 @@
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
 use crate::mcp::tools::notes::{
-    CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools,
-    SearchNotesParams, UpdateNoteParams,
+    CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools, UpdateNoteParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
@@ -18,6 +17,7 @@ async fn test_list_notes_empty() {
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     let params = ListNotesParams {
+        query: None,
         tags: None,
         project_id: None,
         parent_id: None,
@@ -161,6 +161,7 @@ async fn test_list_notes_with_tag_filter() {
 
     // List only "work" notes
     let params = ListNotesParams {
+        query: None,
         tags: Some(vec!["work".to_string()]),
         project_id: None,
         parent_id: None,
@@ -326,18 +327,21 @@ async fn test_search_notes() {
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Search for "Rust"
-    let params = SearchNotesParams {
-        query: "Rust".to_string(),
+    let params = ListNotesParams {
+        query: Some("Rust".to_string()),
         tags: None,
         project_id: None,
+        parent_id: None,
+        note_type: None,
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
 
     let result = tools
-        .search_notes(Parameters(params))
+        .list_notes(Parameters(params))
         .await
         .expect("search should succeed");
 
@@ -391,18 +395,21 @@ async fn test_search_notes_with_tag_filter() {
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     // Search for "Rust" with "async" tag filter
-    let params = SearchNotesParams {
-        query: "Rust".to_string(),
+    let params = ListNotesParams {
+        query: Some("Rust".to_string()),
         tags: Some(vec!["async".to_string()]),
         project_id: None,
+        parent_id: None,
+        note_type: None,
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
 
     let result = tools
-        .search_notes(Parameters(params))
+        .list_notes(Parameters(params))
         .await
         .expect("search should succeed");
 
@@ -474,6 +481,7 @@ async fn test_list_notes_with_sort_and_order() {
 
     // Test sorting by updated_at DESC
     let params = ListNotesParams {
+        query: None,
         tags: None,
         project_id: None,
         parent_id: None,
@@ -505,6 +513,7 @@ async fn test_list_notes_with_sort_and_order() {
 
     // Test sorting by title ASC
     let params = ListNotesParams {
+        query: None,
         tags: None,
         project_id: None,
         parent_id: None,
@@ -700,6 +709,7 @@ async fn test_list_subnotes() {
 
     // List subnotes filtered by parent_id
     let list_params = ListNotesParams {
+        query: None,
         tags: None,
         project_id: None,
         parent_id: Some(parent.id.clone()),

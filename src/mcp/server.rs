@@ -317,14 +317,6 @@ impl<D: Database + 'static> McpServer<D> {
         self.note_tools.delete_note(params).await
     }
 
-    #[tool(description = "Full-text search notes using FTS5")]
-    pub async fn search_notes(
-        &self,
-        params: Parameters<SearchNotesParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.note_tools.search_notes(params).await
-    }
-
     // =========================================================================
     // Skill Tools
     // =========================================================================

@@ -23,6 +23,10 @@ use crate::mcp::tools::{apply_limit, map_db_error};
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesParams {
     #[schemars(
+        description = "FTS5 search query (optional). If provided, performs full-text search. Examples: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase match), 'term*' (prefix), 'NOT deprecated' (exclude), 'api AND (error OR bug)' (complex)"
+    )]
+    pub query: Option<String>,
+    #[schemars(
         description = "Filter by tags. Use reference tags to find linked notes: ['parent:NOTE_ID'], ['related:NOTE_ID']"
     )]
     pub tags: Option<Vec<String>>,
@@ -127,34 +131,6 @@ pub struct DeleteNoteParams {
     pub note_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SearchNotesParams {
-    #[schemars(
-        description = "FTS5 search query. Examples: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase match), 'term*' (prefix), 'NOT deprecated' (exclude), 'api AND (error OR bug)' (complex)"
-    )]
-    pub query: String,
-    #[schemars(
-        description = "Filter results by tags (optional). Can combine with search to find e.g. session notes matching a term."
-    )]
-    pub tags: Option<Vec<String>>,
-    #[schemars(description = "Filter by project ID (optional)")]
-    pub project_id: Option<String>,
-    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
-    pub limit: Option<usize>,
-    #[schemars(description = "Number of results to skip (optional)")]
-    pub offset: Option<usize>,
-    #[schemars(
-        description = "Field to sort by (title, created_at, updated_at, last_activity_at). Default: created_at"
-    )]
-    pub sort: Option<String>,
-    #[schemars(description = "Sort order (asc, desc). Default: asc")]
-    pub order: Option<String>,
-}
-
-// =============================================================================
-// Note Tools
-// =============================================================================
-
 #[derive(Clone)]
 pub struct NoteTools<D: Database> {
     db: Arc<D>,
@@ -178,7 +154,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "List notes with optional filtering and sorting. Default excludes content (metadata only) - use include_content=true for full notes. Filter by tags, project_id, or note_type. Sort by title, created_at, or updated_at. Limit default: 10, max: 20."
+        description = "List notes with optional full-text search. Provide 'query' parameter to search, omit to list all. Default excludes content (metadata only) - use include_content=true for full notes. Filter by tags, project_id, parent_id, or note_type. Sort by title, created_at, updated_at, or last_activity_at. Limit default: 10, max: 20."
     )]
     pub async fn list_notes(
         &self,
@@ -205,7 +181,10 @@ impl<D: Database + 'static> NoteTools<D> {
             note_type: params.0.note_type.clone(),
         };
 
-        let result = if include_content {
+        // If query is provided, perform FTS search
+        let result = if let Some(q) = &params.0.query {
+            self.db.notes().search(q, Some(&query)).await
+        } else if include_content {
             self.db.notes().list(Some(&query)).await
         } else {
             self.db.notes().list_metadata_only(Some(&query)).await
@@ -364,54 +343,5 @@ impl<D: Database + 'static> NoteTools<D> {
             "Note {} deleted successfully",
             params.0.note_id
         ))]))
-    }
-
-    #[tool(
-        description = "Full-text search notes (FTS5) with optional sorting. Supports: 'rust AND async' (Boolean), '\"exact phrase\"' (phrase), 'term*' (prefix), 'NOT deprecated' (exclusion). Filter results by tags/project_id. Sort by title, created_at, or updated_at. Returns metadata only (no content)."
-    )]
-    pub async fn search_notes(
-        &self,
-        params: Parameters<SearchNotesParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Build query
-        let query = NoteQuery {
-            page: PageSort {
-                limit: Some(apply_limit(params.0.limit)),
-                offset: params.0.offset,
-                sort_by: params.0.sort.clone(),
-                sort_order: match params.0.order.as_deref() {
-                    Some("desc") => Some(crate::db::SortOrder::Desc),
-                    Some("asc") => Some(crate::db::SortOrder::Asc),
-                    _ => None,
-                },
-            },
-            tags: params.0.tags.clone(),
-            project_id: params.0.project_id.clone(),
-            parent_id: None,
-            note_type: None,
-        };
-
-        let result = self
-            .db
-            .notes()
-            .search(&params.0.query, Some(&query))
-            .await
-            .map_err(|e| {
-                McpError::internal_error(
-                    "database_error",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
-
-        let response = json!({
-            "items": result.items,
-            "total": result.total,
-            "limit": result.limit,
-            "offset": result.offset,
-        });
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
     }
 }
