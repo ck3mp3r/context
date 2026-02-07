@@ -42,6 +42,18 @@ pub struct GetSkillParams {
     pub skill_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct UpdateSkillParams {
+    #[schemars(description = "Skill ID to update")]
+    pub skill_id: String,
+    #[schemars(description = "New tags (optional). Replaces all existing tags when provided.")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(
+        description = "New project IDs (optional). Replaces all existing project links when provided."
+    )]
+    pub project_ids: Option<Vec<String>>,
+}
+
 #[derive(Clone)]
 pub struct SkillTools<D: crate::db::Database> {
     db: Arc<D>,
@@ -202,6 +214,66 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    #[tool(
+        description = "Update skill tags and/or project_ids. Allows partial updates - update tags without changing projects, or vice versa."
+    )]
+    pub async fn update_skill(
+        &self,
+        params: Parameters<UpdateSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Fetch existing skill
+        let mut skill = self
+            .db
+            .skills()
+            .get(&params.0.skill_id)
+            .await
+            .map_err(|e| match e {
+                crate::db::DbError::NotFound { .. } => McpError::resource_not_found(
+                    "skill_not_found",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+                _ => McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                ),
+            })?;
+
+        // Update tags if provided
+        if let Some(tags) = params.0.tags {
+            skill.tags = tags;
+        }
+
+        // Update project_ids if provided
+        if let Some(project_ids) = params.0.project_ids {
+            skill.project_ids = project_ids;
+        }
+
+        // Save updated skill
+        self.db.skills().update(&skill).await.map_err(|e| {
+            McpError::internal_error(
+                "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Return updated skill
+        let updated_skill = self
+            .db
+            .skills()
+            .get(&params.0.skill_id)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(
+                    "database_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                )
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&updated_skill).unwrap(),
         )]))
     }
 }

@@ -1,5 +1,6 @@
 use super::Config;
 use crate::sync::get_data_dir;
+use serial_test::serial;
 use std::env;
 use std::path::PathBuf;
 
@@ -12,6 +13,7 @@ fn test_config_default_skills_dir() {
 }
 
 #[test]
+#[serial]
 fn test_config_new_respects_env_var() {
     // Config::new() should read C5T_SKILLS_DIR env var
     let custom_dir = "/tmp/new-skills-test1";
@@ -29,6 +31,7 @@ fn test_config_new_respects_env_var() {
 }
 
 #[test]
+#[serial]
 fn test_config_builder_overrides_env_var() {
     // Set env var
     unsafe {
@@ -48,6 +51,7 @@ fn test_config_builder_overrides_env_var() {
 }
 
 #[test]
+#[serial]
 fn test_config_precedence_cli_over_env() {
     // Precedence: CLI flag > env var > default
     unsafe {
