@@ -94,13 +94,10 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `delete_note` - Delete note
 - `search_notes` - Full-text search notes (FTS5)
 
-### Skills (6 tools)
-- `create_skill` - Create new skill
-- `list_skills` - List skills (filter by tags/project)
-- `get_skill` - Get skill by ID
-- `update_skill` - Update skill
-- `delete_skill` - Delete skill
-- `search_skills` - Full-text search skills (FTS5)
+### Skills (3 tools)
+- `list_skills` - List/search skills with FTS5 (optional query parameter)
+- `get_skill` - Get skill by ID with attachment cache
+- `update_skill` - Update skill tags and/or project_ids (partial updates)
 
 ### Sync (1 tool)
 - `sync` - Git-based sync operations (init/export/import/status)
