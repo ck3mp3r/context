@@ -39,6 +39,10 @@ pub struct ListTasksParams {
     #[schemars(description = "TaskList ID to list tasks from")]
     pub list_id: String,
     #[schemars(
+        description = "FTS5 search query (optional). If provided, performs full-text search. Searches title, description, tags, external_refs. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match), 'owner/repo#123' (GitHub issue)"
+    )]
+    pub query: Option<String>,
+    #[schemars(
         description = "Filter by status: ['backlog'], ['todo'], ['in_progress'], ['review'], ['done'], ['cancelled']. Can combine: ['todo', 'in_progress'] for active tasks."
     )]
     pub status: Option<Vec<String>>,
@@ -62,37 +66,6 @@ pub struct ListTasksParams {
     )]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc)")]
-    pub order: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SearchTasksParams {
-    #[schemars(description = "Task list ID to search within (REQUIRED)")]
-    pub list_id: String,
-    #[schemars(
-        description = "FTS5 search query. Searches title, description, tags, external_refs. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match), 'owner/repo#123' (GitHub issue)"
-    )]
-    pub query: String,
-    #[schemars(
-        description = "Filter by status: ['backlog'], ['todo'], ['in_progress'], ['review'], ['done'], ['cancelled']. Optional."
-    )]
-    pub status: Option<Vec<String>>,
-    #[schemars(description = "Filter by parent task ID. Optional.")]
-    pub parent_id: Option<String>,
-    #[schemars(
-        description = "Filter by task type: 'task' (top-level only) or 'subtask' (only subtasks). Optional."
-    )]
-    #[serde(rename = "type")]
-    pub task_type: Option<String>,
-    #[schemars(description = "Maximum number of results to return (default: 10, max: 20)")]
-    pub limit: Option<usize>,
-    #[schemars(description = "Number of results to skip (optional)")]
-    pub offset: Option<usize>,
-    #[schemars(
-        description = "Field to sort by (title, status, priority, created_at, updated_at, completed_at). Default: created_at"
-    )]
-    pub sort: Option<String>,
-    #[schemars(description = "Sort order (asc, desc). Default: asc")]
     pub order: Option<String>,
 }
 
@@ -205,7 +178,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "List tasks in a task list. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, updated_at, or completed_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
+        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, updated_at, or completed_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
     pub async fn list_tasks(
         &self,
@@ -233,12 +206,13 @@ impl<D: Database + 'static> TaskTools<D> {
             task_type: params.0.task_type.clone(),
         };
 
-        let result = self
-            .db
-            .tasks()
-            .list(Some(&query))
-            .await
-            .map_err(map_db_error)?;
+        // If query is provided, perform FTS search
+        let result = if let Some(q) = &params.0.query {
+            self.db.tasks().search(q, Some(&query)).await
+        } else {
+            self.db.tasks().list(Some(&query)).await
+        }
+        .map_err(map_db_error)?;
 
         let response = json!({
             "items": result.items,
@@ -311,20 +285,12 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition one or more tasks to a new status. All tasks must have the same current status. Atomic operation (all-or-nothing). Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
+        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
     )]
     pub async fn transition_task(
         &self,
         params: Parameters<TransitionTaskParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Validate task_ids is not empty
-        if params.0.task_ids.is_empty() {
-            return Err(McpError::invalid_params(
-                "empty_task_ids",
-                Some(serde_json::json!({"error": "task_ids cannot be empty"})),
-            ));
-        }
-
         // Parse target status
         let target_status = params.0.status.parse::<TaskStatus>().map_err(|e| {
             McpError::invalid_params(
@@ -449,56 +415,5 @@ impl<D: Database + 'static> TaskTools<D> {
             "Task {} deleted successfully",
             params.0.task_id
         ))]))
-    }
-
-    /// Full-text search tasks using FTS5
-    #[tool(
-        description = "Full-text search tasks within a task list using FTS5. Searches title, description, tags, external_refs. Supports: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase), 'owner/repo#123' (GitHub issues), 'term*' (prefix), 'NOT deprecated' (exclusion). Default limit: 10, max: 20."
-    )]
-    pub async fn search_tasks(
-        &self,
-        params: Parameters<SearchTasksParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let limit = apply_limit(params.0.limit);
-
-        // Convert status Vec to comma-separated string if provided
-        let status_str = params.0.status.as_ref().map(|statuses| statuses.join(","));
-
-        // Build query
-        let query = TaskQuery {
-            page: PageSort {
-                limit: Some(limit),
-                offset: params.0.offset,
-                sort_by: params.0.sort.clone(),
-                sort_order: match params.0.order.as_deref() {
-                    Some("desc") => Some(SortOrder::Desc),
-                    Some("asc") => Some(SortOrder::Asc),
-                    _ => None,
-                },
-            },
-            list_id: Some(params.0.list_id.clone()),
-            status: status_str,
-            parent_id: params.0.parent_id.clone(),
-            tags: None, // Not used with FTS5 search
-            task_type: params.0.task_type.clone(),
-        };
-
-        let result = self
-            .db
-            .tasks()
-            .search(&params.0.query, Some(&query))
-            .await
-            .map_err(map_db_error)?;
-
-        let response = json!({
-            "items": result.items,
-            "total": result.total,
-            "limit": result.limit,
-            "offset": result.offset,
-        });
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
     }
 }

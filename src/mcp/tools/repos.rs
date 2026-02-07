@@ -15,17 +15,24 @@ use rmcp::{
     tool, tool_router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::Arc;
 
 // Parameter types for tools
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListReposParams {
+    #[schemars(
+        description = "FTS5 search query (optional). Searches across remote URL, path, and tags."
+    )]
+    pub query: Option<String>,
     #[schemars(description = "Filter by project ID")]
     pub project_id: Option<String>,
     #[schemars(
         description = "Maximum number of repos to return (default: 10, max: 20). IMPORTANT: Keep small to prevent context overflow."
     )]
     pub limit: Option<usize>,
+    #[schemars(description = "Number of items to skip (for pagination)")]
+    pub offset: Option<usize>,
     #[schemars(description = "Field to sort by (remote, path, created_at). Default: created_at")]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc). Default: asc")]
@@ -113,7 +120,7 @@ impl<D: Database + 'static> RepoTools<D> {
         let query = RepoQuery {
             page: PageSort {
                 limit: Some(limit),
-                offset: None,
+                offset: params.0.offset,
                 sort_by: params.0.sort.clone(),
                 sort_order: match params.0.order.as_deref() {
                     Some("desc") => Some(crate::db::SortOrder::Desc),
@@ -123,7 +130,7 @@ impl<D: Database + 'static> RepoTools<D> {
             },
             tags: None,
             project_id: params.0.project_id,
-            search_query: None, // TODO: Add search query support to MCP tool
+            search_query: params.0.query,
         };
 
         let result = self
@@ -133,7 +140,14 @@ impl<D: Database + 'static> RepoTools<D> {
             .await
             .map_err(map_db_error)?;
 
-        let content = serde_json::to_string_pretty(&result.items).map_err(|e| {
+        let response = json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        let content = serde_json::to_string_pretty(&response).map_err(|e| {
             McpError::internal_error(
                 "serialization_error",
                 Some(serde_json::json!({"error": e.to_string()})),

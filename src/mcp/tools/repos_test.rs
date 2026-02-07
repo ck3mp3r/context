@@ -18,8 +18,10 @@ async fn test_list_repos_empty() {
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: None,
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -34,7 +36,8 @@ async fn test_list_repos_empty() {
         _ => panic!("Expected text content"),
     };
 
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
     assert_eq!(repos.len(), 0);
 }
 
@@ -368,8 +371,10 @@ async fn test_list_repos_respects_limit() {
     // Test 1: Without limit parameter, should return DEFAULT_LIMIT (10)
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: None,
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -380,14 +385,17 @@ async fn test_list_repos_respects_limit() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
     assert_eq!(repos.len(), 10, "Should return DEFAULT_LIMIT (10) items");
 
     // Test 2: With limit=5, should return 5
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: Some(5),
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -398,14 +406,17 @@ async fn test_list_repos_respects_limit() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
     assert_eq!(repos.len(), 5, "Should return requested 5 items");
 
     // Test 3: With limit=50 (exceeds MAX_LIMIT), should cap at MAX_LIMIT (20)
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: Some(50),
+            offset: None,
             sort: None,
             order: None,
         }))
@@ -416,7 +427,8 @@ async fn test_list_repos_respects_limit() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
     assert_eq!(
         repos.len(),
         20,
@@ -467,8 +479,10 @@ async fn test_list_repos_with_sort_and_order() {
     // Test sorting by remote ASC
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: None,
+            offset: None,
             sort: Some("remote".to_string()),
             order: Some("asc".to_string()),
         }))
@@ -480,7 +494,8 @@ async fn test_list_repos_with_sort_and_order() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
 
     assert_eq!(repos.len(), 3);
     // Should be sorted by remote ASC: aaa, mmm, zzz
@@ -493,8 +508,10 @@ async fn test_list_repos_with_sort_and_order() {
     // But we can verify the order is correct (DESC means most recent first)
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: None,
+            offset: None,
             sort: Some("created_at".to_string()),
             order: Some("desc".to_string()),
         }))
@@ -506,7 +523,8 @@ async fn test_list_repos_with_sort_and_order() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
 
     assert_eq!(repos.len(), 3);
     // Verify order is DESC by comparing timestamps
@@ -519,8 +537,10 @@ async fn test_list_repos_with_sort_and_order() {
     // Test sorting by path DESC
     let result = tools
         .list_repos(Parameters(ListReposParams {
+            query: None,
             project_id: None,
             limit: None,
+            offset: None,
             sort: Some("path".to_string()),
             order: Some("desc".to_string()),
         }))
@@ -532,7 +552,8 @@ async fn test_list_repos_with_sort_and_order() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let repos: Vec<serde_json::Value> = serde_json::from_str(content_text).unwrap();
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let repos = response["items"].as_array().unwrap();
 
     assert_eq!(repos.len(), 3);
     // Should be sorted by path DESC: zzz, mmm, aaa

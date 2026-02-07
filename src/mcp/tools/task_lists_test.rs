@@ -21,6 +21,7 @@ async fn test_list_task_lists_empty() {
     let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
 
     let params = ListTaskListsParams {
+        query: None,
         tags: None,
         status: None,
         project_id: None,
@@ -312,6 +313,7 @@ async fn test_list_task_lists_with_filters() {
 
     // Filter by status=active
     let params = ListTaskListsParams {
+        query: None,
         tags: None,
         status: Some("active".to_string()),
         project_id: None,
@@ -337,6 +339,7 @@ async fn test_list_task_lists_with_filters() {
 
     // Filter by tags=personal
     let params = ListTaskListsParams {
+        query: None,
         tags: Some("personal".to_string()),
         status: None,
         project_id: None,
@@ -533,11 +536,13 @@ async fn test_search_task_lists_by_title() {
         .await
         .unwrap();
 
-    use crate::mcp::tools::task_lists::SearchTaskListsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_task_lists(Parameters(SearchTaskListsParams {
-            query: "rust".to_string(),
+        .list_task_lists(Parameters(ListTaskListsParams {
+            query: Some("rust".to_string()),
+            tags: None,
+            status: None,
+            project_id: None,
             limit: None,
             offset: None,
             sort: None,
@@ -617,11 +622,13 @@ async fn test_search_task_lists_by_notes() {
         .await
         .unwrap();
 
-    use crate::mcp::tools::task_lists::SearchTaskListsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_task_lists(Parameters(SearchTaskListsParams {
-            query: "critical deadline".to_string(),
+        .list_task_lists(Parameters(ListTaskListsParams {
+            query: Some("critical deadline".to_string()),
+            tags: None,
+            status: None,
+            project_id: None,
             limit: None,
             offset: None,
             sort: None,
@@ -699,11 +706,13 @@ async fn test_search_task_lists_by_external_refs() {
         .await
         .unwrap();
 
-    use crate::mcp::tools::task_lists::SearchTaskListsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_task_lists(Parameters(SearchTaskListsParams {
-            query: "owner/repo#123".to_string(),
+        .list_task_lists(Parameters(ListTaskListsParams {
+            query: Some("owner/repo#123".to_string()),
+            tags: None,
+            status: None,
+            project_id: None,
             limit: None,
             offset: None,
             sort: None,
@@ -781,11 +790,13 @@ async fn test_search_task_lists_boolean_operators() {
         .await
         .unwrap();
 
-    use crate::mcp::tools::task_lists::SearchTaskListsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_task_lists(Parameters(SearchTaskListsParams {
-            query: "rust AND backend".to_string(),
+        .list_task_lists(Parameters(ListTaskListsParams {
+            query: Some("rust AND backend".to_string()),
+            tags: None,
+            status: None,
+            project_id: None,
             limit: None,
             offset: None,
             sort: None,
@@ -845,11 +856,13 @@ async fn test_search_task_lists_empty_results() {
         .await
         .unwrap();
 
-    use crate::mcp::tools::task_lists::SearchTaskListsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .search_task_lists(Parameters(SearchTaskListsParams {
-            query: "nonexistent".to_string(),
+        .list_task_lists(Parameters(ListTaskListsParams {
+            query: Some("nonexistent".to_string()),
+            tags: None,
+            status: None,
+            project_id: None,
             limit: None,
             offset: None,
             sort: None,

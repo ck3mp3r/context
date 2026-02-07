@@ -61,6 +61,7 @@ async fn test_list_tasks_empty() {
 
     let params = ListTasksParams {
         list_id: created_list.id.clone(),
+        query: None,
         status: None,
         parent_id: None,
         tags: None,
@@ -145,6 +146,7 @@ async fn test_create_and_list_task() {
     // List tasks
     let list_params = ListTasksParams {
         list_id: created_list.id.clone(),
+        query: None,
         status: None,
         parent_id: None,
         tags: None,
@@ -452,6 +454,7 @@ async fn test_list_tasks_with_parent_id_filter() {
     // List subtasks only
     let params = ListTasksParams {
         list_id: created_list.id.clone(),
+        query: None,
         status: None,
         parent_id: Some(created_parent.id.clone()),
         tags: None,
@@ -766,6 +769,7 @@ async fn test_list_tasks_with_sort_and_order() {
     // Test: Sort by updated_at DESC (newest first)
     let params = ListTasksParams {
         list_id: task_list.id.clone(),
+        query: None,
         status: None,
         parent_id: None,
         tags: None,
@@ -845,6 +849,7 @@ async fn test_list_tasks_with_offset() {
     // Test 1: No offset, limit 3 - should get first 3 tasks
     let params = ListTasksParams {
         list_id: task_list.id.clone(),
+        query: None,
         status: None,
         parent_id: None,
         tags: None,
@@ -872,6 +877,7 @@ async fn test_list_tasks_with_offset() {
     // Test 2: Offset 2, limit 3 - should skip first 2 and get next 3
     let params = ListTasksParams {
         list_id: task_list.id.clone(),
+        query: None,
         status: None,
         parent_id: None,
         tags: None,
@@ -899,6 +905,7 @@ async fn test_list_tasks_with_offset() {
     // Test 3: Offset 4, limit 3 - should get only 1 task (Task 5)
     let params = ListTasksParams {
         list_id: task_list.id.clone(),
+        query: None,
         status: None,
         parent_id: None,
         tags: None,
@@ -1889,13 +1896,13 @@ async fn test_search_tasks_by_description() {
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    use crate::mcp::tools::tasks::SearchTasksParams;
     let result = tools
-        .search_tasks(Parameters(SearchTasksParams {
+        .list_tasks(Parameters(ListTasksParams {
             list_id: list.id.clone(),
-            query: "graphql".to_string(),
+            query: Some("graphql".to_string()),
             status: None,
             parent_id: None,
+            tags: None,
             task_type: None,
             limit: None,
             offset: None,
@@ -1978,13 +1985,13 @@ async fn test_search_tasks_by_external_refs() {
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    use crate::mcp::tools::tasks::SearchTasksParams;
     let result = tools
-        .search_tasks(Parameters(SearchTasksParams {
+        .list_tasks(Parameters(ListTasksParams {
             list_id: list.id.clone(),
-            query: "owner/repo#123".to_string(),
+            query: Some("owner/repo#123".to_string()),
             status: None,
             parent_id: None,
+            tags: None,
             task_type: None,
             limit: None,
             offset: None,
@@ -2086,14 +2093,14 @@ async fn test_search_tasks_boolean_operators() {
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    use crate::mcp::tools::tasks::SearchTasksParams;
     // Test AND operator
     let result = tools
-        .search_tasks(Parameters(SearchTasksParams {
+        .list_tasks(Parameters(ListTasksParams {
             list_id: list.id.clone(),
-            query: "rust AND backend".to_string(),
+            query: Some("rust AND backend".to_string()),
             status: None,
             parent_id: None,
+            tags: None,
             task_type: None,
             limit: None,
             offset: None,
@@ -2157,13 +2164,13 @@ async fn test_search_tasks_empty_results() {
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    use crate::mcp::tools::tasks::SearchTasksParams;
     let result = tools
-        .search_tasks(Parameters(SearchTasksParams {
+        .list_tasks(Parameters(ListTasksParams {
             list_id: list.id.clone(),
-            query: "nonexistent".to_string(),
+            query: Some("nonexistent".to_string()),
             status: None,
             parent_id: None,
+            tags: None,
             task_type: None,
             limit: None,
             offset: None,
@@ -2252,14 +2259,14 @@ async fn test_search_tasks_with_status_filter() {
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
 
-    use crate::mcp::tools::tasks::SearchTasksParams;
     // Search for "rust" tasks that are in_progress
     let result = tools
-        .search_tasks(Parameters(SearchTasksParams {
+        .list_tasks(Parameters(ListTasksParams {
             list_id: list.id.clone(),
-            query: "rust".to_string(),
+            query: Some("rust".to_string()),
             status: Some(vec!["in_progress".to_string()]),
             parent_id: None,
+            tags: None,
             task_type: None,
             limit: None,
             offset: None,
