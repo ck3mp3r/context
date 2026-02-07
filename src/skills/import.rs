@@ -122,14 +122,30 @@ pub async fn import_skill<D: Database>(
         // This ensures same skill name = same ID, preventing duplicates
         let skill_id = super::generate_skill_id(&parsed.name);
 
+        // Check if skill already exists (before creating the new skill struct)
+        let existing = db.skills().get(&skill_id).await.ok();
+
+        // Determine tags and project_ids: preserve existing if not provided, otherwise use new
+        let final_tags = match (&tags, &existing) {
+            (Some(new_tags), _) => new_tags.clone(), // Explicitly provided -> use new
+            (None, Some(existing_skill)) => existing_skill.tags.clone(), // Not provided + exists -> preserve
+            (None, None) => vec![], // Not provided + doesn't exist -> empty
+        };
+
+        let final_project_ids = match (&project_ids, &existing) {
+            (Some(new_ids), _) => new_ids.clone(), // Explicitly provided -> use new
+            (None, Some(existing_skill)) => existing_skill.project_ids.clone(), // Not provided + exists -> preserve
+            (None, None) => vec![], // Not provided + doesn't exist -> empty
+        };
+
         // Create skill
         let skill = Skill {
             id: skill_id.clone(),
             name: parsed.name,
             description: parsed.description,
             content: parsed.content,
-            tags: tags.unwrap_or_default(),
-            project_ids: project_ids.unwrap_or_default(),
+            tags: final_tags,
+            project_ids: final_project_ids,
             scripts: attachments
                 .iter()
                 .filter(|a| a.type_ == "script")
@@ -149,9 +165,7 @@ pub async fn import_skill<D: Database>(
             updated_at: None,
         };
 
-        // Check if skill already exists
-        let existing = db.skills().get(&skill_id).await.ok();
-
+        // Check if we need to update (skill exists and upsert is true)
         if let Some(_existing_skill) = existing {
             if !upsert {
                 return Err(ImportError::ValidationError(format!(
@@ -356,6 +370,298 @@ description: Updated description
         assert_eq!(skill2.description, "Updated description");
 
         // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_import_update_preserves_tags_and_project_ids_when_not_provided() {
+        use crate::db::utils::generate_entity_id;
+        use crate::db::{Project, ProjectRepository};
+
+        let db = SqliteDatabase::in_memory()
+            .await
+            .expect("Failed to create in-memory database");
+        db.migrate().expect("Migration should succeed");
+
+        // Create a test project for FK constraint
+        let project = Project {
+            id: generate_entity_id(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        db.projects()
+            .create(&project)
+            .await
+            .expect("Project creation should succeed");
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("test-skill-preserve-{}", generate_entity_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let skill_md = temp_dir.join("SKILL.md");
+        std::fs::write(
+            &skill_md,
+            r#"---
+name: Preserve Test Skill
+description: Test preservation
+---
+
+# Test
+"#,
+        )
+        .unwrap();
+
+        // First import WITH tags and project_ids
+        let initial_tags = Some(vec!["tag1".to_string(), "tag2".to_string()]);
+        let initial_projects = Some(vec![project.id.clone()]);
+        let result1 = import_skill(
+            &db,
+            temp_dir.to_str().unwrap(),
+            None,
+            initial_projects.clone(),
+            initial_tags.clone(),
+            false,
+        )
+        .await;
+        assert!(
+            result1.is_ok(),
+            "First import should succeed: {:?}",
+            result1.err()
+        );
+        let skill1 = result1.unwrap();
+        assert_eq!(skill1.tags, vec!["tag1", "tag2"]);
+        assert_eq!(skill1.project_ids, vec![project.id.clone()]);
+
+        // Update SKILL.md content
+        std::fs::write(
+            &skill_md,
+            r#"---
+name: Preserve Test Skill
+description: Updated content
+---
+
+# Updated
+"#,
+        )
+        .unwrap();
+
+        // Re-import with update=true but WITHOUT tags/project_ids
+        // Expected: should preserve existing tags and project_ids
+        let result2 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, true).await;
+        assert!(result2.is_ok(), "Update import should succeed");
+        let skill2 = result2.unwrap();
+        assert_eq!(skill2.id, skill1.id, "ID should be the same");
+        assert_eq!(skill2.description, "Updated content");
+        // THIS IS THE KEY ASSERTION - tags/project_ids should be preserved
+        assert_eq!(
+            skill2.tags,
+            vec!["tag1", "tag2"],
+            "Tags should be preserved when not provided"
+        );
+        assert_eq!(
+            skill2.project_ids,
+            vec![project.id.clone()],
+            "Project IDs should be preserved when not provided"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_import_update_replaces_tags_and_project_ids_when_provided() {
+        use crate::db::utils::generate_entity_id;
+        use crate::db::{Project, ProjectRepository};
+
+        let db = SqliteDatabase::in_memory()
+            .await
+            .expect("Failed to create in-memory database");
+        db.migrate().expect("Migration should succeed");
+
+        // Create two test projects
+        let old_project = Project {
+            id: generate_entity_id(),
+            title: "Old Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        db.projects()
+            .create(&old_project)
+            .await
+            .expect("Old project creation should succeed");
+
+        let new_project = Project {
+            id: generate_entity_id(),
+            title: "New Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        db.projects()
+            .create(&new_project)
+            .await
+            .expect("New project creation should succeed");
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("test-skill-replace-{}", generate_entity_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let skill_md = temp_dir.join("SKILL.md");
+        std::fs::write(
+            &skill_md,
+            r#"---
+name: Replace Test Skill
+description: Test replacement
+---
+
+# Test
+"#,
+        )
+        .unwrap();
+
+        // First import WITH tags and project_ids
+        let initial_tags = Some(vec!["old-tag".to_string()]);
+        let initial_projects = Some(vec![old_project.id.clone()]);
+        let result1 = import_skill(
+            &db,
+            temp_dir.to_str().unwrap(),
+            None,
+            initial_projects,
+            initial_tags,
+            false,
+        )
+        .await;
+        assert!(result1.is_ok(), "First import should succeed");
+        let skill1 = result1.unwrap();
+        assert_eq!(skill1.tags, vec!["old-tag"]);
+        assert_eq!(skill1.project_ids, vec![old_project.id.clone()]);
+
+        // Re-import with update=true and DIFFERENT tags/project_ids
+        // Expected: should REPLACE with new values
+        let new_tags = Some(vec!["new-tag".to_string()]);
+        let new_projects = Some(vec![new_project.id.clone()]);
+        let result2 = import_skill(
+            &db,
+            temp_dir.to_str().unwrap(),
+            None,
+            new_projects,
+            new_tags,
+            true,
+        )
+        .await;
+        assert!(result2.is_ok(), "Update import should succeed");
+        let skill2 = result2.unwrap();
+        assert_eq!(skill2.id, skill1.id, "ID should be the same");
+        assert_eq!(
+            skill2.tags,
+            vec!["new-tag"],
+            "Tags should be replaced when provided"
+        );
+        assert_eq!(
+            skill2.project_ids,
+            vec![new_project.id.clone()],
+            "Project IDs should be replaced when provided"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_import_update_adds_tags_and_project_ids_to_empty_skill() {
+        use crate::db::utils::generate_entity_id;
+        use crate::db::{Project, ProjectRepository};
+
+        let db = SqliteDatabase::in_memory()
+            .await
+            .expect("Failed to create in-memory database");
+        db.migrate().expect("Migration should succeed");
+
+        // Create a test project
+        let project = Project {
+            id: generate_entity_id(),
+            title: "Added Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        db.projects()
+            .create(&project)
+            .await
+            .expect("Project creation should succeed");
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("test-skill-add-{}", generate_entity_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let skill_md = temp_dir.join("SKILL.md");
+        std::fs::write(
+            &skill_md,
+            r#"---
+name: Add Test Skill
+description: Test adding
+---
+
+# Test
+"#,
+        )
+        .unwrap();
+
+        // First import WITHOUT tags and project_ids
+        let result1 = import_skill(&db, temp_dir.to_str().unwrap(), None, None, None, false).await;
+        assert!(result1.is_ok(), "First import should succeed");
+        let skill1 = result1.unwrap();
+        assert!(skill1.tags.is_empty());
+        assert!(skill1.project_ids.is_empty());
+
+        // Re-import with update=true and tags/project_ids
+        // Expected: should ADD the new values
+        let new_tags = Some(vec!["added-tag".to_string()]);
+        let new_projects = Some(vec![project.id.clone()]);
+        let result2 = import_skill(
+            &db,
+            temp_dir.to_str().unwrap(),
+            None,
+            new_projects,
+            new_tags,
+            true,
+        )
+        .await;
+        assert!(result2.is_ok(), "Update import should succeed");
+        let skill2 = result2.unwrap();
+        assert_eq!(skill2.id, skill1.id, "ID should be the same");
+        assert_eq!(
+            skill2.tags,
+            vec!["added-tag"],
+            "Tags should be added when provided"
+        );
+        assert_eq!(
+            skill2.project_ids,
+            vec![project.id.clone()],
+            "Project IDs should be added when provided"
+        );
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 }
