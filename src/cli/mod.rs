@@ -50,6 +50,10 @@ enum Commands {
         #[arg(long)]
         home: Option<std::path::PathBuf>,
 
+        /// Override skills cache directory (defaults to C5T_SKILLS_DIR env or data_dir/skills)
+        #[arg(long)]
+        skills_dir: Option<std::path::PathBuf>,
+
         /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
@@ -680,10 +684,11 @@ pub async fn run() -> Result<()> {
             host,
             port,
             home,
+            skills_dir,
             verbose,
             docs,
         }) => {
-            commands::api::run(host, port, home, verbose, docs).await?;
+            commands::api::run(host, port, home, skills_dir, verbose, docs).await?;
         }
         Some(Commands::Project { command }) => match command {
             ProjectCommands::List {

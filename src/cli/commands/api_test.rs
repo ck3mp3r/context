@@ -28,6 +28,7 @@ fn test_config_structure() {
         port: 3000,
         verbosity: 0,
         enable_docs: false,
+        skills_dir: std::path::PathBuf::from("/tmp/skills"),
     };
 
     assert_eq!(config.host.to_string(), "127.0.0.1");
@@ -44,6 +45,7 @@ fn test_config_with_docs_enabled() {
         port: 8080,
         verbosity: 2,
         enable_docs: true,
+        skills_dir: std::path::PathBuf::from("/tmp/skills"),
     };
 
     assert_eq!(config.host.to_string(), "0.0.0.0");
@@ -100,6 +102,7 @@ fn test_port_ranges() {
             port,
             verbosity: 0,
             enable_docs: false,
+            skills_dir: std::path::PathBuf::from("/tmp/skills"),
         };
         assert_eq!(config.port, port);
     }
@@ -116,6 +119,7 @@ fn test_verbosity_levels() {
             port: 3000,
             verbosity: level,
             enable_docs: false,
+            skills_dir: std::path::PathBuf::from("/tmp/skills"),
         };
         assert_eq!(config.verbosity, level);
     }

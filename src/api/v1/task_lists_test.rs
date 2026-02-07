@@ -35,6 +35,7 @@ async fn test_app() -> axum::Router {
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
     );
     routes::create_router(state, false)
 }
@@ -61,6 +62,7 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
+        std::path::PathBuf::from("/tmp/skills"),
     );
     (routes::create_router(state, false), notifier)
 }

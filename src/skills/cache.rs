@@ -59,6 +59,7 @@ pub fn get_skill_cache_dir(skill_name: &str) -> PathBuf {
 /// For shell scripts (.sh, .bash), sets executable permissions.
 ///
 /// # Arguments
+/// * `skills_base_dir` - Base directory for skills cache (e.g., ~/.local/share/c5t/skills or ~/.agents/skills)
 /// * `skill_name` - Skill name from frontmatter (used as cache directory name)
 /// * `skill_content` - Full SKILL.md content to write to cache
 /// * `attachments` - List of attachments to extract
@@ -66,11 +67,12 @@ pub fn get_skill_cache_dir(skill_name: &str) -> PathBuf {
 /// # Returns
 /// Path to skill cache directory
 pub fn extract_attachments(
+    skills_base_dir: &std::path::Path,
     skill_name: &str,
     skill_content: &str,
     attachments: &[SkillAttachment],
 ) -> Result<PathBuf, DbError> {
-    let cache_dir = get_skill_cache_dir(skill_name);
+    let cache_dir = skills_base_dir.join(skill_name);
 
     // Create cache directory
     fs::create_dir_all(&cache_dir).map_err(|e| DbError::Database {

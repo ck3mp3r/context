@@ -3,6 +3,7 @@
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Skill, SkillRepository, SqliteDatabase};
 use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools};
+use crate::sync::get_data_dir;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
 use std::sync::Arc;
@@ -12,7 +13,11 @@ async fn test_list_skills_empty() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     let params = ListSkillsParams {
         query: None,
@@ -46,7 +51,11 @@ async fn test_get_skill_not_found() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     let params = GetSkillParams {
         skill_id: "nonexistent".to_string(),
@@ -61,7 +70,11 @@ async fn test_search_skills_single_match() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Create two skills
     let rust = Skill {
@@ -142,7 +155,11 @@ async fn test_search_skills_with_tag_filter() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Create skills
     let async_skill = Skill {
@@ -223,7 +240,11 @@ async fn test_search_skills_empty_results() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Search for a non-existent string
     let params = ListSkillsParams {
@@ -304,7 +325,11 @@ Learn web programming for personal projects.
     db.skills().create(&skill1).await.unwrap();
     db.skills().create(&skill2).await.unwrap();
 
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // List only "work" skills
     let params = ListSkillsParams {
@@ -413,7 +438,11 @@ Learn web programming.
     db.skills().create(&skill2).await.unwrap();
     db.skills().create(&skill3).await.unwrap();
 
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Test sorting by created_at DESC
     let params = ListSkillsParams {
@@ -533,7 +562,11 @@ Test instructions for skill with attachments.
     .unwrap();
 
     // Call MCP tool
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
     let params = GetSkillParams {
         skill_id: "skl00001".to_string(),
     };
@@ -611,7 +644,11 @@ Test instructions for skill without attachments.
     db.skills().create(&skill).await.unwrap();
 
     // Call MCP tool
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
     let params = GetSkillParams {
         skill_id: "skl00002".to_string(),
     };
@@ -645,7 +682,11 @@ async fn test_list_skills_with_query_performs_search() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Create two skills
     let rust = Skill {
@@ -728,7 +769,11 @@ async fn test_list_skills_without_query_lists_all() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Create two skills
     let rust = Skill {
@@ -809,7 +854,11 @@ async fn test_list_skills_with_query_and_tag_filter() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new());
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
 
     // Create skills with tags
     let async_skill = Skill {

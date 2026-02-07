@@ -10,6 +10,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::api::notifier::ChangeNotifier;
@@ -46,15 +47,17 @@ pub struct SkillTools<D: crate::db::Database> {
     db: Arc<D>,
     #[allow(dead_code)] // Will be used for change notifications
     notifier: ChangeNotifier,
+    skills_dir: PathBuf,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: crate::db::Database + 'static> SkillTools<D> {
-    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier, skills_dir: PathBuf) -> Self {
         Self {
             db,
             notifier,
+            skills_dir,
             tool_router: Self::tool_router(),
         }
     }
@@ -167,14 +170,18 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
                     )
                 })?;
 
-            let cache_dir =
-                crate::skills::extract_attachments(&skill_name, &skill.content, &attachments)
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            "cache_error",
-                            Some(serde_json::json!({"error": e.to_string()})),
-                        )
-                    })?;
+            let cache_dir = crate::skills::extract_attachments(
+                &self.skills_dir,
+                &skill_name,
+                &skill.content,
+                &attachments,
+            )
+            .map_err(|e| {
+                McpError::internal_error(
+                    "cache_error",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                )
+            })?;
 
             Some(cache_dir.to_string_lossy().to_string())
         } else {

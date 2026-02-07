@@ -32,6 +32,7 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
     );
     let app = routes::create_router(state, false);
 

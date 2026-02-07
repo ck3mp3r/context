@@ -83,6 +83,7 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
     );
     let app = crate::api::routes::create_router(state, false);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

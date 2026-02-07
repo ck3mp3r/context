@@ -3,6 +3,8 @@
 //! Provides REST API endpoints for managing context data.
 
 mod handlers;
+#[cfg(test)]
+mod mod_test;
 pub mod notifier;
 #[cfg(test)]
 mod notifier_test;
@@ -17,6 +19,7 @@ mod websocket;
 mod websocket_test;
 
 use std::net::IpAddr;
+use std::path::PathBuf;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -27,6 +30,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub use state::AppState;
 
 use crate::db::Database;
+use crate::sync::get_data_dir;
 
 #[cfg(debug_assertions)]
 const DEFAULT_API_PORT: u16 = 3738;
@@ -60,6 +64,30 @@ pub struct Config {
     pub verbosity: u8,
     /// Enable OpenAPI documentation endpoint at /docs
     pub enable_docs: bool,
+    /// Skills cache directory (where attachments are extracted)
+    pub skills_dir: PathBuf,
+}
+
+impl Config {
+    /// Create new Config reading from environment variables
+    pub fn new() -> Self {
+        Self {
+            host: "0.0.0.0".parse().unwrap(),
+            port: DEFAULT_API_PORT,
+            verbosity: 0,
+            enable_docs: false,
+            skills_dir: match std::env::var("C5T_SKILLS_DIR") {
+                Ok(dir) => PathBuf::from(dir),
+                Err(_) => get_data_dir().join("skills"),
+            },
+        }
+    }
+
+    /// Builder method to override skills_dir (CLI flag > env var)
+    pub fn with_skills_dir(mut self, skills_dir: PathBuf) -> Self {
+        self.skills_dir = skills_dir;
+        self
+    }
 }
 
 impl Default for Config {
@@ -69,6 +97,7 @@ impl Default for Config {
             port: DEFAULT_API_PORT,
             verbosity: 0,
             enable_docs: false,
+            skills_dir: get_data_dir().join("skills"),
         }
     }
 }
@@ -104,7 +133,7 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     let notifier = notifier::ChangeNotifier::new();
 
     // Create application state
-    let state = AppState::new(db, sync_manager, notifier);
+    let state = AppState::new(db, sync_manager, notifier, config.skills_dir);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

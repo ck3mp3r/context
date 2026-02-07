@@ -17,7 +17,12 @@ async fn test_websocket_route_exists() {
     db.migrate().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
-    let state = AppState::new(db, sync_manager, notifier);
+    let state = AppState::new(
+        db,
+        sync_manager,
+        notifier,
+        std::path::PathBuf::from("/tmp/skills"),
+    );
     let app = routes::create_router(state, false);
 
     // Create WebSocket upgrade request
@@ -48,7 +53,12 @@ async fn test_websocket_rejects_non_upgrade_requests() {
     db.migrate().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
-    let state = AppState::new(db, sync_manager, notifier);
+    let state = AppState::new(
+        db,
+        sync_manager,
+        notifier,
+        std::path::PathBuf::from("/tmp/skills"),
+    );
     let app = routes::create_router(state, false);
 
     // Create regular GET request (no WebSocket headers)
