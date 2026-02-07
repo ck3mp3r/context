@@ -20,6 +20,8 @@ use super::server::McpServer;
 ///
 /// # Arguments
 /// * `db` - Database instance implementing the Database trait
+/// * `notifier` - Change notifier for WebSocket broadcasts
+/// * `skills_dir` - Directory where skill attachments are extracted
 /// * `cancellation_token` - Token for graceful shutdown
 ///
 /// # Returns
@@ -37,7 +39,8 @@ use super::server::McpServer;
 ///
 /// let ct = CancellationToken::new();
 /// let notifier = ChangeNotifier::new();
-/// let mcp_service = create_mcp_service(db, notifier, ct);
+/// let skills_dir = std::path::PathBuf::from("/tmp/skills");
+/// let mcp_service = create_mcp_service(db, notifier, skills_dir, ct);
 ///
 /// let app: Router = Router::new()
 ///     .nest_service("/mcp", mcp_service);
