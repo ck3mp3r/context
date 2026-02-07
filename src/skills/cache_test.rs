@@ -105,7 +105,13 @@ This is a test skill for cache validation."#,
     }];
 
     // Extract attachments - should use skill_name for directory
-    let cache_dir = extract_attachments(&skill_name, &skill_content, &attachments).unwrap();
+    let cache_dir = extract_attachments(
+        &get_skills_cache_dir(),
+        &skill_name,
+        &skill_content,
+        &attachments,
+    )
+    .unwrap();
 
     // Verify cache directory uses skill name (not ID)
     assert!(cache_dir.to_string_lossy().ends_with(&skill_name));
@@ -207,7 +213,13 @@ Test content"#,
     ];
 
     // Extract attachments
-    let cache_dir = extract_attachments(&skill_name, &skill_content, &attachments).unwrap();
+    let cache_dir = extract_attachments(
+        &get_skills_cache_dir(),
+        &skill_name,
+        &skill_content,
+        &attachments,
+    )
+    .unwrap();
 
     // Verify cache uses skill name
     assert!(cache_dir.to_string_lossy().ends_with(&skill_name));
@@ -266,4 +278,51 @@ fn test_invalidate_cache() {
 
     // Invalidating non-existent cache should not error
     invalidate_cache(&skill_name).unwrap();
+}
+
+#[test]
+fn test_extract_attachments_with_custom_base_dir() {
+    // Test that extract_attachments() respects a custom skills base directory
+    let unique_id = generate_entity_id();
+    let skill_name = format!("custom-dir-test-{}", unique_id);
+
+    // Create custom base directory
+    let custom_base = std::env::temp_dir().join(format!("custom-skills-{}", unique_id));
+    fs::create_dir_all(&custom_base).unwrap();
+
+    let skill_content = format!(
+        r#"---
+name: {}
+description: Test custom base directory
+---
+
+# Instructions
+Test content"#,
+        skill_name
+    );
+
+    let attachments = vec![SkillAttachment {
+        id: generate_entity_id(),
+        skill_id: generate_entity_id(),
+        type_: "reference".to_string(),
+        filename: "test.md".to_string(),
+        content: BASE64.encode("test content"),
+        content_hash: "hash123".to_string(),
+        mime_type: Some("text/markdown".to_string()),
+        created_at: None,
+        updated_at: None,
+    }];
+
+    // Extract with custom base directory
+    let cache_dir =
+        extract_attachments(&custom_base, &skill_name, &skill_content, &attachments).unwrap();
+
+    // Verify cache is in custom directory, not default data dir
+    assert_eq!(cache_dir, custom_base.join(&skill_name));
+    assert!(cache_dir.exists());
+    assert!(cache_dir.join("SKILL.md").exists());
+    assert!(cache_dir.join("test.md").exists());
+
+    // Cleanup
+    fs::remove_dir_all(&custom_base).unwrap();
 }

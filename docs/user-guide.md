@@ -79,7 +79,14 @@ Access:
 - **MCP Server**: http://localhost:3737/mcp
 - **WebSocket**: ws://localhost:3737/ws
 
-Database: `~/.local/share/c5t/context.db` (created on first run)
+**Data Locations:**
+- Database: `~/.local/share/c5t/context.db` (created on first run)
+- Skills Cache: `~/.local/share/c5t/skills/` (where skill attachments are extracted)
+
+**Environment Variables:**
+- `C5T_SKILLS_DIR`: Override skills cache directory (e.g., `export C5T_SKILLS_DIR=~/.agents/skills`)
+  - Useful for sharing skills with OpenCode, Crush, or other agents
+  - Can also use `--skills-dir` CLI flag (takes precedence)
 
 ## Core Concepts
 
@@ -147,6 +154,12 @@ backlog → todo → in_progress → review → done
 - Use YAML frontmatter for metadata (name, description, license, version, etc.)
 - Use Markdown for detailed instructions and examples
 - Examples: "Deploy to K8s", "TDD Workflow - Rust", "Code Review Checklist"
+
+**Skill Attachments:**
+Skills can include attachments (scripts, config files, etc.) that are automatically extracted to the skills cache directory when the skill is loaded:
+- Default location: `~/.local/share/c5t/skills/<skill-name>/`
+- Override with `C5T_SKILLS_DIR` environment variable or `--skills-dir` flag
+- Shared cache: Use `~/.agents/skills` to share with OpenCode, Crush, and other agents
 
 **SKILL.md Format:**
 ```markdown

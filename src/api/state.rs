@@ -1,5 +1,6 @@
 //! Application state for the API server.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::notifier::ChangeNotifier;
@@ -21,6 +22,7 @@ pub struct AppState<D: Database, G: GitOps + Send + Sync> {
     db: Arc<D>,
     sync_manager: SyncManager<G>,
     notifier: ChangeNotifier,
+    skills_dir: PathBuf,
 }
 
 // Manual Clone impl - we only need Arc to be cloneable, not D or G
@@ -32,6 +34,7 @@ impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
             db: Arc::clone(&self.db),
             sync_manager: self.sync_manager.clone(), // SyncManager::clone() clones the Arc, not the G
             notifier: self.notifier.clone(),
+            skills_dir: self.skills_dir.clone(),
         }
     }
 }
@@ -45,11 +48,18 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
     /// - `db`: Database implementation
     /// - `sync_manager`: Sync manager with GitOps implementation
     /// - `notifier`: Change notifier for pub/sub
-    pub fn new(db: D, sync_manager: SyncManager<G>, notifier: ChangeNotifier) -> Self {
+    /// - `skills_dir`: Skills cache directory path
+    pub fn new(
+        db: D,
+        sync_manager: SyncManager<G>,
+        notifier: ChangeNotifier,
+        skills_dir: PathBuf,
+    ) -> Self {
         Self {
             db: Arc::new(db),
             sync_manager,
             notifier,
+            skills_dir,
         }
     }
 
@@ -73,5 +83,10 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
     /// Get a reference to the change notifier.
     pub fn notifier(&self) -> &ChangeNotifier {
         &self.notifier
+    }
+
+    /// Get a reference to the skills directory path.
+    pub fn skills_dir(&self) -> &PathBuf {
+        &self.skills_dir
     }
 }

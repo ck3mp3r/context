@@ -3,6 +3,7 @@
 //! This module implements the main MCP server coordinator that manages
 //! all tool handlers following SOLID principles.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use rmcp::{
@@ -59,10 +60,11 @@ impl<D: Database + 'static> McpServer<D> {
     /// # Arguments
     /// * `db` - Database instance (can be Arc<D> or D)
     /// * `notifier` - ChangeNotifier for broadcasting updates
+    /// * `skills_dir` - Path to skills cache directory
     ///
     /// # Returns
     /// A new McpServer instance with all tool handlers initialized
-    pub fn new(db: impl Into<Arc<D>>, notifier: ChangeNotifier) -> Self {
+    pub fn new(db: impl Into<Arc<D>>, notifier: ChangeNotifier, skills_dir: PathBuf) -> Self {
         let db = db.into();
 
         Self {
@@ -71,7 +73,7 @@ impl<D: Database + 'static> McpServer<D> {
             task_list_tools: TaskListTools::new(Arc::clone(&db), notifier.clone()),
             task_tools: TaskTools::new(Arc::clone(&db), notifier.clone()),
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
-            skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone()),
+            skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone(), skills_dir),
             sync_tools: SyncTools::with_real_git(db),
             tool_router: Self::tool_router(),
         }

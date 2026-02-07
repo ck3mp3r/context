@@ -15,6 +15,7 @@ pub async fn run(
     host: IpAddr,
     port: u16,
     home: Option<PathBuf>,
+    skills_dir: Option<PathBuf>,
     verbosity: u8,
     enable_docs: bool,
 ) -> Result<()> {
@@ -59,6 +60,13 @@ pub async fn run(
             port,
             verbosity,
             enable_docs,
+            skills_dir: match skills_dir {
+                Some(dir) => dir,
+                None => match std::env::var("C5T_SKILLS_DIR") {
+                    Ok(dir) => PathBuf::from(dir),
+                    Err(_) => crate::sync::get_data_dir().join("skills"),
+                },
+            },
         },
         db,
     )

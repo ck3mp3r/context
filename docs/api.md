@@ -68,6 +68,13 @@ cargo build --release
 
 # With custom port
 cargo run --bin c5t -- api --port 8080
+
+# With custom skills directory (for OpenCode/Crush compatibility)
+export C5T_SKILLS_DIR=~/.agents/skills
+cargo run --bin c5t -- api
+
+# Or use CLI flag (takes precedence over env var)
+cargo run --bin c5t -- api --skills-dir ~/.agents/skills
 ```
 
 ## Configuration
@@ -79,6 +86,11 @@ cargo run --bin c5t -- api --port 8080
 **Documentation**: Disabled by default (enable with `--docs`)
 
 **Data Directory**: `~/.local/share/c5t` (override with `--home`)
+
+**Skills Directory**: Default `~/.local/share/c5t/skills` (override with `--skills-dir` or `C5T_SKILLS_DIR` env var)
+  - Controls where skill attachments are extracted when skills are loaded
+  - Useful for sharing skills cache with other tools (e.g., `~/.agents/skills` for OpenCode/Crush compatibility)
+  - Precedence: CLI flag > environment variable > default
 
 ## Example Requests
 
