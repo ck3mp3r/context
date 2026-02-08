@@ -37,8 +37,8 @@ fn make_task_list(id: &str, title: &str) -> TaskList {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: "test0000".to_string(), // Test project (created by setup_db)
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     }
 }

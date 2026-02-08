@@ -61,8 +61,8 @@ impl From<TaskList> for TaskListResponse {
             },
             repo_ids: t.repo_ids,
             project_id: Some(t.project_id),
-            created_at: t.created_at,
-            updated_at: t.updated_at,
+            created_at: t.created_at.unwrap_or_default(),
+            updated_at: t.updated_at.unwrap_or_default(),
             archived_at: t.archived_at,
         }
     }
@@ -147,6 +147,8 @@ impl PatchTaskListRequest {
         if let Some(project_id) = self.project_id {
             target.project_id = project_id;
         }
+        // Clear updated_at to force new timestamp generation
+        target.updated_at = None;
     }
 }
 
@@ -366,8 +368,8 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
         status: TaskListStatus::Active,
         repo_ids: req.repo_ids,
         project_id: req.project_id,
-        created_at: String::new(), // Repository will generate this
-        updated_at: String::new(), // Repository will generate this
+        created_at: None, // Repository will generate this
+        updated_at: None, // Repository will generate this
         archived_at: None,
     };
 

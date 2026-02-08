@@ -65,8 +65,8 @@ async fn test_create_and_get_task_list() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
@@ -139,8 +139,8 @@ async fn test_update_task_list() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
@@ -155,8 +155,8 @@ async fn test_update_task_list() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created = db.task_lists().create(&list).await.unwrap();
@@ -212,8 +212,8 @@ async fn test_delete_task_list() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
@@ -228,8 +228,8 @@ async fn test_delete_task_list() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created = db.task_lists().create(&list).await.unwrap();
@@ -273,8 +273,8 @@ async fn test_list_task_lists_with_filters() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
@@ -289,8 +289,8 @@ async fn test_list_task_lists_with_filters() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     db.task_lists().create(&list1).await.unwrap();
@@ -305,8 +305,8 @@ async fn test_list_task_lists_with_filters() {
         status: TaskListStatus::Archived,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.task_lists().create(&list2).await.unwrap();
@@ -396,8 +396,8 @@ async fn test_get_task_list_stats() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
@@ -412,8 +412,8 @@ async fn test_get_task_list_stats() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: created_project.id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&list).await.unwrap();
@@ -491,8 +491,8 @@ async fn test_search_task_lists_by_title() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -578,8 +578,8 @@ async fn test_search_task_lists_by_notes() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
     let db = Arc::new(db);
@@ -662,8 +662,8 @@ async fn test_search_task_lists_by_external_refs() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
     let db = Arc::new(db);
@@ -746,8 +746,8 @@ async fn test_search_task_lists_boolean_operators() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
     let db = Arc::new(db);
@@ -830,8 +830,8 @@ async fn test_search_task_lists_empty_results() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
     let db = Arc::new(db);

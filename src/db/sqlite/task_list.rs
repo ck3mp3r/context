@@ -24,17 +24,15 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             task_list.id.clone()
         };
 
-        // Use provided timestamps or generate if empty
-        let created_at = if task_list.created_at.is_empty() {
-            current_timestamp()
-        } else {
-            task_list.created_at.clone()
-        };
-        let updated_at = if task_list.updated_at.is_empty() {
-            created_at.clone()
-        } else {
-            task_list.updated_at.clone()
-        };
+        // Use provided timestamps or generate if None
+        let created_at = task_list
+            .created_at
+            .clone()
+            .unwrap_or_else(current_timestamp);
+        let updated_at = task_list
+            .updated_at
+            .clone()
+            .unwrap_or_else(|| created_at.clone());
 
         // Start a transaction for atomic operations
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
@@ -128,8 +126,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             tags: task_list.tags.clone(),
             external_refs: task_list.external_refs.clone(),
             status: task_list.status.clone(),
-            created_at,
-            updated_at,
+            created_at: Some(created_at),
+            updated_at: Some(updated_at),
             archived_at: task_list.archived_at.clone(),
             repo_ids: task_list.repo_ids.clone(),
             project_id: task_list.project_id.clone(),
@@ -192,8 +190,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             status,
             repo_ids,
             project_id: row.get("project_id"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
+            created_at: Some(row.get("created_at")),
+            updated_at: Some(row.get("updated_at")),
             archived_at: row.get("archived_at"),
         })
     }
@@ -307,8 +305,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     status,
                     repo_ids: vec![],
                     project_id: row.get("project_id"),
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
+                    created_at: Some(row.get("created_at")),
+                    updated_at: Some(row.get("updated_at")),
                     archived_at: row.get("archived_at"),
                 }
             })
@@ -514,8 +512,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     status,
                     repo_ids: vec![], // Not loaded in search (performance)
                     project_id: row.get("project_id"),
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
+                    created_at: Some(row.get("created_at")),
+                    updated_at: Some(row.get("updated_at")),
                     archived_at: row.get("archived_at"),
                 }
             })
@@ -576,6 +574,12 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         let status_str = task_list.status.to_string();
 
+        // Use provided timestamp or generate if None
+        let updated_at = task_list
+            .updated_at
+            .clone()
+            .unwrap_or_else(current_timestamp);
+
         sqlx::query(
             r#"
             UPDATE task_list 
@@ -591,7 +595,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         .bind(&external_refs_json)
         .bind(status_str)
         .bind(&task_list.project_id)
-        .bind(&task_list.updated_at)
+        .bind(&updated_at)
         .bind(&task_list.archived_at)
         .bind(&task_list.id)
         .execute(&mut *tx)

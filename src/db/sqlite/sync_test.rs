@@ -26,7 +26,7 @@ mod tests {
             path: Some("/test/path".to_string()),
             tags: vec![],
             project_ids: vec!["proj0001".to_string()], // FK reference
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
 
         // Create the project being referenced
@@ -39,8 +39,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
 
         // Write repos FIRST (before projects exist) - this would normally fail FK
@@ -62,7 +62,7 @@ mod tests {
             path: None,
             tags: vec![],
             project_ids: vec!["nonexistent".to_string()], // Invalid FK
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
 
         write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo]).unwrap();
@@ -84,8 +84,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
 
         // Valid repo
@@ -95,7 +95,7 @@ mod tests {
             path: None,
             tags: vec![],
             project_ids: vec!["proj0001".to_string()],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
 
         // Invalid task_list with bad project FK
@@ -109,8 +109,8 @@ mod tests {
             external_refs: vec![],
             notes: None,
             repo_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             archived_at: None,
         };
 
@@ -247,8 +247,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db.projects().create(&project).await.unwrap();
 
@@ -307,8 +307,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project).await.unwrap();
 
@@ -319,7 +319,7 @@ mod tests {
             path: Some("/test/path".to_string()),
             tags: vec!["git".to_string()],
             project_ids: vec!["proj0001".to_string()],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.repos().create(&repo).await.unwrap();
 
@@ -398,8 +398,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project).await.unwrap();
 
@@ -409,7 +409,7 @@ mod tests {
             path: None,
             tags: vec![],
             project_ids: vec!["proj0001".to_string()],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.repos().create(&repo).await.unwrap();
 
@@ -423,8 +423,8 @@ mod tests {
             status: TaskListStatus::Active,
             external_refs: vec![],
             repo_ids: vec!["repo0001".to_string()],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             archived_at: None,
         };
         db1.task_lists().create(&task_list).await.unwrap();
@@ -484,8 +484,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project).await.unwrap();
         let project_id = project.id.clone();
@@ -501,8 +501,8 @@ mod tests {
             status: TaskListStatus::Active,
             external_refs: vec![],
             repo_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             archived_at: None,
         };
         db1.task_lists().create(&task_list).await.unwrap();
@@ -570,8 +570,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project).await.unwrap();
 
@@ -681,8 +681,8 @@ mod tests {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project).await.unwrap();
 
@@ -793,8 +793,8 @@ Do something useful with this skill.
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project1).await.unwrap();
 
@@ -807,8 +807,8 @@ Do something useful with this skill.
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db1.projects().create(&project2).await.unwrap();
 
@@ -864,8 +864,8 @@ Test instructions for multi-project skill.
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         db.projects().create(&project).await.unwrap();
 

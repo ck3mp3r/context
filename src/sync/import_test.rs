@@ -62,7 +62,7 @@ async fn test_export_then_import() {
         path: Some("/test/path".to_string()),
         tags: vec!["test".to_string()],
         project_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.repos().create(&repo).await.unwrap();
 
@@ -75,8 +75,8 @@ async fn test_export_then_import() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -116,7 +116,7 @@ async fn test_import_updates_existing() {
         path: Some("/test/path1".to_string()),
         tags: vec!["v1".to_string()],
         project_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.repos().create(&repo_v1).await.unwrap();
 
@@ -127,7 +127,7 @@ async fn test_import_updates_existing() {
         path: Some("/test/path2".to_string()),               // Changed
         tags: vec!["v2".to_string()],                        // Changed
         project_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo_v2]).unwrap();
@@ -168,8 +168,8 @@ async fn test_import_preserves_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -179,7 +179,7 @@ async fn test_import_preserves_relationships() {
         path: None,
         tags: vec![],
         project_ids: vec!["proj0001".to_string()],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.repos().create(&repo).await.unwrap();
 
@@ -359,8 +359,8 @@ async fn test_import_preserves_task_list_timestamps() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -436,8 +436,8 @@ async fn test_import_skills_creates_new() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     // Create a skill
@@ -500,8 +500,8 @@ async fn test_import_skills_updates_existing() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -594,8 +594,8 @@ async fn test_import_skills_preserves_project_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     let project2 = Project {
@@ -607,8 +607,8 @@ async fn test_import_skills_preserves_project_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     // Create skill linked to multiple projects
@@ -691,8 +691,8 @@ async fn test_export_import_skills_round_trip() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.projects().create(&project).await.unwrap();
 

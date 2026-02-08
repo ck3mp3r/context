@@ -62,8 +62,8 @@ async fn test_list_projects_with_data() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     db.projects().create(&project).await.unwrap();
@@ -114,8 +114,8 @@ async fn test_get_project() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -212,8 +212,8 @@ async fn test_update_project() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -266,8 +266,8 @@ async fn test_delete_project() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -308,8 +308,8 @@ async fn test_list_projects_respects_limit() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
         };
         db.projects().create(&project).await.unwrap();
     }
@@ -573,8 +573,8 @@ async fn test_update_project_external_ref() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 

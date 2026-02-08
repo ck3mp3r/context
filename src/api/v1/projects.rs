@@ -64,8 +64,8 @@ impl From<Project> for ProjectResponse {
             repo_ids: p.repo_ids,
             task_list_ids: p.task_list_ids,
             note_ids: p.note_ids,
-            created_at: p.created_at,
-            updated_at: p.updated_at,
+            created_at: p.created_at.unwrap_or_default(),
+            updated_at: p.updated_at.unwrap_or_default(),
         }
     }
 }
@@ -143,6 +143,8 @@ impl PatchProjectRequest {
         if let Some(external_refs) = self.external_refs {
             target.external_refs = external_refs;
         }
+        // Clear updated_at to force new timestamp generation
+        target.updated_at = None;
     }
 }
 
@@ -332,8 +334,8 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(), // Repository will generate this
-        updated_at: String::new(), // Repository will generate this
+        created_at: None, // Repository will generate this
+        updated_at: None, // Repository will generate this
     };
 
     let created_project = state.db().projects().create(&project).await.map_err(|e| {

@@ -400,8 +400,8 @@ description: Updated description
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         };
         db.projects()
             .create(&project)
@@ -501,8 +501,8 @@ description: Updated content
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         };
         db.projects()
             .create(&old_project)
@@ -518,8 +518,8 @@ description: Updated content
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         };
         db.projects()
             .create(&new_project)
@@ -610,8 +610,8 @@ description: Test replacement
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         };
         db.projects()
             .create(&project)
