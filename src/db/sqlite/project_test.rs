@@ -712,8 +712,8 @@ async fn list_projects_with_offset_without_limit() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: format!("2025-01-01 00:00:{:02}", i),
-            updated_at: format!("2025-01-01 00:00:{:02}", i),
+            created_at: Some(format!("2025-01-01 00:00:{:02}", i)),
+            updated_at: Some(format!("2025-01-01 00:00:{:02}", i)),
         })
         .await
         .unwrap();

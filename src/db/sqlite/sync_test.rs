@@ -26,7 +26,7 @@ mod tests {
             path: Some("/test/path".to_string()),
             tags: vec![],
             project_ids: vec!["proj0001".to_string()], // FK reference
-            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
         // Create the project being referenced
@@ -62,7 +62,7 @@ mod tests {
             path: None,
             tags: vec![],
             project_ids: vec!["nonexistent".to_string()], // Invalid FK
-            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
         write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo]).unwrap();
@@ -95,7 +95,7 @@ mod tests {
             path: None,
             tags: vec![],
             project_ids: vec!["proj0001".to_string()],
-            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
         // Invalid task_list with bad project FK
@@ -319,7 +319,7 @@ mod tests {
             path: Some("/test/path".to_string()),
             tags: vec!["git".to_string()],
             project_ids: vec!["proj0001".to_string()],
-            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
         };
         db1.repos().create(&repo).await.unwrap();
 
@@ -409,7 +409,7 @@ mod tests {
             path: None,
             tags: vec![],
             project_ids: vec!["proj0001".to_string()],
-            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
         };
         db1.repos().create(&repo).await.unwrap();
 

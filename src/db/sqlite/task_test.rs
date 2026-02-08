@@ -656,9 +656,9 @@ async fn task_update_preserves_historical_timestamps() {
             external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: "test0000".to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            project_id: "test0000".to_string(), // Test project (created by setup_db)
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
