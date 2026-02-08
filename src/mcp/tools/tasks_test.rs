@@ -815,8 +815,8 @@ async fn test_list_tasks_with_offset() {
             tags: vec![],
             project_id,
             repo_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await

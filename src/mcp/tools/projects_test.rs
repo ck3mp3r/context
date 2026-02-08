@@ -404,8 +404,8 @@ async fn test_list_projects_with_sort_and_order() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(), // Will be auto-generated
-        updated_at: String::new(), // Will be auto-generated
+        created_at: None, // Will be auto-generated
+        updated_at: None, // Will be auto-generated
     };
 
     let project2 = Project {
@@ -417,8 +417,8 @@ async fn test_list_projects_with_sort_and_order() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
 
     let project3 = Project {
@@ -430,8 +430,8 @@ async fn test_list_projects_with_sort_and_order() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
 
     db.projects().create(&project1).await.unwrap();
@@ -631,8 +631,8 @@ async fn test_search_projects_by_title() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -647,8 +647,8 @@ async fn test_search_projects_by_title() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -700,8 +700,8 @@ async fn test_search_projects_by_description() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -716,8 +716,8 @@ async fn test_search_projects_by_description() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -767,8 +767,8 @@ async fn test_search_projects_by_tags() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -783,8 +783,8 @@ async fn test_search_projects_by_tags() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -834,8 +834,8 @@ async fn test_search_projects_by_external_refs() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -850,8 +850,8 @@ async fn test_search_projects_by_external_refs() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -901,8 +901,8 @@ async fn test_search_projects_with_boolean_operators() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -917,8 +917,8 @@ async fn test_search_projects_with_boolean_operators() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -933,8 +933,8 @@ async fn test_search_projects_with_boolean_operators() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();
@@ -984,8 +984,8 @@ async fn test_search_projects_empty_results() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
         })
         .await
         .unwrap();

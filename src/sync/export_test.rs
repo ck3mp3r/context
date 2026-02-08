@@ -49,7 +49,7 @@ async fn test_export_with_data() {
         path: Some("/test/path".to_string()),
         tags: vec!["test".to_string()],
         project_ids: vec![],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -140,7 +140,7 @@ async fn test_export_includes_relationships() {
         path: Some("/test/path".to_string()),
         tags: vec!["test".to_string()],
         project_ids: vec!["proj0001".to_string()],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 

@@ -466,8 +466,8 @@ async fn task_update_status_to_done_sets_completed_at() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -528,8 +528,8 @@ async fn task_update_status_to_done_twice_is_idempotent() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -595,8 +595,8 @@ async fn task_update_status_to_in_progress_sets_started_at() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -752,8 +752,8 @@ async fn task_update_other_fields_preserves_timestamps() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await

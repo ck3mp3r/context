@@ -511,8 +511,8 @@ async fn test_search_task_lists_by_title() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -529,8 +529,8 @@ async fn test_search_task_lists_by_title() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -597,8 +597,8 @@ async fn test_search_task_lists_by_notes() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -615,8 +615,8 @@ async fn test_search_task_lists_by_notes() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -681,8 +681,8 @@ async fn test_search_task_lists_by_external_refs() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -699,8 +699,8 @@ async fn test_search_task_lists_by_external_refs() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -765,8 +765,8 @@ async fn test_search_task_lists_boolean_operators() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -783,8 +783,8 @@ async fn test_search_task_lists_boolean_operators() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -849,8 +849,8 @@ async fn test_search_task_lists_empty_results() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: project.id.clone(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await

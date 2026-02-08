@@ -497,7 +497,7 @@ async fn task_list_belongs_to_one_project() {
             external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: "test0000".to_string(), // Test project (created by setup_db)
+            project_id: "proj0001".to_string(), // Belongs to the project created above
             created_at: None,
             updated_at: None,
             archived_at: None,
@@ -549,9 +549,9 @@ async fn task_list_can_change_project() {
             external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: "proj0001".to_string(),
-            created_at: Some("2025-01-01 00:00:00".to_string()),
-            updated_at: Some("2025-01-01 00:00:00".to_string()),
+            project_id: "proj0001".to_string(), // Belongs to the project created above
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await

@@ -54,7 +54,7 @@ async fn test_get_repo() {
         path: Some("/path/to/repo".to_string()),
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-01 00:00:00".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -171,7 +171,7 @@ async fn test_update_repo() {
         path: Some("/old/path".to_string()),
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-01 00:00:00".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -213,7 +213,7 @@ async fn test_delete_repo() {
         path: None,
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-01 00:00:00".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -262,7 +262,7 @@ async fn test_update_repo_with_project_ids() {
         path: Some("/test/path".to_string()),
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-01 00:00:00".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -325,7 +325,7 @@ async fn test_update_repo_transaction_safety() {
         path: Some("/test".to_string()),
         tags: vec![],
         project_ids: vec!["proj1111".to_string()],
-        created_at: Some("2025-01-01 00:00:00".to_string()),
+        created_at: "2025-01-01 00:00:00".to_string(),
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -361,7 +361,7 @@ async fn test_list_repos_respects_limit() {
             path: None,
             tags: vec![],
             project_ids: vec![],
-            created_at: Some("2025-01-01 00:00:00".to_string()),
+            created_at: "2025-01-01 00:00:00".to_string(),
         };
         db.repos().create(&repo).await.unwrap();
     }
@@ -449,7 +449,7 @@ async fn test_list_repos_with_sort_and_order() {
         path: Some("/aaa/path".to_string()),
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-01 10:00:00".to_string()),
+        created_at: "2025-01-01 10:00:00".to_string(),
     };
 
     let repo2 = Repo {
@@ -458,7 +458,7 @@ async fn test_list_repos_with_sort_and_order() {
         path: Some("/zzz/path".to_string()),
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-03 10:00:00".to_string()),
+        created_at: "2025-01-03 10:00:00".to_string(),
     };
 
     let repo3 = Repo {
@@ -467,7 +467,7 @@ async fn test_list_repos_with_sort_and_order() {
         path: Some("/mmm/path".to_string()),
         tags: vec![],
         project_ids: vec![],
-        created_at: Some("2025-01-02 10:00:00".to_string()),
+        created_at: "2025-01-02 10:00:00".to_string(),
     };
 
     db.repos().create(&repo1).await.unwrap();
