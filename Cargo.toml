@@ -81,7 +81,7 @@ version = "0.4.43"
 optional = true
 
 [dependencies.clap]
-version = "4.5.56"
+version = "4.5.57"
 features = ["derive"]
 optional = true
 
@@ -95,7 +95,7 @@ version = "2.0.5"
 optional = true
 
 [dependencies.reqwest]
-version = "0.13.1"
+version = "0.13.2"
 default-features = false
 features = [
     "json",
@@ -128,7 +128,7 @@ version = "0.6.2"
 optional = true
 
 [dependencies.webpki-root-certs]
-version = "1.0.5"
+version = "1.0.6"
 optional = true
 
 [dependencies.rmcp]
