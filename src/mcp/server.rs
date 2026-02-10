@@ -337,6 +337,14 @@ impl<D: Database + 'static> McpServer<D> {
         self.skill_tools.get_skill(params).await
     }
 
+    #[tool(description = "Update skill tags and/or project_ids (partial updates)")]
+    pub async fn update_skill(
+        &self,
+        params: Parameters<UpdateSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.skill_tools.update_skill(params).await
+    }
+
     // =========================================================================
     // Sync Tools
     // =========================================================================

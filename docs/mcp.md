@@ -558,6 +558,92 @@ list_skills({
 })
 ```
 
+### Updating Skills
+
+The `update_skill` tool allows you to update skill metadata (tags and project associations) without modifying the content. This is useful for reorganizing skills, updating categorization, or linking skills to new projects.
+
+**Supported Updates:**
+- `tags` - Replace all tags with new set
+- `project_ids` - Replace all project associations with new set
+- Both fields simultaneously
+
+**Tool Signature:**
+```javascript
+update_skill({
+  skill_id: string,        // Required: 8-char hex ID
+  tags?: string[],         // Optional: New tags (replaces all existing)
+  project_ids?: string[]   // Optional: New project IDs (replaces all existing)
+})
+```
+
+**Example 1: Update Tags Only**
+```javascript
+// Reorganize skill tags after reviewing categorization
+update_skill({
+  skill_id: "skill123",
+  tags: ["deployment", "kubernetes", "production", "automation"]
+})
+// Previous tags are completely replaced
+```
+
+**Example 2: Update Project Links Only**
+```javascript
+// Link skill to additional projects
+update_skill({
+  skill_id: "skill123",
+  project_ids: ["a1b2c3d4", "e5f6a7b8"]
+})
+// Previous project_ids are completely replaced
+```
+
+**Example 3: Update Both Tags and Projects**
+```javascript
+// Reorganize skill completely
+update_skill({
+  skill_id: "skill123",
+  tags: ["docker", "containerization", "best-practices"],
+  project_ids: ["newproj1", "newproj2"]
+})
+// Both fields are replaced atomically
+```
+
+**Use Cases:**
+
+1. **Reorganizing Taxonomy:**
+   - Standardize tag names across skills
+   - Add new category tags to existing skills
+   - Remove deprecated tags
+
+2. **Project Reorganization:**
+   - Link skills to newly created projects
+   - Remove skills from archived projects
+   - Share skills across multiple projects
+
+3. **Workflow Integration:**
+   - Tag skills after importing from external sources
+   - Update project associations when restructuring work
+   - Batch update skills for consistency
+
+**Important Notes:**
+- Updates are **complete replacements** - they do not merge with existing values
+- To preserve existing values, read the skill first and merge manually
+- `content`, `name`, and `description` cannot be updated (recreate skill instead)
+- At least one field (`tags` or `project_ids`) must be provided
+
+**Example: Preserving Existing Values**
+```javascript
+// Get current skill
+const skill = get_skill({ skill_id: "skill123" });
+// Returns: { tags: ["old-tag", "keep-this"], project_ids: ["proj1"], ... }
+
+// Add new tag while preserving existing
+update_skill({
+  skill_id: "skill123",
+  tags: [...skill.tags, "new-tag"]  // Merge manually
+})
+// Result: ["old-tag", "keep-this", "new-tag"]
+```
+
 ### Best Practices
 
 **Skill Naming:**

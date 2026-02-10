@@ -65,3 +65,66 @@ async fn test_server_info() {
         "Server should provide instructions"
     );
 }
+
+/// Test that update_skill tool is registered and callable via MCP server
+///
+/// This test verifies:
+/// - update_skill method exists on McpServer
+/// - Tool is accessible via the MCP interface
+/// - Follows TDD: RED (this test will fail until tool is registered) → GREEN (register tool)
+#[tokio::test]
+async fn test_update_skill_tool_registered() {
+    use crate::db::{Database, Skill, SkillRepository};
+    use crate::mcp::tools::skills::UpdateSkillParams;
+    use rmcp::handler::server::wrapper::Parameters;
+
+    // Arrange: Create database and server
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create in-memory database");
+    db.migrate_async().await.expect("Failed to run migrations");
+
+    // Create a test skill
+    let skill = Skill {
+        id: String::new(),
+        name: "test-skill".to_string(),
+        description: "Test skill".to_string(),
+        content: r#"---
+name: test-skill
+description: Test skill
+---
+
+# Test Skill
+"#
+        .to_string(),
+        tags: vec!["old-tag".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    let created_skill = db.skills().create(&skill).await.unwrap();
+
+    let server = super::server::McpServer::new(
+        db,
+        ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
+    );
+
+    // Act: Call update_skill via server (this will fail until tool is registered)
+    let params = UpdateSkillParams {
+        skill_id: created_skill.id.clone(),
+        tags: Some(vec!["new-tag".to_string()]),
+        project_ids: None,
+    };
+
+    let result = server.update_skill(Parameters(params)).await;
+
+    // Assert: Tool should be callable and succeed
+    assert!(
+        result.is_ok(),
+        "update_skill tool should be registered and callable"
+    );
+}
