@@ -75,8 +75,8 @@ async fn test_export_then_import() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -168,8 +168,8 @@ async fn test_import_preserves_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -304,8 +304,8 @@ async fn test_import_preserves_project_timestamps() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: original_created.to_string(),
-        updated_at: original_updated.to_string(),
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(original_updated.to_string()),
     };
 
     db.projects().create(&project).await.unwrap();
@@ -321,8 +321,8 @@ async fn test_import_preserves_project_timestamps() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: original_created.to_string(),
-        updated_at: modified_updated.to_string(),
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(modified_updated.to_string()),
     };
 
     write_jsonl(&temp_dir.path().join("projects.jsonl"), &[modified_project]).unwrap();
@@ -335,11 +335,13 @@ async fn test_import_preserves_project_timestamps() {
 
     let imported_project = db.projects().get("proj1234").await.unwrap();
     assert_eq!(
-        imported_project.created_at, original_created,
+        imported_project.created_at.as_ref().unwrap(),
+        original_created,
         "project created_at should be preserved"
     );
     assert_eq!(
-        imported_project.updated_at, modified_updated,
+        imported_project.updated_at.as_ref().unwrap(),
+        modified_updated,
         "project updated_at should be preserved from import, not auto-generated"
     );
 }
@@ -359,8 +361,8 @@ async fn test_import_preserves_task_list_timestamps() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -378,8 +380,8 @@ async fn test_import_preserves_task_list_timestamps() {
         notes: None,
         repo_ids: vec![],
         project_id: "proj1234".to_string(),
-        created_at: original_created.to_string(),
-        updated_at: original_updated.to_string(),
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(original_updated.to_string()),
         archived_at: None,
     };
 
@@ -397,8 +399,8 @@ async fn test_import_preserves_task_list_timestamps() {
         notes: None,
         repo_ids: vec![],
         project_id: "proj1234".to_string(),
-        created_at: original_created.to_string(),
-        updated_at: modified_updated.to_string(),
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(modified_updated.to_string()),
         archived_at: None,
     };
 
@@ -412,11 +414,13 @@ async fn test_import_preserves_task_list_timestamps() {
 
     let imported_list = db.task_lists().get("list1234").await.unwrap();
     assert_eq!(
-        imported_list.created_at, original_created,
+        imported_list.created_at.as_ref().unwrap(),
+        original_created,
         "task_list created_at should be preserved"
     );
     assert_eq!(
-        imported_list.updated_at, modified_updated,
+        imported_list.updated_at.as_ref().unwrap(),
+        modified_updated,
         "task_list updated_at should be preserved from import, not auto-generated"
     );
 }
@@ -436,8 +440,8 @@ async fn test_import_skills_creates_new() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     // Create a skill
@@ -500,8 +504,8 @@ async fn test_import_skills_updates_existing() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -594,8 +598,8 @@ async fn test_import_skills_preserves_project_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     let project2 = Project {
@@ -607,8 +611,8 @@ async fn test_import_skills_preserves_project_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     // Create skill linked to multiple projects
@@ -691,8 +695,8 @@ async fn test_export_import_skills_round_trip() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.projects().create(&project).await.unwrap();
 

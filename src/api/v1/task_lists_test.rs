@@ -10,7 +10,8 @@ use tower::ServiceExt;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
-use crate::db::{Database, SqliteDatabase};
+use crate::db::utils::generate_entity_id;
+use crate::db::{Database, SqliteDatabase, TaskList, TaskListRepository};
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
@@ -277,7 +278,48 @@ async fn list_and_filter_task_lists() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn crud_operations() {
-    let app = test_app().await;
+    // Seed task list with old timestamp using DB layer
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Seed test project first
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let old_timestamp = "2020-01-01 00:00:00";
+    let task_list = TaskList {
+        id: generate_entity_id(),
+        title: "New Task List".to_string(),
+        description: Some("Test description".to_string()),
+        notes: None,
+        tags: vec!["test".to_string()],
+        external_refs: vec![],
+        status: crate::db::TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: "test0000".to_string(),
+        created_at: Some(old_timestamp.to_string()),
+        updated_at: Some(old_timestamp.to_string()),
+        archived_at: None,
+    };
+    let created = db.task_lists().create(&task_list).await.unwrap();
+    let list_id = created.id.clone();
+    assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
+
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
+    );
+    let app = routes::create_router(state, false);
 
     // Create project and repo for relationship testing
     let project_response = app
@@ -318,35 +360,6 @@ async fn crud_operations() {
         .unwrap()
         .to_string();
 
-    // Test 1: CREATE task list
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "New Task List",
-                        "description": "Test description",
-                        "tags": ["test"],
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(create_response.status(), StatusCode::CREATED);
-    let created = json_body(create_response).await;
-    let list_id = created["id"].as_str().unwrap().to_string();
-    assert_eq!(created["title"], "New Task List");
-    assert_eq!(created["status"], "active");
-    assert!(created["archived_at"].is_null());
-
     // Test 2: GET task list with relationships
     let response = app
         .clone()
@@ -365,7 +378,7 @@ async fn crud_operations() {
     assert_eq!(body["project_id"], "test0000");
     assert!(body["repo_ids"].is_array());
 
-    // Test 3: PATCH partial update - status to archived
+    // Test 3: PATCH partial update - status to archived, verify timestamp updates
     let response = app
         .clone()
         .oneshot(
@@ -386,6 +399,14 @@ async fn crud_operations() {
     assert_eq!(body["status"], "archived");
     assert!(!body["archived_at"].is_null());
     assert_eq!(body["title"], "New Task List"); // Title unchanged
+
+    // Verify updated_at changed from old seeded timestamp
+    let patched_timestamp = body["updated_at"].as_str().unwrap();
+    assert_ne!(
+        old_timestamp, patched_timestamp,
+        "updated_at should change from '{}' after PATCH",
+        old_timestamp
+    );
 
     // Test 4: PATCH relationship update
     let response = app

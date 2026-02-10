@@ -64,8 +64,8 @@ async fn task_list_create_with_relationships() {
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0001".to_string()],
             project_id: "proj0001".to_string(),
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
         })
         .await
@@ -141,8 +141,8 @@ async fn task_list_update_replaces_relationships() {
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0001".to_string()],
             project_id: "proj0001".to_string(),
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
         })
         .await
@@ -160,8 +160,8 @@ async fn task_list_update_replaces_relationships() {
             status: TaskListStatus::Active,
             repo_ids: vec!["repo0002".to_string()],
             project_id: "proj0002".to_string(),
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:01".to_string()),
             archived_at: None,
         })
         .await
@@ -194,8 +194,8 @@ async fn task_list_create_validates_repo_ids() {
             status: TaskListStatus::Active,
             repo_ids: vec!["nonexist".to_string()],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
         })
         .await;
@@ -220,8 +220,8 @@ async fn task_list_create_validates_project_ids() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "nonexist".to_string(),
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
         })
         .await;
@@ -246,8 +246,8 @@ async fn task_list_list_with_tag_filter() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
         })
         .await
@@ -264,8 +264,8 @@ async fn task_list_list_with_tag_filter() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
         })
         .await
@@ -330,8 +330,8 @@ async fn task_list_archive_sets_archived_at() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -376,8 +376,8 @@ async fn task_list_archive_twice_is_idempotent() {
             status: TaskListStatus::Active,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -435,8 +435,8 @@ async fn task_list_unarchive_clears_archived_at() {
             status: TaskListStatus::Archived,
             repo_ids: vec![],
             project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: Some("2025-01-01 12:00:00".to_string()),
         })
         .await
@@ -497,9 +497,9 @@ async fn task_list_belongs_to_one_project() {
             external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: "proj0001".to_string(), // Single project, not array
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            project_id: "proj0001".to_string(), // Belongs to the project created above
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -549,9 +549,9 @@ async fn task_list_can_change_project() {
             external_refs: vec![],
             status: TaskListStatus::Active,
             repo_ids: vec![],
-            project_id: "proj0001".to_string(),
-            created_at: "2025-01-01 00:00:00".to_string(),
-            updated_at: "2025-01-01 00:00:00".to_string(),
+            project_id: "proj0001".to_string(), // Belongs to the project created above
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await

@@ -238,8 +238,8 @@ impl<D: Database + 'static> TaskListTools<D> {
             status: TaskListStatus::Active,
             repo_ids: params.0.repo_ids.unwrap_or_default(),
             project_id: params.0.project_id,
-            created_at: String::new(), // Repository generates
-            updated_at: String::new(), // Repository generates
+            created_at: None, // Repository generates
+            updated_at: None, // Repository generates
             archived_at: None,
         };
 

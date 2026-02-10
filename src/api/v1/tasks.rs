@@ -135,8 +135,11 @@ pub struct PatchTaskRequest {
     pub status: Option<String>,
     /// Priority level
     pub priority: Option<i32>,
-    /// Parent task ID (for subtasks). Use Some(None) to remove parent.
-    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
+    /// Parent task ID (for subtasks). Use Some(None) or empty string to remove parent.
+    #[serde(
+        default,
+        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
+    )]
     pub parent_id: Option<Option<String>>,
     /// Tags for categorization
     #[schema(example = json!(["urgent", "bug-fix"]))]
@@ -177,6 +180,8 @@ impl PatchTaskRequest {
         if let Some(external_refs) = self.external_refs {
             target.external_refs = external_refs;
         }
+        // Clear updated_at to force new timestamp generation
+        target.updated_at = None;
     }
 }
 

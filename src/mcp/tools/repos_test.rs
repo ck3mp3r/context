@@ -126,8 +126,8 @@ async fn test_create_repo_with_project_ids() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -250,8 +250,8 @@ async fn test_update_repo_with_project_ids() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
 
@@ -313,8 +313,8 @@ async fn test_update_repo_transaction_safety() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project1).await.unwrap();
 

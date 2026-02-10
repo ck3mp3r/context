@@ -26,8 +26,8 @@ async fn create_test_project(db: &SqliteDatabase) -> String {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     db.projects().create(&project).await.unwrap();
@@ -53,8 +53,8 @@ async fn test_list_tasks_empty() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -107,8 +107,8 @@ async fn test_create_and_list_task() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -190,8 +190,8 @@ async fn test_get_task() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -270,8 +270,8 @@ async fn test_list_tasks_filtered_by_status() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -343,8 +343,8 @@ async fn test_delete_task() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -407,8 +407,8 @@ async fn test_list_tasks_with_parent_id_filter() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -501,8 +501,8 @@ async fn test_update_task_move_to_different_list() {
         external_refs: vec![],
         project_id: project_id.clone(),
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list1 = db.task_lists().create(&list1).await.unwrap();
@@ -517,8 +517,8 @@ async fn test_update_task_move_to_different_list() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list2 = db.task_lists().create(&list2).await.unwrap();
@@ -589,8 +589,8 @@ async fn test_update_task_parent_id() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -708,8 +708,8 @@ async fn test_list_tasks_with_sort_and_order() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let task_list = db.task_lists().create(&task_list).await.unwrap();
@@ -815,8 +815,8 @@ async fn test_list_tasks_with_offset() {
             tags: vec![],
             project_id,
             repo_ids: vec![],
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: None,
+            updated_at: None,
             archived_at: None,
         })
         .await
@@ -950,8 +950,8 @@ async fn create_task_with_status(
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -1339,8 +1339,8 @@ async fn test_create_task_with_invalid_priority_fails() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -1412,8 +1412,8 @@ async fn test_create_task_without_priority_defaults_to_p5() {
         external_refs: vec![],
         project_id: create_test_project(&db).await,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -1468,8 +1468,8 @@ async fn test_update_task_remove_parent_id_with_json_null() {
         tags: vec![],
         external_refs: vec![],
         archived_at: None,
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let list_id = db.task_lists().create(&task_list).await.unwrap().id;
 
@@ -1563,8 +1563,8 @@ async fn test_update_task_missing_parent_id_field_no_change() {
         tags: vec![],
         external_refs: vec![],
         archived_at: None,
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let list_id = db.task_lists().create(&task_list).await.unwrap().id;
 
@@ -1658,8 +1658,8 @@ async fn test_update_task_set_parent_id_with_json_string() {
         tags: vec![],
         external_refs: vec![],
         archived_at: None,
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let list_id = db.task_lists().create(&task_list).await.unwrap().id;
 
@@ -1753,8 +1753,8 @@ async fn test_update_task_remove_parent_id_with_empty_string() {
         tags: vec![],
         external_refs: vec![],
         archived_at: None,
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let list_id = db.task_lists().create(&task_list).await.unwrap().id;
 
@@ -1848,8 +1848,8 @@ async fn test_search_tasks_by_description() {
         status: crate::db::TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project_id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let list = db.task_lists().create(&task_list).await.unwrap();
@@ -1937,8 +1937,8 @@ async fn test_search_tasks_by_external_refs() {
         status: crate::db::TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project_id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let list = db.task_lists().create(&task_list).await.unwrap();
@@ -2026,8 +2026,8 @@ async fn test_search_tasks_boolean_operators() {
         status: crate::db::TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project_id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let list = db.task_lists().create(&task_list).await.unwrap();
@@ -2135,8 +2135,8 @@ async fn test_search_tasks_empty_results() {
         status: crate::db::TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project_id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let list = db.task_lists().create(&task_list).await.unwrap();
@@ -2204,8 +2204,8 @@ async fn test_search_tasks_with_status_filter() {
         status: crate::db::TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project_id.clone(),
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let list = db.task_lists().create(&task_list).await.unwrap();
@@ -2304,8 +2304,8 @@ async fn test_create_task_with_jira_external_ref() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -2355,8 +2355,8 @@ async fn test_create_task_without_external_ref() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -2405,8 +2405,8 @@ async fn test_update_task_external_ref() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();
@@ -2475,8 +2475,8 @@ async fn test_get_task_returns_external_ref() {
         external_refs: vec![],
         project_id,
         repo_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
         archived_at: None,
     };
     let created_list = db.task_lists().create(&task_list).await.unwrap();

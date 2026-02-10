@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use crate::api::{AppState, routes};
-use crate::db::{Database, SqliteDatabase};
+use crate::db::utils::generate_entity_id;
+use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
@@ -258,34 +259,34 @@ async fn list_and_relationships_comprehensive() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn crud_and_patch_operations() {
-    let app = test_app().await;
+    // Seed project with old timestamp using DB layer
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
 
-    // Test 1: CREATE project with full data
-    let create_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "title": "Original Project",
-                        "description": "Original description",
-                        "tags": ["tag1", "tag2"]
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(create_response.status(), StatusCode::CREATED);
-    let created = json_body(create_response).await;
-    let project_id = created["id"].as_str().unwrap().to_string();
-    assert_eq!(created["title"], "Original Project");
-    assert_eq!(created["description"], "Original description");
-    assert_eq!(created["tags"].as_array().unwrap().len(), 2);
+    let old_timestamp = "2020-01-01 00:00:00";
+    let project = Project {
+        id: generate_entity_id(),
+        title: "Original Project".to_string(),
+        description: Some("Original description".to_string()),
+        tags: vec!["tag1".to_string(), "tag2".to_string()],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some(old_timestamp.to_string()),
+        updated_at: Some(old_timestamp.to_string()),
+    };
+    let created = db.projects().create(&project).await.unwrap();
+    let project_id = created.id.clone();
+    assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
+
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
+    );
+    let app = routes::create_router(state, false);
 
     // Test 2: GET project by ID
     let get_response = app
@@ -315,7 +316,7 @@ async fn crud_and_patch_operations() {
         .unwrap();
     assert_eq!(get_404.status(), StatusCode::NOT_FOUND);
 
-    // Test 4: PATCH partial update (title only)
+    // Test 4: PATCH partial update (title only) - verify timestamp updates
     let patch_title = app
         .clone()
         .oneshot(
@@ -337,6 +338,14 @@ async fn crud_and_patch_operations() {
     let patched = json_body(patch_title).await;
     assert_eq!(patched["title"], "Updated Title");
     assert_eq!(patched["description"], "Original description"); // Preserved
+
+    // Verify updated_at changed from old seeded timestamp
+    let patched_timestamp = patched["updated_at"].as_str().unwrap();
+    assert_ne!(
+        old_timestamp, patched_timestamp,
+        "updated_at should change from '{}' after PATCH",
+        old_timestamp
+    );
 
     // Test 5: PATCH with field omission preserves existing values
     let patch_preserve = app

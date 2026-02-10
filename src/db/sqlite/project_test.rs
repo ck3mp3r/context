@@ -24,8 +24,8 @@ async fn create_and_get_project() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     repo.create(&project).await.expect("Create should succeed");
@@ -64,8 +64,8 @@ async fn list_projects_includes_created() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     repo.create(&project).await.expect("Create should succeed");
 
@@ -88,8 +88,8 @@ async fn update_project() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     repo.create(&project).await.expect("Create should succeed");
 
@@ -119,8 +119,8 @@ async fn delete_project() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     repo.create(&project).await.expect("Create should succeed");
 
@@ -146,8 +146,8 @@ async fn project_create_with_tags() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     repo.create(&project).await.expect("Create should succeed");
@@ -173,8 +173,8 @@ async fn project_list_with_tag_filter() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -188,8 +188,8 @@ async fn project_list_with_tag_filter() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
     .unwrap();
@@ -203,8 +203,8 @@ async fn project_list_with_tag_filter() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:02".to_string(),
-        updated_at: "2025-01-01 00:00:02".to_string(),
+        created_at: Some("2025-01-01 00:00:02".to_string()),
+        updated_at: Some("2025-01-01 00:00:02".to_string()),
     })
     .await
     .unwrap();
@@ -252,8 +252,8 @@ async fn project_get_loads_all_relationships() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     projects
         .create(&project)
@@ -353,8 +353,8 @@ async fn test_create_project_with_external_ref() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     repo.create(&project).await.expect("Create should succeed");
@@ -378,8 +378,8 @@ async fn test_update_project_external_ref() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     repo.create(&project).await.expect("Create should succeed");
@@ -413,8 +413,8 @@ async fn fts5_search_finds_project_by_title() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -428,8 +428,8 @@ async fn fts5_search_finds_project_by_title() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
     .unwrap();
@@ -457,8 +457,8 @@ async fn fts5_search_finds_project_by_description() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -472,8 +472,8 @@ async fn fts5_search_finds_project_by_description() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
     .unwrap();
@@ -505,8 +505,8 @@ async fn fts5_search_finds_project_by_tags() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -538,8 +538,8 @@ async fn fts5_search_finds_project_by_external_refs() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -579,8 +579,8 @@ async fn fts5_search_boolean_operators() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -594,8 +594,8 @@ async fn fts5_search_boolean_operators() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
     .unwrap();
@@ -638,8 +638,8 @@ async fn fts5_search_phrase_query() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -653,8 +653,8 @@ async fn fts5_search_phrase_query() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
     .unwrap();
@@ -682,8 +682,8 @@ async fn fts5_search_handles_special_characters() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
     .unwrap();
@@ -712,8 +712,8 @@ async fn list_projects_with_offset_without_limit() {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: format!("2025-01-01 00:00:{:02}", i),
-            updated_at: format!("2025-01-01 00:00:{:02}", i),
+            created_at: Some(format!("2025-01-01 00:00:{:02}", i)),
+            updated_at: Some(format!("2025-01-01 00:00:{:02}", i)),
         })
         .await
         .unwrap();

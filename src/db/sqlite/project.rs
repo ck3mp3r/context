@@ -22,17 +22,12 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             project.id.clone()
         };
 
-        // Use provided timestamps or generate if empty
-        let created_at = if project.created_at.is_empty() {
-            current_timestamp()
-        } else {
-            project.created_at.clone()
-        };
-        let updated_at = if project.updated_at.is_empty() {
-            created_at.clone()
-        } else {
-            project.updated_at.clone()
-        };
+        // Use provided timestamps or generate if None
+        let created_at = project.created_at.clone().unwrap_or_else(current_timestamp);
+        let updated_at = project
+            .updated_at
+            .clone()
+            .unwrap_or_else(|| created_at.clone());
 
         let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
 
@@ -62,8 +57,8 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at,
-            updated_at,
+            created_at: Some(created_at),
+            updated_at: Some(updated_at),
         })
     }
 
@@ -129,8 +124,8 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             repo_ids,
             task_list_ids,
             note_ids,
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
+            created_at: Some(row.get("created_at")),
+            updated_at: Some(row.get("updated_at")),
         })
     }
 
@@ -216,8 +211,8 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                     repo_ids: vec![],
                     task_list_ids: vec![],
                     note_ids: vec![],
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
+                    created_at: Some(row.get("created_at")),
+                    updated_at: Some(row.get("updated_at")),
                 }
             })
             .collect();
@@ -258,6 +253,9 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let external_refs_json =
             serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
 
+        // Use provided timestamp or generate if None
+        let updated_at = project.updated_at.clone().unwrap_or_else(current_timestamp);
+
         let result = sqlx::query(
             "UPDATE project SET title = ?, description = ?, tags = ?, external_refs = ?, updated_at = ? WHERE id = ?",
         )
@@ -265,7 +263,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         .bind(&project.description)
         .bind(&tags_json)
         .bind(&external_refs_json)
-        .bind(&project.updated_at)
+        .bind(&updated_at)
         .bind(&project.id)
         .execute(self.pool)
         .await

@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use crate::api::{AppState, routes};
-use crate::db::{Database, SqliteDatabase};
+use crate::db::utils::generate_entity_id;
+use crate::db::{Database, SqliteDatabase, Task, TaskRepository};
 
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory()
@@ -413,46 +414,63 @@ async fn type_filtering_comprehensive() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn crud_and_relationships() {
-    let app = test_app().await;
+    // Seed task with old timestamp using DB layer
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
 
-    let list = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/task-lists")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "title": "Test List",
-                        "project_id": "test0000"
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
+    // Seed test project and list first
+    sqlx::query("INSERT INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
         .await
         .unwrap();
-    let list_id = json_body(list).await["id"].as_str().unwrap().to_string();
 
-    // Test 1: CREATE task
-    let task = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Test Task"})).unwrap(),
-                ))
-                .unwrap(),
-        )
+    sqlx::query("INSERT INTO task_list (id, title, description, notes, tags, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("list0000")
+        .bind("Test List")
+        .bind("")
+        .bind("")
+        .bind("[]")
+        .bind("active")
+        .bind("test0000")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
         .await
         .unwrap();
-    assert_eq!(task.status(), StatusCode::CREATED);
-    let task_body = json_body(task).await;
-    let task_id = task_body["id"].as_str().unwrap().to_string();
+
+    let old_timestamp = "2020-01-01 00:00:00";
+    let task = Task {
+        id: generate_entity_id(),
+        list_id: "list0000".to_string(),
+        parent_id: None,
+        title: "Test Task".to_string(),
+        description: None,
+        status: crate::db::TaskStatus::Backlog,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some(old_timestamp.to_string()),
+        started_at: None,
+        completed_at: None,
+        updated_at: Some(old_timestamp.to_string()),
+    };
+    let created = db.tasks().create(&task).await.unwrap();
+    let task_id = created.id.clone();
+    assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
+
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
+    );
+    let app = routes::create_router(state, false);
 
     // Test 2: GET task
     let response = app
@@ -477,7 +495,7 @@ async fn crud_and_relationships() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "list_id": &list_id,
+                        "list_id": "list0000",
                         "title": "Updated Task"
                     }))
                     .unwrap(),
@@ -489,7 +507,7 @@ async fn crud_and_relationships() {
     let body = json_body(response).await;
     assert_eq!(body["title"], "Updated Task");
 
-    // Test 4: PATCH to remove parent_id
+    // Test 4: PATCH to remove parent_id, verify timestamp updates
     let response = app
         .clone()
         .oneshot(
@@ -506,6 +524,24 @@ async fn crud_and_relationships() {
         .unwrap();
     let body = json_body(response).await;
     assert!(body["parent_id"].is_null());
+
+    // Debug: print the full response
+    eprintln!(
+        "PATCH response body: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+
+    // Verify updated_at changed from old seeded timestamp
+    assert!(
+        !body["updated_at"].is_null(),
+        "updated_at should not be null after PATCH"
+    );
+    let patched_timestamp = body["updated_at"].as_str().unwrap();
+    assert_ne!(
+        old_timestamp, patched_timestamp,
+        "updated_at should change from '{}' after PATCH",
+        old_timestamp
+    );
 
     // Test 5: DELETE task
     let response = app

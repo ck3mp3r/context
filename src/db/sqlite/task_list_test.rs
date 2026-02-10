@@ -23,8 +23,8 @@ async fn create_test_project(db: &SqliteDatabase, id: &str) -> Project {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     db.projects().create(&project).await.unwrap();
     project
@@ -51,8 +51,8 @@ async fn fts5_search_finds_task_list_by_title() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -68,8 +68,8 @@ async fn fts5_search_finds_task_list_by_title() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -102,8 +102,8 @@ async fn fts5_search_finds_task_list_by_description() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -119,8 +119,8 @@ async fn fts5_search_finds_task_list_by_description() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -153,8 +153,8 @@ async fn fts5_search_finds_task_list_by_notes() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -170,8 +170,8 @@ async fn fts5_search_finds_task_list_by_notes() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -204,8 +204,8 @@ async fn fts5_search_finds_task_list_by_tags() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -221,8 +221,8 @@ async fn fts5_search_finds_task_list_by_tags() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -255,8 +255,8 @@ async fn fts5_search_finds_task_list_by_external_refs() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -272,8 +272,8 @@ async fn fts5_search_finds_task_list_by_external_refs() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -306,8 +306,8 @@ async fn fts5_search_boolean_operators() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -323,8 +323,8 @@ async fn fts5_search_boolean_operators() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -340,8 +340,8 @@ async fn fts5_search_boolean_operators() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:02".to_string(),
-        updated_at: "2025-01-01 00:00:02".to_string(),
+        created_at: Some("2025-01-01 00:00:02".to_string()),
+        updated_at: Some("2025-01-01 00:00:02".to_string()),
         archived_at: None,
     })
     .await
@@ -374,8 +374,8 @@ async fn fts5_search_phrase_query() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await
@@ -391,8 +391,8 @@ async fn fts5_search_phrase_query() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:01".to_string(),
-        updated_at: "2025-01-01 00:00:01".to_string(),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
     })
     .await
@@ -425,8 +425,8 @@ async fn fts5_search_handles_special_characters() {
         status: TaskListStatus::Active,
         repo_ids: vec![],
         project_id: project.id.clone(),
-        created_at: "2025-01-01 00:00:00".to_string(),
-        updated_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
     })
     .await

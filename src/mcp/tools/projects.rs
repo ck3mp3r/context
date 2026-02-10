@@ -194,8 +194,8 @@ impl<D: Database + 'static> ProjectTools<D> {
             repo_ids: vec![],
             task_list_ids: vec![],
             note_ids: vec![],
-            created_at: String::new(), // Repository generates this
-            updated_at: String::new(), // Repository generates this
+            created_at: None, // Repository generates this
+            updated_at: None, // Repository generates this
         };
 
         let created = self

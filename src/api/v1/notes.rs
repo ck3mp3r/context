@@ -161,6 +161,8 @@ impl PatchNoteRequest {
         if let Some(project_ids) = self.project_ids {
             target.project_ids = project_ids;
         }
+        // Clear updated_at to force new timestamp generation
+        target.updated_at = None;
     }
 }
 
@@ -473,6 +475,16 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
 
     // Save
     state.db().notes().update(&note).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Re-fetch to get auto-generated updated_at timestamp
+    let note = state.db().notes().get(&id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

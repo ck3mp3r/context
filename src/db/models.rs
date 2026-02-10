@@ -165,8 +165,8 @@ pub struct Project {
     /// Linked note IDs (M:N relationship via project_note)
     #[serde(default)]
     pub note_ids: Vec<Id>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 /// A git repository tracked by the system.
@@ -198,8 +198,8 @@ pub struct TaskList {
     pub repo_ids: Vec<Id>,
     /// Project this task list belongs to (1:N relationship - task list belongs to ONE project, REQUIRED)
     pub project_id: Id,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
     pub archived_at: Option<String>,
 }
 

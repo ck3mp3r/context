@@ -10,7 +10,8 @@ use tower::ServiceExt;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
-use crate::db::{Database, SqliteDatabase};
+use crate::db::utils::generate_entity_id;
+use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
@@ -37,6 +38,62 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
         std::path::PathBuf::from("/tmp/skills"),
     );
     (routes::create_router(state, false), notifier)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_updates_timestamp() {
+    // Simple focused test for timestamp update bug
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    // Seed a note with old timestamp directly via DB
+    let old_timestamp = "2020-01-01 00:00:00";
+    let note = Note {
+        id: generate_entity_id(),
+        title: "Test Note".to_string(),
+        content: "Test content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: Some(old_timestamp.to_string()),
+        updated_at: Some(old_timestamp.to_string()),
+    };
+    let created = db.notes().create(&note).await.unwrap();
+    assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
+
+    // Now make an API request to PATCH this note
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        ChangeNotifier::new(),
+        std::path::PathBuf::from("/tmp/skills"),
+    );
+    let app = routes::create_router(state, false);
+
+    let patch_response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{}", created.id))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"title": "Updated"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), StatusCode::OK);
+    let patched = json_body(patch_response).await;
+    let new_timestamp = patched["updated_at"].as_str().unwrap();
+
+    assert_ne!(
+        old_timestamp, new_timestamp,
+        "BUG: updated_at should change from '{}' to current time after PATCH",
+        old_timestamp
+    );
 }
 
 /// Helper to parse JSON response body

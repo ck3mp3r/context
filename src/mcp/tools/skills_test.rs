@@ -1029,8 +1029,8 @@ async fn test_update_skill_project_ids_only() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
@@ -1113,8 +1113,8 @@ async fn test_update_skill_both_tags_and_project_ids() {
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: String::new(),
-        updated_at: String::new(),
+        created_at: None,
+        updated_at: None,
     };
     let created_project = db.projects().create(&project).await.unwrap();
 
