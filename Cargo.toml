@@ -81,7 +81,7 @@ version = "0.4.43"
 optional = true
 
 [dependencies.clap]
-version = "4.5.57"
+version = "4.5.58"
 features = ["derive"]
 optional = true
 
@@ -165,7 +165,7 @@ version = "0.7.18"
 optional = true
 
 [dependencies.futures-util]
-version = "0.3.31"
+version = "0.3.32"
 optional = true
 
 [dependencies.tower-http]
