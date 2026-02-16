@@ -1,26 +1,26 @@
 class Context < Formula
   desc "Task management and knowledge tracking system for AI-assisted workflows"
   homepage "https://github.com/ck3mp3r/context"
-  version "0.5.1"
+  version "0.5.2"
   license "GPL-2.0"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/ck3mp3r/context/releases/download/v0.5.1/context-0.5.1-aarch64-darwin.tgz"
-      sha256 "25d16bcf18a8b695f6f4ec3bc8f99b959f6cbf5679b325a6e78539cc2b5fcc24"
+      url "https://github.com/ck3mp3r/context/releases/download/v0.5.2/context-0.5.2-aarch64-darwin.tgz"
+      sha256 "8cde2d4c4a2fead887bc796b6b67fbf47eb1e1f99c395891062a944f0cd27d75"
     else
-      url "https://github.com/ck3mp3r/context/releases/download/v0.5.1/context-0.5.1-x86_64-darwin.tgz"
-      sha256 "70643ae8f0b30f1f302753fa68e7807cdce7da6f32618b1623117f2c870b65d9"
+      url "https://github.com/ck3mp3r/context/releases/download/v0.5.2/context-0.5.2-x86_64-darwin.tgz"
+      sha256 "c24b08ed2d935cbb7dc4c276409887b111f2124c8bd2be6812c7d2e8b0345f8d"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/ck3mp3r/context/releases/download/v0.5.1/context-0.5.1-x86_64-linux.tgz"
-      sha256 "b3e78cdf38bb39d18de5096f6d79466de093251aee262ac806d0d4b7bb4ce70c"
+      url "https://github.com/ck3mp3r/context/releases/download/v0.5.2/context-0.5.2-x86_64-linux.tgz"
+      sha256 "89352d0b3a3d8ff91bce2d62eaaf44af253f2186bd38a9fb752105ab360777b2"
     elsif Hardware::CPU.arm?
-      url "https://github.com/ck3mp3r/context/releases/download/v0.5.1/context-0.5.1-aarch64-linux.tgz"
-      sha256 "d2f75de43cc3d633f52df6b389335398d816f44ac8ec385ca04974d3e154481d"
+      url "https://github.com/ck3mp3r/context/releases/download/v0.5.2/context-0.5.2-aarch64-linux.tgz"
+      sha256 "202ff9fc32b9d210cb15175731afe68f9fc5a6a10d89c686a9476716da94b2ab"
     end
   end
 
