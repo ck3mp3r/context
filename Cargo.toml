@@ -11,7 +11,7 @@ test = false
 
 [package]
 name = "context"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 license = "GPL-2.0"
 authors = ["Christian Kemper"]
