@@ -28,27 +28,55 @@ use std::sync::Arc;
 pub enum SyncOperation {
     /// Initialize sync (create git repo, add remote)
     Init,
-    /// Export database to JSONL and push
+    /// Export database to JSONL (use remote=true to also push to git)
     Export,
-    /// Pull from remote and import JSONL to database
+    /// Import JSONL to database (use remote=true to first pull from git)
     Import,
     /// Show sync status
     Status,
+}
+
+impl std::fmt::Display for SyncOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SyncOperation::Init => write!(f, "init"),
+            SyncOperation::Export => write!(f, "export"),
+            SyncOperation::Import => write!(f, "import"),
+            SyncOperation::Status => write!(f, "status"),
+        }
+    }
+}
+
+impl std::str::FromStr for SyncOperation {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "init" => Ok(SyncOperation::Init),
+            "export" => Ok(SyncOperation::Export),
+            "import" => Ok(SyncOperation::Import),
+            "status" => Ok(SyncOperation::Status),
+            _ => Err(format!(
+                "Invalid operation: '{}'. Must be one of: 'init', 'export', 'import', 'status'",
+                s
+            )),
+        }
+    }
 }
 
 /// Parameters for the sync tool.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SyncParams {
     /// Sync operation to perform
-    #[schemars(description = "Operation: init, export, import, or status")]
-    pub operation: SyncOperation,
+    #[schemars(description = "Operation to perform: 'init', 'export', 'import', or 'status'")]
+    pub operation: String,
 
     /// Git remote URL (required for init if not already configured)
-    #[schemars(description = "Git remote URL (optional, for init operation)")]
+    #[schemars(description = "Optional: Git remote URL (only used for 'init' operation)")]
     pub remote_url: Option<String>,
 
     /// Custom commit message (for export operation)
-    #[schemars(description = "Commit message (optional, for export operation)")]
+    #[schemars(description = "Optional: Commit message (only used for 'export' operation)")]
     pub message: Option<String>,
 
     /// Use remote for sync operations (push on export, pull on import)
@@ -58,9 +86,7 @@ pub struct SyncParams {
     /// - For import: pulls from remote before importing
     ///
     /// Idempotent - safe to run multiple times. Handles "already up to date" gracefully.
-    #[schemars(
-        description = "Use remote: push after export or pull before import (optional, default: false)"
-    )]
+    #[schemars(description = "Optional: Push/pull to remote after operation (default: false)")]
     pub remote: Option<bool>,
 }
 
@@ -163,12 +189,22 @@ impl<D: Database + 'static> SyncTools<D, RealGit> {
 #[tool_router]
 impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
     /// Sync tool - git-based synchronization.
-    #[tool(description = "Git-based sync: init, export, import, or status")]
+    #[tool(
+        description = "Git-based sync: init, export, import, or status. Examples: Export and push: {operation: 'export', remote: true}; Import with pull: {operation: 'import', remote: true}; Local export only: {operation: 'export'}"
+    )]
     pub async fn sync(&self, params: Parameters<SyncParams>) -> Result<CallToolResult, McpError> {
         let params = params.0;
         let manager = &self.manager;
 
-        let content = match params.operation {
+        // Parse operation string to enum
+        let operation = params.operation.parse::<SyncOperation>().map_err(|e| {
+            McpError::invalid_params(
+                "invalid_operation",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        let content = match operation {
             SyncOperation::Init => {
                 manager
                     .init(params.remote_url)
