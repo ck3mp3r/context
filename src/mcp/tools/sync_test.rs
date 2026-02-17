@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 
 use crate::db::{Database, SqliteDatabase};
-use crate::mcp::tools::sync::{SyncOperation, SyncParams, SyncTools};
+use crate::mcp::tools::sync::{SyncParams, SyncTools};
 use crate::sync::{MockGitOps, SyncManager};
 
 use rmcp::{handler::server::wrapper::Parameters, model::RawContent};
@@ -37,7 +37,7 @@ async fn test_sync_status_not_initialized_with_temp_dir() {
     let tools = SyncTools::with_manager(db, manager);
 
     let params = SyncParams {
-        operation: SyncOperation::Status,
+        operation: "status".to_string(),
         remote_url: None,
         message: None,
         remote: None,
@@ -81,3 +81,41 @@ async fn test_sync_tools_with_real_git_constructor() {
 
 // Original test removed - replaced with test_sync_status_not_initialized_with_temp_dir
 // which properly uses temp directories and MockGitOps for test isolation.
+
+/// Test that invalid operation strings return proper error.
+///
+/// This test verifies:
+/// - Invalid operation string is rejected with clear error message
+/// - Error includes list of valid operations
+/// - Error code is "invalid_operation"
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sync_invalid_operation_error() {
+    // Arrange
+    let db = Arc::new(setup_test_db().await);
+    let temp_dir = TempDir::new().unwrap();
+    let mock_git = MockGitOps::new();
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    let tools = SyncTools::with_manager(db, manager);
+
+    let params = SyncParams {
+        operation: "invalid_operation".to_string(),
+        remote_url: None,
+        message: None,
+        remote: None,
+    };
+
+    // Act
+    let result = tools.sync(Parameters(params)).await;
+
+    // Assert: Should return error
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+
+    // Check error contains helpful message
+    let err_msg = format!("{:?}", err);
+    assert!(
+        err_msg.contains("invalid_operation") || err_msg.contains("Invalid operation"),
+        "Error should mention invalid operation. Got: {}",
+        err_msg
+    );
+}

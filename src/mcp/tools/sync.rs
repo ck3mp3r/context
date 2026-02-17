@@ -36,14 +36,40 @@ pub enum SyncOperation {
     Status,
 }
 
+impl std::fmt::Display for SyncOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SyncOperation::Init => write!(f, "init"),
+            SyncOperation::Export => write!(f, "export"),
+            SyncOperation::Import => write!(f, "import"),
+            SyncOperation::Status => write!(f, "status"),
+        }
+    }
+}
+
+impl std::str::FromStr for SyncOperation {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "init" => Ok(SyncOperation::Init),
+            "export" => Ok(SyncOperation::Export),
+            "import" => Ok(SyncOperation::Import),
+            "status" => Ok(SyncOperation::Status),
+            _ => Err(format!(
+                "Invalid operation: '{}'. Must be one of: 'init', 'export', 'import', 'status'",
+                s
+            )),
+        }
+    }
+}
+
 /// Parameters for the sync tool.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SyncParams {
     /// Sync operation to perform
-    #[schemars(
-        description = "REQUIRED: Operation to perform: 'init', 'export', 'import', or 'status'"
-    )]
-    pub operation: SyncOperation,
+    #[schemars(description = "Operation to perform: 'init', 'export', 'import', or 'status'")]
+    pub operation: String,
 
     /// Git remote URL (required for init if not already configured)
     #[schemars(description = "Optional: Git remote URL (only used for 'init' operation)")]
@@ -170,7 +196,15 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
         let params = params.0;
         let manager = &self.manager;
 
-        let content = match params.operation {
+        // Parse operation string to enum
+        let operation = params.operation.parse::<SyncOperation>().map_err(|e| {
+            McpError::invalid_params(
+                "invalid_operation",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        let content = match operation {
             SyncOperation::Init => {
                 manager
                     .init(params.remote_url)
