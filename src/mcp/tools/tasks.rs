@@ -285,7 +285,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
+        description = "Transition task between statuses. All specified tasks must have the same current status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
     )]
     pub async fn transition_task(
         &self,
