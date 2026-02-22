@@ -402,6 +402,8 @@ pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
     project.description = req.description;
     project.tags = req.tags;
     project.external_refs = req.external_refs;
+    // Clear updated_at to ensure proper timestamp refresh on PUT
+    project.updated_at = None;
 
     state.db().projects().update(&project).await.map_err(|e| {
         (

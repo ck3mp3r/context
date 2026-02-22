@@ -450,6 +450,8 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
             _ => TaskListStatus::Active,
         };
     }
+    // Clear updated_at to ensure proper timestamp refresh on PUT
+    list.updated_at = None;
 
     state.db().task_lists().update(&list).await.map_err(|e| {
         (
