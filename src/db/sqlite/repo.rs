@@ -21,7 +21,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         };
 
         // Always generate current timestamp - never use input timestamp
-        let created_at = current_timestamp();
+        let created_at = Some(current_timestamp());
 
         let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
 

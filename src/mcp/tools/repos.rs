@@ -192,7 +192,7 @@ impl<D: Database + 'static> RepoTools<D> {
             path: params.0.path,
             tags: params.0.tags.unwrap_or_default(),
             project_ids: params.0.project_ids.unwrap_or_default(),
-            created_at: String::new(), // Repository generates this
+            created_at: None, // Repository generates this
         };
 
         let created = self.db.repos().create(&repo).await.map_err(map_db_error)?;
