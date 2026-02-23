@@ -81,7 +81,7 @@ version = "0.4.43"
 optional = true
 
 [dependencies.clap]
-version = "4.5.58"
+version = "4.5.60"
 features = ["derive"]
 optional = true
 
@@ -200,16 +200,16 @@ features = ["axum"]
 optional = true
 
 [dependencies.leptos]
-version = "0.8.15"
+version = "0.8.16"
 features = ["csr"]
 optional = true
 
 [dependencies.leptos_router]
-version = "0.8.11"
+version = "0.8.12"
 optional = true
 
 [dependencies.leptos_meta]
-version = "0.8.5"
+version = "0.8.6"
 optional = true
 
 [dependencies.console_error_panic_hook]
@@ -247,7 +247,7 @@ features = [
 optional = true
 
 [dependencies.pulldown-cmark]
-version = "0.13.0"
+version = "0.13.1"
 optional = true
 
 [dependencies.thaw]
