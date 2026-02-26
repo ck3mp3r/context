@@ -183,6 +183,7 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     skill.content = req.content;
     skill.tags = req.tags;
     skill.project_ids = req.project_ids;
+    skill.updated_at = None;
     repo.update(&skill).await.map_err(|e| match e {
         DbError::Validation { .. } => (
             StatusCode::BAD_REQUEST,
@@ -418,6 +419,7 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
     if let Some(project_ids) = req.project_ids {
         skill.project_ids = project_ids;
     }
+    skill.updated_at = None;
     repo.update(&skill).await.map_err(|e| match e {
         DbError::Validation { .. } => (
             StatusCode::BAD_REQUEST,
