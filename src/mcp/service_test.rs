@@ -10,6 +10,7 @@ use tower::ServiceExt;
 
 use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
+use tempfile::TempDir;
 
 /// Test that we can create a Streamable HTTP service
 ///
@@ -28,12 +29,13 @@ async fn test_create_mcp_service() {
     db.migrate_async().await.expect("Failed to run migrations");
 
     let ct = CancellationToken::new();
+    let temp_dir = TempDir::new().unwrap();
 
     // Act: Create MCP service
     let service = super::create_mcp_service(
         db,
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
         ct,
     );
 
@@ -55,10 +57,11 @@ async fn test_mcp_service_with_router() {
     db.migrate_async().await.expect("Failed to run migrations");
 
     let ct = CancellationToken::new();
+    let temp_dir = TempDir::new().unwrap();
     let service = super::create_mcp_service(
         db,
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
         ct,
     );
 
@@ -92,10 +95,11 @@ async fn test_mcp_session_management_configured() {
     db.migrate_async().await.expect("Failed to run migrations");
 
     let ct = CancellationToken::new();
+    let temp_dir = TempDir::new().unwrap();
     let service = super::create_mcp_service(
         db,
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
         ct,
     );
     let app = Router::new().nest_service("/mcp", service);

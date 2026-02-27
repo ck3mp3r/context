@@ -11,16 +11,21 @@ use tower::ServiceExt;
 use crate::api::notifier::ChangeNotifier;
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
+use tempfile::TempDir;
 
 /// Setup test app with real in-memory DB and skills API routes
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let skills_dir = temp_dir.path().join("skills");
+
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        skills_dir,
     );
     routes::create_router(state, false)
 }

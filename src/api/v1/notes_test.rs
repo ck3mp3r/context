@@ -12,16 +12,18 @@ use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use crate::db::utils::generate_entity_id;
 use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
+use tempfile::TempDir;
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     routes::create_router(state, false)
 }
@@ -31,11 +33,12 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let notifier = ChangeNotifier::new();
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -64,12 +67,12 @@ async fn patch_updates_timestamp() {
     let created = db.notes().create(&note).await.unwrap();
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
-    // Now make an API request to PATCH this note
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 

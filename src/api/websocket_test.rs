@@ -9,20 +9,17 @@ use tower::ServiceExt;
 use crate::api::notifier::ChangeNotifier;
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
+use tempfile::TempDir;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_websocket_route_exists() {
     // Create test app
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
-    let state = AppState::new(
-        db,
-        sync_manager,
-        notifier,
-        std::path::PathBuf::from("/tmp/skills"),
-    );
+    let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
     let app = routes::create_router(state, false);
 
     // Create WebSocket upgrade request
@@ -51,14 +48,10 @@ async fn test_websocket_rejects_non_upgrade_requests() {
     // Create test app
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
-    let state = AppState::new(
-        db,
-        sync_manager,
-        notifier,
-        std::path::PathBuf::from("/tmp/skills"),
-    );
+    let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
     let app = routes::create_router(state, false);
 
     // Create regular GET request (no WebSocket headers)

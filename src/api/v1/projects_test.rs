@@ -11,16 +11,18 @@ use tower::ServiceExt;
 use crate::api::{AppState, routes};
 use crate::db::utils::generate_entity_id;
 use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
+use tempfile::TempDir;
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     routes::create_router(state, false)
 }
@@ -30,11 +32,12 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let notifier = crate::api::notifier::ChangeNotifier::new();
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -280,11 +283,12 @@ async fn crud_and_patch_operations() {
     let project_id = created.id.clone();
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 
