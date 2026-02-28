@@ -75,6 +75,10 @@ jobs:
 
       - name: Build archive for ${{ matrix.nix_system }}
         run: nix build .#archive --print-build-logs
+        with:
+          github-token: ${{github.token}}
+          extra-conf: |
+            sandbox = false
 
       - name: Copy build outputs for uniqueness
         run: |

@@ -247,6 +247,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             project.external_refs = external_refs;
         }
 
+        // Clear updated_at to ensure proper timestamp refresh
         project.updated_at = None;
 
         self.db
