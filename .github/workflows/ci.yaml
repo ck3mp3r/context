@@ -23,8 +23,6 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@main
         with:
           github-token: ${{github.token}}
-          extra-conf: |
-            sandbox = false
 
       - name: Build and test context via Nix
         run: nix build .#context
