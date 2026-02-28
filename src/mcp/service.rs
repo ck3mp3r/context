@@ -66,6 +66,7 @@ pub fn create_mcp_service<D: Database + 'static>(
         sse_retry: None,      // Use default retry behavior
         stateful_mode: true,  // Enable session management
         cancellation_token,
+        ..Default::default()
     };
 
     // Create service with local session manager
