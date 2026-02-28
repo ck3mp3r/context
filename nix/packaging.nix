@@ -53,12 +53,13 @@
         tailwindcss_4
       ];
 
-      # Ensure wasm-bindgen-cli is used instead of downloading
-      WasmBindgenCli = pkgs.wasm-bindgen-cli;
-
       buildPhase = ''
         # Set writable HOME for wasm-bindgen cache
         export HOME=$TMPDIR
+        # Use nixpkgs wasm-bindgen instead of downloading
+        export WASM_BINDGEN_BIN=${pkgs.wasm-bindgen-cli}/bin/wasm-bindgen
+        # Ensure directory containing wasm-bindgen is in PATH as fallback
+        export PATH="$(dirname $WASM_BINDGEN_BIN):$PATH"
         trunk build --release
       '';
 
