@@ -13,6 +13,9 @@ target_dir = "target/trunk"
 watch = ["src/frontend"]
 ignore = ["target", "dist"]
 
+[tools]
+wasm_bindgen = "0.2.108"
+
 [serve]
 addresses = ["127.0.0.1"]
 port = 8080
