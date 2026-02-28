@@ -8,13 +8,11 @@ minify = "on_release"
 wasm_opt = "off"
 # Use separate target directory to avoid lock contention with outer cargo build
 target_dir = "target/trunk"
+offline = true
 
 [watch]
 watch = ["src/frontend"]
 ignore = ["target", "dist"]
-
-[tools]
-wasm_bindgen = "0.2.108"
 
 [serve]
 addresses = ["127.0.0.1"]
