@@ -247,6 +247,8 @@ impl<D: Database + 'static> ProjectTools<D> {
             project.external_refs = external_refs;
         }
 
+        project.updated_at = None;
+
         self.db
             .projects()
             .update(&project)

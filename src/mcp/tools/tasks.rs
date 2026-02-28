@@ -370,6 +370,8 @@ impl<D: Database + 'static> TaskTools<D> {
             task.external_refs = external_refs.clone();
         }
 
+        task.updated_at = None;
+
         self.db.tasks().update(&task).await.map_err(map_db_error)?;
 
         // Fetch updated task to get auto-set timestamps

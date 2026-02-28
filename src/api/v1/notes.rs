@@ -475,6 +475,9 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
     // Merge PATCH changes
     req.merge_into(&mut note);
 
+    // Clear updated_at to ensure proper timestamp refresh on PATCH
+    note.updated_at = None;
+
     // Save
     state.db().notes().update(&note).await.map_err(|e| {
         (

@@ -678,11 +678,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         })?;
 
         // Use provided timestamp or generate if None/empty
-        let updated_at = note
-            .updated_at
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(current_timestamp);
+        let updated_at = note.updated_at.clone().unwrap_or_else(current_timestamp);
 
         let result = sqlx::query(
             r#"
