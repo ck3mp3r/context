@@ -92,8 +92,16 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             skill.id.clone()
         };
 
-        let created_at = skill.created_at.clone().unwrap_or_else(current_timestamp);
-        let updated_at = skill.updated_at.clone().unwrap_or_else(current_timestamp);
+        let created_at = skill
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
+        let updated_at = skill
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
 
         let tags_json = serde_json::to_string(&skill.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),

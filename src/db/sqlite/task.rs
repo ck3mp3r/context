@@ -90,9 +90,17 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             task.id.clone()
         };
 
-        // Use provided timestamps or generate if None
-        let created_at = task.created_at.clone().unwrap_or_else(current_timestamp);
-        let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
+        // Use provided timestamps or generate if None/empty (see utils.rs for policy)
+        let created_at = task
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
+        let updated_at = task
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).map_err(|e| DbError::Database {

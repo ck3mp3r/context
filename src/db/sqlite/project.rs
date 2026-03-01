@@ -42,11 +42,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             project.id.clone()
         };
 
-        // Use provided timestamps or generate if None
-        let created_at = project.created_at.clone().unwrap_or_else(current_timestamp);
+        // Use provided timestamps or generate if None/empty (see utils.rs for policy)
+        let created_at = project
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
         let updated_at = project
             .updated_at
             .clone()
+            .filter(|s| !s.is_empty())
             .unwrap_or_else(|| created_at.clone());
 
         let tags_json = serde_json::to_string(&project.tags).map_err(|e| DbError::Database {

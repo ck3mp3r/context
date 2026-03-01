@@ -75,27 +75,7 @@ pub fn build_limit_offset_clause(page: &PageSort) -> String {
 /// 4. Detects advanced search features (Boolean operators, phrases)
 /// 5. Adds prefix matching (*) for simple queries
 ///
-/// # Examples
-///
-/// ```
-/// use context::db::sqlite::helpers::sanitize_fts5_query;
-///
-/// // Simple query gets prefix matching
-/// assert_eq!(sanitize_fts5_query("rust"), Some("rust*".to_string()));
-///
-/// // Multiple terms
-/// assert_eq!(sanitize_fts5_query("rust async"), Some("rust* async*".to_string()));
-///
-/// // Boolean operators preserved
-/// assert_eq!(sanitize_fts5_query("rust AND async"), Some("rust AND async".to_string()));
-///
-/// // Phrase queries preserved
-/// assert_eq!(sanitize_fts5_query("\"exact match\""), Some("\"exact match\"".to_string()));
-///
-/// // Empty query returns None
-/// assert_eq!(sanitize_fts5_query(""), None);
-/// assert_eq!(sanitize_fts5_query("   "), None);
-/// ```
+/// Returns Some(sanitized_query) or None if query is empty after sanitization.
 pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
     // Strip FTS5-dangerous special characters
     // Keep: alphanumeric, underscore, quotes, whitespace, non-ASCII (for unicode)

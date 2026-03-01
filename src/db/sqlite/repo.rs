@@ -40,8 +40,12 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             repo.id.clone()
         };
 
-        // Always generate current timestamp - never use input timestamp
-        let created_at = Some(current_timestamp());
+        // Respect input timestamp or generate if None/empty (see utils.rs for policy)
+        let created_at = repo
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| Some(current_timestamp()));
 
         let tags_json = serde_json::to_string(&repo.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
