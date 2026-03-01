@@ -744,3 +744,93 @@ async fn list_projects_with_offset_without_limit() {
     assert_eq!(result.items[0].title, "Project 2");
     assert_eq!(result.items[1].title, "Project 3");
 }
+
+// =============================================================================
+// Validation Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_project_with_empty_title_should_fail() {
+    let db = setup_db().await;
+    let projects = db.projects();
+
+    let project = Project {
+        id: "test1234".to_string(),
+        title: "".to_string(), // Empty title
+        description: Some("Valid description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+
+    let result = projects.create(&project).await;
+    assert!(result.is_err(), "Create should fail with empty title");
+
+    match result {
+        Err(crate::db::DbError::Validation { message }) => {
+            assert!(
+                message.contains("title") && message.contains("empty"),
+                "Error should mention empty title, got: {}",
+                message
+            );
+        }
+        _ => panic!("Expected DbError::Validation"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_project_with_whitespace_only_title_should_fail() {
+    let db = setup_db().await;
+    let projects = db.projects();
+
+    let project = Project {
+        id: "test1234".to_string(),
+        title: "   ".to_string(), // Whitespace only
+        description: Some("Valid description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+
+    let result = projects.create(&project).await;
+    assert!(
+        result.is_err(),
+        "Create should fail with whitespace-only title"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_project_with_empty_title_should_fail() {
+    let db = setup_db().await;
+    let projects = db.projects();
+
+    // First create a valid project
+    let project = Project {
+        id: "test1234".to_string(),
+        title: "Valid Title".to_string(),
+        description: Some("Valid description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    projects.create(&project).await.unwrap();
+
+    // Try to update with empty title
+    let mut updated = project.clone();
+    updated.title = "".to_string();
+
+    let result = projects.update(&updated).await;
+    assert!(result.is_err(), "Update should fail with empty title");
+}

@@ -11,8 +11,28 @@ pub struct SqliteRepoRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+fn validate_repo(repo: &Repo) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate remote URL (required, not empty)
+    if repo.remote.trim().is_empty() {
+        errors.push("Repo remote URL cannot be empty".to_string());
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     async fn create(&self, repo: &Repo) -> DbResult<Repo> {
+        // Validate repo
+        validate_repo(repo)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if repo.id.is_empty() {
             generate_entity_id()
@@ -329,6 +349,9 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn update(&self, repo: &Repo) -> DbResult<()> {
+        // Validate repo
+        validate_repo(repo)?;
+
         // Use transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
             message: e.to_string(),

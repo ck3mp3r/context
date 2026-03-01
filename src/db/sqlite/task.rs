@@ -54,8 +54,35 @@ fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
     }
 }
 
+fn validate_task(task: &Task) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate title (required, not empty)
+    if task.title.trim().is_empty() {
+        errors.push("Task title cannot be empty".to_string());
+    }
+
+    // Validate priority (must be 1-5)
+    if let Some(priority) = task.priority
+        && (!(1..=5).contains(&priority))
+    {
+        errors.push(format!("Task priority must be 1-5, got {}", priority));
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn create(&self, task: &Task) -> DbResult<Task> {
+        // Validate task
+        validate_task(task)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if task.id.is_empty() {
             generate_entity_id()
@@ -496,6 +523,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     }
 
     async fn update(&self, task: &Task) -> DbResult<()> {
+        // Validate task
+        validate_task(task)?;
+
         // Fetch current task to detect status transitions
         let current = self.get(&task.id).await?;
 

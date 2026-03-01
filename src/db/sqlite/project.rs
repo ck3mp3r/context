@@ -13,8 +13,28 @@ pub struct SqliteProjectRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+fn validate_project(project: &Project) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate title (required, not empty)
+    if project.title.trim().is_empty() {
+        errors.push("Project title cannot be empty".to_string());
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     async fn create(&self, project: &Project) -> DbResult<Project> {
+        // Validate project
+        validate_project(project)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if project.id.is_empty() {
             generate_entity_id()
@@ -253,6 +273,9 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     }
 
     async fn update(&self, project: &Project) -> DbResult<()> {
+        // Validate project
+        validate_project(project)?;
+
         let tags_json = serde_json::to_string(&project.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
         })?;
