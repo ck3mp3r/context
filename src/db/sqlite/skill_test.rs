@@ -524,3 +524,49 @@ Test instructions for frontend APIs.
 }
 
 // Project relationship CRUD is also covered in these tests via project_ids linkage in create/update/get.
+
+// =============================================================================
+// Transaction Atomicity Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_skill_with_invalid_project_should_rollback() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    // Try to create a skill with an invalid project_id (foreign key violation)
+    let skill = Skill {
+        id: "test1234".to_string(),
+        name: "Test Skill".to_string(),
+        description: "Test description".to_string(),
+        content: r#"---
+name: test
+---
+# Test"#
+            .to_string(),
+        tags: vec![],
+        project_ids: vec!["nonexistent_project".to_string()], // Invalid project_id
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+
+    let skill_id = skill.id.clone();
+    let result = skills.create(&skill).await;
+
+    // Should fail due to foreign key constraint
+    assert!(
+        result.is_err(),
+        "Create should fail with invalid project_id: {:?}",
+        result
+    );
+
+    // Verify the skill was NOT created (transaction rolled back)
+    let get_result = skills.get(&skill_id).await;
+    assert!(
+        get_result.is_err(),
+        "Skill should not exist after failed transaction"
+    );
+}

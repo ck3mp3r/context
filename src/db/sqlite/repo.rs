@@ -25,13 +25,18 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
 
         let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
 
+        // Begin transaction for atomicity
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
         sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&repo.remote)
             .bind(&repo.path)
             .bind(&tags_json)
             .bind(&created_at)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
@@ -42,12 +47,17 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             sqlx::query("INSERT INTO project_repo (project_id, repo_id) VALUES (?, ?)")
                 .bind(project_id)
                 .bind(&id)
-                .execute(self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
                 })?;
         }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(Repo {
             id,

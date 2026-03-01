@@ -78,6 +78,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
 
+        // Begin transaction for atomicity
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
         sqlx::query(
             r#"
             INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at)
@@ -92,7 +97,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(note.idx)
         .bind(&created_at)
         .bind(&updated_at)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -103,7 +108,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             sqlx::query("INSERT INTO note_repo (note_id, repo_id) VALUES (?, ?)")
                 .bind(&id)
                 .bind(repo_id)
-                .execute(self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
@@ -115,12 +120,17 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
                 .bind(project_id)
                 .bind(&id)
-                .execute(self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
                 })?;
         }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(Note {
             id,
