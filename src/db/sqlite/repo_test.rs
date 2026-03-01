@@ -631,3 +631,39 @@ async fn fts5_search_empty_results() {
     assert_eq!(result.items.len(), 0);
     assert_eq!(result.total, 0);
 }
+
+// =============================================================================
+// Transaction Atomicity Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_repo_with_invalid_project_should_rollback() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // Try to create a repo with an invalid project_id (foreign key violation)
+    let repo = Repo {
+        id: "test1234".to_string(),
+        remote: "https://github.com/test/repo.git".to_string(),
+        path: Some("/test/path".to_string()),
+        tags: vec![],
+        project_ids: vec!["nonexistent_project".to_string()], // Invalid project_id
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+
+    let repo_id = repo.id.clone();
+    let result = repos.create(&repo).await;
+
+    // Should fail due to foreign key constraint
+    assert!(
+        result.is_err(),
+        "Create should fail with invalid project_id"
+    );
+
+    // Verify the repo was NOT created (transaction rolled back)
+    let get_result = repos.get(&repo_id).await;
+    assert!(
+        get_result.is_err(),
+        "Repo should not exist after failed transaction"
+    );
+}

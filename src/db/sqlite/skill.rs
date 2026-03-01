@@ -99,6 +99,11 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
 
+        // Begin transaction for atomicity
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
         sqlx::query(
             r#"
             INSERT INTO skill (
@@ -114,7 +119,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         .bind(tags_json)
         .bind(&created_at)
         .bind(&updated_at)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -125,12 +130,17 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             sqlx::query("INSERT INTO project_skill (project_id, skill_id) VALUES (?, ?)")
                 .bind(project_id)
                 .bind(&id)
-                .execute(self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
                 })?;
         }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(Skill {
             id,

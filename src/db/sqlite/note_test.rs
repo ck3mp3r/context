@@ -2136,3 +2136,78 @@ async fn test_list_metadata_only_includes_subnote_count() {
         "subnote_count should be Some(2) even in metadata_only"
     );
 }
+
+// =============================================================================
+// Transaction Atomicity Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_note_with_invalid_repo_should_rollback() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Try to create a note with an invalid repo_id (foreign key violation)
+    let note = Note {
+        id: generate_id(),
+        title: "Test Note".to_string(),
+        content: "Test content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec!["nonexistent_repo".to_string()], // Invalid repo_id
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+
+    let note_id = note.id.clone();
+    let result = notes.create(&note).await;
+
+    // Should fail due to foreign key constraint
+    assert!(result.is_err(), "Create should fail with invalid repo_id");
+
+    // Verify the note was NOT created (transaction rolled back)
+    let get_result = notes.get(&note_id).await;
+    assert!(
+        get_result.is_err(),
+        "Note should not exist after failed transaction"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_note_with_invalid_project_should_rollback() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    // Try to create a note with an invalid project_id (foreign key violation)
+    let note = Note {
+        id: generate_id(),
+        title: "Test Note".to_string(),
+        content: "Test content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec!["nonexistent_project".to_string()], // Invalid project_id
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+
+    let note_id = note.id.clone();
+    let result = notes.create(&note).await;
+
+    // Should fail due to foreign key constraint
+    assert!(
+        result.is_err(),
+        "Create should fail with invalid project_id"
+    );
+
+    // Verify the note was NOT created (transaction rolled back)
+    let get_result = notes.get(&note_id).await;
+    assert!(
+        get_result.is_err(),
+        "Note should not exist after failed transaction"
+    );
+}
