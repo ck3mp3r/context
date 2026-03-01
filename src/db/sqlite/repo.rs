@@ -23,7 +23,9 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         // Always generate current timestamp - never use input timestamp
         let created_at = Some(current_timestamp());
 
-        let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&repo.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         // Begin transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
@@ -332,7 +334,9 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             message: e.to_string(),
         })?;
 
-        let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&repo.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         let result = sqlx::query("UPDATE repo SET remote = ?, path = ?, tags = ? WHERE id = ?")
             .bind(&repo.remote)

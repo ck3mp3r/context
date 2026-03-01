@@ -68,10 +68,14 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
 
         let status_str = task.status.to_string();
-        let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&task.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         let external_refs_json =
-            serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&task.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         sqlx::query(
             r#"
@@ -522,14 +526,18 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         let status_str = task.status.to_string();
-        let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&task.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         // Use provided timestamp or generate if None
         let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
 
         // Update task (no transaction needed - single operation)
         let external_refs_json =
-            serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&task.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         let result = sqlx::query(
             r#"

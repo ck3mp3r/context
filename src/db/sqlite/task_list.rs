@@ -78,7 +78,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
         let external_refs_json =
-            serde_json::to_string(&task_list.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&task_list.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         sqlx::query(
             "INSERT INTO task_list (id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at) 
@@ -570,7 +572,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
         let external_refs_json =
-            serde_json::to_string(&task_list.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&task_list.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         let status_str = task_list.status.to_string();
 

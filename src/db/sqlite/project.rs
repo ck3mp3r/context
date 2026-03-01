@@ -29,10 +29,14 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             .clone()
             .unwrap_or_else(|| created_at.clone());
 
-        let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&project.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         let external_refs_json =
-            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&project.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         sqlx::query("INSERT INTO project (id, title, description, tags, external_refs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
@@ -249,9 +253,13 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     }
 
     async fn update(&self, project: &Project) -> DbResult<()> {
-        let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&project.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
         let external_refs_json =
-            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&project.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         // Use provided timestamp or generate if None
         let updated_at = project.updated_at.clone().unwrap_or_else(current_timestamp);
