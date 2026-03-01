@@ -13,8 +13,28 @@ pub struct SqliteProjectRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+fn validate_project(project: &Project) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate title (required, not empty)
+    if project.title.trim().is_empty() {
+        errors.push("Project title cannot be empty".to_string());
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     async fn create(&self, project: &Project) -> DbResult<Project> {
+        // Validate project
+        validate_project(project)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if project.id.is_empty() {
             generate_entity_id()
@@ -22,17 +42,26 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             project.id.clone()
         };
 
-        // Use provided timestamps or generate if None
-        let created_at = project.created_at.clone().unwrap_or_else(current_timestamp);
+        // Use provided timestamps or generate if None/empty (see utils.rs for policy)
+        let created_at = project
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
         let updated_at = project
             .updated_at
             .clone()
+            .filter(|s| !s.is_empty())
             .unwrap_or_else(|| created_at.clone());
 
-        let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&project.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         let external_refs_json =
-            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&project.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         sqlx::query("INSERT INTO project (id, title, description, tags, external_refs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
@@ -249,9 +278,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     }
 
     async fn update(&self, project: &Project) -> DbResult<()> {
-        let tags_json = serde_json::to_string(&project.tags).unwrap_or_else(|_| "[]".to_string());
+        // Validate project
+        validate_project(project)?;
+
+        let tags_json = serde_json::to_string(&project.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
         let external_refs_json =
-            serde_json::to_string(&project.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&project.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         // Use provided timestamp or generate if None
         let updated_at = project.updated_at.clone().unwrap_or_else(current_timestamp);
@@ -309,59 +345,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let query = query.unwrap_or(&default_query);
 
         // Sanitize FTS5 search query to prevent syntax errors
-        // Same sanitization logic as Note search
-        let fts_query = {
-            // Strip FTS5-dangerous special characters
-            let cleaned = search_term
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric()
-                        || c == '_'
-                        || c == '"'
-                        || c.is_whitespace()
-                        || (c as u32) > 127
-                    {
-                        c
-                    } else {
-                        ' '
-                    }
-                })
-                .collect::<String>();
-
-            // Handle unbalanced quotes
-            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
-            let cleaned = if quote_count % 2 == 0 {
-                cleaned
-            } else {
-                cleaned.replace('"', "")
-            };
-
-            // Handle empty/whitespace-only queries
-            if cleaned.trim().is_empty() {
+        let fts_query = match super::helpers::sanitize_fts5_query(search_term) {
+            Some(q) => q,
+            None => {
+                // Empty query returns empty results
                 return Ok(ListResult {
                     items: vec![],
                     total: 0,
                     limit: query.page.limit,
                     offset: query.page.offset.unwrap_or(0),
                 });
-            }
-
-            // Detect advanced search features
-            let has_boolean =
-                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-            let has_phrase = cleaned.contains('"');
-
-            // Apply query transformation
-            if has_boolean || has_phrase {
-                cleaned
-            } else {
-                // Simple mode - add prefix matching
-                cleaned
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|term| format!("{}*", term))
-                    .collect::<Vec<_>>()
-                    .join(" ")
             }
         };
 

@@ -11,8 +11,28 @@ pub struct SqliteRepoRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
+fn validate_repo(repo: &Repo) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate remote URL (required, not empty)
+    if repo.remote.trim().is_empty() {
+        errors.push("Repo remote URL cannot be empty".to_string());
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     async fn create(&self, repo: &Repo) -> DbResult<Repo> {
+        // Validate repo
+        validate_repo(repo)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if repo.id.is_empty() {
             generate_entity_id()
@@ -20,10 +40,16 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             repo.id.clone()
         };
 
-        // Always generate current timestamp - never use input timestamp
-        let created_at = Some(current_timestamp());
+        // Respect input timestamp or generate if None/empty (see utils.rs for policy)
+        let created_at = repo
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| Some(current_timestamp()));
 
-        let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&repo.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         // Begin transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
@@ -125,54 +151,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         // Sanitize and prepare FTS5 query if search is requested
         let fts_query = if has_search {
             let search_term = query.search_query.as_ref().unwrap();
-
-            // Sanitize FTS5 query (same pattern as task.rs, task_list.rs, project.rs)
-            let cleaned = search_term
-                .chars()
-                .map(|c| {
-                    if c.is_alphanumeric()
-                        || c == '_'
-                        || c == '"'
-                        || c.is_whitespace()
-                        || !c.is_ascii()
-                    {
-                        c
-                    } else {
-                        ' '
-                    }
-                })
-                .collect::<String>();
-
-            // Handle unbalanced quotes (FTS5 syntax error)
-            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
-            let cleaned = if quote_count % 2 == 0 {
-                cleaned
-            } else {
-                cleaned.replace('"', "")
-            };
-
-            // Detect advanced search features
-            let has_boolean =
-                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-            let has_phrase = cleaned.contains('"');
-
-            // Apply query transformation
-            if has_boolean || has_phrase {
-                Some(cleaned)
-            } else {
-                // Simple mode - add prefix matching for each term
-                let terms: Vec<String> = cleaned
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|term| format!("{}*", term))
-                    .collect();
-
-                if terms.is_empty() {
-                    None // Empty query after sanitization
-                } else {
-                    Some(terms.join(" "))
-                }
-            }
+            super::helpers::sanitize_fts5_query(search_term)
         } else {
             None
         };
@@ -327,12 +306,17 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn update(&self, repo: &Repo) -> DbResult<()> {
+        // Validate repo
+        validate_repo(repo)?;
+
         // Use transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
             message: e.to_string(),
         })?;
 
-        let tags_json = serde_json::to_string(&repo.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&repo.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         let result = sqlx::query("UPDATE repo SET remote = ?, path = ?, tags = ? WHERE id = ?")
             .bind(&repo.remote)

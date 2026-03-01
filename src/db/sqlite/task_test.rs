@@ -2054,3 +2054,121 @@ async fn transition_tasks_transaction_rollback() {
         "Task2 should remain backlog"
     );
 }
+
+// =============================================================================
+// Validation Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_empty_title_should_fail() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    // First create a task list
+    let list = make_task_list("lst00001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = Task {
+        id: "tsk00001".to_string(),
+        list_id: "lst00001".to_string(),
+        parent_id: None,
+        title: "".to_string(), // Empty title
+        description: Some("Valid description".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        started_at: None,
+        completed_at: None,
+        updated_at: None,
+    };
+
+    let result = tasks.create(&task).await;
+    assert!(result.is_err(), "Create should fail with empty title");
+
+    match result {
+        Err(crate::db::DbError::Validation { message }) => {
+            assert!(
+                message.contains("title") && message.contains("empty"),
+                "Error should mention empty title, got: {}",
+                message
+            );
+        }
+        _ => panic!("Expected DbError::Validation"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_invalid_priority_should_fail() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    // First create a task list
+    let list = make_task_list("lst00002", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Test priority too low
+    let task = Task {
+        id: "tsk00002".to_string(),
+        list_id: "lst00002".to_string(),
+        parent_id: None,
+        title: "Valid Title".to_string(),
+        description: Some("Valid description".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(0), // Invalid - too low
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        started_at: None,
+        completed_at: None,
+        updated_at: None,
+    };
+
+    let result = tasks.create(&task).await;
+    assert!(result.is_err(), "Create should fail with priority 0");
+
+    // Test priority too high
+    let task2 = Task {
+        priority: Some(6), // Invalid - too high
+        ..task
+    };
+
+    let result2 = tasks.create(&task2).await;
+    assert!(result2.is_err(), "Create should fail with priority 6");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_with_empty_title_should_fail() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    // First create a task list
+    let list = make_task_list("lst00003", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create a valid task
+    let task = Task {
+        id: "tsk00003".to_string(),
+        list_id: "lst00003".to_string(),
+        parent_id: None,
+        title: "Valid Title".to_string(),
+        description: Some("Valid description".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        started_at: None,
+        completed_at: None,
+        updated_at: None,
+    };
+    tasks.create(&task).await.unwrap();
+
+    // Try to update with empty title
+    let mut updated = task.clone();
+    updated.title = "".to_string();
+
+    let result = tasks.update(&updated).await;
+    assert!(result.is_err(), "Update should fail with empty title");
+}

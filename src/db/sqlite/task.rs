@@ -54,8 +54,35 @@ fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
     }
 }
 
+fn validate_task(task: &Task) -> DbResult<()> {
+    let mut errors = Vec::new();
+
+    // Validate title (required, not empty)
+    if task.title.trim().is_empty() {
+        errors.push("Task title cannot be empty".to_string());
+    }
+
+    // Validate priority (must be 1-5)
+    if let Some(priority) = task.priority
+        && (!(1..=5).contains(&priority))
+    {
+        errors.push(format!("Task priority must be 1-5, got {}", priority));
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::Validation {
+            message: errors.join("; "),
+        })
+    }
+}
+
 impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn create(&self, task: &Task) -> DbResult<Task> {
+        // Validate task
+        validate_task(task)?;
+
         // Use provided ID if not empty, otherwise generate one
         let id = if task.id.is_empty() {
             generate_entity_id()
@@ -63,15 +90,27 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             task.id.clone()
         };
 
-        // Use provided timestamps or generate if None
-        let created_at = task.created_at.clone().unwrap_or_else(current_timestamp);
-        let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
+        // Use provided timestamps or generate if None/empty (see utils.rs for policy)
+        let created_at = task
+            .created_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
+        let updated_at = task
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(current_timestamp);
 
         let status_str = task.status.to_string();
-        let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&task.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         let external_refs_json =
-            serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&task.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         sqlx::query(
             r#"
@@ -293,60 +332,17 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let default_query = TaskQuery::default();
         let query = query.unwrap_or(&default_query);
 
-        // Sanitize FTS5 query (same pattern as task_list.rs and project.rs)
-        let fts_query = {
-            // Strip FTS5-dangerous characters but preserve alphanumeric, underscore, quotes,
-            // whitespace, and non-ASCII (for international text)
-            let cleaned = search_term
-                .chars()
-                .map(|c| {
-                    if c.is_alphanumeric()
-                        || c == '_'
-                        || c == '"'
-                        || c.is_whitespace()
-                        || !c.is_ascii()
-                    {
-                        c
-                    } else {
-                        ' '
-                    }
-                })
-                .collect::<String>();
-
-            // Handle unbalanced quotes (FTS5 syntax error)
-            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
-            let cleaned = if quote_count % 2 == 0 {
-                cleaned
-            } else {
-                cleaned.replace('"', "")
-            };
-
-            // Handle empty/whitespace-only queries
-            if cleaned.trim().is_empty() {
+        // Sanitize FTS5 search query to prevent syntax errors
+        let fts_query = match super::helpers::sanitize_fts5_query(search_term) {
+            Some(q) => q,
+            None => {
+                // Empty query returns empty results
                 return Ok(ListResult {
                     items: vec![],
                     total: 0,
                     limit: query.page.limit,
                     offset: query.page.offset.unwrap_or(0),
                 });
-            }
-
-            // Detect advanced search features
-            let has_boolean =
-                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-            let has_phrase = cleaned.contains('"');
-
-            // Apply query transformation
-            if has_boolean || has_phrase {
-                cleaned
-            } else {
-                // Simple mode - add prefix matching
-                cleaned
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|term| format!("{}*", term))
-                    .collect::<Vec<_>>()
-                    .join(" ")
             }
         };
 
@@ -492,6 +488,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     }
 
     async fn update(&self, task: &Task) -> DbResult<()> {
+        // Validate task
+        validate_task(task)?;
+
         // Fetch current task to detect status transitions
         let current = self.get(&task.id).await?;
 
@@ -522,14 +521,18 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         let status_str = task.status.to_string();
-        let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
+        let tags_json = serde_json::to_string(&task.tags).map_err(|e| DbError::Database {
+            message: format!("Failed to serialize tags: {}", e),
+        })?;
 
         // Use provided timestamp or generate if None
         let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
 
         // Update task (no transaction needed - single operation)
         let external_refs_json =
-            serde_json::to_string(&task.external_refs).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&task.external_refs).map_err(|e| DbError::Database {
+                message: format!("Failed to serialize external_refs: {}", e),
+            })?;
 
         let result = sqlx::query(
             r#"

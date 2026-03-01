@@ -667,3 +667,81 @@ async fn create_repo_with_invalid_project_should_rollback() {
         "Repo should not exist after failed transaction"
     );
 }
+
+// =============================================================================
+// Validation Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_repo_with_empty_remote_should_fail() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    let repo = Repo {
+        id: "test1234".to_string(),
+        remote: "".to_string(), // Empty remote
+        path: Some("/test/path".to_string()),
+        tags: vec![],
+        project_ids: vec![],
+        created_at: None,
+    };
+
+    let result = repos.create(&repo).await;
+    assert!(result.is_err(), "Create should fail with empty remote");
+
+    match result {
+        Err(crate::db::DbError::Validation { message }) => {
+            assert!(
+                message.contains("remote") && message.contains("empty"),
+                "Error should mention empty remote, got: {}",
+                message
+            );
+        }
+        _ => panic!("Expected DbError::Validation"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_repo_with_whitespace_only_remote_should_fail() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    let repo = Repo {
+        id: "test1234".to_string(),
+        remote: "   ".to_string(), // Whitespace only
+        path: Some("/test/path".to_string()),
+        tags: vec![],
+        project_ids: vec![],
+        created_at: None,
+    };
+
+    let result = repos.create(&repo).await;
+    assert!(
+        result.is_err(),
+        "Create should fail with whitespace-only remote"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_repo_with_empty_remote_should_fail() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    // First create a valid repo
+    let repo = Repo {
+        id: "test1234".to_string(),
+        remote: "https://github.com/test/repo.git".to_string(),
+        path: Some("/test/path".to_string()),
+        tags: vec![],
+        project_ids: vec![],
+        created_at: None,
+    };
+    repos.create(&repo).await.unwrap();
+
+    // Try to update with empty remote
+    let mut updated = repo.clone();
+    updated.remote = "".to_string();
+
+    let result = repos.update(&updated).await;
+    assert!(result.is_err(), "Update should fail with empty remote");
+}
