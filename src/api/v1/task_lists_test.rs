@@ -12,6 +12,7 @@ use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use crate::db::utils::generate_entity_id;
 use crate::db::{Database, SqliteDatabase, TaskList, TaskListRepository};
+use tempfile::TempDir;
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
@@ -19,6 +20,8 @@ async fn test_app() -> axum::Router {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+
+    let temp_dir = TempDir::new().unwrap();
 
     // Create a test project with known ID for API tests
     sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -36,7 +39,7 @@ async fn test_app() -> axum::Router {
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     routes::create_router(state, false)
 }
@@ -59,11 +62,12 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
         .expect("Create test project should succeed");
 
     let notifier = ChangeNotifier::new();
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -313,11 +317,12 @@ async fn crud_operations() {
     let list_id = created.id.clone();
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 

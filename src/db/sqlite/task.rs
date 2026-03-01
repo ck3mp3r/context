@@ -63,17 +63,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             task.id.clone()
         };
 
-        // Use provided timestamps or generate if None/empty
-        let created_at = task
-            .created_at
-            .clone()
-            .filter(|s| !s.is_empty()) // Treat empty string as None
-            .unwrap_or_else(current_timestamp);
-        let updated_at = task
-            .updated_at
-            .clone()
-            .filter(|s| !s.is_empty()) // Treat empty string as None
-            .unwrap_or_else(current_timestamp);
+        // Use provided timestamps or generate if None
+        let created_at = task.created_at.clone().unwrap_or_else(current_timestamp);
+        let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
@@ -532,12 +524,8 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).unwrap_or_else(|_| "[]".to_string());
 
-        // Use provided timestamp or generate if None/empty
-        let updated_at = task
-            .updated_at
-            .clone()
-            .filter(|s| !s.is_empty()) // Treat empty string as None
-            .unwrap_or_else(current_timestamp);
+        // Use provided timestamp or generate if None
+        let updated_at = task.updated_at.clone().unwrap_or_else(current_timestamp);
 
         // Update task (no transaction needed - single operation)
         let external_refs_json =

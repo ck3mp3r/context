@@ -428,6 +428,7 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
     task.priority = req.priority;
     task.tags = req.tags;
     task.external_refs = req.external_refs;
+    task.updated_at = None;
 
     if let Some(status_str) = req.status {
         let new_status = parse_status(&status_str);

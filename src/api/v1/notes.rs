@@ -418,6 +418,8 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
     note.idx = req.idx;
     note.repo_ids = req.repo_ids;
     note.project_ids = req.project_ids;
+    // Clear updated_at to ensure proper timestamp refresh on PUT
+    note.updated_at = None;
 
     state.db().notes().update(&note).await.map_err(|e| {
         (
@@ -472,6 +474,9 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
 
     // Merge PATCH changes
     req.merge_into(&mut note);
+
+    // Clear updated_at to ensure proper timestamp refresh on PATCH
+    note.updated_at = None;
 
     // Save
     state.db().notes().update(&note).await.map_err(|e| {

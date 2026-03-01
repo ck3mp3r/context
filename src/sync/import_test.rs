@@ -62,7 +62,7 @@ async fn test_export_then_import() {
         path: Some("/test/path".to_string()),
         tags: vec!["test".to_string()],
         project_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.repos().create(&repo).await.unwrap();
 
@@ -116,7 +116,7 @@ async fn test_import_updates_existing() {
         path: Some("/test/path1".to_string()),
         tags: vec!["v1".to_string()],
         project_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db.repos().create(&repo_v1).await.unwrap();
 
@@ -127,7 +127,7 @@ async fn test_import_updates_existing() {
         path: Some("/test/path2".to_string()),               // Changed
         tags: vec!["v2".to_string()],                        // Changed
         project_ids: vec![],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
 
     write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo_v2]).unwrap();
@@ -179,7 +179,7 @@ async fn test_import_preserves_relationships() {
         path: None,
         tags: vec![],
         project_ids: vec!["proj0001".to_string()],
-        created_at: "2024-01-01T00:00:00Z".to_string(),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
     };
     db1.repos().create(&repo).await.unwrap();
 

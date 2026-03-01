@@ -5,6 +5,7 @@ use crate::cli::commands::skill::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
+use tempfile::TempDir;
 use tokio::net::TcpListener;
 
 // =============================================================================
@@ -17,6 +18,8 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+
+    let temp_dir = TempDir::new().unwrap();
 
     // Create test project
     let project_id = sqlx::query_scalar::<_, String>(
@@ -32,7 +35,7 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 
@@ -48,6 +51,47 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     (url, project_id, handle)
+}
+
+async fn spawn_test_server_with_temp_dir() -> (String, String, tokio::task::JoinHandle<()>, TempDir)
+{
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create test database");
+    db.migrate().expect("Failed to run migrations");
+
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create test project
+    let project_id = sqlx::query_scalar::<_, String>(
+        "INSERT INTO project (id, title, description, tags, created_at, updated_at) 
+         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now')) 
+         RETURNING id"
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("Failed to create test project");
+
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+    );
+    let app = routes::create_router(state, false);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}", addr);
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    // Give server time to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    (url, project_id, handle, temp_dir)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -683,7 +727,7 @@ async fn test_disable_skill_not_found() {
 async fn test_import_auto_enables_skill() {
     use std::fs;
 
-    let (url, _project_id, _handle) = spawn_test_server().await;
+    let (url, _project_id, _handle, temp_dir) = spawn_test_server_with_temp_dir().await;
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Import a skill - should auto-enable and create cache
@@ -704,8 +748,8 @@ async fn test_import_auto_enables_skill() {
         import_result
     );
 
-    // Verify cache directory was created
-    let cache_dir = std::path::Path::new("/tmp/skills/rust");
+    // Verify cache directory was created (using temp directory instead of /tmp)
+    let cache_dir = temp_dir.path().join("skills/rust");
     assert!(
         cache_dir.exists(),
         "Cache directory should be created automatically: {}",
@@ -727,6 +771,5 @@ async fn test_import_auto_enables_skill() {
         "SKILL.md should contain expected content"
     );
 
-    // Cleanup
-    let _ = fs::remove_dir_all(cache_dir);
+    // TempDir will be automatically cleaned up when it goes out of scope
 }

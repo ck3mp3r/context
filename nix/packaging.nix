@@ -53,6 +53,9 @@
         tailwindcss_4
       ];
 
+      # Ensure wasm-bindgen-cli is used instead of downloading
+      WasmBindgenCli = pkgs.wasm-bindgen-cli;
+
       buildPhase = ''
         # Set writable HOME for wasm-bindgen cache
         export HOME=$TMPDIR

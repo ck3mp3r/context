@@ -51,7 +51,7 @@ impl From<Repo> for RepoResponse {
             path: r.path,
             tags: r.tags,
             project_ids: r.project_ids,
-            created_at: r.created_at,
+            created_at: r.created_at.unwrap_or_default(),
         }
     }
 }
@@ -294,7 +294,7 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         path: req.path,
         tags: req.tags,
         project_ids: req.project_ids,
-        created_at: String::new(), // Repository will generate this
+        created_at: None, // Repository will generate this
     };
 
     let created_repo = state.db().repos().create(&repo).await.map_err(|e| {

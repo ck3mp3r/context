@@ -11,6 +11,7 @@ use tower::ServiceExt;
 use crate::api::{AppState, routes};
 use crate::db::utils::generate_entity_id;
 use crate::db::{Database, SqliteDatabase, Task, TaskRepository};
+use tempfile::TempDir;
 
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory()
@@ -28,13 +29,15 @@ async fn test_app() -> axum::Router {
         .bind("2025-01-01 00:00:00")
         .execute(db.pool())
         .await
-        .expect("Create test project should succeed");
+        .expect("Failed to run migrations");
+
+    let temp_dir = TempDir::new().unwrap();
 
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     routes::create_router(state, false)
 }
@@ -44,6 +47,8 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+
+    let temp_dir = TempDir::new().unwrap();
 
     sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
         .bind("test0000")
@@ -61,7 +66,7 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -464,11 +469,12 @@ async fn crud_and_relationships() {
     let task_id = created.id.clone();
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 

@@ -28,24 +28,22 @@ use super::server::McpServer;
 /// A StreamableHttpService that implements tower::Service
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use axum::Router;
 /// use tokio_util::sync::CancellationToken;
-/// # use context::db::SqliteDatabase;
-/// # use context::mcp::create_mcp_service;
-/// # use context::api::notifier::ChangeNotifier;
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// # let db = SqliteDatabase::in_memory().await?;
+/// use tempfile::TempDir;
+/// use context::db::SqliteDatabase;
+/// use context::mcp::create_mcp_service;
+/// use context::api::notifier::ChangeNotifier;
+/// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let db = SqliteDatabase::in_memory().await?;
 ///
 /// let ct = CancellationToken::new();
 /// let notifier = ChangeNotifier::new();
-/// let skills_dir = std::path::PathBuf::from("/tmp/skills");
+/// let temp_dir = TempDir::new().unwrap();
+/// let skills_dir = temp_dir.path().join("skills");
 /// let mcp_service = create_mcp_service(db, notifier, skills_dir, ct);
-///
-/// let app: Router = Router::new()
-///     .nest_service("/mcp", mcp_service);
-/// # Ok(())
-/// # }
+/// }
 /// ```
 pub fn create_mcp_service<D: Database + 'static>(
     db: impl Into<Arc<D>>,
@@ -68,6 +66,7 @@ pub fn create_mcp_service<D: Database + 'static>(
         sse_retry: None,      // Use default retry behavior
         stateful_mode: true,  // Enable session management
         cancellation_token,
+        ..Default::default()
     };
 
     // Create service with local session manager

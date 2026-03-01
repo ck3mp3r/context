@@ -179,7 +179,7 @@ pub struct Repo {
     /// Linked project IDs (M:N relationship via project_repo)
     #[serde(default)]
     pub project_ids: Vec<Id>,
-    pub created_at: String,
+    pub created_at: Option<String>,
 }
 
 /// A collection of tasks.

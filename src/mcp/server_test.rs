@@ -4,6 +4,7 @@
 
 use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
+use tempfile::TempDir;
 
 /// Test that we can create an MCP server with a database
 ///
@@ -18,14 +19,12 @@ async fn test_create_mcp_server() {
         .await
         .expect("Failed to create in-memory database");
     db.migrate_async().await.expect("Failed to run migrations");
+    let temp_dir = TempDir::new().unwrap();
 
     // Act: Create MCP server with the database
     // This should compile and run without errors
-    let _server = super::server::McpServer::new(
-        db,
-        ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
-    );
+    let _server =
+        super::server::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
 
     // Assert: If we got here, server was created successfully
     // More detailed assertions will come as we implement tools
@@ -46,11 +45,9 @@ async fn test_server_info() {
         .expect("Failed to create in-memory database");
     db.migrate_async().await.expect("Failed to run migrations");
 
-    let server = super::server::McpServer::new(
-        db,
-        ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
-    );
+    let temp_dir = TempDir::new().unwrap();
+    let server =
+        super::server::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
 
     // Act
     let info = server.get_info();
@@ -78,13 +75,12 @@ async fn test_update_skill_tool_registered() {
     use crate::mcp::tools::skills::UpdateSkillParams;
     use rmcp::handler::server::wrapper::Parameters;
 
-    // Arrange: Create database and server
+    // Arrange: Create database and skill for testing
     let db = SqliteDatabase::in_memory()
         .await
         .expect("Failed to create in-memory database");
     db.migrate_async().await.expect("Failed to run migrations");
 
-    // Create a test skill
     let skill = Skill {
         id: String::new(),
         name: "test-skill".to_string(),
@@ -107,11 +103,9 @@ description: Test skill
     };
     let created_skill = db.skills().create(&skill).await.unwrap();
 
-    let server = super::server::McpServer::new(
-        db,
-        ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
-    );
+    let temp_dir = TempDir::new().unwrap();
+    let server =
+        super::server::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
 
     // Act: Call update_skill via server (this will fail until tool is registered)
     let params = UpdateSkillParams {

@@ -4,6 +4,7 @@ use crate::cli::commands::PageParams;
 use crate::cli::commands::repo::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
+use tempfile::TempDir;
 use tokio::net::TcpListener;
 
 // =============================================================================
@@ -16,11 +17,12 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 

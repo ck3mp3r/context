@@ -21,7 +21,7 @@ async fn repo_create_and_get() {
         path: Some("/home/user/project".to_string()),
         tags: vec![],
         project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     repos.create(&repo).await.expect("Create should succeed");
@@ -58,7 +58,7 @@ async fn repo_list() {
             path: None,
             tags: vec![],
             project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -69,7 +69,7 @@ async fn repo_list() {
             path: None,
             tags: vec![],
             project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -89,7 +89,7 @@ async fn repo_update() {
         path: None,
         tags: vec![],
         project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
     };
     repos.create(&repo).await.expect("Create should succeed");
 
@@ -111,7 +111,7 @@ async fn repo_delete() {
         path: None,
         tags: vec![],
         project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
     };
     repos.create(&repo).await.expect("Create should succeed");
 
@@ -135,7 +135,7 @@ async fn repo_create_with_tags() {
         path: Some("/path/to/repo".to_string()),
         tags: vec!["work".to_string(), "active".to_string()],
         project_ids: vec![], // Empty by default - relationships managed separately
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
     repos.create(&repo).await.expect("Create should succeed");
@@ -159,7 +159,7 @@ async fn repo_list_with_tag_filter() {
             path: None,
             tags: vec!["work".to_string(), "active".to_string()],
             project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -171,7 +171,7 @@ async fn repo_list_with_tag_filter() {
             path: None,
             tags: vec!["work".to_string(), "archived".to_string()],
             project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -183,7 +183,7 @@ async fn repo_list_with_tag_filter() {
             path: None,
             tags: vec!["personal".to_string(), "active".to_string()],
             project_ids: vec![], // Empty by default - relationships managed separately
-            created_at: "2025-01-01 00:00:02".to_string(),
+            created_at: Some("2025-01-01 00:00:02".to_string()),
         })
         .await
         .unwrap();
@@ -251,7 +251,7 @@ async fn repo_get_loads_project_relationships() {
         path: None,
         tags: vec![],
         project_ids: vec![],
-        created_at: "2025-01-01 00:00:00".to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
     };
     repos.create(&repo).await.expect("Create should succeed");
 
@@ -295,7 +295,7 @@ async fn repo_list_with_search_query() {
             path: None,
             tags: vec!["backend".to_string(), "production".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -307,7 +307,7 @@ async fn repo_list_with_search_query() {
             path: None,
             tags: vec!["frontend".to_string(), "production".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -319,7 +319,7 @@ async fn repo_list_with_search_query() {
             path: None,
             tags: vec!["internal".to_string(), "backend".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:02".to_string(),
+            created_at: Some("2025-01-01 00:00:02".to_string()),
         })
         .await
         .unwrap();
@@ -378,7 +378,7 @@ async fn fts5_search_finds_repo_by_remote() {
             path: Some("/home/user/rust".to_string()),
             tags: vec!["language".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -390,7 +390,7 @@ async fn fts5_search_finds_repo_by_remote() {
             path: Some("/home/user/python".to_string()),
             tags: vec!["language".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -418,7 +418,7 @@ async fn fts5_search_finds_repo_by_path() {
             path: Some("/home/projects/backend-api".to_string()),
             tags: vec![],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -430,7 +430,7 @@ async fn fts5_search_finds_repo_by_path() {
             path: Some("/home/projects/frontend-app".to_string()),
             tags: vec![],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -458,7 +458,7 @@ async fn fts5_search_finds_repo_by_tags() {
             path: None,
             tags: vec!["microservice".to_string(), "production".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -470,7 +470,7 @@ async fn fts5_search_finds_repo_by_tags() {
             path: None,
             tags: vec!["monolith".to_string(), "legacy".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -498,7 +498,7 @@ async fn fts5_search_boolean_operators() {
             path: Some("/srv/api".to_string()),
             tags: vec!["api".to_string(), "production".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -510,7 +510,7 @@ async fn fts5_search_boolean_operators() {
             path: Some("/srv/web".to_string()),
             tags: vec!["frontend".to_string(), "production".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -522,7 +522,7 @@ async fn fts5_search_boolean_operators() {
             path: Some("/srv/staging".to_string()),
             tags: vec!["api".to_string(), "staging".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:02".to_string(),
+            created_at: Some("2025-01-01 00:00:02".to_string()),
         })
         .await
         .unwrap();
@@ -550,7 +550,7 @@ async fn fts5_search_phrase_query() {
             path: None,
             tags: vec![],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -562,7 +562,7 @@ async fn fts5_search_phrase_query() {
             path: None,
             tags: vec![],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:01".to_string(),
+            created_at: Some("2025-01-01 00:00:01".to_string()),
         })
         .await
         .unwrap();
@@ -590,7 +590,7 @@ async fn fts5_search_handles_special_characters() {
             path: Some("/home/user/my-app".to_string()),
             tags: vec!["app".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();
@@ -617,7 +617,7 @@ async fn fts5_search_empty_results() {
             path: None,
             tags: vec!["test".to_string()],
             project_ids: vec![],
-            created_at: "2025-01-01 00:00:00".to_string(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
         })
         .await
         .unwrap();

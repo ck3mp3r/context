@@ -5,6 +5,7 @@ use crate::cli::commands::note::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
+use tempfile::TempDir;
 use tokio::net::TcpListener;
 
 // =============================================================================
@@ -17,6 +18,8 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         .await
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
+
+    let temp_dir = TempDir::new().unwrap();
 
     // Create test project
     let project_id = sqlx::query_scalar::<_, String>(
@@ -32,7 +35,7 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);
 

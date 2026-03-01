@@ -301,6 +301,9 @@ impl<D: Database + 'static> NoteTools<D> {
             note.project_ids = project_ids.clone();
         }
 
+        // Clear updated_at to ensure proper timestamp refresh
+        note.updated_at = None;
+
         self.db.notes().update(&note).await.map_err(map_db_error)?;
 
         // Fetch updated note to get auto-set updated_at

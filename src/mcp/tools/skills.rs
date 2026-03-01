@@ -251,6 +251,9 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             skill.project_ids = project_ids;
         }
 
+        // Clear updated_at to ensure proper timestamp refresh
+        skill.updated_at = None;
+
         // Save updated skill
         self.db.skills().update(&skill).await.map_err(|e| {
             McpError::internal_error(

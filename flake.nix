@@ -32,6 +32,9 @@
       perSystem = {system, ...}: let
         overlays = [
           inputs.fenix.overlays.default
+           (final: prev: {
+             wasm-bindgen-cli = (prev.callPackage ./nix/wasm-bindgen-cli.nix {});
+           })
         ];
         pkgs = import inputs.nixpkgs {inherit system overlays;};
 

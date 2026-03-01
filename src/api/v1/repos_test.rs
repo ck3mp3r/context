@@ -10,16 +10,18 @@ use tower::ServiceExt;
 
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
+use tempfile::TempDir;
 
 /// Create a test app with an in-memory database
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     routes::create_router(state, false)
 }
@@ -28,12 +30,13 @@ async fn test_app() -> axum::Router {
 async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::ChangeNotifier) {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let notifier = crate::api::notifier::ChangeNotifier::new();
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
-        std::path::PathBuf::from("/tmp/skills"),
+        temp_dir.path().join("skills"),
     );
     (routes::create_router(state, false), notifier)
 }

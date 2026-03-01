@@ -312,6 +312,8 @@ impl<D: Database + 'static> TaskListTools<D> {
             };
         }
 
+        list.updated_at = None;
+
         // Update returns (), must fetch again
         self.db
             .task_lists()

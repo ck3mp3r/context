@@ -21,6 +21,8 @@ jobs:
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/nix-installer-action@main
+        with:
+          github-token: ${{github.token}}
 
       - name: Build and test context via Nix
         run: nix build .#context
