@@ -147,54 +147,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         // Sanitize and prepare FTS5 query if search is requested
         let fts_query = if has_search {
             let search_term = query.search_query.as_ref().unwrap();
-
-            // Sanitize FTS5 query (same pattern as task.rs, task_list.rs, project.rs)
-            let cleaned = search_term
-                .chars()
-                .map(|c| {
-                    if c.is_alphanumeric()
-                        || c == '_'
-                        || c == '"'
-                        || c.is_whitespace()
-                        || !c.is_ascii()
-                    {
-                        c
-                    } else {
-                        ' '
-                    }
-                })
-                .collect::<String>();
-
-            // Handle unbalanced quotes (FTS5 syntax error)
-            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
-            let cleaned = if quote_count % 2 == 0 {
-                cleaned
-            } else {
-                cleaned.replace('"', "")
-            };
-
-            // Detect advanced search features
-            let has_boolean =
-                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-            let has_phrase = cleaned.contains('"');
-
-            // Apply query transformation
-            if has_boolean || has_phrase {
-                Some(cleaned)
-            } else {
-                // Simple mode - add prefix matching for each term
-                let terms: Vec<String> = cleaned
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|term| format!("{}*", term))
-                    .collect();
-
-                if terms.is_empty() {
-                    None // Empty query after sanitization
-                } else {
-                    Some(terms.join(" "))
-                }
-            }
+            super::helpers::sanitize_fts5_query(search_term)
         } else {
             None
         };

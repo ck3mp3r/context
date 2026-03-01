@@ -340,59 +340,16 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let query = query.unwrap_or(&default_query);
 
         // Sanitize FTS5 search query to prevent syntax errors
-        // Same sanitization logic as Note search
-        let fts_query = {
-            // Strip FTS5-dangerous special characters
-            let cleaned = search_term
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric()
-                        || c == '_'
-                        || c == '"'
-                        || c.is_whitespace()
-                        || (c as u32) > 127
-                    {
-                        c
-                    } else {
-                        ' '
-                    }
-                })
-                .collect::<String>();
-
-            // Handle unbalanced quotes
-            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
-            let cleaned = if quote_count % 2 == 0 {
-                cleaned
-            } else {
-                cleaned.replace('"', "")
-            };
-
-            // Handle empty/whitespace-only queries
-            if cleaned.trim().is_empty() {
+        let fts_query = match super::helpers::sanitize_fts5_query(search_term) {
+            Some(q) => q,
+            None => {
+                // Empty query returns empty results
                 return Ok(ListResult {
                     items: vec![],
                     total: 0,
                     limit: query.page.limit,
                     offset: query.page.offset.unwrap_or(0),
                 });
-            }
-
-            // Detect advanced search features
-            let has_boolean =
-                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-            let has_phrase = cleaned.contains('"');
-
-            // Apply query transformation
-            if has_boolean || has_phrase {
-                cleaned
-            } else {
-                // Simple mode - add prefix matching
-                cleaned
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|term| format!("{}*", term))
-                    .collect::<Vec<_>>()
-                    .join(" ")
             }
         };
 

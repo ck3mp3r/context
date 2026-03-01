@@ -802,62 +802,17 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Sanitize FTS5 search query to prevent syntax errors
         // FTS5 has strict bareword requirements - only allows: A-Z, a-z, 0-9, _, non-ASCII
         // Strategy: Strip dangerous chars, balance quotes, preserve Boolean ops, add prefix matching
-        let fts_query = {
-            // Step 1: Strip FTS5-dangerous special characters using allowlist
-            // FTS5 barewords ONLY allow: A-Z, a-z, 0-9, _, non-ASCII (>127), quotes, spaces
-            // Replace all other characters with spaces to prevent syntax errors
-            let cleaned = search_term
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric()
-                        || c == '_'
-                        || c == '"'
-                        || c.is_whitespace()
-                        || (c as u32) > 127
-                    {
-                        c
-                    } else {
-                        ' '
-                    }
-                })
-                .collect::<String>();
-
-            // Step 2: Handle unbalanced quotes
-            // FTS5 requires balanced quotes for phrase searches
-            let quote_count = cleaned.chars().filter(|c| *c == '"').count();
-            let cleaned = if quote_count % 2 == 0 {
-                cleaned // Balanced - preserve phrase search capability
-            } else {
-                cleaned.replace('"', "") // Unbalanced - strip all quotes
-            };
-
-            // Step 3: Handle empty/whitespace-only queries
-            if cleaned.trim().is_empty() {
+        // Sanitize FTS5 search query to prevent syntax errors
+        let fts_query = match super::helpers::sanitize_fts5_query(search_term) {
+            Some(q) => q,
+            None => {
+                // Empty query returns empty results
                 return Ok(ListResult {
                     items: vec![],
                     total: 0,
                     limit: query.page.limit,
                     offset: query.page.offset.unwrap_or(0),
                 });
-            }
-
-            // Step 4: Detect advanced search features
-            let has_boolean =
-                cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-            let has_phrase = cleaned.contains('"');
-
-            // Step 5: Apply query transformation
-            if has_boolean || has_phrase {
-                // Advanced mode - preserve operators and phrases
-                cleaned
-            } else {
-                // Simple mode - add prefix matching for fuzzy search
-                cleaned
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|term| format!("{}*", term))
-                    .collect::<Vec<_>>()
-                    .join(" ")
             }
         };
 

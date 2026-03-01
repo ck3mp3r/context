@@ -65,3 +65,163 @@ pub fn build_limit_offset_clause(page: &PageSort) -> String {
 
     clause
 }
+
+/// Sanitize and transform an FTS5 search query to prevent syntax errors.
+///
+/// This function:
+/// 1. Strips FTS5-dangerous special characters (except quotes, underscore, whitespace)
+/// 2. Handles unbalanced quotes by removing them
+/// 3. Returns None for empty/whitespace-only queries
+/// 4. Detects advanced search features (Boolean operators, phrases)
+/// 5. Adds prefix matching (*) for simple queries
+///
+/// # Examples
+///
+/// ```
+/// use context::db::sqlite::helpers::sanitize_fts5_query;
+///
+/// // Simple query gets prefix matching
+/// assert_eq!(sanitize_fts5_query("rust"), Some("rust*".to_string()));
+///
+/// // Multiple terms
+/// assert_eq!(sanitize_fts5_query("rust async"), Some("rust* async*".to_string()));
+///
+/// // Boolean operators preserved
+/// assert_eq!(sanitize_fts5_query("rust AND async"), Some("rust AND async".to_string()));
+///
+/// // Phrase queries preserved
+/// assert_eq!(sanitize_fts5_query("\"exact match\""), Some("\"exact match\"".to_string()));
+///
+/// // Empty query returns None
+/// assert_eq!(sanitize_fts5_query(""), None);
+/// assert_eq!(sanitize_fts5_query("   "), None);
+/// ```
+pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
+    // Strip FTS5-dangerous special characters
+    // Keep: alphanumeric, underscore, quotes, whitespace, non-ASCII (for unicode)
+    let cleaned = search_term
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric()
+                || c == '_'
+                || c == '"'
+                || c.is_whitespace()
+                || (c as u32) > 127
+            {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+
+    // Handle unbalanced quotes - if odd number, remove all quotes
+    let quote_count = cleaned.chars().filter(|c| *c == '"').count();
+    let cleaned = if quote_count % 2 == 0 {
+        cleaned
+    } else {
+        cleaned.replace('"', "")
+    };
+
+    // Return None for empty/whitespace-only queries
+    if cleaned.trim().is_empty() {
+        return None;
+    }
+
+    // Detect advanced search features
+    let has_boolean =
+        cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
+    let has_phrase = cleaned.contains('"');
+
+    // Apply query transformation
+    let result = if has_boolean || has_phrase {
+        // Advanced mode - preserve query as-is
+        cleaned
+    } else {
+        // Simple mode - add prefix matching to each term
+        cleaned
+            .split_whitespace()
+            .filter(|s| !s.is_empty())
+            .map(|term| format!("{}*", term))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_fts5_query_simple() {
+        assert_eq!(sanitize_fts5_query("rust"), Some("rust*".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_multiple_terms() {
+        assert_eq!(
+            sanitize_fts5_query("rust async"),
+            Some("rust* async*".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_boolean_operators() {
+        assert_eq!(
+            sanitize_fts5_query("rust AND async"),
+            Some("rust AND async".to_string())
+        );
+        assert_eq!(
+            sanitize_fts5_query("backend OR frontend"),
+            Some("backend OR frontend".to_string())
+        );
+        assert_eq!(
+            sanitize_fts5_query("code NOT deprecated"),
+            Some("code NOT deprecated".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_phrase() {
+        assert_eq!(
+            sanitize_fts5_query("\"exact match\""),
+            Some("\"exact match\"".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_empty() {
+        assert_eq!(sanitize_fts5_query(""), None);
+        assert_eq!(sanitize_fts5_query("   "), None);
+        assert_eq!(sanitize_fts5_query("\t\n"), None);
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_special_chars() {
+        // Special FTS5 chars should be stripped
+        assert_eq!(
+            sanitize_fts5_query("hello@world#test"),
+            Some("hello* world* test*".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_unbalanced_quotes() {
+        // Odd number of quotes - should remove all quotes
+        assert_eq!(
+            sanitize_fts5_query("hello \"world"),
+            Some("hello* world*".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts5_query_unicode() {
+        // Unicode characters should be preserved
+        assert_eq!(
+            sanitize_fts5_query("Rust über"),
+            Some("Rust* über*".to_string())
+        );
+    }
+}
