@@ -196,6 +196,10 @@ pub trait Database: Send + Sync {
     type Skills<'a>: SkillRepository
     where
         Self: 'a;
+    /// The transition log repository type (concrete impl, no trait needed).
+    type TransitionLogs<'a>
+    where
+        Self: 'a;
 
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
@@ -217,6 +221,9 @@ pub trait Database: Send + Sync {
 
     /// Get the sync repository.
     fn sync(&self) -> Self::Sync<'_>;
+
+    /// Get the transition log repository.
+    fn transition_logs(&self) -> Self::TransitionLogs<'_>;
 
     /// Get the skill repository.
     fn skills(&self) -> Self::Skills<'_>;

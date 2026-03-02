@@ -307,6 +307,16 @@ pub struct TaskStats {
     pub cancelled: usize,
 }
 
+/// A log entry recording a task state transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransitionLog {
+    pub id: Id,
+    pub task_id: Id,
+    pub from_status: Option<TaskStatus>,
+    pub to_status: TaskStatus,
+    pub transitioned_at: String,
+}
+
 /// A persistent markdown note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {

@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::{
     SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSyncRepository,
-    SqliteTaskListRepository, SqliteTaskRepository,
+    SqliteTaskListRepository, SqliteTaskRepository, SqliteTransitionLogRepository,
 };
 use crate::db::{Database, DbError, DbResult};
 
@@ -86,6 +86,7 @@ impl Database for SqliteDatabase {
     type Notes<'a> = SqliteNoteRepository<'a>;
     type Sync<'a> = SqliteSyncRepository<'a>;
     type Skills<'a> = super::SqliteSkillRepository<'a>;
+    type TransitionLogs<'a> = SqliteTransitionLogRepository<'a>;
 
     fn migrate(&self) -> DbResult<()> {
         // Use tokio::task::block_in_place for sync interface compatibility
@@ -120,5 +121,9 @@ impl Database for SqliteDatabase {
 
     fn skills(&self) -> Self::Skills<'_> {
         super::SqliteSkillRepository { pool: &self.pool }
+    }
+
+    fn transition_logs(&self) -> Self::TransitionLogs<'_> {
+        SqliteTransitionLogRepository { pool: &self.pool }
     }
 }
