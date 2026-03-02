@@ -791,6 +791,31 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 message: e.to_string(),
             })?;
 
+        // Log transitions for all tasks
+        let transition_timestamp = current_timestamp();
+        for task_id in task_ids {
+            let transition = TransitionLog {
+                id: generate_entity_id(),
+                task_id: task_id.clone(),
+                status: target_status.clone(),
+                transitioned_at: transition_timestamp.clone(),
+            };
+
+            sqlx::query(
+                "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&transition.id)
+            .bind(&transition.task_id)
+            .bind(transition.status.to_string())
+            .bind(&transition.transitioned_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        }
+
         // Fetch updated tasks
         let mut fetch_query = sqlx::query(&query_str);
         for id in task_ids {

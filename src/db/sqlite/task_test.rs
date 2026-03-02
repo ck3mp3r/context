@@ -2208,3 +2208,93 @@ async fn test_task_creation_logs_initial_backlog_transition() {
         "Should have timestamp"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_transition_logs_state_change() {
+    let db = setup_db().await;
+
+    // Create task list
+    let list = make_task_list("lst00005", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (starts as backlog)
+    let task = make_task("tsk00005", "lst00005", "Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Should have 1 transition (initial backlog)
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 1);
+
+    // Transition to todo
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+
+    // Should have 2 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        2,
+        "Should have 2 transitions after todo transition"
+    );
+
+    // Transition to in_progress
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Should have 3 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 3, "Should have 3 transitions");
+
+    // Transition to done
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await
+        .unwrap();
+
+    // Should have 4 transitions - complete history
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        4,
+        "Should have complete transition history"
+    );
+
+    // Verify all expected statuses are present (order may vary due to same timestamps)
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(
+        statuses.contains(&TaskStatus::Backlog),
+        "Should have Backlog transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Todo),
+        "Should have Todo transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::InProgress),
+        "Should have InProgress transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Done),
+        "Should have Done transition"
+    );
+}
