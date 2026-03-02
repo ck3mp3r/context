@@ -9,8 +9,7 @@
 CREATE TABLE IF NOT EXISTS task_transition_log (
     id TEXT PRIMARY KEY CHECK(length(id) == 8),
     task_id TEXT NOT NULL CHECK(length(task_id) == 8),
-    from_status TEXT CHECK(from_status IS NULL OR from_status IN ('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')),
-    to_status TEXT NOT NULL CHECK(to_status IN ('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')),
     transitioned_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES task(id) ON DELETE CASCADE
 );

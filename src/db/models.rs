@@ -312,8 +312,7 @@ pub struct TaskStats {
 pub struct TransitionLog {
     pub id: Id,
     pub task_id: Id,
-    pub from_status: Option<TaskStatus>,
-    pub to_status: TaskStatus,
+    pub status: TaskStatus,
     pub transitioned_at: String,
 }
 

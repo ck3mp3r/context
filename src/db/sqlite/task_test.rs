@@ -2199,13 +2199,9 @@ async fn test_task_creation_logs_initial_backlog_transition() {
     );
     assert_eq!(transitions[0].task_id, created.id);
     assert_eq!(
-        transitions[0].from_status, None,
-        "Initial transition should have no from_status"
-    );
-    assert_eq!(
-        transitions[0].to_status,
+        transitions[0].status,
         TaskStatus::Backlog,
-        "Initial transition should be to backlog"
+        "Initial transition should be backlog"
     );
     assert!(
         !transitions[0].transitioned_at.is_empty(),

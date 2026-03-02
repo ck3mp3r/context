@@ -29,17 +29,15 @@ impl<'a> SqliteTransitionLogRepository<'a> {
             log.transitioned_at.clone()
         };
 
-        let from_status_str = log.from_status.as_ref().map(|s| s.to_string());
-        let to_status_str = log.to_status.to_string();
+        let status_str = log.status.to_string();
 
         sqlx::query(
-            "INSERT INTO task_transition_log (id, task_id, from_status, to_status, transitioned_at)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+             VALUES (?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&log.task_id)
-        .bind(&from_status_str)
-        .bind(&to_status_str)
+        .bind(&status_str)
         .bind(&transitioned_at)
         .execute(self.pool)
         .await
@@ -50,8 +48,7 @@ impl<'a> SqliteTransitionLogRepository<'a> {
         Ok(TransitionLog {
             id,
             task_id: log.task_id.clone(),
-            from_status: log.from_status.clone(),
-            to_status: log.to_status.clone(),
+            status: log.status.clone(),
             transitioned_at,
         })
     }
@@ -59,7 +56,7 @@ impl<'a> SqliteTransitionLogRepository<'a> {
     /// List all transitions for a task, ordered by transitioned_at DESC (newest first).
     pub async fn list_by_task_id(&self, task_id: &str) -> DbResult<Vec<TransitionLog>> {
         let rows = sqlx::query(
-            "SELECT id, task_id, from_status, to_status, transitioned_at
+            "SELECT id, task_id, status, transitioned_at
              FROM task_transition_log
              WHERE task_id = ?
              ORDER BY transitioned_at DESC",
@@ -73,26 +70,16 @@ impl<'a> SqliteTransitionLogRepository<'a> {
 
         let mut transitions = Vec::new();
         for row in rows {
-            let from_status_str: Option<String> = row.get("from_status");
-            let to_status_str: String = row.get("to_status");
+            let status_str: String = row.get("status");
 
-            let from_status = from_status_str
-                .map(|s| TaskStatus::from_str(&s))
-                .transpose()
-                .map_err(|e| DbError::Database {
-                    message: format!("Invalid from_status: {}", e),
-                })?;
-
-            let to_status =
-                TaskStatus::from_str(&to_status_str).map_err(|e| DbError::Database {
-                    message: format!("Invalid to_status: {}", e),
-                })?;
+            let status = TaskStatus::from_str(&status_str).map_err(|e| DbError::Database {
+                message: format!("Invalid status: {}", e),
+            })?;
 
             transitions.push(TransitionLog {
                 id: row.get("id"),
                 task_id: row.get("task_id"),
-                from_status,
-                to_status,
+                status,
                 transitioned_at: row.get("transitioned_at"),
             });
         }
