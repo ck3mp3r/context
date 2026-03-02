@@ -8,6 +8,7 @@ use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{
     DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
+    TransitionLog,
 };
 
 /// SQLx-backed task repository.
@@ -131,6 +132,30 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&task.started_at)
         .bind(&task.completed_at)
         .bind(&updated_at)
+        .execute(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Log initial transition to backlog
+        let transition = TransitionLog {
+            id: generate_entity_id(),
+            task_id: id.clone(),
+            from_status: None,
+            to_status: task.status.clone(),
+            transitioned_at: created_at.clone(),
+        };
+
+        sqlx::query(
+            "INSERT INTO task_transition_log (id, task_id, from_status, to_status, transitioned_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&transition.id)
+        .bind(&transition.task_id)
+        .bind(transition.from_status.as_ref().map(|s| s.to_string()))
+        .bind(transition.to_status.to_string())
+        .bind(&transition.transitioned_at)
         .execute(self.pool)
         .await
         .map_err(|e| DbError::Database {

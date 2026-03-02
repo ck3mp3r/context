@@ -2172,3 +2172,43 @@ async fn update_task_with_empty_title_should_fail() {
     let result = tasks.update(&updated).await;
     assert!(result.is_err(), "Update should fail with empty title");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_creation_logs_initial_backlog_transition() {
+    let db = setup_db().await;
+
+    // Create task list
+    let list = make_task_list("lst00004", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (always starts as backlog)
+    let task = make_task("tsk00004", "lst00004", "Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Verify transition log was created
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Should have exactly one transition log entry"
+    );
+    assert_eq!(transitions[0].task_id, created.id);
+    assert_eq!(
+        transitions[0].from_status, None,
+        "Initial transition should have no from_status"
+    );
+    assert_eq!(
+        transitions[0].to_status,
+        TaskStatus::Backlog,
+        "Initial transition should be to backlog"
+    );
+    assert!(
+        !transitions[0].transitioned_at.is_empty(),
+        "Should have timestamp"
+    );
+}
