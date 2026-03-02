@@ -831,3 +831,142 @@ async fn fts5_search_comprehensive() {
     let body = json_body(response).await;
     assert_eq!(body["total"], 4);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_transitions() {
+    let app = test_app().await;
+
+    // Create a task list
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test List",
+                        "project_id": "test0000"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let list_body = json_body(list_response).await;
+    let list_id = list_body["id"].as_str().unwrap();
+
+    // Create a task
+    let task_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Test Task"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let task_body = json_body(task_response).await;
+    let task_id = task_body["id"].as_str().unwrap();
+
+    // Should have initial backlog transition
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}/transitions", task_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["status"], "backlog");
+
+    // Transition to in_progress
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "in_progress"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should have 2 transitions now
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}/transitions", task_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = json_body(response).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    // Check both statuses exist (order may be non-deterministic with same timestamp)
+    let statuses: Vec<&str> = items
+        .iter()
+        .map(|i| i["status"].as_str().unwrap())
+        .collect();
+    assert!(statuses.contains(&"backlog"));
+    assert!(statuses.contains(&"in_progress"));
+
+    // Transition to done
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"status": "done"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should have 3 transitions
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}/transitions", task_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = json_body(response).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    // Check all statuses exist (order may be non-deterministic with same timestamp)
+    let statuses: Vec<&str> = items
+        .iter()
+        .map(|i| i["status"].as_str().unwrap())
+        .collect();
+    assert!(statuses.contains(&"backlog"));
+    assert!(statuses.contains(&"in_progress"));
+    assert!(statuses.contains(&"done"));
+}

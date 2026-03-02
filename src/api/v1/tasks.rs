@@ -14,6 +14,7 @@ use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
+    TransitionLog,
 };
 
 use super::ErrorResponse;
@@ -80,6 +81,51 @@ impl From<Task> for TaskResponse {
             updated_at: t.updated_at,
         }
     }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TransitionResponse {
+    #[schema(example = "a1b2c3d4")]
+    pub id: String,
+    pub task_id: String,
+    #[schema(example = "in_progress")]
+    pub status: String,
+    pub transitioned_at: String,
+}
+
+impl From<TransitionLog> for TransitionResponse {
+    fn from(t: TransitionLog) -> Self {
+        Self {
+            id: t.id,
+            task_id: t.task_id,
+            status: match t.status {
+                TaskStatus::Backlog => "backlog",
+                TaskStatus::Todo => "todo",
+                TaskStatus::InProgress => "in_progress",
+                TaskStatus::Review => "review",
+                TaskStatus::Done => "done",
+                TaskStatus::Cancelled => "cancelled",
+            }
+            .to_string(),
+            transitioned_at: t.transitioned_at,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TransitionsListResponse {
+    pub items: Vec<TransitionResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TransitionsQueryParams {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -489,7 +535,7 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
     // Merge PATCH changes
     req.merge_into(&mut task);
 
-    // Save
+    // Save (repository will log transition if status changed)
     state.db().tasks().update(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -499,7 +545,7 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
-    // Re-fetch to get auto-set timestamps
+    // Re-fetch updated task
     let updated = state.db().tasks().get(&id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -554,6 +600,72 @@ pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
     });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Get task transitions
+///
+/// Returns the list of all state transitions for a task, ordered by newest first.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{id}/transitions",
+    tag = "tasks",
+    params(
+        ("id" = String, Path, description = "Task ID"),
+        TransitionsQueryParams
+    ),
+    responses(
+        (status = 200, description = "Task transitions", body = TransitionsListResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn get_task_transitions<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+    Query(params): Query<TransitionsQueryParams>,
+) -> Result<Json<TransitionsListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Verify task exists
+    let _ = state.db().tasks().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Get transitions
+    let result = state
+        .db()
+        .tasks()
+        .get_transitions(&id, params.limit, params.offset)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    Ok(Json(TransitionsListResponse {
+        items: result
+            .items
+            .into_iter()
+            .map(TransitionResponse::from)
+            .collect(),
+        total: result.total,
+        limit: result.limit.unwrap_or(20),
+        offset: result.offset,
+    }))
 }
 
 // =============================================================================

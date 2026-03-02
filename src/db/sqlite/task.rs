@@ -498,6 +498,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Validate task
         validate_task(task)?;
 
+        // Fetch current task to detect status changes
+        let current = self.get(&task.id).await?;
+
         let task = task.clone();
 
         let status_str = task.status.to_string();
@@ -542,6 +545,30 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 entity_type: "Task".to_string(),
                 id: task.id.clone(),
             });
+        }
+
+        // Log transition if status changed
+        if task.status != current.status {
+            let transition = TransitionLog {
+                id: generate_entity_id(),
+                task_id: task.id.clone(),
+                status: task.status.clone(),
+                transitioned_at: current_timestamp(),
+            };
+
+            sqlx::query(
+                "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&transition.id)
+            .bind(&transition.task_id)
+            .bind(transition.status.to_string())
+            .bind(&transition.transitioned_at)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
         }
 
         Ok(())
@@ -775,6 +802,64 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         })?;
 
         Ok(updated_tasks)
+    }
+
+    async fn get_transitions(
+        &self,
+        task_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> DbResult<ListResult<TransitionLog>> {
+        let limit = limit.unwrap_or(20).min(100);
+        let offset = offset.unwrap_or(0);
+
+        // Get total count
+        let count_row =
+            sqlx::query("SELECT COUNT(*) as count FROM task_transition_log WHERE task_id = ?")
+                .bind(task_id)
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        let total: i64 = count_row.get("count");
+
+        // Get transitions ordered by newest first
+        let rows = sqlx::query(
+            "SELECT id, task_id, status, transitioned_at 
+             FROM task_transition_log 
+             WHERE task_id = ?
+             ORDER BY transitioned_at DESC
+             LIMIT ? OFFSET ?",
+        )
+        .bind(task_id)
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let transitions: Vec<TransitionLog> = rows
+            .iter()
+            .map(|row| {
+                let status_str: String = row.get("status");
+                TransitionLog {
+                    id: row.get("id"),
+                    task_id: row.get("task_id"),
+                    status: TaskStatus::from_str(&status_str).unwrap_or_default(),
+                    transitioned_at: row.get("transitioned_at"),
+                }
+            })
+            .collect();
+
+        Ok(ListResult {
+            items: transitions,
+            total: total as usize,
+            limit: Some(limit),
+            offset,
+        })
     }
 }
 
