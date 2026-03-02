@@ -12,7 +12,6 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::utils::current_timestamp;
 use crate::db::{
     Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
 };
@@ -54,8 +53,6 @@ pub struct TaskResponse {
     #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
     pub external_refs: Vec<String>,
     pub created_at: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -80,8 +77,6 @@ impl From<Task> for TaskResponse {
             tags: t.tags,
             external_refs: t.external_refs,
             created_at: t.created_at,
-            started_at: t.started_at,
-            completed_at: t.completed_at,
             updated_at: t.updated_at,
         }
     }
@@ -130,7 +125,7 @@ pub struct PatchTaskRequest {
     pub title: Option<String>,
     /// Task description
     pub description: Option<String>,
-    /// Task status (auto-manages started_at and completed_at timestamps)
+    /// Task status
     #[schema(example = "done")]
     pub status: Option<String>,
     /// Priority level
@@ -364,8 +359,6 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         tags: req.tags,
         external_refs: req.external_refs,
         created_at: None, // Repository will generate this
-        started_at: None,
-        completed_at: None,
         updated_at: None, // Repository will generate this
     };
 
@@ -432,17 +425,6 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
 
     if let Some(status_str) = req.status {
         let new_status = parse_status(&status_str);
-
-        // Track timestamps on status transitions
-        if matches!(new_status, TaskStatus::InProgress) && task.started_at.is_none() {
-            task.started_at = Some(current_timestamp());
-        }
-        if matches!(new_status, TaskStatus::Done | TaskStatus::Cancelled)
-            && task.completed_at.is_none()
-        {
-            task.completed_at = Some(current_timestamp());
-        }
-
         task.status = new_status;
     }
 
@@ -466,7 +448,6 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
 /// Partially update a task
 ///
 /// Updates only the fields provided in the request (PATCH semantics).
-/// Auto-manages started_at and completed_at timestamps based on status transitions.
 #[utoipa::path(
     patch,
     path = "/api/v1/tasks/{id}",
@@ -508,7 +489,7 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
     // Merge PATCH changes
     req.merge_into(&mut task);
 
-    // Save (repository auto-manages started_at/completed_at based on status)
+    // Save
     state.db().tasks().update(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

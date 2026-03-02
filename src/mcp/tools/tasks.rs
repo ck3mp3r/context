@@ -61,9 +61,7 @@ pub struct ListTasksParams {
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip (for pagination)")]
     pub offset: Option<usize>,
-    #[schemars(
-        description = "Field to sort by (title, status, priority, created_at, updated_at, completed_at)"
-    )]
+    #[schemars(description = "Field to sort by (title, status, priority, created_at, updated_at)")]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc)")]
     pub order: Option<String>,
@@ -178,7 +176,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, updated_at, or completed_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
+        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
     pub async fn list_tasks(
         &self,
@@ -246,7 +244,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Create a new task (always status='backlog'). WORKFLOW: 1) create_task (backlog), 2) transition_task to 'in_progress' (sets started_at), 3) transition_task to 'done' (sets completed_at). Use transition_task for ALL status changes. For subtasks use parent_id (max ONE level deep)."
+        description = "Create a new task (always status='backlog'). WORKFLOW: 1) create_task (backlog), 2) transition_task to change status. Use transition_task for ALL status changes. For subtasks use parent_id (max ONE level deep)."
     )]
     pub async fn create_task(
         &self,
@@ -268,8 +266,6 @@ impl<D: Database + 'static> TaskTools<D> {
             tags: params.0.tags.clone().unwrap_or_default(),
             external_refs: params.0.external_refs.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
-            started_at: None,
-            completed_at: None,
             updated_at: None, // Will be set by DB
         };
 

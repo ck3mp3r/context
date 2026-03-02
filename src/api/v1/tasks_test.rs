@@ -186,7 +186,7 @@ async fn status_and_cascade_operations() {
     );
     let sub2_id = json_body(sub2).await["id"].as_str().unwrap().to_string();
 
-    // Test 1: PATCH status to done sets completed_at
+    // Test 1: PATCH status to done
     let response = app
         .clone()
         .oneshot(
@@ -204,9 +204,8 @@ async fn status_and_cascade_operations() {
     assert_eq!(response.status(), StatusCode::OK, "PATCH to done failed");
     let body = json_body(response).await;
     assert_eq!(body["status"], "done");
-    assert!(!body["completed_at"].is_null());
 
-    // Test 2: Move back from done clears completed_at
+    // Test 2: Move back from done
     let response = app
         .clone()
         .oneshot(
@@ -227,10 +226,7 @@ async fn status_and_cascade_operations() {
         "PATCH back to todo failed"
     );
     let body = json_body(response).await;
-    assert!(
-        !body["completed_at"].is_null(),
-        "completed_at should be preserved as historical record"
-    );
+    assert_eq!(body["status"], "todo");
 
     // Test 3: No cascade - move sub1 to in_progress
     app.clone()
@@ -461,8 +457,6 @@ async fn crud_and_relationships() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some(old_timestamp.to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some(old_timestamp.to_string()),
     };
     let created = db.tasks().create(&task).await.unwrap();

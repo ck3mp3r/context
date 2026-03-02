@@ -19,7 +19,6 @@ pub fn validate_sort_field(field: &str, allowed: &[&str]) -> Option<&'static str
                 "path" => Some("path"),
                 "created_at" => Some("created_at"),
                 "updated_at" => Some("updated_at"),
-                "completed_at" => Some("completed_at"),
                 _ => None,
             };
         }

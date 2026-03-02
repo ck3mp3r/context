@@ -210,8 +210,8 @@ async fn import_all_with_transaction(
         for task in tasks {
             // Upsert task
             sqlx::query(
-                "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    list_id = excluded.list_id,
                    parent_id = excluded.parent_id,
@@ -220,8 +220,6 @@ async fn import_all_with_transaction(
                    status = excluded.status,
                    priority = excluded.priority,
                    tags = excluded.tags,
-                   started_at = excluded.started_at,
-                   completed_at = excluded.completed_at,
                    updated_at = excluded.updated_at",
             )
             .bind(&task.id)
@@ -233,8 +231,6 @@ async fn import_all_with_transaction(
             .bind(task.priority)
             .bind(serde_json::to_string(&task.tags)?)
             .bind(&task.created_at)
-            .bind(&task.started_at)
-            .bind(&task.completed_at)
             .bind(&task.updated_at)
             .execute(&mut **tx)
             .await?;

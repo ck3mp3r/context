@@ -509,8 +509,8 @@ mod tests {
 
         // Create task with specific timestamps directly via SQL (bypassing create() which overwrites timestamps)
         sqlx::query(
-            "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind("task0001")
         .bind("list0001")
@@ -521,8 +521,6 @@ mod tests {
         .bind(Some(2))
         .bind(r#"["test"]"#)
         .bind("2024-01-01T10:00:00Z")
-        .bind(Some("2024-01-01T11:00:00Z"))
-        .bind(None::<String>)
         .bind("2024-01-01T12:00:00Z") // CRITICAL: Must be preserved
         .execute(db1.pool())
         .await
@@ -542,10 +540,6 @@ mod tests {
         assert_eq!(
             imported_task.created_at,
             Some("2024-01-01T10:00:00Z".to_string())
-        );
-        assert_eq!(
-            imported_task.started_at,
-            Some("2024-01-01T11:00:00Z".to_string())
         );
         assert_eq!(imported_task.title, "Test Task");
         assert_eq!(imported_task.status, TaskStatus::InProgress);
