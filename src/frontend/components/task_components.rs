@@ -122,8 +122,8 @@ pub fn KanbanColumn(
     // Determine sort order based on status
     let (sort_field, sort_order) = match status {
         "backlog" | "todo" => ("priority", "asc"), // Priority 1-5, nulls last
-        "in_progress" | "review" => ("started_at", "desc"), // Most recently started first
-        "done" => ("completed_at", "desc"),        // Most recently completed first
+        "in_progress" | "review" => ("updated_at", "desc"), // Most recently updated first
+        "done" => ("updated_at", "desc"),          // Most recently updated first
         "cancelled" => ("updated_at", "desc"),     // Most recently updated first
         _ => ("updated_at", "desc"),               // Fallback
     };
@@ -425,20 +425,11 @@ pub fn SubtaskStackItem(
                                 <span>{subtask.created_at.clone()}</span>
                             </div>
 
-                            {subtask.started_at.clone().map(|started| {
+                            {subtask.updated_at.clone().map(|updated| {
                                 view! {
                                     <div>
-                                        <span class="text-ctp-overlay1">"Started: "</span>
-                                        <span>{started}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {subtask.completed_at.clone().map(|completed| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Completed: "</span>
-                                        <span>{completed}</span>
+                                        <span class="text-ctp-overlay1">"Updated: "</span>
+                                        <span>{updated}</span>
                                     </div>
                                 }
                             })}
@@ -881,20 +872,11 @@ pub fn TaskDetailContent(
                                 <span>{task.created_at.clone()}</span>
                             </div>
 
-                            {task.started_at.clone().map(|started| {
+                            {task.updated_at.clone().map(|updated| {
                                 view! {
                                     <div>
-                                        <span class="text-ctp-overlay1">"Started: "</span>
-                                        <span>{started}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {task.completed_at.clone().map(|completed| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Completed: "</span>
-                                        <span>{completed}</span>
+                                        <span class="text-ctp-overlay1">"Updated: "</span>
+                                        <span>{updated}</span>
                                     </div>
                                 }
                             })}
