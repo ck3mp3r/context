@@ -86,7 +86,7 @@ jobs:
           cp result/context-nix.sha256 ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
 
       - name: Upload build outputs as artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: context-assets-${{ matrix.nix_system }}
           path: |
