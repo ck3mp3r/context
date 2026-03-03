@@ -16,8 +16,6 @@ pub struct Task {
     pub tags: Option<Vec<String>>,
     pub external_refs: Vec<String>,
     pub created_at: String,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -248,8 +246,6 @@ pub async fn get_task(api_client: &ApiClient, id: &str, format: &str) -> CliResu
                 builder.push_record(["External Refs", &task.external_refs.join(", ")]);
             }
             builder.push_record(["Created", &task.created_at]);
-            builder.push_record(["Started", task.started_at.as_deref().unwrap_or("-")]);
-            builder.push_record(["Completed", task.completed_at.as_deref().unwrap_or("-")]);
 
             let mut table = builder.build();
             apply_table_style(&mut table);
@@ -289,6 +285,77 @@ pub async fn update_task(
 
     let task: Task = ApiClient::handle_response(response).await?;
     Ok(format!("✓ Updated task: {} ({})", task.title, task.id))
+}
+
+/// Transition log entry for task state transitions
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransitionLog {
+    pub id: String,
+    pub task_id: String,
+    pub status: String,
+    pub transitioned_at: String,
+}
+
+/// Response from task transitions API endpoint
+#[derive(Debug, Serialize, Deserialize)]
+struct TransitionLogListResponse {
+    items: Vec<TransitionLog>,
+    total: usize,
+    limit: Option<usize>,
+    offset: usize,
+}
+
+/// Table display for transition logs
+#[derive(Tabled)]
+struct TransitionDisplay {
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Transitioned At")]
+    transitioned_at: String,
+}
+
+impl From<&TransitionLog> for TransitionDisplay {
+    fn from(transition: &TransitionLog) -> Self {
+        Self {
+            status: transition.status.clone(),
+            transitioned_at: transition.transitioned_at.clone(),
+        }
+    }
+}
+
+/// Get task state transition history
+pub async fn get_task_transitions(
+    api_client: &ApiClient,
+    task_id: &str,
+    json: bool,
+) -> CliResult<String> {
+    let response = api_client
+        .get(&format!("/api/v1/tasks/{}/transitions", task_id))
+        .send()
+        .await?;
+
+    let transitions: TransitionLogListResponse = ApiClient::handle_response(response).await?;
+
+    if json {
+        Ok(
+            serde_json::to_string_pretty(&transitions).map_err(|e| CliError::InvalidResponse {
+                message: e.to_string(),
+            })?,
+        )
+    } else {
+        if transitions.items.is_empty() {
+            return Ok("No transitions found for this task.".to_string());
+        }
+
+        let display: Vec<TransitionDisplay> = transitions
+            .items
+            .iter()
+            .map(TransitionDisplay::from)
+            .collect();
+        let mut table = Table::new(display);
+        apply_table_style(&mut table);
+        Ok(table.to_string())
+    }
 }
 
 /// Delete a task (requires --force flag for safety)
