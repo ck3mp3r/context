@@ -402,6 +402,10 @@ c5t task update \
 c5t task transition --id task123 --status in_progress
 c5t task transition --id task123 --status done
 
+# View task state transition history
+c5t task transitions task123
+c5t task transitions task123 --json  # JSON format
+
 # Create subtask
 c5t task create \
   --list-id abc12345 \
@@ -727,6 +731,73 @@ For more details, see [Sync Guide](sync.md).
 2. **Archive old data** - Keep active dataset focused
 3. **Use search filters** - Narrow results with tags/project filters
 4. **Regular maintenance** - Clean up completed work
+
+## Migration Guide: Task State Transitions
+
+**Version**: 0.5.4+
+
+Context has migrated from timestamp-based task tracking (`started_at`, `completed_at`) to comprehensive state transition logging.
+
+### What Changed
+
+**Before (v0.5.3 and earlier):**
+- Tasks had `started_at` timestamp (first non-backlog status)
+- Tasks had `completed_at` timestamp (done/cancelled)
+- Limited visibility into task history
+
+**After (v0.5.4+):**
+- All state changes logged in `task_transition_log` table
+- Complete audit trail: every status change recorded with timestamp
+- View full history: `c5t task transitions <task-id>`
+- Timestamps automatically migrated during database migration
+
+### What You Need to Do
+
+**Nothing!** The migration is automatic:
+
+1. Update to v0.5.4+
+2. Start the API or CLI - migration runs automatically
+3. Existing `started_at`/`completed_at` timestamps converted to transition log entries
+4. All future state changes automatically logged
+
+### New Capabilities
+
+**CLI:**
+```bash
+# View task state history
+c5t task transitions task123
+
+# JSON format for scripting
+c5t task transitions task123 --json
+```
+
+**API:**
+```bash
+# Get transition history
+curl http://localhost:3737/api/v1/tasks/{id}/transitions
+```
+
+**MCP:**
+```javascript
+// AI agents can query state history
+get_task_transitions({ task_id: "task123" })
+```
+
+### Sync Compatibility
+
+**Backward Compatible:**
+- New exports include `task_transition_log.jsonl`
+- Old exports (without transitions) still import successfully
+- No data loss during sync operations
+- Mixed version environments supported (during upgrade period)
+
+### Benefits
+
+1. **Complete History**: See every status change, not just start/complete
+2. **Better Tracking**: Understand task flow patterns
+3. **Audit Trail**: Know exactly when each transition occurred
+4. **Debugging**: Identify stuck tasks or unusual patterns
+5. **Analytics**: Analyze cycle times across all statuses
 
 ## Next Steps
 

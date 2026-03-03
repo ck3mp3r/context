@@ -78,10 +78,11 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `update_task_list` - Update task list
 - `delete_task_list` - Delete task list
 
-### Tasks (6 tools)
+### Tasks (7 tools)
 - `create_task` - Create new task
 - `list_tasks` - List tasks (filter by status/parent)
 - `get_task` - Get task by ID
+- `get_task_transitions` - Get task state transition history
 - `update_task` - Update task
 - `complete_task` - Mark task as done
 - `delete_task` - Delete task
