@@ -279,6 +279,7 @@ pub struct ImportSummary {
     pub projects: usize,
     pub task_lists: usize,
     pub tasks: usize,
+    pub transitions: usize,
     pub notes: usize,
     pub skills: usize,
     pub attachments: usize,
@@ -290,6 +291,7 @@ impl ImportSummary {
             + self.projects
             + self.task_lists
             + self.tasks
+            + self.transitions
             + self.notes
             + self.skills
             + self.attachments
