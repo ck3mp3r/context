@@ -420,10 +420,14 @@ pub fn SubtaskStackItem(
                     <div class="pt-3 mt-3 border-t border-ctp-surface1">
                         // Timestamps (right-aligned)
                         <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right mb-2">
-                            <div>
-                                <span class="text-ctp-overlay1">"Created: "</span>
-                                <span>{subtask.created_at.clone()}</span>
-                            </div>
+                            {subtask.created_at.clone().map(|created| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-overlay1">"Created: "</span>
+                                        <span>{created}</span>
+                                    </div>
+                                }
+                            })}
 
                             {subtask.updated_at.clone().map(|updated| {
                                 view! {
@@ -867,10 +871,14 @@ pub fn TaskDetailContent(
 
                         // RIGHT: Timestamps section - right-aligned
                         <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right">
-                            <div>
-                                <span class="text-ctp-overlay1">"Created: "</span>
-                                <span>{task.created_at.clone()}</span>
-                            </div>
+                            {task.created_at.clone().map(|created| {
+                                view! {
+                                    <div>
+                                        <span class="text-ctp-overlay1">"Created: "</span>
+                                        <span>{created}</span>
+                                    </div>
+                                }
+                            })}
 
                             {task.updated_at.clone().map(|updated| {
                                 view! {
