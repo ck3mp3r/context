@@ -1829,3 +1829,344 @@ async fn test_task_transition_logs_state_change() {
         "Should have Done transition"
     );
 }
+
+// =============================================================================
+// Integration Tests - Complete Workflows
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_complete_workflow_through_all_valid_states() {
+    // Integration test: Create task and transition through all valid statuses
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstwork1", "Workflow Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (backlog)
+    let task = make_task("tskwork1", "lstwork1", "Complete Workflow Task");
+    let created = db.tasks().create(&task).await.unwrap();
+    assert_eq!(created.status, TaskStatus::Backlog);
+
+    // Transition: backlog → todo
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
+
+    // Transition: todo → in_progress
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+
+    // Transition: in_progress → review
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Review)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Review);
+
+    // Transition: review → done
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+
+    // Verify complete history - should have 5 transitions
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        5,
+        "Should have 5 transitions: backlog → todo → in_progress → review → done"
+    );
+
+    // Verify all statuses are present
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Review));
+    assert!(statuses.contains(&TaskStatus::Done));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_bulk_transition_logs_all_task_transitions() {
+    // Integration test: Bulk transition multiple tasks, verify all get transition logs
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstbulk1", "Bulk Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create 5 tasks
+    let mut task_ids = Vec::new();
+    for i in 1..=5 {
+        let task = make_task(
+            &format!("tskbulk{}", i),
+            "lstbulk1",
+            &format!("Bulk Task {}", i),
+        );
+        let created = db.tasks().create(&task).await.unwrap();
+        task_ids.push(created.id);
+    }
+
+    // All tasks should have 1 transition (initial backlog)
+    for task_id in &task_ids {
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(transitions.len(), 1, "Initial transition logged");
+    }
+
+    // Bulk transition: backlog → todo
+    db.tasks()
+        .transition_tasks(&task_ids, TaskStatus::Todo)
+        .await
+        .unwrap();
+
+    // Verify all tasks transitioned
+    for task_id in &task_ids {
+        let task = db.tasks().get(task_id).await.unwrap();
+        assert_eq!(task.status, TaskStatus::Todo);
+
+        // Verify transition logged
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(transitions.len(), 2, "Should have 2 transitions");
+        let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+        assert!(statuses.contains(&TaskStatus::Backlog));
+        assert!(statuses.contains(&TaskStatus::Todo));
+    }
+
+    // Bulk transition: todo → in_progress
+    db.tasks()
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Verify all tasks have 3 transitions
+    for task_id in &task_ids {
+        let task = db.tasks().get(task_id).await.unwrap();
+        assert_eq!(task.status, TaskStatus::InProgress);
+
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(
+            transitions.len(),
+            3,
+            "Should have 3 transitions after bulk in_progress"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_delete_cascades_to_transitions() {
+    // Integration test: Deleting a task should cascade delete its transitions
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstdel01", "Delete Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task and transition it
+    let task = make_task("tskdel01", "lstdel01", "Task To Delete");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Verify transitions exist
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        3,
+        "Should have 3 transitions before delete"
+    );
+
+    // Delete task
+    db.tasks().delete(&created.id).await.unwrap();
+
+    // Verify task is gone
+    let result = db.tasks().get(&created.id).await;
+    assert!(result.is_err(), "Task should be deleted");
+
+    // Verify transitions are cascade deleted
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        0,
+        "Transitions should be cascade deleted with task"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_rapid_transitions_all_logged() {
+    // Edge case: Rapid transitions in quick succession should all be logged
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstrapi1", "Rapid Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskrapi1", "lstrapi1", "Rapid Transition Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Perform rapid transitions
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Review)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await
+        .unwrap();
+
+    // Verify all transitions logged despite rapid execution
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        5,
+        "All rapid transitions should be logged"
+    );
+
+    // Verify completeness - all expected statuses present
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Review));
+    assert!(statuses.contains(&TaskStatus::Done));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transition_rollback_on_failure() {
+    // Edge case: If transition fails, no transition log should be created
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstroll1", "Rollback Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskroll1", "lstroll1", "Rollback Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Verify initial state
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 1, "Should have initial transition");
+
+    // Attempt invalid transition: backlog → done (should fail)
+    let result = db
+        .tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await;
+    assert!(result.is_err(), "Invalid transition should fail validation");
+
+    // Verify no new transition was logged (transaction rolled back)
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Failed transition should not create log entry"
+    );
+
+    // Verify task status unchanged
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::Backlog,
+        "Task status should be unchanged after failed transition"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancelled_workflow_preserves_history() {
+    // Integration test: Task cancelled mid-workflow preserves full history
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstcanc1", "Cancelled Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskcanc1", "lstcanc1", "Task To Cancel");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Progress through some states
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Cancel mid-workflow
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Cancelled)
+        .await
+        .unwrap();
+
+    // Verify complete history preserved
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        4,
+        "Should have complete history including cancellation"
+    );
+
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Cancelled));
+
+    // Verify final state
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
+}
