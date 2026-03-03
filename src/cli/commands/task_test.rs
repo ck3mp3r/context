@@ -380,10 +380,10 @@ async fn test_task_status_transitions() {
         .await
         .expect("Transition failed");
 
-    // Complete task
-    complete_task(&api_client, task_id)
+    // Transition to done
+    transition_task(&api_client, &[task_id.to_string()], "done")
         .await
-        .expect("Complete failed");
+        .expect("Transition to done failed");
     let completed = serde_json::from_str::<serde_json::Value>(
         &get_task(&api_client, task_id, "json").await.unwrap(),
     )

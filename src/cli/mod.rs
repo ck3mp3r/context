@@ -205,11 +205,6 @@ enum TaskCommands {
         #[arg(long)]
         force: bool,
     },
-    /// Mark a task as complete
-    Complete {
-        /// Task ID to complete
-        id: String,
-    },
     /// Transition one or more tasks to a new status
     Transition {
         /// Task ID(s) to transition (one or more)
@@ -1036,10 +1031,6 @@ pub async fn run() -> Result<()> {
             }
             TaskCommands::Delete { id, force } => {
                 let output = commands::task::delete_task(&api_client, &id, force).await?;
-                println!("{}", output);
-            }
-            TaskCommands::Complete { id } => {
-                let output = commands::task::complete_task(&api_client, &id).await?;
                 println!("{}", output);
             }
             TaskCommands::Transition { ids, status } => {

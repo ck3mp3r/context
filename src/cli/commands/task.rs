@@ -156,26 +156,6 @@ pub(crate) fn format_table(tasks: &[Task]) -> String {
     table.to_string()
 }
 
-/// Mark a task as complete
-pub async fn complete_task(api_client: &ApiClient, task_id: &str) -> CliResult<String> {
-    // Use existing update_task with status="done" via PATCH endpoint
-    update_task(
-        api_client,
-        task_id,
-        UpdateTaskRequest {
-            title: None,
-            description: None,
-            status: Some("done".to_string()),
-            priority: None,
-            parent_id: None,
-            tags: None,
-            external_refs: None,
-            list_id: None,
-        },
-    )
-    .await
-}
-
 /// Transition one or more tasks to a new status
 pub async fn transition_task(
     api_client: &ApiClient,
