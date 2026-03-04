@@ -55,8 +55,6 @@ fn make_task(id: &str, list_id: &str, title: &str) -> Task {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     }
 }
@@ -82,8 +80,6 @@ async fn task_timestamps_are_optional() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-15 10:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-15 11:00:00".to_string()),
     };
 
@@ -113,8 +109,6 @@ async fn task_timestamps_are_optional() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
 
@@ -153,8 +147,6 @@ async fn task_create_and_get() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: Some("2025-01-02 09:00:00".to_string()),
-        completed_at: None,
         updated_at: Some("2025-01-02 09:00:00".to_string()),
     };
 
@@ -166,10 +158,6 @@ async fn task_create_and_get() {
     assert_eq!(retrieved.title, task.title);
     assert_eq!(retrieved.status, TaskStatus::InProgress);
     assert_eq!(retrieved.priority, Some(2));
-    assert_eq!(
-        retrieved.started_at,
-        Some("2025-01-02 09:00:00".to_string())
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -314,17 +302,12 @@ async fn task_update() {
 
     task.title = "Updated content".to_string();
     task.status = TaskStatus::Done;
-    task.completed_at = Some("2025-01-15 17:00:00".to_string());
     task.priority = Some(1);
     tasks.update(&task).await.expect("Update should succeed");
 
     let retrieved = tasks.get("taskupd1").await.expect("Get should succeed");
     assert_eq!(retrieved.title, "Updated content");
     assert_eq!(retrieved.status, TaskStatus::Done);
-    assert_eq!(
-        retrieved.completed_at,
-        Some("2025-01-15 17:00:00".to_string())
-    );
     assert_eq!(retrieved.priority, Some(1));
 }
 
@@ -375,8 +358,6 @@ async fn task_create_with_tags() {
         tags: vec!["rust".to_string(), "backend".to_string()],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
 
@@ -447,357 +428,12 @@ async fn task_list_with_tag_filter() {
 }
 
 // =============================================================================
-// Auto-timestamp tests for status transitions
+// Task statistics tests
 // =============================================================================
 
-#[tokio::test(flavor = "multi_thread")]
-async fn task_update_status_to_done_sets_completed_at() {
-    let db = setup_db().await;
-
-    let task_lists = db.task_lists();
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(), // Auto-generate
-            title: "Timestamp Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: None,
-            updated_at: None,
-            archived_at: None,
-        })
-        .await
-        .expect("Create should succeed");
-
-    let tasks = db.tasks();
-
-    // Create task in todo status
-    let created = tasks
-        .create(&Task {
-            id: String::new(), // Auto-generate
-            list_id: list.id.clone(),
-            parent_id: None,
-            title: "Task to complete".to_string(),
-            description: None,
-            status: TaskStatus::Todo,
-            priority: None,
-            tags: vec![],
-            external_refs: vec![],
-            created_at: None,
-            started_at: None,
-            completed_at: None,
-            updated_at: Some("2025-01-01 00:00:00".to_string()),
-        })
-        .await
-        .expect("Create should succeed");
-
-    assert_eq!(created.status, TaskStatus::Todo);
-    assert!(created.completed_at.is_none());
-
-    // Update status to done
-    let mut updated = created.clone();
-    updated.status = TaskStatus::Done;
-    tasks.update(&updated).await.expect("Update should succeed");
-
-    // completed_at should be auto-set
-    let after = tasks.get(&created.id).await.expect("Get should succeed");
-    assert_eq!(after.status, TaskStatus::Done);
-    assert!(
-        after.completed_at.is_some(),
-        "completed_at should be auto-set when status changes to done"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn task_update_status_to_done_twice_is_idempotent() {
-    let db = setup_db().await;
-
-    let task_lists = db.task_lists();
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(),
-            title: "Idempotent Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: None,
-            updated_at: None,
-            archived_at: None,
-        })
-        .await
-        .expect("Create should succeed");
-
-    let tasks = db.tasks();
-
-    let created = tasks
-        .create(&Task {
-            id: String::new(),
-            list_id: list.id.clone(),
-            parent_id: None,
-            title: "Task".to_string(),
-            description: None,
-            status: TaskStatus::Todo,
-            priority: None,
-            tags: vec![],
-            external_refs: vec![],
-            created_at: None,
-            started_at: None,
-            completed_at: None,
-            updated_at: Some("2025-01-01 00:00:00".to_string()),
-        })
-        .await
-        .expect("Create should succeed");
-
-    // First: mark as done
-    let mut first = created.clone();
-    first.status = TaskStatus::Done;
-    tasks.update(&first).await.expect("Update should succeed");
-
-    let after_first = tasks.get(&created.id).await.expect("Get should succeed");
-    let first_completed_at = after_first.completed_at.clone();
-    assert!(first_completed_at.is_some());
-
-    // Second: mark as done again
-    let mut second = after_first.clone();
-    second.status = TaskStatus::Done;
-    tasks.update(&second).await.expect("Update should succeed");
-
-    let after_second = tasks.get(&created.id).await.expect("Get should succeed");
-
-    // completed_at should be unchanged (idempotent)
-    assert_eq!(
-        after_second.completed_at, first_completed_at,
-        "completed_at should not change when status is already done"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn task_update_status_to_in_progress_sets_started_at() {
-    let db = setup_db().await;
-
-    let task_lists = db.task_lists();
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(),
-            title: "Start Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: None,
-            updated_at: None,
-            archived_at: None,
-        })
-        .await
-        .expect("Create should succeed");
-
-    let tasks = db.tasks();
-
-    // Create task in backlog
-    let created = tasks
-        .create(&Task {
-            id: String::new(),
-            list_id: list.id.clone(),
-            parent_id: None,
-            title: "Task to start".to_string(),
-            description: None,
-            status: TaskStatus::Backlog,
-            priority: None,
-            tags: vec![],
-            external_refs: vec![],
-            created_at: None,
-            started_at: None,
-            completed_at: None,
-            updated_at: Some("2025-01-01 00:00:00".to_string()),
-        })
-        .await
-        .expect("Create should succeed");
-
-    assert_eq!(created.status, TaskStatus::Backlog);
-    assert!(created.started_at.is_none());
-
-    // Update status to in_progress
-    let mut updated = created.clone();
-    updated.status = TaskStatus::InProgress;
-    tasks.update(&updated).await.expect("Update should succeed");
-
-    // started_at should be auto-set
-    let after = tasks.get(&created.id).await.expect("Get should succeed");
-    assert_eq!(after.status, TaskStatus::InProgress);
-    assert!(
-        after.started_at.is_some(),
-        "started_at should be auto-set when status changes to in_progress"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn task_update_preserves_historical_timestamps() {
-    let db = setup_db().await;
-
-    let task_lists = db.task_lists();
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(),
-            title: "Timestamp Preservation Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: None,
-            updated_at: None,
-            archived_at: None,
-        })
-        .await
-        .expect("Create should succeed");
-
-    let tasks = db.tasks();
-
-    // Test scenarios: (from_status, to_status, started_at_preserved, completed_at_preserved)
-    let scenarios = vec![
-        // Transitions from Done should preserve completed_at
-        (TaskStatus::Done, TaskStatus::Backlog, true, true),
-        (TaskStatus::Done, TaskStatus::Todo, true, true),
-        (TaskStatus::Done, TaskStatus::InProgress, true, true),
-        (TaskStatus::Done, TaskStatus::Review, true, true),
-        // Transitions from InProgress should preserve started_at
-        (TaskStatus::InProgress, TaskStatus::Backlog, true, false),
-        (TaskStatus::InProgress, TaskStatus::Todo, true, false),
-    ];
-
-    for (from_status, to_status, expect_started, expect_completed) in scenarios {
-        // Create task with appropriate timestamps
-        let created = tasks
-            .create(&Task {
-                id: String::new(),
-                list_id: list.id.clone(),
-                parent_id: None,
-                title: format!("{:?} to {:?}", from_status, to_status),
-                description: None,
-                status: from_status.clone(),
-                priority: None,
-                tags: vec![],
-                external_refs: vec![],
-                created_at: None,
-                started_at: if matches!(from_status, TaskStatus::InProgress | TaskStatus::Done) {
-                    Some("2025-01-01 10:00:00".to_string())
-                } else {
-                    None
-                },
-                completed_at: if matches!(from_status, TaskStatus::Done) {
-                    Some("2025-01-01 12:00:00".to_string())
-                } else {
-                    None
-                },
-                updated_at: Some("2025-01-01 12:00:00".to_string()),
-            })
-            .await
-            .expect("Create should succeed");
-
-        // Transition to new status
-        let mut updated = created.clone();
-        updated.status = to_status.clone();
-        tasks.update(&updated).await.expect("Update should succeed");
-
-        // Verify timestamps preserved
-        let after = tasks.get(&created.id).await.expect("Get should succeed");
-        assert_eq!(after.status, to_status);
-
-        if expect_started {
-            assert!(
-                after.started_at.is_some(),
-                "{:?} → {:?}: started_at should be preserved",
-                from_status,
-                to_status
-            );
-        }
-
-        if expect_completed {
-            assert!(
-                after.completed_at.is_some(),
-                "{:?} → {:?}: completed_at should be preserved",
-                from_status,
-                to_status
-            );
-        }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn task_update_other_fields_preserves_timestamps() {
-    let db = setup_db().await;
-
-    let task_lists = db.task_lists();
-    let list = task_lists
-        .create(&TaskList {
-            id: String::new(),
-            title: "Preserve Test".to_string(),
-            description: None,
-            notes: None,
-            tags: vec![],
-            external_refs: vec![],
-            status: TaskListStatus::Active,
-            repo_ids: vec![],
-            project_id: "test0000".to_string(), // Test project (created by setup_db)
-            created_at: None,
-            updated_at: None,
-            archived_at: None,
-        })
-        .await
-        .expect("Create should succeed");
-
-    let tasks = db.tasks();
-
-    // Create task that's in progress
-    let created = tasks
-        .create(&Task {
-            id: String::new(),
-            list_id: list.id.clone(),
-            parent_id: None,
-            title: "Active task".to_string(),
-            description: None,
-            status: TaskStatus::InProgress,
-            priority: None,
-            tags: vec![],
-            external_refs: vec![],
-            created_at: None,
-            started_at: Some("2025-01-01 10:00:00".to_string()),
-            completed_at: None,
-            updated_at: Some("2025-01-01 10:00:00".to_string()),
-        })
-        .await
-        .expect("Create should succeed");
-
-    let original_started_at = created.started_at.clone();
-
-    // Update other fields (title, priority) without changing status
-    let mut updated = created.clone();
-    updated.title = "Updated content".to_string();
-    updated.priority = Some(5);
-    tasks.update(&updated).await.expect("Update should succeed");
-
-    // started_at should be preserved
-    let after = tasks.get(&created.id).await.expect("Get should succeed");
-    assert_eq!(after.title, "Updated content");
-    assert_eq!(after.priority, Some(5));
-    assert_eq!(
-        after.started_at, original_started_at,
-        "started_at should be preserved when status doesn't change"
-    );
-}
+// =============================================================================
+// Task statistics tests
+// =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
 async fn get_stats_for_list_returns_counts_by_status() {
@@ -1322,8 +958,6 @@ async fn fts5_search_finds_task_by_title() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1340,8 +974,6 @@ async fn fts5_search_finds_task_by_title() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1376,8 +1008,6 @@ async fn fts5_search_finds_task_by_description() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1394,8 +1024,6 @@ async fn fts5_search_finds_task_by_description() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1430,8 +1058,6 @@ async fn fts5_search_finds_task_by_tags() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1448,8 +1074,6 @@ async fn fts5_search_finds_task_by_tags() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1484,8 +1108,6 @@ async fn fts5_search_finds_task_by_external_refs() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1502,8 +1124,6 @@ async fn fts5_search_finds_task_by_external_refs() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1538,8 +1158,6 @@ async fn fts5_search_boolean_operators() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1556,8 +1174,6 @@ async fn fts5_search_boolean_operators() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1574,8 +1190,6 @@ async fn fts5_search_boolean_operators() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:02".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:02".to_string()),
     })
     .await
@@ -1610,8 +1224,6 @@ async fn fts5_search_phrase_query() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1628,8 +1240,6 @@ async fn fts5_search_phrase_query() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1665,8 +1275,6 @@ async fn fts5_search_combines_with_status_filter() {
         status: TaskStatus::InProgress,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: Some("2025-01-01 10:00:00".to_string()),
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1683,8 +1291,6 @@ async fn fts5_search_combines_with_status_filter() {
         status: TaskStatus::Done,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:01".to_string()),
-        started_at: Some("2025-01-01 09:00:00".to_string()),
-        completed_at: Some("2025-01-01 11:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
     })
     .await
@@ -1723,8 +1329,6 @@ async fn fts5_search_handles_special_characters() {
         status: TaskStatus::Todo,
         priority: Some(1),
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     })
     .await
@@ -1793,8 +1397,6 @@ async fn transition_tasks_success() {
     assert_eq!(updated_tasks.len(), 3);
     for task in updated_tasks {
         assert_eq!(task.status, TaskStatus::InProgress);
-        assert!(task.started_at.is_some(), "started_at should be set");
-        assert!(task.completed_at.is_none(), "completed_at should be None");
     }
 
     // Verify via get
@@ -1932,71 +1534,6 @@ async fn transition_tasks_not_found_fails() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn transition_tasks_timestamps() {
-    let db = setup_db().await;
-    let task_lists = db.task_lists();
-    let tasks = db.tasks();
-
-    // Setup
-    task_lists
-        .create(&make_task_list("tslist01", "Timestamp Test"))
-        .await
-        .expect("Create task list should succeed");
-
-    // Create tasks
-    let mut task1 = make_task("tstsk001", "tslist01", "Task 1");
-    task1.status = TaskStatus::Todo;
-    tasks
-        .create(&task1)
-        .await
-        .expect("Create task1 should succeed");
-
-    let mut task2 = make_task("tstsk002", "tslist01", "Task 2");
-    task2.status = TaskStatus::Todo;
-    tasks
-        .create(&task2)
-        .await
-        .expect("Create task2 should succeed");
-
-    // Test 1: Transition to in_progress sets started_at
-    let task_ids = vec!["tstsk001".to_string(), "tstsk002".to_string()];
-    let updated = tasks
-        .transition_tasks(&task_ids, TaskStatus::InProgress)
-        .await
-        .expect("Transition to in_progress should succeed");
-
-    for task in &updated {
-        assert!(task.started_at.is_some(), "started_at should be set");
-        assert!(task.completed_at.is_none(), "completed_at should be None");
-    }
-
-    // Test 2: Transition to done sets completed_at
-    let updated = tasks
-        .transition_tasks(&task_ids, TaskStatus::Done)
-        .await
-        .expect("Transition to done should succeed");
-
-    for task in &updated {
-        assert!(task.started_at.is_some(), "started_at should remain set");
-        assert!(task.completed_at.is_some(), "completed_at should be set");
-    }
-
-    // Test 3: Transition back to todo preserves timestamps (audit trail)
-    let updated = tasks
-        .transition_tasks(&task_ids, TaskStatus::Todo)
-        .await
-        .expect("Transition to todo should succeed");
-
-    for task in &updated {
-        assert!(task.started_at.is_some(), "started_at should be preserved");
-        assert!(
-            task.completed_at.is_some(),
-            "completed_at should be preserved (historical record)"
-        );
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn transition_tasks_transaction_rollback() {
     let db = setup_db().await;
     let task_lists = db.task_lists();
@@ -2079,8 +1616,6 @@ async fn create_task_with_empty_title_should_fail() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
 
@@ -2120,8 +1655,6 @@ async fn create_task_with_invalid_priority_should_fail() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
 
@@ -2159,8 +1692,6 @@ async fn update_task_with_empty_title_should_fail() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     tasks.create(&task).await.unwrap();
@@ -2171,4 +1702,471 @@ async fn update_task_with_empty_title_should_fail() {
 
     let result = tasks.update(&updated).await;
     assert!(result.is_err(), "Update should fail with empty title");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_creation_logs_initial_backlog_transition() {
+    let db = setup_db().await;
+
+    // Create task list
+    let list = make_task_list("lst00004", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (always starts as backlog)
+    let task = make_task("tsk00004", "lst00004", "Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Verify transition log was created
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Should have exactly one transition log entry"
+    );
+    assert_eq!(transitions[0].task_id, created.id);
+    assert_eq!(
+        transitions[0].status,
+        TaskStatus::Backlog,
+        "Initial transition should be backlog"
+    );
+    assert!(
+        !transitions[0].transitioned_at.is_empty(),
+        "Should have timestamp"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_transition_logs_state_change() {
+    let db = setup_db().await;
+
+    // Create task list
+    let list = make_task_list("lst00005", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (starts as backlog)
+    let task = make_task("tsk00005", "lst00005", "Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Should have 1 transition (initial backlog)
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 1);
+
+    // Transition to todo
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+
+    // Should have 2 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        2,
+        "Should have 2 transitions after todo transition"
+    );
+
+    // Transition to in_progress
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Should have 3 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 3, "Should have 3 transitions");
+
+    // Transition to done
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await
+        .unwrap();
+
+    // Should have 4 transitions - complete history
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        4,
+        "Should have complete transition history"
+    );
+
+    // Verify all expected statuses are present (order may vary due to same timestamps)
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(
+        statuses.contains(&TaskStatus::Backlog),
+        "Should have Backlog transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Todo),
+        "Should have Todo transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::InProgress),
+        "Should have InProgress transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Done),
+        "Should have Done transition"
+    );
+}
+
+// =============================================================================
+// Integration Tests - Complete Workflows
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_complete_workflow_through_all_valid_states() {
+    // Integration test: Create task and transition through all valid statuses
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstwork1", "Workflow Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (backlog)
+    let task = make_task("tskwork1", "lstwork1", "Complete Workflow Task");
+    let created = db.tasks().create(&task).await.unwrap();
+    assert_eq!(created.status, TaskStatus::Backlog);
+
+    // Transition: backlog → todo
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
+
+    // Transition: todo → in_progress
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+
+    // Transition: in_progress → review
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Review)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Review);
+
+    // Transition: review → done
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+
+    // Verify complete history - should have 5 transitions
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        5,
+        "Should have 5 transitions: backlog → todo → in_progress → review → done"
+    );
+
+    // Verify all statuses are present
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Review));
+    assert!(statuses.contains(&TaskStatus::Done));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_bulk_transition_logs_all_task_transitions() {
+    // Integration test: Bulk transition multiple tasks, verify all get transition logs
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstbulk1", "Bulk Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create 5 tasks
+    let mut task_ids = Vec::new();
+    for i in 1..=5 {
+        let task = make_task(
+            &format!("tskbulk{}", i),
+            "lstbulk1",
+            &format!("Bulk Task {}", i),
+        );
+        let created = db.tasks().create(&task).await.unwrap();
+        task_ids.push(created.id);
+    }
+
+    // All tasks should have 1 transition (initial backlog)
+    for task_id in &task_ids {
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(transitions.len(), 1, "Initial transition logged");
+    }
+
+    // Bulk transition: backlog → todo
+    db.tasks()
+        .transition_tasks(&task_ids, TaskStatus::Todo)
+        .await
+        .unwrap();
+
+    // Verify all tasks transitioned
+    for task_id in &task_ids {
+        let task = db.tasks().get(task_id).await.unwrap();
+        assert_eq!(task.status, TaskStatus::Todo);
+
+        // Verify transition logged
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(transitions.len(), 2, "Should have 2 transitions");
+        let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+        assert!(statuses.contains(&TaskStatus::Backlog));
+        assert!(statuses.contains(&TaskStatus::Todo));
+    }
+
+    // Bulk transition: todo → in_progress
+    db.tasks()
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Verify all tasks have 3 transitions
+    for task_id in &task_ids {
+        let task = db.tasks().get(task_id).await.unwrap();
+        assert_eq!(task.status, TaskStatus::InProgress);
+
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(
+            transitions.len(),
+            3,
+            "Should have 3 transitions after bulk in_progress"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_delete_cascades_to_transitions() {
+    // Integration test: Deleting a task should cascade delete its transitions
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstdel01", "Delete Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task and transition it
+    let task = make_task("tskdel01", "lstdel01", "Task To Delete");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Verify transitions exist
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        3,
+        "Should have 3 transitions before delete"
+    );
+
+    // Delete task
+    db.tasks().delete(&created.id).await.unwrap();
+
+    // Verify task is gone
+    let result = db.tasks().get(&created.id).await;
+    assert!(result.is_err(), "Task should be deleted");
+
+    // Verify transitions are cascade deleted
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        0,
+        "Transitions should be cascade deleted with task"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_rapid_transitions_all_logged() {
+    // Edge case: Rapid transitions in quick succession should all be logged
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstrapi1", "Rapid Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskrapi1", "lstrapi1", "Rapid Transition Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Perform rapid transitions
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Review)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await
+        .unwrap();
+
+    // Verify all transitions logged despite rapid execution
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        5,
+        "All rapid transitions should be logged"
+    );
+
+    // Verify completeness - all expected statuses present
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Review));
+    assert!(statuses.contains(&TaskStatus::Done));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transition_rollback_on_failure() {
+    // Edge case: If transition fails, no transition log should be created
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstroll1", "Rollback Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskroll1", "lstroll1", "Rollback Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Verify initial state
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 1, "Should have initial transition");
+
+    // Attempt invalid transition: backlog → done (should fail)
+    let result = db
+        .tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .await;
+    assert!(result.is_err(), "Invalid transition should fail validation");
+
+    // Verify no new transition was logged (transaction rolled back)
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Failed transition should not create log entry"
+    );
+
+    // Verify task status unchanged
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::Backlog,
+        "Task status should be unchanged after failed transition"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancelled_workflow_preserves_history() {
+    // Integration test: Task cancelled mid-workflow preserves full history
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstcanc1", "Cancelled Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskcanc1", "lstcanc1", "Task To Cancel");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Progress through some states
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Cancel mid-workflow
+    db.tasks()
+        .transition_tasks(&[created.id.clone()], TaskStatus::Cancelled)
+        .await
+        .unwrap();
+
+    // Verify complete history preserved
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        4,
+        "Should have complete history including cancellation"
+    );
+
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Cancelled));
+
+    // Verify final state
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
 }

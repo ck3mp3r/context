@@ -210,8 +210,8 @@ async fn import_all_with_transaction(
         for task in tasks {
             // Upsert task
             sqlx::query(
-                "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    list_id = excluded.list_id,
                    parent_id = excluded.parent_id,
@@ -220,8 +220,6 @@ async fn import_all_with_transaction(
                    status = excluded.status,
                    priority = excluded.priority,
                    tags = excluded.tags,
-                   started_at = excluded.started_at,
-                   completed_at = excluded.completed_at,
                    updated_at = excluded.updated_at",
             )
             .bind(&task.id)
@@ -233,13 +231,37 @@ async fn import_all_with_transaction(
             .bind(task.priority)
             .bind(serde_json::to_string(&task.tags)?)
             .bind(&task.created_at)
-            .bind(&task.started_at)
-            .bind(&task.completed_at)
             .bind(&task.updated_at)
             .execute(&mut **tx)
             .await?;
 
             summary.tasks += 1;
+        }
+    }
+
+    // ========== Import Task Transitions ==========
+    let transitions_file = input_dir.join("task_transition_log.jsonl");
+    if transitions_file.exists() {
+        use crate::db::TransitionLog;
+        let transitions: Vec<TransitionLog> = read_jsonl(&transitions_file)?;
+        for transition in transitions {
+            // Upsert transition
+            sqlx::query(
+                "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+                 VALUES (?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   task_id = excluded.task_id,
+                   status = excluded.status,
+                   transitioned_at = excluded.transitioned_at",
+            )
+            .bind(&transition.id)
+            .bind(&transition.task_id)
+            .bind(transition.status.to_string())
+            .bind(&transition.transitioned_at)
+            .execute(&mut **tx)
+            .await?;
+
+            summary.transitions += 1;
         }
     }
 
@@ -444,6 +466,18 @@ async fn export_all_from_pool(
     let tasks = tasks_repo.list(None).await?;
     write_jsonl(&output_dir.join("tasks.jsonl"), &tasks.items)?;
     summary.tasks = tasks.items.len();
+
+    // Export task transitions (all transitions for all tasks)
+    let mut all_transitions = Vec::new();
+    for task in &tasks.items {
+        let transitions = tasks_repo.get_transitions(&task.id, None, None).await?;
+        all_transitions.extend(transitions.items);
+    }
+    write_jsonl(
+        &output_dir.join("task_transition_log.jsonl"),
+        &all_transitions,
+    )?;
+    summary.transitions = all_transitions.len();
 
     // Export notes - get full entities with relationships
     let notes_repo = SqliteNoteRepository { pool };

@@ -8,6 +8,7 @@ use super::helpers::{build_limit_offset_clause, build_order_clause};
 use crate::db::utils::{current_timestamp, generate_entity_id};
 use crate::db::{
     DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
+    TransitionLog,
 };
 
 /// SQLx-backed task repository.
@@ -114,8 +115,8 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         sqlx::query(
             r#"
-            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -128,9 +129,29 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(&tags_json)
         .bind(&external_refs_json)
         .bind(&created_at)
-        .bind(&task.started_at)
-        .bind(&task.completed_at)
         .bind(&updated_at)
+        .execute(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Log initial transition
+        let transition = TransitionLog {
+            id: generate_entity_id(),
+            task_id: id.clone(),
+            status: task.status.clone(),
+            transitioned_at: created_at.clone(),
+        };
+
+        sqlx::query(
+            "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(&transition.id)
+        .bind(&transition.task_id)
+        .bind(transition.status.to_string())
+        .bind(&transition.transitioned_at)
         .execute(self.pool)
         .await
         .map_err(|e| DbError::Database {
@@ -142,7 +163,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
-            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at
              FROM task WHERE id = ?",
         )
         .bind(id)
@@ -163,14 +184,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn list(&self, query: Option<&TaskQuery>) -> DbResult<ListResult<Task>> {
         let default_query = TaskQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = [
-            "title",
-            "status",
-            "priority",
-            "created_at",
-            "completed_at",
-            "updated_at",
-        ];
+        let allowed_fields = ["title", "status", "priority", "created_at", "updated_at"];
 
         // Check if we need last_activity_at computed column
         // - When sorting by updated_at, compute activity for proper ordering
@@ -239,10 +253,10 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build SQL based on whether we need json_each or activity column
         let (sql, count_sql) = if needs_json_each {
             let select_cols = if needs_activity_column {
-                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.started_at, t.completed_at, t.updated_at, \
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at, \
                  COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id), t.updated_at) AS last_activity_at"
             } else {
-                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.started_at, t.completed_at, t.updated_at"
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at"
             };
 
             // Replace updated_at in ORDER BY with last_activity_at if we computed it
@@ -265,10 +279,10 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             (sql, count_sql)
         } else {
             let select_cols = if needs_activity_column {
-                "task.id, task.list_id, task.parent_id, task.title, task.description, task.status, task.priority, task.tags, task.external_refs, task.created_at, task.started_at, task.completed_at, task.updated_at, \
+                "task.id, task.list_id, task.parent_id, task.title, task.description, task.status, task.priority, task.tags, task.external_refs, task.created_at, task.updated_at, \
                  COALESCE((SELECT MAX(updated_at) FROM task AS child WHERE child.parent_id = task.id), task.updated_at) AS last_activity_at"
             } else {
-                "id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at"
+                "id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at"
             };
 
             // Replace updated_at in ORDER BY with last_activity_at if we computed it
@@ -398,14 +412,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
         // Build ORDER BY clause
-        let allowed_fields = [
-            "title",
-            "status",
-            "priority",
-            "created_at",
-            "completed_at",
-            "updated_at",
-        ];
+        let allowed_fields = ["title", "status", "priority", "created_at", "updated_at"];
         let order_clause = {
             let sort_field = query
                 .page
@@ -449,7 +456,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Data query with LIMIT/OFFSET
         let limit_clause = build_limit_offset_clause(&query.page);
         let data_sql = format!(
-            "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.started_at, t.completed_at, t.updated_at
+            "SELECT DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at
              {} {} {} {}",
             from_clause, where_clause, order_clause, limit_clause
         );
@@ -491,34 +498,10 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Validate task
         validate_task(task)?;
 
-        // Fetch current task to detect status transitions
+        // Fetch current task to detect status changes
         let current = self.get(&task.id).await?;
 
-        let mut task = task.clone();
-
-        // Auto-manage timestamps based on status transitions
-        // NOTE: We NEVER clear historical timestamps - they represent audit trail
-        let status_changed = task.status != current.status;
-        if status_changed {
-            match task.status {
-                TaskStatus::InProgress => {
-                    // Starting work - set started_at only if not already set (idempotent)
-                    if task.started_at.is_none() {
-                        task.started_at = Some(current_timestamp());
-                    }
-                    // Keep completed_at as historical record (don't clear)
-                }
-                TaskStatus::Done | TaskStatus::Cancelled => {
-                    // Completing task - set completed_at only if not already set (idempotent)
-                    if task.completed_at.is_none() {
-                        task.completed_at = Some(current_timestamp());
-                    }
-                }
-                _ => {
-                    // Keep all timestamps as historical records (don't clear)
-                }
-            }
-        }
+        let task = task.clone();
 
         let status_str = task.status.to_string();
         let tags_json = serde_json::to_string(&task.tags).map_err(|e| DbError::Database {
@@ -537,8 +520,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let result = sqlx::query(
             r#"
             UPDATE task 
-            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?, external_refs = ?,
-                started_at = ?, completed_at = ?, updated_at = ?
+            SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?, external_refs = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
@@ -550,8 +532,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         .bind(task.priority)
         .bind(&tags_json)
         .bind(&external_refs_json)
-        .bind(&task.started_at)
-        .bind(&task.completed_at)
         .bind(&updated_at)
         .bind(&task.id)
         .execute(self.pool)
@@ -565,6 +545,30 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 entity_type: "Task".to_string(),
                 id: task.id.clone(),
             });
+        }
+
+        // Log transition if status changed
+        if task.status != current.status {
+            let transition = TransitionLog {
+                id: generate_entity_id(),
+                task_id: task.id.clone(),
+                status: task.status.clone(),
+                transitioned_at: current_timestamp(),
+            };
+
+            sqlx::query(
+                "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&transition.id)
+            .bind(&transition.task_id)
+            .bind(transition.status.to_string())
+            .bind(&transition.transitioned_at)
+            .execute(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
         }
 
         Ok(())
@@ -665,7 +669,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build IN clause for SQL query
         let placeholders = task_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query_str = format!(
-            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, started_at, completed_at, updated_at FROM task WHERE id IN ({})",
+            "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at FROM task WHERE id IN ({})",
             placeholders
         );
 
@@ -722,29 +726,14 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             });
         }
 
-        // Calculate timestamps based on target status
-        // NOTE: We NEVER clear historical timestamps (started_at, completed_at)
-        // These represent audit trail - when work first started/completed
-        let should_set_started = target_status == TaskStatus::InProgress;
-        let should_set_completed =
-            matches!(target_status, TaskStatus::Done | TaskStatus::Cancelled);
-
         let target_status_str = target_status.to_string();
         let updated_at = current_timestamp();
 
-        // Update all tasks with timestamp management
+        // Update all tasks status
         let update_query = format!(
             r#"
             UPDATE task 
             SET status = ?,
-                started_at = CASE 
-                    WHEN ? = 1 AND started_at IS NULL THEN datetime('now')
-                    ELSE started_at 
-                END,
-                completed_at = CASE 
-                    WHEN ? = 1 AND completed_at IS NULL THEN datetime('now')
-                    ELSE completed_at 
-                END,
                 updated_at = ?
             WHERE id IN ({})
             "#,
@@ -753,8 +742,6 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let mut update = sqlx::query(&update_query)
             .bind(&target_status_str)
-            .bind(if should_set_started { 1 } else { 0 })
-            .bind(if should_set_completed { 1 } else { 0 })
             .bind(&updated_at);
 
         for id in task_ids {
@@ -767,6 +754,31 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
+
+        // Log transitions for all tasks
+        let transition_timestamp = current_timestamp();
+        for task_id in task_ids {
+            let transition = TransitionLog {
+                id: generate_entity_id(),
+                task_id: task_id.clone(),
+                status: target_status.clone(),
+                transitioned_at: transition_timestamp.clone(),
+            };
+
+            sqlx::query(
+                "INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&transition.id)
+            .bind(&transition.task_id)
+            .bind(transition.status.to_string())
+            .bind(&transition.transitioned_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        }
 
         // Fetch updated tasks
         let mut fetch_query = sqlx::query(&query_str);
@@ -790,6 +802,64 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         })?;
 
         Ok(updated_tasks)
+    }
+
+    async fn get_transitions(
+        &self,
+        task_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> DbResult<ListResult<TransitionLog>> {
+        let limit = limit.unwrap_or(20).min(100);
+        let offset = offset.unwrap_or(0);
+
+        // Get total count
+        let count_row =
+            sqlx::query("SELECT COUNT(*) as count FROM task_transition_log WHERE task_id = ?")
+                .bind(task_id)
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        let total: i64 = count_row.get("count");
+
+        // Get transitions ordered by newest first
+        let rows = sqlx::query(
+            "SELECT id, task_id, status, transitioned_at 
+             FROM task_transition_log 
+             WHERE task_id = ?
+             ORDER BY transitioned_at DESC
+             LIMIT ? OFFSET ?",
+        )
+        .bind(task_id)
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let transitions: Vec<TransitionLog> = rows
+            .iter()
+            .map(|row| {
+                let status_str: String = row.get("status");
+                TransitionLog {
+                    id: row.get("id"),
+                    task_id: row.get("task_id"),
+                    status: TaskStatus::from_str(&status_str).unwrap_or_default(),
+                    transitioned_at: row.get("transitioned_at"),
+                }
+            })
+            .collect();
+
+        Ok(ListResult {
+            items: transitions,
+            total: total as usize,
+            limit: Some(limit),
+            offset,
+        })
     }
 }
 
@@ -819,8 +889,6 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
                 .unwrap_or_default()
         },
         created_at: row.get("created_at"),
-        started_at: row.get("started_at"),
-        completed_at: row.get("completed_at"),
         updated_at: row.get("updated_at"),
     }
 }

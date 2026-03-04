@@ -72,6 +72,7 @@ macro_rules! routes {
          super::v1::update_task,
          super::v1::patch_task,
          super::v1::delete_task,
+         super::v1::get_task_transitions,
          super::v1::list_notes,
          super::v1::get_note,
          super::v1::create_note,
@@ -199,6 +200,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         put "/tasks/{id}" => super::v1::update_task,
         patch "/tasks/{id}" => super::v1::patch_task,
         delete "/tasks/{id}" => super::v1::delete_task,
+        get "/tasks/{id}/transitions" => super::v1::get_task_transitions,
         // Notes
         get "/notes" => super::v1::list_notes,
         get "/notes/{id}" => super::v1::get_note,

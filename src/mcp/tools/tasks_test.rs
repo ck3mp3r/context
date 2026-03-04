@@ -207,8 +207,6 @@ async fn test_get_task() {
         tags: vec!["test".to_string()],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let created_task = db.tasks().create(&task).await.unwrap();
@@ -287,8 +285,6 @@ async fn test_list_tasks_filtered_by_status() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
@@ -360,8 +356,6 @@ async fn test_delete_task() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
@@ -425,8 +419,6 @@ async fn test_list_tasks_with_parent_id_filter() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_parent = db.tasks().create(&parent_task).await.unwrap();
@@ -443,8 +435,6 @@ async fn test_list_tasks_with_parent_id_filter() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     db.tasks().create(&subtask).await.unwrap();
@@ -535,8 +525,6 @@ async fn test_update_task_move_to_different_list() {
         tags: vec!["move-test".to_string()],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
@@ -607,8 +595,6 @@ async fn test_update_task_parent_id() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_parent = db.tasks().create(&parent_task).await.unwrap();
@@ -625,8 +611,6 @@ async fn test_update_task_parent_id() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_standalone = db.tasks().create(&standalone_task).await.unwrap();
@@ -726,8 +710,6 @@ async fn test_list_tasks_with_sort_and_order() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 10:00:00".to_string()),
-        started_at: None,
-        completed_at: Some("2025-01-01 11:00:00".to_string()),
         updated_at: Some("2025-01-01 11:00:00".to_string()),
     };
     let task1 = db.tasks().create(&task1).await.unwrap();
@@ -743,8 +725,6 @@ async fn test_list_tasks_with_sort_and_order() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-02 10:00:00".to_string()),
-        started_at: None,
-        completed_at: Some("2025-01-03 11:00:00".to_string()),
         updated_at: Some("2025-01-03 11:00:00".to_string()),
     };
     let task2 = db.tasks().create(&task2).await.unwrap();
@@ -760,8 +740,6 @@ async fn test_list_tasks_with_sort_and_order() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-03 10:00:00".to_string()),
-        started_at: None,
-        completed_at: Some("2025-01-02 11:00:00".to_string()),
         updated_at: Some("2025-01-02 11:00:00".to_string()),
     };
     let task3 = db.tasks().create(&task3).await.unwrap();
@@ -836,8 +814,6 @@ async fn test_list_tasks_with_offset() {
                 tags: vec![],
                 external_refs: vec![],
                 created_at: None,
-                started_at: None,
-                completed_at: None,
                 updated_at: None,
             })
             .await
@@ -937,7 +913,7 @@ async fn test_list_tasks_with_offset() {
 async fn create_task_with_status(
     db: &Arc<SqliteDatabase>,
     status: TaskStatus,
-    started_at: Option<String>,
+    _started_at: Option<String>, // Kept for compatibility but unused
 ) -> Task {
     let project_id = create_test_project(db).await;
     let task_list = TaskList {
@@ -967,12 +943,6 @@ async fn create_task_with_status(
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at,
-        completed_at: if matches!(status, TaskStatus::Done | TaskStatus::Cancelled) {
-            Some("2026-01-01T12:00:00Z".to_string())
-        } else {
-            None
-        },
         updated_at: None,
     };
     db.tasks().create(&task).await.unwrap()
@@ -1025,251 +995,6 @@ async fn test_transitions_without_timestamp_changes() {
             "{}: status should be updated",
             description
         );
-    }
-}
-
-/// Test transitions that set started_at timestamp
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transitions_that_set_started_at() {
-    let scenarios = vec![
-        // (from_status, to_status, description)
-        (TaskStatus::Backlog, "in_progress", "Backlog → InProgress"),
-        (TaskStatus::Todo, "in_progress", "Todo → InProgress"),
-    ];
-
-    for (from_status, to_status, description) in scenarios {
-        let db = SqliteDatabase::in_memory().await.unwrap();
-        db.migrate().unwrap();
-        let db = Arc::new(db);
-
-        let task = create_task_with_status(&db, from_status, None).await;
-        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-        let params = TransitionTaskParams {
-            task_ids: vec![task.id.clone()],
-            status: to_status.to_string(),
-        };
-
-        let result = tools
-            .transition_task(Parameters(params))
-            .await
-            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
-
-        let content_text = result.content[0].as_text().unwrap().text.as_str();
-        assert!(
-            content_text.contains("Successfully transitioned"),
-            "{}: should contain success message",
-            description
-        );
-
-        // Verify task transitioned and started_at was set
-        let task = db.tasks().get(&task.id).await.unwrap();
-        assert_eq!(
-            task.status,
-            TaskStatus::InProgress,
-            "{}: status should be InProgress",
-            description
-        );
-        assert!(
-            task.started_at.is_some(),
-            "{}: started_at should be set",
-            description
-        );
-    }
-}
-
-/// Test transitions from InProgress that preserve started_at
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transitions_from_in_progress_preserve_started_at() {
-    let scenarios = vec![
-        // (to_status, expected_status, expect_completed, description)
-        ("todo", TaskStatus::Todo, false, "InProgress → Todo"),
-        ("review", TaskStatus::Review, false, "InProgress → Review"),
-        ("done", TaskStatus::Done, true, "InProgress → Done"),
-        (
-            "cancelled",
-            TaskStatus::Cancelled,
-            true,
-            "InProgress → Cancelled",
-        ),
-    ];
-
-    for (to_status, expected_status, expect_completed, description) in scenarios {
-        let db = SqliteDatabase::in_memory().await.unwrap();
-        db.migrate().unwrap();
-        let db = Arc::new(db);
-
-        let task = create_task_with_status(
-            &db,
-            TaskStatus::InProgress,
-            Some("2026-01-01T10:00:00Z".to_string()),
-        )
-        .await;
-        let original_started_at = task.started_at.clone();
-        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-        let params = TransitionTaskParams {
-            task_ids: vec![task.id.clone()],
-            status: to_status.to_string(),
-        };
-
-        let result = tools
-            .transition_task(Parameters(params))
-            .await
-            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
-
-        let content_text = result.content[0].as_text().unwrap().text.as_str();
-        assert!(
-            content_text.contains("Successfully transitioned"),
-            "{}: should contain success message",
-            description
-        );
-
-        // Verify task transitioned and started_at was preserved
-        let task = db.tasks().get(&task.id).await.unwrap();
-        assert_eq!(
-            task.status, expected_status,
-            "{}: status should be updated",
-            description
-        );
-        assert_eq!(
-            task.started_at, original_started_at,
-            "{}: started_at should be preserved",
-            description
-        );
-
-        if expect_completed {
-            assert!(
-                task.completed_at.is_some(),
-                "{}: completed_at should be set",
-                description
-            );
-        }
-    }
-}
-
-/// Test transitions from Done that preserve completed_at
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transitions_from_done_preserve_completed_at() {
-    let scenarios = vec![
-        // (to_status, expected_status, description)
-        ("backlog", TaskStatus::Backlog, "Done → Backlog"),
-        ("todo", TaskStatus::Todo, "Done → Todo"),
-        ("in_progress", TaskStatus::InProgress, "Done → InProgress"),
-        ("review", TaskStatus::Review, "Done → Review"),
-    ];
-
-    for (to_status, expected_status, description) in scenarios {
-        let db = SqliteDatabase::in_memory().await.unwrap();
-        db.migrate().unwrap();
-        let db = Arc::new(db);
-
-        let task = create_task_with_status(
-            &db,
-            TaskStatus::Done,
-            Some("2026-01-01T10:00:00Z".to_string()),
-        )
-        .await;
-        let original_completed_at = task.completed_at.clone();
-        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-        let params = TransitionTaskParams {
-            task_ids: vec![task.id.clone()],
-            status: to_status.to_string(),
-        };
-
-        let result = tools
-            .transition_task(Parameters(params))
-            .await
-            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
-
-        let content_text = result.content[0].as_text().unwrap().text.as_str();
-        assert!(
-            content_text.contains("Successfully transitioned"),
-            "{}: should contain success message",
-            description
-        );
-
-        // Verify task transitioned and completed_at was preserved
-        let task = db.tasks().get(&task.id).await.unwrap();
-        assert_eq!(
-            task.status, expected_status,
-            "{}: status should be updated",
-            description
-        );
-        assert_eq!(
-            task.completed_at, original_completed_at,
-            "{}: completed_at should be preserved (historical audit trail)",
-            description
-        );
-    }
-}
-
-/// Test transitions from Review
-#[tokio::test(flavor = "multi_thread")]
-async fn test_transitions_from_review() {
-    let scenarios = vec![
-        // (to_status, expected_status, expect_completed, description)
-        (
-            "in_progress",
-            TaskStatus::InProgress,
-            false,
-            "Review → InProgress",
-        ),
-        ("done", TaskStatus::Done, true, "Review → Done"),
-        (
-            "cancelled",
-            TaskStatus::Cancelled,
-            true,
-            "Review → Cancelled",
-        ),
-    ];
-
-    for (to_status, expected_status, expect_completed, description) in scenarios {
-        let db = SqliteDatabase::in_memory().await.unwrap();
-        db.migrate().unwrap();
-        let db = Arc::new(db);
-
-        let task = create_task_with_status(
-            &db,
-            TaskStatus::Review,
-            Some("2026-01-01T10:00:00Z".to_string()),
-        )
-        .await;
-        let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-        let params = TransitionTaskParams {
-            task_ids: vec![task.id.clone()],
-            status: to_status.to_string(),
-        };
-
-        let result = tools
-            .transition_task(Parameters(params))
-            .await
-            .unwrap_or_else(|_| panic!("{} transition should succeed", description));
-
-        let content_text = result.content[0].as_text().unwrap().text.as_str();
-        assert!(
-            content_text.contains("Successfully transitioned"),
-            "{}: should contain success message",
-            description
-        );
-
-        // Verify task transitioned
-        let task = db.tasks().get(&task.id).await.unwrap();
-        assert_eq!(
-            task.status, expected_status,
-            "{}: status should be updated",
-            description
-        );
-
-        if expect_completed {
-            assert!(
-                task.completed_at.is_some(),
-                "{}: completed_at should be set",
-                description
-            );
-        }
     }
 }
 
@@ -1485,8 +1210,6 @@ async fn test_update_task_remove_parent_id_with_json_null() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let parent_id = db.tasks().create(&parent).await.unwrap().id;
@@ -1503,8 +1226,6 @@ async fn test_update_task_remove_parent_id_with_json_null() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let subtask_id = db.tasks().create(&subtask).await.unwrap().id;
@@ -1580,8 +1301,6 @@ async fn test_update_task_missing_parent_id_field_no_change() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let parent_id = db.tasks().create(&parent).await.unwrap().id;
@@ -1598,8 +1317,6 @@ async fn test_update_task_missing_parent_id_field_no_change() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let subtask_id = db.tasks().create(&subtask).await.unwrap().id;
@@ -1675,8 +1392,6 @@ async fn test_update_task_set_parent_id_with_json_string() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let parent_id = db.tasks().create(&parent).await.unwrap().id;
@@ -1693,8 +1408,6 @@ async fn test_update_task_set_parent_id_with_json_string() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let task_id = db.tasks().create(&task).await.unwrap().id;
@@ -1770,8 +1483,6 @@ async fn test_update_task_remove_parent_id_with_empty_string() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let parent_id = db.tasks().create(&parent).await.unwrap().id;
@@ -1788,8 +1499,6 @@ async fn test_update_task_remove_parent_id_with_empty_string() {
         tags: vec![],
         external_refs: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
-        started_at: None,
-        completed_at: None,
         updated_at: Some("2025-01-01 00:00:00".to_string()),
     };
     let subtask_id = db.tasks().create(&subtask).await.unwrap().id;
@@ -1868,8 +1577,6 @@ async fn test_search_tasks_by_description() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -1887,8 +1594,6 @@ async fn test_search_tasks_by_description() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -1957,8 +1662,6 @@ async fn test_search_tasks_by_external_refs() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -1976,8 +1679,6 @@ async fn test_search_tasks_by_external_refs() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2046,8 +1747,6 @@ async fn test_search_tasks_boolean_operators() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2065,8 +1764,6 @@ async fn test_search_tasks_boolean_operators() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2084,8 +1781,6 @@ async fn test_search_tasks_boolean_operators() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2155,8 +1850,6 @@ async fn test_search_tasks_empty_results() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2225,8 +1918,6 @@ async fn test_search_tasks_with_status_filter() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2234,7 +1925,6 @@ async fn test_search_tasks_with_status_filter() {
     // Transition one to in_progress
     let mut task1_updated = task1.clone();
     task1_updated.status = TaskStatus::InProgress;
-    task1_updated.started_at = Some("2025-01-01 00:00:00".to_string());
     db.tasks().update(&task1_updated).await.unwrap();
 
     db.tasks()
@@ -2250,8 +1940,6 @@ async fn test_search_tasks_with_status_filter() {
             parent_id: None,
             created_at: None,
             updated_at: None,
-            started_at: None,
-            completed_at: None,
         })
         .await
         .unwrap();
@@ -2422,8 +2110,6 @@ async fn test_update_task_external_ref() {
         tags: vec![],
         external_refs: vec![],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();
@@ -2492,8 +2178,6 @@ async fn test_get_task_returns_external_ref() {
         tags: vec![],
         external_refs: vec!["PROJ-777".to_string()],
         created_at: None,
-        started_at: None,
-        completed_at: None,
         updated_at: None,
     };
     let created_task = db.tasks().create(&task).await.unwrap();

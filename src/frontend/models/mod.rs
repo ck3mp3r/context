@@ -52,8 +52,6 @@ pub struct Task {
     pub tags: Vec<String>,
     pub external_refs: Vec<String>,
     pub created_at: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
     pub updated_at: Option<String>,
 }
 

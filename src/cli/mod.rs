@@ -129,7 +129,7 @@ enum TaskCommands {
         /// Number of items to skip (for pagination)
         #[arg(long)]
         offset: Option<u32>,
-        /// Field to sort by (title, status, priority, created_at, updated_at, completed_at)
+        /// Field to sort by (title, status, priority, created_at, updated_at)
         #[arg(long)]
         sort: Option<String>,
         /// Sort order (asc, desc)
@@ -205,11 +205,6 @@ enum TaskCommands {
         #[arg(long)]
         force: bool,
     },
-    /// Mark a task as complete
-    Complete {
-        /// Task ID to complete
-        id: String,
-    },
     /// Transition one or more tasks to a new status
     Transition {
         /// Task ID(s) to transition (one or more)
@@ -217,6 +212,14 @@ enum TaskCommands {
         ids: Vec<String>,
         /// Target status (backlog, todo, in_progress, review, done, cancelled)
         status: String,
+    },
+    /// View task state transition history
+    Transitions {
+        /// Task ID
+        id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1030,12 +1033,12 @@ pub async fn run() -> Result<()> {
                 let output = commands::task::delete_task(&api_client, &id, force).await?;
                 println!("{}", output);
             }
-            TaskCommands::Complete { id } => {
-                let output = commands::task::complete_task(&api_client, &id).await?;
-                println!("{}", output);
-            }
             TaskCommands::Transition { ids, status } => {
                 let output = commands::task::transition_task(&api_client, &ids, &status).await?;
+                println!("{}", output);
+            }
+            TaskCommands::Transitions { id, json } => {
+                let output = commands::task::get_task_transitions(&api_client, &id, json).await?;
                 println!("{}", output);
             }
         },

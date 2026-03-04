@@ -122,8 +122,8 @@ pub fn KanbanColumn(
     // Determine sort order based on status
     let (sort_field, sort_order) = match status {
         "backlog" | "todo" => ("priority", "asc"), // Priority 1-5, nulls last
-        "in_progress" | "review" => ("started_at", "desc"), // Most recently started first
-        "done" => ("completed_at", "desc"),        // Most recently completed first
+        "in_progress" | "review" => ("updated_at", "desc"), // Most recently updated first
+        "done" => ("updated_at", "desc"),          // Most recently updated first
         "cancelled" => ("updated_at", "desc"),     // Most recently updated first
         _ => ("updated_at", "desc"),               // Fallback
     };
@@ -420,25 +420,20 @@ pub fn SubtaskStackItem(
                     <div class="pt-3 mt-3 border-t border-ctp-surface1">
                         // Timestamps (right-aligned)
                         <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right mb-2">
-                            <div>
-                                <span class="text-ctp-overlay1">"Created: "</span>
-                                <span>{subtask.created_at.clone()}</span>
-                            </div>
-
-                            {subtask.started_at.clone().map(|started| {
+                            {subtask.created_at.clone().map(|created| {
                                 view! {
                                     <div>
-                                        <span class="text-ctp-overlay1">"Started: "</span>
-                                        <span>{started}</span>
+                                        <span class="text-ctp-overlay1">"Created: "</span>
+                                        <span>{created}</span>
                                     </div>
                                 }
                             })}
 
-                            {subtask.completed_at.clone().map(|completed| {
+                            {subtask.updated_at.clone().map(|updated| {
                                 view! {
                                     <div>
-                                        <span class="text-ctp-overlay1">"Completed: "</span>
-                                        <span>{completed}</span>
+                                        <span class="text-ctp-overlay1">"Updated: "</span>
+                                        <span>{updated}</span>
                                     </div>
                                 }
                             })}
@@ -876,25 +871,20 @@ pub fn TaskDetailContent(
 
                         // RIGHT: Timestamps section - right-aligned
                         <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right">
-                            <div>
-                                <span class="text-ctp-overlay1">"Created: "</span>
-                                <span>{task.created_at.clone()}</span>
-                            </div>
-
-                            {task.started_at.clone().map(|started| {
+                            {task.created_at.clone().map(|created| {
                                 view! {
                                     <div>
-                                        <span class="text-ctp-overlay1">"Started: "</span>
-                                        <span>{started}</span>
+                                        <span class="text-ctp-overlay1">"Created: "</span>
+                                        <span>{created}</span>
                                     </div>
                                 }
                             })}
 
-                            {task.completed_at.clone().map(|completed| {
+                            {task.updated_at.clone().map(|updated| {
                                 view! {
                                     <div>
-                                        <span class="text-ctp-overlay1">"Completed: "</span>
-                                        <span>{completed}</span>
+                                        <span class="text-ctp-overlay1">"Updated: "</span>
+                                        <span>{updated}</span>
                                     </div>
                                 }
                             })}

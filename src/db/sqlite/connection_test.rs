@@ -38,6 +38,7 @@ async fn migrate_creates_all_tables() {
         "task",
         "task_list",
         "task_list_repo",
+        "task_transition_log",
     ];
 
     // Check that all expected tables exist

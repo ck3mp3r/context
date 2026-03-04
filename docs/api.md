@@ -38,6 +38,7 @@
 - `GET /api/v1/tasks/:id` - Get task
 - `PUT /api/v1/tasks/:id` - Update task
 - `PATCH /api/v1/tasks/:id/transition` - Transition task status
+- `GET /api/v1/tasks/:id/transitions` - Get task state transition history
 - `DELETE /api/v1/tasks/:id` - Delete task
 
 ### Notes

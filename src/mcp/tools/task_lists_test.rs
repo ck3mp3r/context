@@ -439,8 +439,6 @@ async fn test_get_task_list_stats() {
             tags: vec![],
             external_refs: vec![],
             created_at: None,
-            started_at: None,
-            completed_at: None,
             updated_at: Some("2025-01-01 00:00:00".to_string()),
         };
         db.tasks().create(&task).await.unwrap();

@@ -11,7 +11,7 @@ use std::path::Path;
 
 use crate::db::{
     DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
-    models::{Note, Project, Repo, Task, TaskList, TaskStats, TaskStatus},
+    models::{Note, Project, Repo, Task, TaskList, TaskStats, TaskStatus, TransitionLog},
 };
 use crate::sync::{ExportSummary, ImportSummary};
 
@@ -87,6 +87,12 @@ pub trait TaskRepository: Send + Sync {
         task_ids: &[String],
         target_status: TaskStatus,
     ) -> impl Future<Output = DbResult<Vec<Task>>> + Send;
+    fn get_transitions(
+        &self,
+        task_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> impl Future<Output = DbResult<ListResult<TransitionLog>>> + Send;
 }
 
 /// Repository for Note operations.
@@ -196,6 +202,10 @@ pub trait Database: Send + Sync {
     type Skills<'a>: SkillRepository
     where
         Self: 'a;
+    /// The transition log repository type (concrete impl, no trait needed).
+    type TransitionLogs<'a>
+    where
+        Self: 'a;
 
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
@@ -217,6 +227,9 @@ pub trait Database: Send + Sync {
 
     /// Get the sync repository.
     fn sync(&self) -> Self::Sync<'_>;
+
+    /// Get the transition log repository.
+    fn transition_logs(&self) -> Self::TransitionLogs<'_>;
 
     /// Get the skill repository.
     fn skills(&self) -> Self::Skills<'_>;

@@ -509,8 +509,8 @@ mod tests {
 
         // Create task with specific timestamps directly via SQL (bypassing create() which overwrites timestamps)
         sqlx::query(
-            "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, started_at, completed_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind("task0001")
         .bind("list0001")
@@ -521,8 +521,6 @@ mod tests {
         .bind(Some(2))
         .bind(r#"["test"]"#)
         .bind("2024-01-01T10:00:00Z")
-        .bind(Some("2024-01-01T11:00:00Z"))
-        .bind(None::<String>)
         .bind("2024-01-01T12:00:00Z") // CRITICAL: Must be preserved
         .execute(db1.pool())
         .await
@@ -542,10 +540,6 @@ mod tests {
         assert_eq!(
             imported_task.created_at,
             Some("2024-01-01T10:00:00Z".to_string())
-        );
-        assert_eq!(
-            imported_task.started_at,
-            Some("2024-01-01T11:00:00Z".to_string())
         );
         assert_eq!(imported_task.title, "Test Task");
         assert_eq!(imported_task.status, TaskStatus::InProgress);
@@ -965,6 +959,298 @@ Updated instructions for the skill.
         assert!(
             skills_file.exists(),
             "skills.jsonl should exist even when empty"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_export_includes_task_transitions() {
+        // RED: Will fail because task_transition_log.jsonl not exported yet
+        use crate::db::{TaskRepository, TaskStatus};
+
+        let db = setup_test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create a test project
+        let project = Project {
+            id: "projtest".to_string(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        db.projects().create(&project).await.unwrap();
+
+        // Create a task list
+        let task_list = TaskList {
+            id: "list0001".to_string(),
+            title: "Test List".to_string(),
+            description: None,
+            notes: None,
+            project_id: "projtest".to_string(),
+            tags: vec![],
+            status: TaskListStatus::Active,
+            external_refs: vec![],
+            repo_ids: vec![],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+            archived_at: None,
+        };
+        db.task_lists().create(&task_list).await.unwrap();
+
+        // Create task (will log initial backlog state)
+        let task = crate::db::Task {
+            id: "task0001".to_string(),
+            list_id: "list0001".to_string(),
+            parent_id: None,
+            title: "Test Task".to_string(),
+            description: Some("Description".to_string()),
+            status: TaskStatus::Backlog,
+            priority: Some(2),
+            tags: vec!["test".to_string()],
+            external_refs: vec![],
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        };
+        db.tasks().create(&task).await.unwrap();
+
+        // Transition the task to in_progress
+        let mut updated_task = task.clone();
+        updated_task.status = TaskStatus::InProgress;
+        db.tasks().update(&updated_task).await.unwrap();
+
+        // Transition to done
+        updated_task.status = TaskStatus::Done;
+        db.tasks().update(&updated_task).await.unwrap();
+
+        // Export
+        let export_summary = db.sync().export_all(temp_dir.path()).await.unwrap();
+        assert_eq!(export_summary.tasks, 1, "Should export 1 task");
+
+        // Verify task_transition_log.jsonl exists
+        let transitions_file = temp_dir.path().join("task_transition_log.jsonl");
+        assert!(
+            transitions_file.exists(),
+            "task_transition_log.jsonl should exist after export"
+        );
+
+        // Read and verify transitions
+        use crate::db::TransitionLog;
+        let transitions: Vec<TransitionLog> = crate::sync::read_jsonl(&transitions_file).unwrap();
+
+        assert_eq!(
+            transitions.len(),
+            3,
+            "Should have 3 transitions: backlog -> in_progress -> done"
+        );
+
+        // Verify all transitions are for our task
+        for transition in &transitions {
+            assert_eq!(
+                transition.task_id, "task0001",
+                "All transitions should be for task0001"
+            );
+        }
+
+        // Verify statuses (order not guaranteed, but presence is)
+        let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+        assert!(
+            statuses.contains(&TaskStatus::Backlog),
+            "Should have backlog transition"
+        );
+        assert!(
+            statuses.contains(&TaskStatus::InProgress),
+            "Should have in_progress transition"
+        );
+        assert!(
+            statuses.contains(&TaskStatus::Done),
+            "Should have done transition"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_import_restores_task_transitions() {
+        // RED: Will fail because import doesn't restore transitions yet
+        use crate::db::{TaskRepository, TaskStatus};
+
+        let db1 = setup_test_db().await;
+        let db2 = setup_test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create project and task list in db1
+        let project = Project {
+            id: "projtest".to_string(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        db1.projects().create(&project).await.unwrap();
+
+        let task_list = TaskList {
+            id: "list0001".to_string(),
+            title: "Test List".to_string(),
+            description: None,
+            notes: None,
+            project_id: "projtest".to_string(),
+            tags: vec![],
+            status: TaskListStatus::Active,
+            external_refs: vec![],
+            repo_ids: vec![],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+            archived_at: None,
+        };
+        db1.task_lists().create(&task_list).await.unwrap();
+
+        // Create task with transitions
+        let task = crate::db::Task {
+            id: "task0001".to_string(),
+            list_id: "list0001".to_string(),
+            parent_id: None,
+            title: "Test Task".to_string(),
+            description: Some("Description".to_string()),
+            status: TaskStatus::Backlog,
+            priority: Some(2),
+            tags: vec!["test".to_string()],
+            external_refs: vec![],
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        };
+        db1.tasks().create(&task).await.unwrap();
+
+        // Transition to in_progress
+        let mut updated_task = task.clone();
+        updated_task.status = TaskStatus::InProgress;
+        db1.tasks().update(&updated_task).await.unwrap();
+
+        // Export from db1
+        db1.sync().export_all(temp_dir.path()).await.unwrap();
+
+        // Import to db2
+        db2.sync().import_all(temp_dir.path()).await.unwrap();
+
+        // Verify task was imported
+        let imported_task = db2.tasks().get("task0001").await.unwrap();
+        assert_eq!(imported_task.status, TaskStatus::InProgress);
+
+        // Verify transitions were imported
+        let transitions = db2
+            .tasks()
+            .get_transitions("task0001", None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            transitions.items.len(),
+            2,
+            "Should have 2 transitions: backlog -> in_progress"
+        );
+
+        // Verify statuses
+        let statuses: Vec<TaskStatus> =
+            transitions.items.iter().map(|t| t.status.clone()).collect();
+        assert!(
+            statuses.contains(&TaskStatus::Backlog),
+            "Should have backlog transition"
+        );
+        assert!(
+            statuses.contains(&TaskStatus::InProgress),
+            "Should have in_progress transition"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_import_backwards_compatible_without_transitions() {
+        // RED: Will fail if import requires task_transition_log.jsonl
+        use crate::db::{TaskRepository, TaskStatus};
+
+        let db = setup_test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create project and task list
+        let project = Project {
+            id: "projtest".to_string(),
+            title: "Test Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
+
+        let task_list = TaskList {
+            id: "list0001".to_string(),
+            title: "Test List".to_string(),
+            description: None,
+            notes: None,
+            project_id: "projtest".to_string(),
+            tags: vec![],
+            status: TaskListStatus::Active,
+            external_refs: vec![],
+            repo_ids: vec![],
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+            archived_at: None,
+        };
+        write_jsonl(&temp_dir.path().join("lists.jsonl"), &[task_list]).unwrap();
+
+        // Create old-style task JSONL (without transitions file)
+        let task = crate::db::Task {
+            id: "task0001".to_string(),
+            list_id: "list0001".to_string(),
+            parent_id: None,
+            title: "Old Task".to_string(),
+            description: Some("From old export".to_string()),
+            status: TaskStatus::Done,
+            priority: Some(3),
+            tags: vec![],
+            external_refs: vec![],
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T12:00:00Z".to_string()),
+        };
+        write_jsonl(&temp_dir.path().join("tasks.jsonl"), &[task]).unwrap();
+
+        // Write empty files for other entities
+        write_jsonl::<Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
+        write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+
+        // NOTE: No task_transition_log.jsonl file - simulating old export
+
+        // Import should succeed (backwards compatible)
+        let result = db.sync().import_all(temp_dir.path()).await;
+        assert!(
+            result.is_ok(),
+            "Import should succeed without transitions file (backward compatibility)"
+        );
+
+        // Verify task was imported
+        let imported_task = db.tasks().get("task0001").await.unwrap();
+        assert_eq!(imported_task.title, "Old Task");
+        assert_eq!(imported_task.status, TaskStatus::Done);
+
+        // Transitions should be empty (no transitions file existed)
+        let transitions = db
+            .tasks()
+            .get_transitions("task0001", None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            transitions.items.len(),
+            0,
+            "Should have no transitions when importing old export"
         );
     }
 }

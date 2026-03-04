@@ -51,10 +51,18 @@ priority     INTEGER             -- 1-5 (1=highest)
 tags         TEXT                -- JSON array
 external_ref TEXT                -- e.g., "owner/repo#123", "https://jira.example.com/browse/PROJ-123"
 created_at   TEXT
-started_at   TEXT
-completed_at TEXT
 updated_at   TEXT
 ```
+
+### task_transition_log
+```sql
+id              TEXT PRIMARY KEY    -- 8-char hex
+task_id         TEXT NOT NULL       -- FK to task
+status          TEXT NOT NULL       -- Status transitioned to
+transitioned_at TEXT NOT NULL       -- ISO8601 timestamp
+```
+
+**State Tracking**: Task state transitions are logged in `task_transition_log` table. Each status change creates a new log entry, providing a complete audit trail. The `started_at` and `completed_at` fields have been removed in favor of this comprehensive approach.
 
 ### note
 ```sql

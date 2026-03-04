@@ -380,10 +380,10 @@ async fn test_task_status_transitions() {
         .await
         .expect("Transition failed");
 
-    // Complete task
-    complete_task(&api_client, task_id)
+    // Transition to done
+    transition_task(&api_client, &[task_id.to_string()], "done")
         .await
-        .expect("Complete failed");
+        .expect("Transition to done failed");
     let completed = serde_json::from_str::<serde_json::Value>(
         &get_task(&api_client, task_id, "json").await.unwrap(),
     )
@@ -533,4 +533,99 @@ async fn test_error_handling() {
     // Delete non-existent task
     let delete_result = delete_task(&api_client, "nonexistent", true).await;
     assert!(delete_result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_transitions() {
+    // RED: Will fail because get_task_transitions doesn't exist yet
+    let (url, project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    // Create a task list
+    let list_result = create_task_list(
+        &api_client,
+        CreateTaskListRequest {
+            title: "Test List".to_string(),
+            project_id,
+            description: None,
+            tags: None,
+            repo_ids: None,
+        },
+    )
+    .await
+    .expect("Failed to create task list");
+    let list_id = list_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Create a task
+    let task_result = create_task(
+        &api_client,
+        &list_id,
+        CreateTaskRequest {
+            title: "Test Task".to_string(),
+            description: Some("Description".to_string()),
+            parent_id: None,
+            priority: Some(2),
+            tags: Some(vec!["test".to_string()]),
+            external_refs: None,
+        },
+    )
+    .await
+    .expect("Failed to create task");
+    let task_id = task_result
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .unwrap()
+        .to_string();
+
+    // Transition the task to in_progress
+    update_task(
+        &api_client,
+        &task_id,
+        UpdateTaskRequest {
+            status: Some("in_progress".to_string()),
+            title: None,
+            description: None,
+            priority: None,
+            parent_id: None,
+            tags: None,
+            external_refs: None,
+            list_id: None,
+        },
+    )
+    .await
+    .expect("Failed to transition task");
+
+    // Get transitions (table format)
+    let transitions_table = get_task_transitions(&api_client, &task_id, false)
+        .await
+        .expect("Failed to get transitions");
+
+    // Should show both backlog and in_progress transitions
+    assert!(transitions_table.contains("backlog"));
+    assert!(transitions_table.contains("in_progress"));
+
+    // Get transitions (JSON format)
+    let transitions_json = get_task_transitions(&api_client, &task_id, true)
+        .await
+        .expect("Failed to get transitions JSON");
+
+    // Parse and verify JSON
+    let json: serde_json::Value = serde_json::from_str(&transitions_json).unwrap();
+    assert!(json["items"].is_array());
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2, "Should have 2 transitions");
+
+    // Verify statuses are present
+    let statuses: Vec<&str> = items
+        .iter()
+        .map(|item| item["status"].as_str().unwrap())
+        .collect();
+    assert!(statuses.contains(&"backlog"));
+    assert!(statuses.contains(&"in_progress"));
 }

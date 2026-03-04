@@ -12,6 +12,7 @@ mod skill;
 mod sync;
 mod task;
 mod task_list;
+mod transition_log;
 
 #[cfg(test)]
 mod connection_test;
@@ -31,6 +32,8 @@ mod sync_test;
 mod task_list_test;
 #[cfg(test)]
 mod task_test;
+#[cfg(test)]
+mod transition_log_test;
 
 pub use connection::SqliteDatabase;
 pub use note::SqliteNoteRepository;
@@ -40,3 +43,4 @@ pub use skill::SqliteSkillRepository;
 pub use sync::SqliteSyncRepository;
 pub use task::SqliteTaskRepository;
 pub use task_list::SqliteTaskListRepository;
+pub use transition_log::SqliteTransitionLogRepository;

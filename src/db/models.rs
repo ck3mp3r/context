@@ -247,8 +247,6 @@ pub struct Task {
     #[serde(default)]
     pub external_refs: Vec<String>,
     pub created_at: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -305,6 +303,15 @@ pub struct TaskStats {
     pub review: usize,
     pub done: usize,
     pub cancelled: usize,
+}
+
+/// A log entry recording a task state transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransitionLog {
+    pub id: Id,
+    pub task_id: Id,
+    pub status: TaskStatus,
+    pub transitioned_at: String,
 }
 
 /// A persistent markdown note.
