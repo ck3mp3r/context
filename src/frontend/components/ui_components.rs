@@ -161,7 +161,7 @@ impl BreadcrumbItem {
 pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
     let items_len = items.len();
     view! {
-        <div class="bg-ctp-surface1 border-b border-ctp-surface2 py-3 px-6">
+        <div class="bg-ctp-surface0 border-b border-ctp-surface1 py-3 px-6">
             <div class="container mx-auto flex items-center gap-3 text-base">
                 {items
                     .into_iter()
