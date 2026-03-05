@@ -343,12 +343,6 @@ pub fn ProjectDetail() -> impl IntoView {
                                         </div>
                                         <h2 class="flex-1 min-w-0 break-words text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
                                     </div>
-                                    <a
-                                        href="/"
-                                        class="text-ctp-blue hover:text-ctp-lavender text-sm whitespace-nowrap flex-shrink-0"
-                                    >
-                                        "← Back to Projects"
-                                    </a>
                                 </div>
 
                                 {project
