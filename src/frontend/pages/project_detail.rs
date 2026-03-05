@@ -506,23 +506,20 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             } else {
                                                                 view! {
                                                                     <div>
-                                                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
-                                                                             {paginated.items
-                                                                                .into_iter()
-                                                                                .map(|task_list| {
-                                                                                    let tl_clone = task_list.clone();
-                                                                                    view! {
-                                                                                        <TaskListCard
-                                                                                            task_list=task_list
-                                                                                            on_click=Callback::new(move |_list_id: String| {
-                                                                                                selected_task_list.set(Some(tl_clone.clone()));
-                                                                                                task_list_modal_open.set(true);
-                                                                                            })
-                                                                                        />
-                                                                                    }
-                                                                                })
-                                                                                .collect::<Vec<_>>()}
-                                                                        </div>
+                                                                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
+                                                                              {paginated.items
+                                                                                 .into_iter()
+                                                                                 .map(|task_list| {
+                                                                                     let proj_id = project_id();
+                                                                                     view! {
+                                                                                         <TaskListCard
+                                                                                             task_list=task_list
+                                                                                             project_id=proj_id
+                                                                                         />
+                                                                                     }
+                                                                                 })
+                                                                                 .collect::<Vec<_>>()}
+                                                                         </div>
 
                                                                         // Pagination
                                                                         <Pagination

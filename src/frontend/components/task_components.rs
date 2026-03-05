@@ -1040,11 +1040,14 @@ pub fn TaskDetailDialog(
 pub fn TaskListCard(
     task_list: TaskList,
     #[prop(optional)] on_click: Option<Callback<String>>,
+    #[prop(optional)] project_id: Option<String>,
 ) -> impl IntoView {
     let list_id = task_list.id.clone();
     let list_id_for_stats = task_list.id.clone();
     let href = if on_click.is_some() {
         "#".to_string()
+    } else if let Some(proj_id) = project_id {
+        format!("/projects/{}/task-lists/{}", proj_id, task_list.id)
     } else {
         format!("/task-lists/{}", task_list.id)
     };
@@ -1188,10 +1191,13 @@ pub fn TaskListCard(
     }
 }
 
+/// TaskListContent component - displays task list details and kanban board
+/// Can be used both in modal/drawer and as a standalone page
 #[component]
-pub fn TaskListDetailModal(
-    task_list: ReadSignal<Option<TaskList>>,
-    open: RwSignal<bool>,
+pub fn TaskListContent(
+    task_list: Signal<TaskList>,
+    #[prop(optional)] show_close_button: bool,
+    #[prop(optional)] on_close: Option<Callback<()>>,
 ) -> impl IntoView {
     let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
@@ -1217,23 +1223,18 @@ pub fn TaskListDetailModal(
         }
     });
 
-    // Fetch stats when modal opens or task list changes or WebSocket updates
+    // Fetch stats when task list changes or WebSocket updates
     Effect::new(move || {
-        let list = task_list.get();
-        let is_open = open.get();
+        let tl = task_list.get();
         let _ = stats_refetch_trigger.get(); // Track WebSocket refetch trigger
 
-        if let Some(tl) = list
-            && is_open
-        {
-            let id = tl.id.clone();
+        let id = tl.id.clone();
 
-            // Fetch stats only - columns will fetch their own tasks
-            spawn_local(async move {
-                let result = task_lists::get_stats(&id).await;
-                set_stats_data.set(Some(result));
-            });
-        }
+        // Fetch stats only - columns will fetch their own tasks
+        spawn_local(async move {
+            let result = task_lists::get_stats(&id).await;
+            set_stats_data.set(Some(result));
+        });
     });
 
     let statuses = vec![
@@ -1246,118 +1247,147 @@ pub fn TaskListDetailModal(
     ];
 
     view! {
+        <Suspense fallback=move || {
+            view! { <p class="text-ctp-subtext0">"Loading task list..."</p> }
+        }>
+            {move || {
+                let tl = task_list.get();
+                let stats_result = stats_data.get();
+
+                match stats_result {
+                    Some(Ok(stats)) => {
+                        view! {
+                            <div class="flex flex-col" style="height: calc(100vh - 4rem)">
+                                <div class="flex justify-between items-start mb-4 flex-shrink-0">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-3 mb-1">
+                                            <CopyableId id=tl.id.clone()/>
+                                            <h2 class="text-2xl font-bold text-ctp-text">
+                                                {tl.title.clone()}
+                                            </h2>
+                                        </div>
+                                        {tl.description.as_ref().map(|desc| {
+                                            view! { <p class="text-ctp-subtext0 text-sm mt-1">{desc.clone()}</p> }
+                                        })}
+
+                                        {(!tl.tags.is_empty()).then(|| {
+                                            view! {
+                                                <div class="flex flex-wrap gap-2 mt-2">
+                                                    {tl.tags.iter().map(|tag| {
+                                                        view! {
+                                                            <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                {tag.clone()}
+                                                            </span>
+                                                        }
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
+                                            }
+                                        })}
+
+                                        // External reference links (if present)
+                                        {(!tl.external_refs.is_empty()).then(|| {
+                                            view! {
+                                                <div class="mt-2 flex flex-wrap gap-1">
+                                                    {tl.external_refs.iter().map(|ext_ref| {
+                                                        view! {
+                                                            <ExternalRefLink external_ref=ext_ref.clone() />
+                                                        }
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
+                                            }
+                                        })}
+                                    </div>
+                                    {show_close_button.then(|| {
+                                        view! {
+                                            <button
+                                                on:click=move |_| {
+                                                    if let Some(cb) = on_close {
+                                                        cb.run(());
+                                                    }
+                                                }
+                                                class="text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2"
+                                            >
+                                                "✕"
+                                            </button>
+                                        }
+                                    })}
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0">
+                                    {statuses
+                                        .clone()
+                                        .into_iter()
+                                        .map(|(status, label)| {
+                                            // Get total count for this status from stats
+                                            let total = match status {
+                                                "backlog" => stats.backlog,
+                                                "todo" => stats.todo,
+                                                "in_progress" => stats.in_progress,
+                                                "review" => stats.review,
+                                                "done" => stats.done,
+                                                "cancelled" => stats.cancelled,
+                                                _ => 0,
+                                            };
+
+                                            view! {
+                                                <KanbanColumn
+                                                    status=status
+                                                    label=label
+                                                    list_id=tl.id.clone()
+                                                    total_count=total
+                                                />
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()}
+                                </div>
+                            </div>
+                        }
+                            .into_any()
+                    }
+                    Some(Err(err)) => {
+                        view! {
+                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                <p class="text-ctp-red font-semibold">"Error loading stats"</p>
+                                <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
+                            </div>
+                        }
+                            .into_any()
+                    }
+                    _ => {
+                        view! { <p class="text-ctp-subtext0">"Loading..."</p> }
+                            .into_any()
+                    }
+                }
+            }}
+
+        </Suspense>
+    }
+}
+
+#[component]
+pub fn TaskListDetailModal(
+    task_list: ReadSignal<Option<TaskList>>,
+    open: RwSignal<bool>,
+) -> impl IntoView {
+    view! {
         <OverlayDrawer
             open
             position=DrawerPosition::Right
             class="task-list-detail-drawer"
         >
             <DrawerBody>
-                <Suspense fallback=move || {
-                    view! { <p class="text-ctp-subtext0">"Loading task list..."</p> }
-                }>
-                    {move || {
-                        let list = task_list.get();
-                        let stats_result = stats_data.get();
-
-                        match (list, stats_result) {
-                            (Some(tl), Some(Ok(stats))) => {
-                                view! {
-                                    <div class="flex flex-col" style="height: calc(100vh - 4rem)">
-                                        <div class="flex justify-between items-start mb-4 flex-shrink-0">
-                                            <div class="flex-1">
-                                                <div class="flex items-center gap-3 mb-1">
-                                                    <CopyableId id=tl.id.clone()/>
-                                                    <h2 class="text-2xl font-bold text-ctp-text">
-                                                        {tl.title.clone()}
-                                                    </h2>
-                                                </div>
-                                                {tl.description.as_ref().map(|desc| {
-                                                    view! { <p class="text-ctp-subtext0 text-sm mt-1">{desc.clone()}</p> }
-                                                })}
-
-                                                {(!tl.tags.is_empty()).then(|| {
-                                                    view! {
-                                                        <div class="flex flex-wrap gap-2 mt-2">
-                                                            {tl.tags.iter().map(|tag| {
-                                                                view! {
-                                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                                        {tag.clone()}
-                                                                    </span>
-                                                                }
-                                                            }).collect::<Vec<_>>()}
-                                                        </div>
-                                                    }
-                                                })}
-
-                                                // External reference links (if present)
-                                                {(!tl.external_refs.is_empty()).then(|| {
-                                                    view! {
-                                                        <div class="mt-2 flex flex-wrap gap-1">
-                                                            {tl.external_refs.iter().map(|ext_ref| {
-                                                                view! {
-                                                                    <ExternalRefLink external_ref=ext_ref.clone() />
-                                                                }
-                                                            }).collect::<Vec<_>>()}
-                                                        </div>
-                                                    }
-                                                })}
-                                            </div>
-                                            <button
-                                                on:click=move |_| open.set(false)
-                                                class="text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2"
-                                            >
-                                                "✕"
-                                            </button>
-                                        </div>
-
-                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0">
-                                            {statuses
-                                                .clone()
-                                                .into_iter()
-                                                .map(|(status, label)| {
-                                                    // Get total count for this status from stats
-                                                    let total = match status {
-                                                        "backlog" => stats.backlog,
-                                                        "todo" => stats.todo,
-                                                        "in_progress" => stats.in_progress,
-                                                        "review" => stats.review,
-                                                        "done" => stats.done,
-                                                        "cancelled" => stats.cancelled,
-                                                        _ => 0,
-                                                    };
-
-                                                    view! {
-                                                        <KanbanColumn
-                                                            status=status
-                                                            label=label
-                                                            list_id=tl.id.clone()
-                                                            total_count=total
-                                                        />
-                                                    }
-                                                })
-                                                .collect::<Vec<_>>()}
-                                        </div>
-                                    </div>
-                            }
-                                .into_any()
-                            }
-                            (_, Some(Err(err))) => {
-                                view! {
-                                    <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                        <p class="text-ctp-red font-semibold">"Error loading stats"</p>
-                                        <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                            _ => {
-                                view! { <p class="text-ctp-subtext0">"Loading..."</p> }
-                                    .into_any()
-                            }
+                {move || {
+                    task_list.get().map(|tl| {
+                        let task_list_signal = Signal::derive(move || tl.clone());
+                        view! {
+                            <TaskListContent
+                                task_list=task_list_signal
+                                show_close_button=true
+                                on_close=Callback::new(move |_| open.set(false))
+                            />
                         }
-                    }}
-
-                </Suspense>
+                    })
+                }}
             </DrawerBody>
         </OverlayDrawer>
     }

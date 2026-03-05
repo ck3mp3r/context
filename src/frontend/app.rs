@@ -8,7 +8,7 @@ use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
 use crate::components::ThemeSwitcher;
-use crate::pages::{Notes, ProjectDetail, Projects, Repos, Skills};
+use crate::pages::{Notes, ProjectDetail, Projects, Repos, Skills, TaskListDetail};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
@@ -143,6 +143,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                 <Routes fallback=|| view! { <p>"Page not found"</p> }>
                     <Route path=path!("/") view=Projects/>
                     <Route path=path!("/projects/:id") view=ProjectDetail/>
+                    <Route path=path!("/projects/:project_id/task-lists/:task_list_id") view=TaskListDetail/>
                     <Route path=path!("/notes") view=Notes/>
                     <Route path=path!("/notes/:id") view=Notes/>
                     <Route path=path!("/repos") view=Repos/>
