@@ -4,8 +4,9 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
-    SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
+    Breadcrumb, BreadcrumbItem, CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination,
+    RepoCard, SearchInput, SkillCard, SkillDetailModal, SortControls, TaskListCard,
+    TaskListDetailModal,
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -305,7 +306,22 @@ pub fn ProjectDetail() -> impl IntoView {
     });
 
     view! {
-        <div class="container mx-auto p-6">
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+            // Breadcrumb navigation
+            {move || {
+                project_data.get().and_then(|result| {
+                    result.ok().map(|project| {
+                        let items = vec![
+                            BreadcrumbItem::new("Projects").with_href("/"),
+                            BreadcrumbItem::new(project.title.clone())
+                                .with_id(project.id.clone()),
+                        ];
+                        view! { <Breadcrumb items=items/> }
+                    })
+                })
+            }}
+
+            <div class="container mx-auto p-6 flex-1">
             {move || match project_data.get() {
                 None => {
                     view! {
@@ -883,6 +899,7 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
             }}
 
+            </div>
         </div>
     }
 }

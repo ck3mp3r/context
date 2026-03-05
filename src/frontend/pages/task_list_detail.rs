@@ -3,7 +3,7 @@ use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, projects, task_lists};
-use crate::components::{CopyableId, TaskListContent};
+use crate::components::{Breadcrumb, BreadcrumbItem, TaskListContent};
 use crate::models::{Project, TaskList};
 
 #[component]
@@ -42,37 +42,22 @@ pub fn TaskListDetail() -> impl IntoView {
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
             // Breadcrumb navigation
-            <div class="bg-ctp-surface0 border-b border-ctp-surface1 py-2 px-6">
-                <div class="container mx-auto flex items-center gap-2 text-sm">
-                    {move || {
-                        match (project_data.get(), task_list_data.get()) {
-                            (Some(Ok(project)), Some(Ok(task_list))) => {
-                                view! {
-                                    <a
-                                        href=format!("/projects/{}", project.id)
-                                        class="text-ctp-blue hover:text-ctp-sapphire transition-colors flex items-center gap-2"
-                                    >
-                                        <span class="font-medium">{project.title.clone()}</span>
-                                        <CopyableId id=project.id.clone()/>
-                                    </a>
-                                    <span class="text-ctp-overlay0">"/"</span>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-ctp-text font-medium">{task_list.title.clone()}</span>
-                                        <CopyableId id=task_list.id.clone()/>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                            _ => {
-                                view! {
-                                    <span class="text-ctp-overlay0">"Loading..."</span>
-                                }
-                                    .into_any()
-                            }
-                        }
-                    }}
-                </div>
-            </div>
+            {move || {
+                match (project_data.get(), task_list_data.get()) {
+                    (Some(Ok(project)), Some(Ok(task_list))) => {
+                        let items = vec![
+                            BreadcrumbItem::new("Projects").with_href("/"),
+                            BreadcrumbItem::new(project.title.clone())
+                                .with_id(project.id.clone())
+                                .with_href(format!("/projects/{}", project.id)),
+                            BreadcrumbItem::new(task_list.title.clone())
+                                .with_id(task_list.id.clone()),
+                        ];
+                        Some(view! { <Breadcrumb items=items/> })
+                    }
+                    _ => None,
+                }
+            }}
 
             <div class="container mx-auto px-6 py-6 flex-1">
                 <Suspense fallback=move || {

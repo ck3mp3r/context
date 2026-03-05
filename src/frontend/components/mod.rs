@@ -14,4 +14,4 @@ pub use skill_components::{SkillCard, SkillDetailModal};
 pub use sort_controls::SortControls;
 pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent, TaskListDetailModal};
 pub use theme_switcher::ThemeSwitcher;
-pub use ui_components::{CopyableId, Pagination};
+pub use ui_components::{Breadcrumb, BreadcrumbItem, CopyableId, Pagination};
