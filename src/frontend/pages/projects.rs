@@ -2,7 +2,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{CopyableId, ExternalRefLink, Pagination, SearchInput, SortControls};
+use crate::components::{
+    Breadcrumb, BreadcrumbItem, CopyableId, ExternalRefLink, Pagination, SearchInput, SortControls,
+};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Project, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -75,13 +77,12 @@ pub fn Projects() -> impl IntoView {
     });
 
     view! {
-        <div class="container mx-auto p-6">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-3xl font-bold text-ctp-text">"Projects"</h2>
-            </div>
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+            <Breadcrumb items=vec![BreadcrumbItem::new("Projects")]/>
 
-            // Search bar and sort controls
-            <div class="mb-6 flex gap-4 items-center">
+            <div class="container mx-auto p-6 flex-1">
+                // Search bar and sort controls
+                <div class="mb-6 flex gap-4 items-center">
                 <div class="flex-1">
                     <SearchInput
                         value=search.search_input
@@ -232,6 +233,7 @@ pub fn Projects() -> impl IntoView {
                 }
             }}
 
+            </div>
         </div>
     }
 }
