@@ -4,9 +4,8 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    Breadcrumb, BreadcrumbItem, CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination,
-    RepoCard, SearchInput, SkillCard, SkillDetailModal, SortControls, TaskListCard,
-    TaskListDetailModal,
+    Breadcrumb, BreadcrumbItem, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard,
+    SearchInput, SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -334,61 +333,55 @@ pub fn ProjectDetail() -> impl IntoView {
                 Some(Ok(project)) => {
                     view! {
                         <div>
-                            // Project Header
-                            <div class="mb-8">
-                                <div class="flex items-center justify-between mb-4">
-                                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                                        <div class="flex-shrink-0">
-                                            <CopyableId id=project.id.clone() />
-                                        </div>
-                                        <h2 class="flex-1 min-w-0 break-words text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
+                            // Project metadata (description, tags, external refs if present)
+                            {(project.description.is_some() || !project.tags.is_empty() || !project.external_refs.is_empty()).then(|| {
+                                view! {
+                                    <div class="mb-6">
+                                        {project
+                                            .description
+                                            .as_ref()
+                                            .map(|desc| {
+                                                view! { <p class="text-ctp-subtext0 text-sm mb-3">{desc.clone()}</p> }
+                                            })}
+
+                                        {(!project.tags.is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <div class="flex flex-wrap gap-2 mb-3">
+                                                        {project
+                                                            .tags
+                                                            .iter()
+                                                            .map(|tag| {
+                                                                view! {
+                                                                    <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-3 py-1 rounded">
+                                                                        {tag.clone()}
+                                                                    </span>
+                                                                }
+                                                            })
+                                                            .collect::<Vec<_>>()}
+                                                    </div>
+                                                }
+                                            })}
+
+                                        {(!project.external_refs.is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <div class="flex flex-wrap gap-1">
+                                                        {project
+                                                            .external_refs
+                                                            .iter()
+                                                            .map(|ext_ref| {
+                                                                view! {
+                                                                    <ExternalRefLink external_ref=ext_ref.clone()/>
+                                                                }
+                                                            })
+                                                            .collect::<Vec<_>>()}
+                                                    </div>
+                                                }
+                                            })}
                                     </div>
-                                </div>
-
-                                {project
-                                    .description
-                                    .as_ref()
-                                    .map(|desc| {
-                                        view! { <p class="text-ctp-subtext0 mb-4">{desc.clone()}</p> }
-                                    })}
-
-                                {(!project.tags.is_empty())
-                                    .then(|| {
-                                        view! {
-                                            <div class="flex flex-wrap gap-2 mb-3">
-                                                {project
-                                                    .tags
-                                                    .iter()
-                                                    .map(|tag| {
-                                                        view! {
-                                                            <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-3 py-1 rounded">
-                                                                {tag.clone()}
-                                                            </span>
-                                                        }
-                                                    })
-                                                    .collect::<Vec<_>>()}
-                                            </div>
-                                        }
-                                    })}
-
-                                {(!project.external_refs.is_empty())
-                                    .then(|| {
-                                        view! {
-                                            <div class="flex flex-wrap gap-1">
-                                                {project
-                                                    .external_refs
-                                                    .iter()
-                                                    .map(|ext_ref| {
-                                                        view! {
-                                                            <ExternalRefLink external_ref=ext_ref.clone()/>
-                                                        }
-                                                    })
-                                                    .collect::<Vec<_>>()}
-                                            </div>
-                                        }
-                                    })}
-
-                            </div>
+                                }
+                            })}
 
                             // Tab Navigation
                             <div class="border-b border-ctp-surface1 mb-6">
