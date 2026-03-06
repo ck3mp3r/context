@@ -121,9 +121,13 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
                 UpdateMessage::TaskListCreated { .. }
                 | UpdateMessage::TaskListUpdated { .. }
-                | UpdateMessage::TaskListDeleted { .. } => {
+                | UpdateMessage::TaskListDeleted { .. }
+                | UpdateMessage::TaskCreated { .. }
+                | UpdateMessage::TaskUpdated { .. }
+                | UpdateMessage::TaskDeleted { .. } => {
                     web_sys::console::log_1(
-                        &"TaskList updated via WebSocket, refetching project task lists...".into(),
+                        &"TaskList/Task updated via WebSocket, refetching project task lists..."
+                            .into(),
                     );
                     set_task_list_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
