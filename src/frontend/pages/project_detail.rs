@@ -4,8 +4,9 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard, SearchInput,
-    SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
+    Breadcrumb, BreadcrumbItem, CopyableId, ExternalRefLink, NoteCard, NoteDetailModal, Pagination,
+    RepoCard, SearchInput, SkillCard, SkillDetailModal, SortControls, TaskListCard,
+    TaskListDetailModal,
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -305,7 +306,22 @@ pub fn ProjectDetail() -> impl IntoView {
     });
 
     view! {
-        <div class="container mx-auto p-6">
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+            // Breadcrumb navigation
+            {move || {
+                project_data.get().and_then(|result| {
+                    result.ok().map(|project| {
+                        let items = vec![
+                            BreadcrumbItem::new("Projects").with_href("/"),
+                            BreadcrumbItem::new(project.title.clone())
+                                .with_id(project.id.clone()),
+                        ];
+                        view! { <Breadcrumb items=items/> }
+                    })
+                })
+            }}
+
+            <div class="container mx-auto p-6 flex-1">
             {move || match project_data.get() {
                 None => {
                     view! {
@@ -327,12 +343,6 @@ pub fn ProjectDetail() -> impl IntoView {
                                         </div>
                                         <h2 class="flex-1 min-w-0 break-words text-3xl font-bold text-ctp-text">{project.title.clone()}</h2>
                                     </div>
-                                    <a
-                                        href="/"
-                                        class="text-ctp-blue hover:text-ctp-lavender text-sm whitespace-nowrap flex-shrink-0"
-                                    >
-                                        "← Back to Projects"
-                                    </a>
                                 </div>
 
                                 {project
@@ -506,23 +516,20 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             } else {
                                                                 view! {
                                                                     <div>
-                                                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
-                                                                             {paginated.items
-                                                                                .into_iter()
-                                                                                .map(|task_list| {
-                                                                                    let tl_clone = task_list.clone();
-                                                                                    view! {
-                                                                                        <TaskListCard
-                                                                                            task_list=task_list
-                                                                                            on_click=Callback::new(move |_list_id: String| {
-                                                                                                selected_task_list.set(Some(tl_clone.clone()));
-                                                                                                task_list_modal_open.set(true);
-                                                                                            })
-                                                                                        />
-                                                                                    }
-                                                                                })
-                                                                                .collect::<Vec<_>>()}
-                                                                        </div>
+                                                                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
+                                                                              {paginated.items
+                                                                                 .into_iter()
+                                                                                 .map(|task_list| {
+                                                                                     let proj_id = project_id();
+                                                                                     view! {
+                                                                                         <TaskListCard
+                                                                                             task_list=task_list
+                                                                                             project_id=proj_id
+                                                                                         />
+                                                                                     }
+                                                                                 })
+                                                                                 .collect::<Vec<_>>()}
+                                                                         </div>
 
                                                                         // Pagination
                                                                         <Pagination
@@ -886,6 +893,7 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
             }}
 
+            </div>
         </div>
     }
 }

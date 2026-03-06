@@ -126,3 +126,91 @@ pub fn Pagination(
         </div>
     }
 }
+
+/// Breadcrumb item data
+#[derive(Clone)]
+pub struct BreadcrumbItem {
+    pub label: String,
+    pub id: Option<String>,
+    pub href: Option<String>,
+}
+
+impl BreadcrumbItem {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            id: None,
+            href: None,
+        }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn with_href(mut self, href: impl Into<String>) -> Self {
+        self.href = Some(href.into());
+        self
+    }
+}
+
+/// Breadcrumb navigation component with consistent styling
+/// Shows: Item [Copy ID] > Item [Copy ID] > ...
+#[component]
+pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
+    let items_len = items.len();
+    view! {
+        <div class="bg-ctp-surface1 border-b border-ctp-surface2 py-3 px-6">
+            <div class="container mx-auto flex items-center gap-3 text-base">
+                {items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, item)| {
+                        let is_last = idx == items_len - 1;
+                        let label = item.label.clone();
+                        let id = item.id.clone();
+                        let href = item.href.clone();
+
+                        view! {
+                            <div class="flex items-center gap-3">
+                                {if let Some(link) = href {
+                                    view! {
+                                        <a
+                                            href=link
+                                            class="flex items-center gap-2 text-ctp-blue hover:text-ctp-sapphire transition-colors"
+                                        >
+                                            {if let Some(item_id) = id.clone() {
+                                                view! { <CopyableId id=item_id/> }.into_any()
+                                            } else {
+                                                view! { <span></span> }.into_any()
+                                            }}
+                                            <span class="font-medium">{label.clone()}</span>
+                                        </a>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! {
+                                        <div class="flex items-center gap-2">
+                                            {if let Some(item_id) = id {
+                                                view! { <CopyableId id=item_id/> }.into_any()
+                                            } else {
+                                                view! { <span></span> }.into_any()
+                                            }}
+                                            <span class="text-ctp-text font-medium">{label}</span>
+                                        </div>
+                                    }
+                                        .into_any()
+                                }}
+
+                                {(!is_last).then(|| {
+                                    view! { <span class="text-ctp-overlay0">"/"</span> }
+                                })}
+                            </div>
+                        }
+                    })
+                    .collect::<Vec<_>>()}
+            </div>
+        </div>
+    }
+}
