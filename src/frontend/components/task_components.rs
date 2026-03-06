@@ -1194,11 +1194,7 @@ pub fn TaskListCard(
 /// TaskListContent component - displays task list details and kanban board
 /// Can be used both in modal/drawer and as a standalone page
 #[component]
-pub fn TaskListContent(
-    task_list: Signal<TaskList>,
-    #[prop(optional)] show_close_button: bool,
-    #[prop(optional)] on_close: Option<Callback<()>>,
-) -> impl IntoView {
+pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
     let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
     // WebSocket updates - refetch trigger for stats
@@ -1258,60 +1254,42 @@ pub fn TaskListContent(
                     Some(Ok(stats)) => {
                         view! {
                             <div class="flex flex-col" style="height: calc(100vh - 4rem)">
-                                <div class="flex justify-between items-start mb-4 flex-shrink-0">
-                                    <div class="flex-1">
-                                        <div class="flex items-center gap-3 mb-1">
-                                            <CopyableId id=tl.id.clone()/>
-                                            <h2 class="text-2xl font-bold text-ctp-text">
-                                                {tl.title.clone()}
-                                            </h2>
-                                        </div>
-                                        {tl.description.as_ref().map(|desc| {
-                                            view! { <p class="text-ctp-subtext0 text-sm mt-1">{desc.clone()}</p> }
-                                        })}
+                                // Description, tags, and external refs (if present)
+                                {(tl.description.is_some() || !tl.tags.is_empty() || !tl.external_refs.is_empty()).then(|| {
+                                    view! {
+                                        <div class="mb-4 flex-shrink-0">
+                                            {tl.description.as_ref().map(|desc| {
+                                                view! { <p class="text-ctp-subtext0 text-sm mb-2">{desc.clone()}</p> }
+                                            })}
 
-                                        {(!tl.tags.is_empty()).then(|| {
-                                            view! {
-                                                <div class="flex flex-wrap gap-2 mt-2">
-                                                    {tl.tags.iter().map(|tag| {
-                                                        view! {
-                                                            <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                                {tag.clone()}
-                                                            </span>
-                                                        }
-                                                    }).collect::<Vec<_>>()}
-                                                </div>
-                                            }
-                                        })}
-
-                                        // External reference links (if present)
-                                        {(!tl.external_refs.is_empty()).then(|| {
-                                            view! {
-                                                <div class="mt-2 flex flex-wrap gap-1">
-                                                    {tl.external_refs.iter().map(|ext_ref| {
-                                                        view! {
-                                                            <ExternalRefLink external_ref=ext_ref.clone() />
-                                                        }
-                                                    }).collect::<Vec<_>>()}
-                                                </div>
-                                            }
-                                        })}
-                                    </div>
-                                    {show_close_button.then(|| {
-                                        view! {
-                                            <button
-                                                on:click=move |_| {
-                                                    if let Some(cb) = on_close {
-                                                        cb.run(());
-                                                    }
+                                            {(!tl.tags.is_empty()).then(|| {
+                                                view! {
+                                                    <div class="flex flex-wrap gap-2 mb-2">
+                                                        {tl.tags.iter().map(|tag| {
+                                                            view! {
+                                                                <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                    {tag.clone()}
+                                                                </span>
+                                                            }
+                                                        }).collect::<Vec<_>>()}
+                                                    </div>
                                                 }
-                                                class="text-ctp-overlay0 hover:text-ctp-text text-2xl leading-none px-2"
-                                            >
-                                                "✕"
-                                            </button>
-                                        }
-                                    })}
-                                </div>
+                                            })}
+
+                                            {(!tl.external_refs.is_empty()).then(|| {
+                                                view! {
+                                                    <div class="flex flex-wrap gap-1">
+                                                        {tl.external_refs.iter().map(|ext_ref| {
+                                                            view! {
+                                                                <ExternalRefLink external_ref=ext_ref.clone() />
+                                                            }
+                                                        }).collect::<Vec<_>>()}
+                                                    </div>
+                                                }
+                                            })}
+                                        </div>
+                                    }
+                                })}
 
                                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0">
                                     {statuses
@@ -1380,11 +1358,7 @@ pub fn TaskListDetailModal(
                     task_list.get().map(|tl| {
                         let task_list_signal = Signal::derive(move || tl.clone());
                         view! {
-                            <TaskListContent
-                                task_list=task_list_signal
-                                show_close_button=true
-                                on_close=Callback::new(move |_| open.set(false))
-                            />
+                            <TaskListContent task_list=task_list_signal/>
                         }
                     })
                 }}

@@ -4,7 +4,8 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, projects, task_lists};
 use crate::components::{Breadcrumb, BreadcrumbItem, TaskListContent};
-use crate::models::{Project, TaskList};
+use crate::models::{Project, TaskList, UpdateMessage};
+use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn TaskListDetail() -> impl IntoView {
@@ -13,9 +14,35 @@ pub fn TaskListDetail() -> impl IntoView {
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
     let (task_list_data, set_task_list_data) = signal(None::<Result<TaskList, ApiClientError>>);
 
-    // Fetch project and task list when params change
+    // WebSocket updates - refetch trigger
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let ws_updates = use_websocket_updates();
+
+    // Watch for WebSocket task list updates
+    Effect::new(move || {
+        if let Some(update) = ws_updates.get() {
+            match update {
+                UpdateMessage::TaskListUpdated { task_list_id } => {
+                    let params = params.get();
+                    if let Some(current_id) = params.get("task_list_id") {
+                        if current_id == task_list_id {
+                            web_sys::console::log_1(
+                                &"TaskList updated via WebSocket, refetching...".into(),
+                            );
+                            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+
+    // Fetch project and task list when params change or refetch trigger fires
     Effect::new(move || {
         let params = params.get();
+        let _ = refetch_trigger.get(); // Track refetch trigger
+
         if let (Some(project_id), Some(task_list_id)) =
             (params.get("project_id"), params.get("task_list_id"))
         {
@@ -68,10 +95,7 @@ pub fn TaskListDetail() -> impl IntoView {
                             Some(Ok(task_list)) => {
                                 let task_list_signal = Signal::derive(move || task_list.clone());
                                 view! {
-                                    <TaskListContent
-                                        task_list=task_list_signal
-                                        show_close_button=false
-                                    />
+                                    <TaskListContent task_list=task_list_signal/>
                                 }
                                     .into_any()
                             }

@@ -70,22 +70,22 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
 
     view! {
         <main class="min-h-screen bg-ctp-base flex flex-col">
+            // WebSocket connection status bar (top of page)
+            <Tooltip content=move || {
+                match ws_state.get() {
+                    ConnectionReadyState::Open => "Connected",
+                    ConnectionReadyState::Connecting => "Connecting...",
+                    ConnectionReadyState::Closing => "Closing...",
+                    ConnectionReadyState::Closed => "Disconnected",
+                }
+            }>
+                <div class="h-1 cursor-help"
+                    class:bg-ctp-green=move || matches!(ws_state.get(), ConnectionReadyState::Open)
+                    class:bg-ctp-yellow=move || matches!(ws_state.get(), ConnectionReadyState::Connecting | ConnectionReadyState::Closing)
+                    class:bg-ctp-red=move || matches!(ws_state.get(), ConnectionReadyState::Closed)>
+                </div>
+            </Tooltip>
             <nav class="bg-ctp-surface0 border-b border-ctp-surface1 relative">
-                // WebSocket connection status bar (left edge)
-                <Tooltip content=move || {
-                    match ws_state.get() {
-                        ConnectionReadyState::Open => "Connected",
-                        ConnectionReadyState::Connecting => "Connecting...",
-                        ConnectionReadyState::Closing => "Closing...",
-                        ConnectionReadyState::Closed => "Disconnected",
-                    }
-                }>
-                    <div class="absolute left-0 top-0 bottom-0 w-2 cursor-help"
-                        class:bg-ctp-green=move || matches!(ws_state.get(), ConnectionReadyState::Open)
-                        class:bg-ctp-yellow=move || matches!(ws_state.get(), ConnectionReadyState::Connecting | ConnectionReadyState::Closing)
-                        class:bg-ctp-red=move || matches!(ws_state.get(), ConnectionReadyState::Closed)>
-                    </div>
-                </Tooltip>
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
                     <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
                         <h1 class="text-3xl font-bold bg-gradient-to-r from-ctp-mauve to-ctp-blue bg-clip-text text-transparent">
