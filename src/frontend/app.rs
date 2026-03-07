@@ -45,6 +45,11 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn AppContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
+    // Track last visited projects page for breadcrumb navigation
+    let (last_projects_page, set_last_projects_page) = signal(0usize);
+    provide_context(set_last_projects_page);
+    provide_context(last_projects_page);
+
     view! {
         <Router>
             <NavAndContent catppuccin_theme/>
