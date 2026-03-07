@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_router::components::A;
 use thaw::*;
 use wasm_bindgen::prelude::*;
 
@@ -133,6 +134,7 @@ pub struct BreadcrumbItem {
     pub label: String,
     pub id: Option<String>,
     pub href: Option<String>,
+    pub name: Option<String>, // Identifier for page state lookup
 }
 
 impl BreadcrumbItem {
@@ -141,6 +143,7 @@ impl BreadcrumbItem {
             label: label.into(),
             id: None,
             href: None,
+            name: None,
         }
     }
 
@@ -153,13 +156,20 @@ impl BreadcrumbItem {
         self.href = Some(href.into());
         self
     }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
 }
 
 /// Breadcrumb navigation component with consistent styling
-/// Shows: Item [Copy ID] > Item [Copy ID] > ...
+/// Displays a horizontal list of navigation items with separators
 #[component]
 pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
     let items_len = items.len();
+    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
+
     view! {
         <div class="bg-ctp-surface0 border-b border-ctp-surface1 py-3">
             <div class="container mx-auto pl-[1.15rem] pr-6 flex items-center gap-3 text-base">
@@ -171,14 +181,30 @@ pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
                         let label = item.label.clone();
                         let id = item.id.clone();
                         let href = item.href.clone();
+                        let name = item.name.clone();
+                        let state = page_state.clone();
 
                         view! {
                             <div class="flex items-center gap-3">
-                                {if let Some(link) = href {
+                                {if let Some(base_href) = href {
+                                    let href_with_page = move || {
+                                        match (name.as_ref(), state.as_ref()) {
+                                            (Some(breadcrumb_name), Some(state)) => {
+                                                match state.get_page(breadcrumb_name) {
+                                                    Some(page) if page > 0 => {
+                                                        format!("{}?page={}", base_href, page)
+                                                    }
+                                                    _ => base_href.clone()
+                                                }
+                                            }
+                                            _ => base_href.clone()
+                                        }
+                                    };
+
                                     view! {
-                                        <a
-                                            href=link
-                                            class="flex items-center gap-2 text-ctp-blue hover:text-ctp-sapphire transition-colors"
+                                        <A
+                                            href=href_with_page
+                                            attr:class="flex items-center gap-2 text-ctp-blue hover:text-ctp-sapphire transition-colors"
                                         >
                                             {if let Some(item_id) = id.clone() {
                                                 view! { <CopyableId id=item_id/> }.into_any()
@@ -186,7 +212,7 @@ pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
                                                 view! { <span></span> }.into_any()
                                             }}
                                             <span class="font-medium">{label.clone()}</span>
-                                        </a>
+                                        </A>
                                     }
                                         .into_any()
                                 } else {
