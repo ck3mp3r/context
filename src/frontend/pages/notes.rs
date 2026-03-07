@@ -2,7 +2,6 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::breadcrumb_state::BreadcrumbPageState;
 use crate::components::{
     Breadcrumb, BreadcrumbItem, NoteCard, Pagination, SearchInput, SortControls,
 };
