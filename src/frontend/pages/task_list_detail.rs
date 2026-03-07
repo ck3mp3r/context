@@ -72,23 +72,14 @@ pub fn TaskListDetail() -> impl IntoView {
             {move || {
                 match (project_data.get(), task_list_data.get()) {
                     (Some(Ok(project)), Some(Ok(task_list))) => {
-                        // Read last projects page from context
-                        let projects_href = if let Some(last_page) = use_context::<ReadSignal<usize>>() {
-                            let page = last_page.get();
-                            if page > 0 {
-                                format!("/?page={}", page)
-                            } else {
-                                "/".to_string()
-                            }
-                        } else {
-                            "/".to_string()
-                        };
-
                         let items = vec![
-                            BreadcrumbItem::new("Projects").with_href(projects_href),
+                            BreadcrumbItem::new("Projects")
+                                .with_href("/")
+                                .with_name("projects"),
                             BreadcrumbItem::new(project.title.clone())
                                 .with_id(project.id.clone())
-                                .with_href(format!("/projects/{}", project.id)),
+                                .with_href(format!("/projects/{}", project.id))
+                                .with_name(project.id.clone()),
                             BreadcrumbItem::new(task_list.title.clone())
                                 .with_id(task_list.id.clone()),
                         ];

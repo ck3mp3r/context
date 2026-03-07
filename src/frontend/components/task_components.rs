@@ -1041,16 +1041,20 @@ pub fn TaskListCard(
     task_list: TaskList,
     #[prop(optional)] on_click: Option<Callback<String>>,
     #[prop(optional)] project_id: Option<String>,
+    #[prop(optional)] current_page: Option<ReadSignal<usize>>,
+    #[prop(optional)] breadcrumb_name: Option<String>,
 ) -> impl IntoView {
     let list_id = task_list.id.clone();
     let list_id_for_stats = task_list.id.clone();
     let href = if on_click.is_some() {
         "#".to_string()
-    } else if let Some(proj_id) = project_id {
+    } else if let Some(proj_id) = &project_id {
         format!("/projects/{}/task-lists/{}", proj_id, task_list.id)
     } else {
         format!("/task-lists/{}", task_list.id)
     };
+
+    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
 
     // Fetch stats for this task list
     let (stats, set_stats) = signal(None::<Result<TaskStats, ApiClientError>>);
@@ -1068,6 +1072,18 @@ pub fn TaskListCard(
             <a
                 href=href
                 on:click=move |ev| {
+                    // Store page state before navigation
+                    if let (Some(state), Some(page_sig), Some(name)) =
+                        (page_state.as_ref(), current_page, &breadcrumb_name) {
+                        let page = page_sig.get();
+                        web_sys::console::log_1(&format!("TaskListCard: Storing page {} for key '{}'", page, name).into());
+                        state.set_page(name, page);
+                    } else {
+                        web_sys::console::log_1(&format!("TaskListCard: NOT storing - state: {:?}, page: {:?}, name: {:?}",
+                            page_state.is_some(), current_page.is_some(), breadcrumb_name).into());
+                    }
+
+                    // Existing on_click logic
                     if let Some(callback) = on_click {
                         ev.prevent_default();
                         callback.run(list_id.clone());

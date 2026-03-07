@@ -170,10 +170,15 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Reset pagination when archived toggle changes
+    // Reset pagination when archived toggle changes (but not on initial load)
+    let is_first_archived_load = std::cell::Cell::new(true);
     Effect::new(move || {
         show_archived_task_lists.get();
-        task_list_pagination.set_page.set(0);
+        if is_first_archived_load.get() {
+            is_first_archived_load.set(false);
+        } else {
+            task_list_pagination.set_page.set(0);
+        }
     });
 
     // Fetch task lists for this project (with archived toggle, search, and pagination)
@@ -314,20 +319,10 @@ pub fn ProjectDetail() -> impl IntoView {
             {move || {
                 project_data.get().and_then(|result| {
                     result.ok().map(|project| {
-                        // Read last projects page from context
-                        let projects_href = if let Some(last_page) = use_context::<ReadSignal<usize>>() {
-                            let page = last_page.get();
-                            if page > 0 {
-                                format!("/?page={}", page)
-                            } else {
-                                "/".to_string()
-                            }
-                        } else {
-                            "/".to_string()
-                        };
-
                         let items = vec![
-                            BreadcrumbItem::new("Projects").with_href(projects_href),
+                            BreadcrumbItem::new("Projects")
+                                .with_href("/")
+                                .with_name("projects"),
                             BreadcrumbItem::new(project.title.clone())
                                 .with_id(project.id.clone()),
                         ];
@@ -523,17 +518,20 @@ pub fn ProjectDetail() -> impl IntoView {
                                                             }
                                                                 .into_any()
                                                             } else {
-                                                                view! {
+                                                                  view! {
                                                                     <div>
                                                                          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
                                                                               {paginated.items
                                                                                  .into_iter()
                                                                                  .map(|task_list| {
                                                                                      let proj_id = project_id();
+                                                                                     let page_sig = task_list_pagination.page;
                                                                                      view! {
                                                                                          <TaskListCard
                                                                                              task_list=task_list
-                                                                                             project_id=proj_id
+                                                                                             project_id=proj_id.clone()
+                                                                                             current_page=page_sig
+                                                                                             breadcrumb_name=proj_id
                                                                                          />
                                                                                      }
                                                                                  })

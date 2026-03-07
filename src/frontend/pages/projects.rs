@@ -26,6 +26,10 @@ pub fn Projects() -> impl IntoView {
         }),
     );
 
+    // Get page state for breadcrumb navigation
+    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>()
+        .expect("BreadcrumbPageState should be provided");
+
     // Update global last projects page for breadcrumb navigation
     if let Some(set_last_projects_page) = use_context::<WriteSignal<usize>>() {
         Effect::new(move || {
@@ -147,11 +151,18 @@ pub fn Projects() -> impl IntoView {
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         let project_external_refs = project.external_refs.clone();
+                                        let page_signal = pagination.page;
+                                        let state = page_state.clone();
 
                                         view! {
                                             <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
                                                     href=format!("/projects/{}", project_id)
+                                                    on:click=move |_| {
+                                                        let page = page_signal.get();
+                                                        web_sys::console::log_1(&format!("Projects: Storing page {} for key 'projects'", page).into());
+                                                        state.set_page("projects", page);
+                                                    }
                                                     class="flex flex-col h-full"
                                                 >
                                                     <div class="flex items-start gap-2 mb-2">
