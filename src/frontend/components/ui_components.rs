@@ -192,22 +192,12 @@ pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
                                             (Some(breadcrumb_name), Some(state)) => {
                                                 match state.get_page(breadcrumb_name) {
                                                     Some(page) if page > 0 => {
-                                                        let result = format!("{}?page={}", base_href, page);
-                                                        web_sys::console::log_1(&format!("Breadcrumb: '{}' generating href '{}' (stored page: {})",
-                                                            breadcrumb_name, result, page).into());
-                                                        result
+                                                        format!("{}?page={}", base_href, page)
                                                     }
-                                                    stored_page => {
-                                                        web_sys::console::log_1(&format!("Breadcrumb: '{}' using base href '{}' (stored page: {:?})",
-                                                            breadcrumb_name, base_href, stored_page).into());
-                                                        base_href.clone()
-                                                    }
+                                                    _ => base_href.clone()
                                                 }
                                             }
-                                            _ => {
-                                                web_sys::console::log_1(&format!("Breadcrumb: No name/state for '{}'", base_href).into());
-                                                base_href.clone()
-                                            }
+                                            _ => base_href.clone()
                                         }
                                     };
 

@@ -159,9 +159,7 @@ pub fn Projects() -> impl IntoView {
                                                 <a
                                                     href=format!("/projects/{}", project_id)
                                                     on:click=move |_| {
-                                                        let page = page_signal.get();
-                                                        web_sys::console::log_1(&format!("Projects: Storing page {} for key 'projects'", page).into());
-                                                        state.set_page("projects", page);
+                                                        state.set_page("projects", page_signal.get());
                                                     }
                                                     class="flex flex-col h-full"
                                                 >

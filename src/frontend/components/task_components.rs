@@ -1075,12 +1075,7 @@ pub fn TaskListCard(
                     // Store page state before navigation
                     if let (Some(state), Some(page_sig), Some(name)) =
                         (page_state.as_ref(), current_page, &breadcrumb_name) {
-                        let page = page_sig.get();
-                        web_sys::console::log_1(&format!("TaskListCard: Storing page {} for key '{}'", page, name).into());
-                        state.set_page(name, page);
-                    } else {
-                        web_sys::console::log_1(&format!("TaskListCard: NOT storing - state: {:?}, page: {:?}, name: {:?}",
-                            page_state.is_some(), current_page.is_some(), breadcrumb_name).into());
+                        state.set_page(name, page_sig.get());
                     }
 
                     // Existing on_click logic
