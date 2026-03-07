@@ -32,7 +32,7 @@ pub fn NoteDetail() -> impl IntoView {
 
     // Fetch subnotes to determine if we should show sidebar
     let (subnotes_data, set_subnotes_data) = signal(None::<Result<Vec<Note>, ApiClientError>>);
-    let (subnotes_refetch_trigger, set_subnotes_refetch_trigger) = signal(0u32);
+    let (subnotes_refetch_trigger, _set_subnotes_refetch_trigger) = signal(0u32);
 
     // WebSocket updates
     let ws_updates = use_websocket_updates();
@@ -213,7 +213,7 @@ pub fn NoteDetail() -> impl IntoView {
             // Breadcrumb navigation - different based on context
             {move || {
                 // Check if we have project context
-                if let Some(proj_id) = project_id() {
+                if let Some(_proj_id) = project_id() {
                     // Coming from project - show Projects → Project → Note
                     match (project_data.get(), note_data.get()) {
                         (Some(Ok(project)), Some(Ok(note))) => {
