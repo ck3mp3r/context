@@ -314,8 +314,20 @@ pub fn ProjectDetail() -> impl IntoView {
             {move || {
                 project_data.get().and_then(|result| {
                     result.ok().map(|project| {
+                        // Read last projects page from context
+                        let projects_href = if let Some(last_page) = use_context::<ReadSignal<usize>>() {
+                            let page = last_page.get();
+                            if page > 0 {
+                                format!("/?page={}", page)
+                            } else {
+                                "/".to_string()
+                            }
+                        } else {
+                            "/".to_string()
+                        };
+
                         let items = vec![
-                            BreadcrumbItem::new("Projects").with_href("/"),
+                            BreadcrumbItem::new("Projects").with_href(projects_href),
                             BreadcrumbItem::new(project.title.clone())
                                 .with_id(project.id.clone()),
                         ];

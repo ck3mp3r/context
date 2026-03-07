@@ -26,6 +26,13 @@ pub fn Projects() -> impl IntoView {
         }),
     );
 
+    // Update global last projects page for breadcrumb navigation
+    if let Some(set_last_projects_page) = use_context::<WriteSignal<usize>>() {
+        Effect::new(move || {
+            set_last_projects_page.set(pagination.page.get());
+        });
+    }
+
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
 
@@ -140,6 +147,7 @@ pub fn Projects() -> impl IntoView {
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         let project_external_refs = project.external_refs.clone();
+
                                         view! {
                                             <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
