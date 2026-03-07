@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_location, use_params_map};
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    Breadcrumb, BreadcrumbItem, ExternalRefLink, NoteCard, NoteDetailModal, Pagination, RepoCard,
-    SearchInput, SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
+    Breadcrumb, BreadcrumbItem, ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput,
+    SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -14,10 +14,22 @@ use crate::websocket::use_websocket_updates;
 #[component]
 pub fn ProjectDetail() -> impl IntoView {
     let params = use_params_map();
+    let location = use_location();
     let project_id = move || params.read().get("id").unwrap_or_default();
 
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
-    let (active_tab, set_active_tab) = signal("task-lists");
+
+    // Determine active tab based on URL path
+    let active_tab = move || {
+        let path = location.pathname.get();
+        match path.as_str() {
+            p if p.contains("/notes") => "notes",
+            p if p.contains("/skills") => "skills",
+            p if p.contains("/repos") => "repos",
+            p if p.contains("/task-lists") => "task-lists",
+            _ => "task-lists", // Default
+        }
+    };
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
@@ -83,11 +95,6 @@ pub fn ProjectDetail() -> impl IntoView {
 
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
-
-    // Note detail modal state
-    let note_modal_open = RwSignal::new(false);
-    let selected_note_id = RwSignal::new(String::new());
-    let selected_note_has_subnotes = RwSignal::new(false);
 
     // Task list detail modal state
     let task_list_modal_open = RwSignal::new(false);
@@ -397,58 +404,54 @@ pub fn ProjectDetail() -> impl IntoView {
                             // Tab Navigation
                             <div class="border-b border-ctp-surface1 mb-6">
                                 <div class="flex gap-6">
-                                    <button
-                                        on:click=move |_| set_active_tab.set("task-lists")
+                                    <a
+                                        href=move || format!("/projects/{}", project_id())
                                         class=move || {
-                                            if active_tab.get() == "task-lists" {
+                                            if active_tab() == "task-lists" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
                                             } else {
                                                 "pb-3 border-b-2 border-transparent text-ctp-subtext0 hover:text-ctp-text"
                                             }
                                         }
                                     >
-
                                         "Task Lists"
-                                    </button>
-                                    <button
-                                        on:click=move |_| set_active_tab.set("notes")
+                                    </a>
+                                    <a
+                                        href=move || format!("/projects/{}/notes", project_id())
                                         class=move || {
-                                            if active_tab.get() == "notes" {
+                                            if active_tab() == "notes" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
                                             } else {
                                                 "pb-3 border-b-2 border-transparent text-ctp-subtext0 hover:text-ctp-text"
                                             }
                                         }
                                     >
-
                                         "Notes"
-                                    </button>
-                                    <button
-                                        on:click=move |_| set_active_tab.set("skills")
+                                    </a>
+                                    <a
+                                        href=move || format!("/projects/{}/skills", project_id())
                                         class=move || {
-                                            if active_tab.get() == "skills" {
+                                            if active_tab() == "skills" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
                                             } else {
                                                 "pb-3 border-b-2 border-transparent text-ctp-subtext0 hover:text-ctp-text"
                                             }
                                         }
                                     >
-
                                         "Skills"
-                                    </button>
-                                    <button
-                                        on:click=move |_| set_active_tab.set("repos")
+                                    </a>
+                                    <a
+                                        href=move || format!("/projects/{}/repos", project_id())
                                         class=move || {
-                                            if active_tab.get() == "repos" {
+                                            if active_tab() == "repos" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
                                             } else {
                                                 "pb-3 border-b-2 border-transparent text-ctp-subtext0 hover:text-ctp-text"
                                             }
                                         }
                                     >
-
                                         "Repos"
-                                    </button>
+                                    </a>
                                 </div>
                             </div>
 
@@ -456,7 +459,7 @@ pub fn ProjectDetail() -> impl IntoView {
                             <div>
                                 {move || {
                                     let _proj_id = project.id.clone();
-                                    match active_tab.get() {
+                                    match active_tab() {
                                         "task-lists" => {
                                             view! {
                                                 <div>
@@ -610,24 +613,21 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                     <div>
                                                                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 auto-rows-fr">
                                                                             {paginated
-                                                                                .items
-                                                                                .iter()
-                                                                                .map(|note| {
-                                                                                    view! {
-                                                                                         <NoteCard
-                                                                                            note=note.clone()
-                                                                                            on_click=Callback::new({
-                                                                                                let has_subs = note.subnote_count.unwrap_or(0) > 0;
-                                                                                                move |note_id: String| {
-                                                                                                    selected_note_id.set(note_id);
-                                                                                                    selected_note_has_subnotes.set(has_subs);
-                                                                                                    note_modal_open.set(true);
-                                                                                                }
-                                                                                            })
-                                                                                        />
-                                                                                    }
-                                                                                })
-                                                                                .collect::<Vec<_>>()}
+                                                                .items
+                                                                .iter()
+                                                                .map(|note| {
+                                                                    let proj_id = project_id();
+                                                                    let page_sig = note_pagination.page;
+                                                                    view! {
+                                                                         <NoteCard
+                                                                            note=note.clone()
+                                                                            project_id=proj_id.clone()
+                                                                            current_page=page_sig
+                                                                            breadcrumb_name=proj_id
+                                                                        />
+                                                                    }
+                                                                })
+                                                                .collect::<Vec<_>>()}
                                                                         </div>
 
                                                                         // Pagination
@@ -857,22 +857,10 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
             }}
 
-            // Note detail modal - only render when open
-            {move || {
-                if note_modal_open.get() {
-                    Some(view! {
-                        <NoteDetailModal
-                            note_id=selected_note_id.read_only()
-                            open=note_modal_open
-                            has_subnotes=selected_note_has_subnotes.get()
-                        />
-                    })
-                } else {
-                    None
-                }
-            }}
+            </div>
+            // End container div (from line 329)
 
-            // Task list detail modal - only render when open
+            // Task list detail modal
             {move || {
                 if task_list_modal_open.get() {
                     Some(view! {
@@ -886,7 +874,7 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
             }}
 
-            // Skill detail modal - only render when open
+            // Skill detail modal
             {move || {
                 if skill_modal_open.get() {
                     Some(view! {
@@ -900,7 +888,7 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
             }}
 
-            </div>
         </div>
+        // End flex container
     }
 }

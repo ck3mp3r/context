@@ -2,8 +2,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
+use crate::breadcrumb_state::BreadcrumbPageState;
 use crate::components::{
-    Breadcrumb, BreadcrumbItem, NoteCard, NoteDetailModal, Pagination, SearchInput, SortControls,
+    Breadcrumb, BreadcrumbItem, NoteCard, Pagination, SearchInput, SortControls,
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, UpdateMessage};
@@ -34,11 +35,6 @@ fn NotesList() -> impl IntoView {
     );
 
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
-
-    // Note detail modal state
-    let note_modal_open = RwSignal::new(false);
-    let selected_note_id = RwSignal::new(String::new());
-    let selected_note_has_subnotes = RwSignal::new(false);
 
     // WebSocket updates
     let ws_updates = use_websocket_updates();
@@ -164,17 +160,13 @@ fn NotesList() -> impl IntoView {
                                                     .items
                                                     .iter()
                                                     .map(|note| {
+                                                        let page_signal = pagination.page;
+
                                                         view! {
                                                             <NoteCard
                                                                 note=note.clone()
-                                                                on_click=Callback::new({
-                                                                    let has_subs = note.subnote_count.unwrap_or(0) > 0;
-                                                                    move |note_id: String| {
-                                                                        selected_note_id.set(note_id);
-                                                                        selected_note_has_subnotes.set(has_subs);
-                                                                        note_modal_open.set(true);
-                                                                    }
-                                                                })
+                                                                current_page=page_signal
+                                                                breadcrumb_name="notes".to_string()
                                                             />
                                                         }
                                                     })
@@ -208,21 +200,6 @@ fn NotesList() -> impl IntoView {
                             }
                         }
                     }
-                }
-            }}
-
-            // Note detail modal - only render when open
-            {move || {
-                if note_modal_open.get() {
-                    Some(view! {
-                        <NoteDetailModal
-                            note_id=selected_note_id.read_only()
-                            open=note_modal_open
-                            has_subnotes=selected_note_has_subnotes.get()
-                        />
-                    })
-                } else {
-                    None
                 }
             }}
 
