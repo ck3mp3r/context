@@ -7,7 +7,7 @@ pub mod task_components;
 pub mod theme_switcher;
 pub mod ui_components;
 
-pub use note_components::{NoteCard, NoteDetailModal};
+pub use note_components::{MarkdownContent, NoteCard, NoteDetailModal, NoteStackSidebar};
 pub use repo_components::RepoCard;
 pub use search_input::SearchInput;
 pub use skill_components::{SkillCard, SkillDetailModal};

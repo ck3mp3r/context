@@ -8,7 +8,13 @@ use crate::models::{Note, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
 #[component]
-pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>) -> impl IntoView {
+pub fn NoteCard(
+    note: Note,
+    #[prop(optional)] on_click: Option<Callback<String>>,
+    #[prop(optional)] project_id: Option<String>,
+    #[prop(optional)] current_page: Option<ReadSignal<usize>>,
+    #[prop(optional)] breadcrumb_name: Option<String>,
+) -> impl IntoView {
     // Create a preview of the content (first 300 chars for markdown, UTF-8 safe)
     let preview_content = if note.content.chars().count() > 300 {
         let truncated: String = note.content.chars().take(300).collect();
@@ -26,15 +32,19 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
+    // Check if note has subnotes for stacked effect
+    let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
+
+    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
+
     let note_id = note.id.clone();
     let href = if on_click.is_some() {
         "#".to_string()
+    } else if let Some(proj_id) = project_id {
+        format!("/projects/{}/notes/{}", proj_id, note.id)
     } else {
         format!("/notes/{}", note.id)
     };
-
-    // Check if note has subnotes for stacked effect
-    let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
 
     view! {
         // Wrapper - natural sizing
@@ -55,6 +65,13 @@ pub fn NoteCard(note: Note, #[prop(optional)] on_click: Option<Callback<String>>
             <a
                 href=href
                 on:click=move |ev| {
+                    // Store page state before navigation
+                    if let (Some(state), Some(page_sig), Some(name)) =
+                        (page_state.as_ref(), current_page, &breadcrumb_name) {
+                        state.set_page(name, page_sig.get());
+                    }
+
+                    // Existing on_click logic
                     if let Some(callback) = on_click {
                         ev.prevent_default();
                         callback.run(note_id.clone());
