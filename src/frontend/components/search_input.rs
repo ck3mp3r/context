@@ -13,6 +13,7 @@ use wasm_bindgen::prelude::*;
 /// - `on_immediate_change`: Callback<String> - Called immediately on input (for updating the signal)
 /// - `placeholder`: &'static str - Placeholder text (default: "Search...")
 /// - `debounce_ms`: u32 - Debounce delay in milliseconds (default: 500)
+/// - `children`: Optional children elements to render alongside the search input (e.g., toggle buttons, filters)
 #[component]
 pub fn SearchInput(
     /// The current value of the search input
@@ -27,6 +28,9 @@ pub fn SearchInput(
     /// Debounce delay in milliseconds
     #[prop(optional, default = 500)]
     debounce_ms: u32,
+    /// Optional children elements to render alongside the input
+    #[prop(optional)]
+    children: Option<Children>,
 ) -> impl IntoView {
     // Store the timeout ID so we can cancel it
     let debounce_timeout = RwSignal::new(None::<i32>);
@@ -64,12 +68,17 @@ pub fn SearchInput(
     };
 
     view! {
-        <input
-            type="text"
-            placeholder=placeholder
-            prop:value=move || value.get()
-            on:input=on_input
-            class="w-full rounded-lg border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none"
-        />
+        <div class="flex gap-4 items-center">
+            <div class="flex-1">
+                <input
+                    type="text"
+                    placeholder=placeholder
+                    prop:value=move || value.get()
+                    on:input=on_input
+                    class="w-full rounded-lg border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none"
+                />
+            </div>
+            {children.map(|c| c())}
+        </div>
     }
 }
