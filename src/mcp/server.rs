@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
 };
 
@@ -358,13 +358,18 @@ impl<D: Database + 'static> McpServer<D> {
 #[tool_handler]
 impl<D: Database + 'static> ServerHandler for McpServer<D> {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            instructions: Some(
-                "C5T MCP Server - Manage projects, repositories, task lists, tasks, notes, and skills"
-                    .to_string(),
-            ),
-            ..Default::default()
-        }
+        let mut info = ServerInfo::default();
+        info.protocol_version = ProtocolVersion::LATEST;
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info.server_info = Implementation::from_build_env()
+            .with_title("C5T MCP Server")
+            .with_description(
+                "Manage projects, repositories, task lists, tasks, notes, and skills",
+            );
+        info.instructions = Some(
+            "C5T MCP Server - Manage projects, repositories, task lists, tasks, notes, and skills"
+                .to_string(),
+        );
+        info
     }
 }

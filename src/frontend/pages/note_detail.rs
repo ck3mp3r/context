@@ -133,10 +133,10 @@ pub fn NoteDetail() -> impl IntoView {
 
     // Initialize selected_note_id once parent note loads
     Effect::new(move || {
-        if let Some(Ok(note)) = note_data.get() {
-            if selected_note_id.get().is_empty() {
-                selected_note_id.set(note.id.clone());
-            }
+        if let Some(Ok(note)) = note_data.get()
+            && selected_note_id.get().is_empty()
+        {
+            selected_note_id.set(note.id.clone());
         }
     });
 

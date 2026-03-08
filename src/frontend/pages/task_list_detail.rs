@@ -20,20 +20,13 @@ pub fn TaskListDetail() -> impl IntoView {
 
     // Watch for WebSocket task list updates
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            match update {
-                UpdateMessage::TaskListUpdated { task_list_id } => {
-                    let params = params.get();
-                    if let Some(current_id) = params.get("task_list_id") {
-                        if current_id == task_list_id {
-                            web_sys::console::log_1(
-                                &"TaskList updated via WebSocket, refetching...".into(),
-                            );
-                            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                        }
-                    }
-                }
-                _ => {}
+        if let Some(UpdateMessage::TaskListUpdated { task_list_id }) = ws_updates.get() {
+            let params = params.get();
+            if let Some(current_id) = params.get("task_list_id")
+                && current_id == task_list_id
+            {
+                web_sys::console::log_1(&"TaskList updated via WebSocket, refetching...".into());
+                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
         }
     });

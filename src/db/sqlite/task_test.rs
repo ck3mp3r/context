@@ -1762,7 +1762,7 @@ async fn test_task_transition_logs_state_change() {
 
     // Transition to todo
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
         .await
         .unwrap();
 
@@ -1780,7 +1780,7 @@ async fn test_task_transition_logs_state_change() {
 
     // Transition to in_progress
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
         .await
         .unwrap();
 
@@ -1794,7 +1794,7 @@ async fn test_task_transition_logs_state_change() {
 
     // Transition to done
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
         .await
         .unwrap();
 
@@ -1850,7 +1850,7 @@ async fn test_complete_workflow_through_all_valid_states() {
 
     // Transition: backlog → todo
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
         .await
         .unwrap();
     let task = db.tasks().get(&created.id).await.unwrap();
@@ -1858,7 +1858,7 @@ async fn test_complete_workflow_through_all_valid_states() {
 
     // Transition: todo → in_progress
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
         .await
         .unwrap();
     let task = db.tasks().get(&created.id).await.unwrap();
@@ -1866,7 +1866,7 @@ async fn test_complete_workflow_through_all_valid_states() {
 
     // Transition: in_progress → review
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Review)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Review)
         .await
         .unwrap();
     let task = db.tasks().get(&created.id).await.unwrap();
@@ -1874,7 +1874,7 @@ async fn test_complete_workflow_through_all_valid_states() {
 
     // Transition: review → done
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
         .await
         .unwrap();
     let task = db.tasks().get(&created.id).await.unwrap();
@@ -1981,11 +1981,11 @@ async fn test_task_delete_cascades_to_transitions() {
     let created = db.tasks().create(&task).await.unwrap();
 
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
         .await
         .unwrap();
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
         .await
         .unwrap();
 
@@ -2035,19 +2035,19 @@ async fn test_rapid_transitions_all_logged() {
 
     // Perform rapid transitions
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
         .await
         .unwrap();
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
         .await
         .unwrap();
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Review)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Review)
         .await
         .unwrap();
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
         .await
         .unwrap();
 
@@ -2095,7 +2095,7 @@ async fn test_transition_rollback_on_failure() {
     // Attempt invalid transition: backlog → done (should fail)
     let result = db
         .tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Done)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
         .await;
     assert!(result.is_err(), "Invalid transition should fail validation");
 
@@ -2134,17 +2134,17 @@ async fn test_cancelled_workflow_preserves_history() {
 
     // Progress through some states
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Todo)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
         .await
         .unwrap();
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::InProgress)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
         .await
         .unwrap();
 
     // Cancel mid-workflow
     db.tasks()
-        .transition_tasks(&[created.id.clone()], TaskStatus::Cancelled)
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Cancelled)
         .await
         .unwrap();
 
