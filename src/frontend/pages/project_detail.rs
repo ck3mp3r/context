@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::{use_location, use_params_map};
+use leptos_router::hooks::{use_location, use_navigate, use_params_map};
+use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
@@ -15,6 +16,7 @@ use crate::websocket::use_websocket_updates;
 pub fn ProjectDetail() -> impl IntoView {
     let params = use_params_map();
     let location = use_location();
+    let navigate = use_navigate();
     let project_id = move || params.read().get("id").unwrap_or_default();
 
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
@@ -95,6 +97,21 @@ pub fn ProjectDetail() -> impl IntoView {
 
     // Show archived toggle
     let show_archived_task_lists = RwSignal::new(false);
+
+    // Watch for toggle changes and reset pagination
+    Effect::watch(
+        move || show_archived_task_lists.get(),
+        move |new_value, old_value, _| {
+            // Only reset if the value actually changed (not initial run)
+            if let Some(old) = old_value
+                && *new_value != *old
+            {
+                let pathname = location.pathname.get();
+                navigate(&pathname, Default::default());
+            }
+        },
+        false, // not immediate - wait for first change
+    );
 
     // Task list detail modal state
     let task_list_modal_open = RwSignal::new(false);
@@ -471,7 +488,12 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 on_change=task_list_search.on_debounced_change
                                                                 on_immediate_change=task_list_search.on_immediate_change
                                                                 placeholder="Search task lists..."
-                                                            />
+                                                            >
+                                                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                                                    <Switch checked=show_archived_task_lists/>
+                                                                    <span class="text-sm text-ctp-text">"Show archived"</span>
+                                                                </div>
+                                                            </SearchInput>
                                                         </div>
                                                         <SortControls
                                                             sort_field=task_list_sort.sort_field
@@ -484,21 +506,6 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 ("updated_at".to_string(), "Updated".to_string()),
                                                             ]
                                                         />
-                                                    </div>
-
-                                                    // Show archived toggle
-                                                    <div class="mb-4">
-                                                        <label class="flex items-center gap-2 text-ctp-text cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                prop:checked=move || show_archived_task_lists.get()
-                                                                on:change=move |ev| {
-                                                                    show_archived_task_lists.set(event_target_checked(&ev));
-                                                                }
-                                                                class="w-4 h-4 rounded bg-ctp-surface0 border-ctp-surface1 text-ctp-blue focus:ring-ctp-blue"
-                                                            />
-                                                            <span class="text-sm">"Show archived task lists"</span>
-                                                        </label>
                                                     </div>
 
                                                     {move || match task_lists_data.get() {
