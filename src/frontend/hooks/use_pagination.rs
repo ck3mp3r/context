@@ -1,10 +1,11 @@
 use leptos::prelude::*;
 use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 
+use super::build_url_with_params;
+
 /// Return type for use_pagination hook
 pub struct UsePaginationReturn {
     pub page: ReadSignal<usize>,
-    pub set_page: WriteSignal<usize>,
     pub on_prev: Callback<()>,
     pub on_next: Callback<()>,
 }
@@ -50,6 +51,7 @@ pub fn use_pagination() -> UsePaginationReturn {
     // Clone navigate and location for use in closures
     let navigate_prev = navigate.clone();
     let location_prev = location.clone();
+    let query_prev = query;
 
     let on_prev = Callback::new(move |_| {
         let current = page.get();
@@ -57,10 +59,18 @@ pub fn use_pagination() -> UsePaginationReturn {
             let new_page = current - 1;
             let pathname = location_prev.pathname.get();
             let url = if new_page == 0 {
-                // Omit page param for page 0 (cleaner URLs)
-                pathname
+                // Remove page param for page 0 (cleaner URLs)
+                build_url_with_params(
+                    pathname,
+                    query_prev.read().clone(),
+                    [("page".to_string(), None)].into(),
+                )
             } else {
-                format!("{}?page={}", pathname, new_page)
+                build_url_with_params(
+                    pathname,
+                    query_prev.read().clone(),
+                    [("page".to_string(), Some(new_page.to_string()))].into(),
+                )
             };
             navigate_prev(&url, Default::default());
         }
@@ -69,15 +79,16 @@ pub fn use_pagination() -> UsePaginationReturn {
     let on_next = Callback::new(move |_| {
         let new_page = page.get() + 1;
         let pathname = location.pathname.get();
-        navigate(
-            &format!("{}?page={}", pathname, new_page),
-            Default::default(),
+        let url = build_url_with_params(
+            pathname,
+            query.read().clone(),
+            [("page".to_string(), Some(new_page.to_string()))].into(),
         );
+        navigate(&url, Default::default());
     });
 
     UsePaginationReturn {
         page,
-        set_page,
         on_prev,
         on_next,
     }

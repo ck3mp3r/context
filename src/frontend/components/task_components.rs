@@ -1041,7 +1041,7 @@ pub fn TaskListCard(
     task_list: TaskList,
     #[prop(optional)] on_click: Option<Callback<String>>,
     #[prop(optional)] project_id: Option<String>,
-    #[prop(optional)] current_page: Option<ReadSignal<usize>>,
+    #[prop(optional)] current_query: Option<String>,
     #[prop(optional)] breadcrumb_name: Option<String>,
 ) -> impl IntoView {
     let list_id = task_list.id.clone();
@@ -1072,10 +1072,10 @@ pub fn TaskListCard(
             <a
                 href=href
                 on:click=move |ev| {
-                    // Store page state before navigation
-                    if let (Some(state), Some(page_sig), Some(name)) =
-                        (page_state.as_ref(), current_page, &breadcrumb_name) {
-                        state.set_page(name, page_sig.get());
+                    // Store query state before navigation
+                    if let (Some(state), Some(query), Some(name)) =
+                        (page_state.as_ref(), &current_query, &breadcrumb_name) {
+                        state.set_query(name, query);
                     }
 
                     // Existing on_click logic

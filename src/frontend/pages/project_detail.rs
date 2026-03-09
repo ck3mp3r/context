@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::{use_location, use_navigate, use_params_map};
+use leptos_router::hooks::{use_location, use_navigate, use_params_map, use_query_map};
 use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
@@ -8,7 +8,7 @@ use crate::components::{
     Breadcrumb, BreadcrumbItem, ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput,
     SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
 };
-use crate::hooks::{use_pagination, use_search, use_sort};
+use crate::hooks::{build_url_with_params, use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -45,69 +45,76 @@ pub fn ProjectDetail() -> impl IntoView {
 
     // Hooks for task lists tab
     let task_list_pagination = use_pagination();
-    let task_list_search = use_search(Callback::new(move |_| {
-        task_list_pagination.set_page.set(0);
-    }));
-    let task_list_sort = use_sort(
-        "updated_at",
-        "desc",
-        Callback::new(move |_| {
-            task_list_pagination.set_page.set(0);
-        }),
-    );
+    let task_list_search = use_search();
+    let task_list_sort = use_sort("updated_at", "desc");
 
     // Hooks for notes tab
     let note_pagination = use_pagination();
-    let note_search = use_search(Callback::new(move |_| {
-        note_pagination.set_page.set(0);
-    }));
-    let note_sort = use_sort(
-        "last_activity_at",
-        "desc",
-        Callback::new(move |_| {
-            note_pagination.set_page.set(0);
-        }),
-    );
+    let note_search = use_search();
+    let note_sort = use_sort("last_activity_at", "desc");
 
     // Hooks for repos tab
     let repo_pagination = use_pagination();
-    let repo_search = use_search(Callback::new(move |_| {
-        repo_pagination.set_page.set(0);
-    }));
-    let repo_sort = use_sort(
-        "created_at",
-        "desc",
-        Callback::new(move |_| {
-            repo_pagination.set_page.set(0);
-        }),
-    );
+    let repo_search = use_search();
+    let repo_sort = use_sort("created_at", "desc");
 
     // Hooks for skills tab
     let skill_pagination = use_pagination();
-    let skill_search = use_search(Callback::new(move |_| {
-        skill_pagination.set_page.set(0);
-    }));
-    let skill_sort = use_sort(
-        "created_at",
-        "desc",
-        Callback::new(move |_| {
-            skill_pagination.set_page.set(0);
-        }),
-    );
+    let skill_search = use_search();
+    let skill_sort = use_sort("created_at", "desc");
 
-    // Show archived toggle
-    let show_archived_task_lists = RwSignal::new(false);
+    // Show archived toggle - read from URL
+    let query = use_query_map();
+    let show_archived_from_url = query
+        .read()
+        .get("show_archived")
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false);
+    let show_archived_task_lists = RwSignal::new(show_archived_from_url);
 
-    // Watch for toggle changes and reset pagination
+    // Watch for URL changes to sync archive toggle
+    Effect::new(move |_| {
+        let url_archived = query
+            .get()
+            .get("show_archived")
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false);
+        show_archived_task_lists.set(url_archived);
+    });
+
+    // Watch for toggle changes and update URL (reset page to 0)
     Effect::watch(
         move || show_archived_task_lists.get(),
         move |new_value, old_value, _| {
-            // Only reset if the value actually changed (not initial run)
+            // Only update URL if the value actually changed (not initial run)
             if let Some(old) = old_value
                 && *new_value != *old
             {
                 let pathname = location.pathname.get();
-                navigate(&pathname, Default::default());
+                let url = if *new_value {
+                    // Add show_archived param and reset page
+                    build_url_with_params(
+                        pathname,
+                        query.read().clone(),
+                        [
+                            ("show_archived".to_string(), Some("true".to_string())),
+                            ("page".to_string(), None),
+                        ]
+                        .into(),
+                    )
+                } else {
+                    // Remove show_archived param and reset page
+                    build_url_with_params(
+                        pathname,
+                        query.read().clone(),
+                        [
+                            ("show_archived".to_string(), None),
+                            ("page".to_string(), None),
+                        ]
+                        .into(),
+                    )
+                };
+                navigate(&url, Default::default());
             }
         },
         false, // not immediate - wait for first change
@@ -171,18 +178,25 @@ pub fn ProjectDetail() -> impl IntoView {
                     );
                     set_skill_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                UpdateMessage::ProjectUpdated { .. } => {
-                    web_sys::console::log_1(
-                        &"Project updated via WebSocket, refetching project...".into(),
-                    );
-                    set_project_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                UpdateMessage::ProjectUpdated {
+                    project_id: updated_id,
                 }
-                _ => {} // Ignore other updates (ProjectCreated, ProjectDeleted not relevant for detail page)
+                | UpdateMessage::ProjectDeleted {
+                    project_id: updated_id,
+                } => {
+                    if updated_id == project_id() {
+                        web_sys::console::log_1(
+                            &"Project updated via WebSocket, refetching project...".into(),
+                        );
+                        set_project_refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                    }
+                }
+                _ => {}
             }
         }
     });
 
-    // Fetch project details
+    // Fetch task lists for this project (with archived toggle, search, and pagination)
     Effect::new(move || {
         let id = project_id();
         let _ = project_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
@@ -191,17 +205,6 @@ pub fn ProjectDetail() -> impl IntoView {
                 let result = projects::get(&id).await;
                 set_project_data.set(Some(result));
             });
-        }
-    });
-
-    // Reset pagination when archived toggle changes (but not on initial load)
-    let is_first_archived_load = std::cell::Cell::new(true);
-    Effect::new(move || {
-        show_archived_task_lists.get();
-        if is_first_archived_load.get() {
-            is_first_archived_load.set(false);
-        } else {
-            task_list_pagination.set_page.set(0);
         }
     });
 
@@ -535,12 +538,12 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                  .into_iter()
                                                                                  .map(|task_list| {
                                                                                      let proj_id = project_id();
-                                                                                     let page_sig = task_list_pagination.page;
+                                                                                     let query_str = location.search.get();
                                                                                      view! {
                                                                                          <TaskListCard
                                                                                              task_list=task_list
                                                                                              project_id=proj_id.clone()
-                                                                                             current_page=page_sig
+                                                                                             current_query=query_str
                                                                                              breadcrumb_name=proj_id
                                                                                          />
                                                                                      }
@@ -624,12 +627,12 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .iter()
                                                                 .map(|note| {
                                                                     let proj_id = project_id();
-                                                                    let page_sig = note_pagination.page;
+                                                                    let query_str = location.search.get();
                                                                     view! {
                                                                          <NoteCard
                                                                             note=note.clone()
                                                                             project_id=proj_id.clone()
-                                                                            current_page=page_sig
+                                                                            current_query=query_str
                                                                             breadcrumb_name=proj_id
                                                                         />
                                                                     }

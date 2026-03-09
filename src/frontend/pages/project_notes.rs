@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_location, use_params_map};
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::breadcrumb_state::BreadcrumbPageState;
@@ -14,22 +14,15 @@ pub fn ProjectNotes() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
 
     let params = use_params_map();
+    let location = use_location();
     let project_id = move || params.read().get("id").unwrap_or_default();
 
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
     
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
-    let search = use_search(Callback::new(move |_| {
-        pagination.set_page.set(0);
-    }));
-    let sort = use_sort(
-        "last_activity_at",
-        "desc",
-        Callback::new(move |_| {
-            pagination.set_page.set(0);
-        }),
-    );
+    let search = use_search();
+    let sort = use_sort("last_activity_at", "desc");
 
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
@@ -191,12 +184,12 @@ pub fn ProjectNotes() -> impl IntoView {
                                                             .iter()
                                                             .map(|note| {
                                                                 let proj_id_clone = proj_id.clone();
-                                                                let page_sig = pagination.page;
+                                                                let query_str = location.search.get();
                                                                 view! {
                                                                     <NoteCard
                                                                         note=note.clone()
                                                                         project_id=proj_id_clone.clone()
-                                                                        current_page=page_sig
+                                                                        current_query=query_str
                                                                         breadcrumb_name=proj_id_clone
                                                                     />
                                                                 }

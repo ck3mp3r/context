@@ -187,12 +187,17 @@ pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
                         view! {
                             <div class="flex items-center gap-3">
                                 {if let Some(base_href) = href {
-                                    let href_with_page = move || {
+                                    let href_with_query = move || {
                                         match (name.as_ref(), state.as_ref()) {
                                             (Some(breadcrumb_name), Some(state)) => {
-                                                match state.get_page(breadcrumb_name) {
-                                                    Some(page) if page > 0 => {
-                                                        format!("{}?page={}", base_href, page)
+                                                match state.get_query(breadcrumb_name) {
+                                                    Some(query) if !query.is_empty() => {
+                                                        // Query string should already have '?' prefix
+                                                        if query.starts_with('?') {
+                                                            format!("{}{}", base_href, query)
+                                                        } else {
+                                                            format!("{}?{}", base_href, query)
+                                                        }
                                                     }
                                                     _ => base_href.clone()
                                                 }
@@ -203,7 +208,7 @@ pub fn Breadcrumb(items: Vec<BreadcrumbItem>) -> impl IntoView {
 
                                     view! {
                                         <A
-                                            href=href_with_page
+                                            href=href_with_query
                                             attr:class="flex items-center gap-2 text-ctp-blue hover:text-ctp-sapphire transition-colors"
                                         >
                                             {if let Some(item_id) = id.clone() {
