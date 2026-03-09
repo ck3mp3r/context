@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::use_location;
 
 use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{
@@ -13,18 +14,12 @@ use crate::websocket::use_websocket_updates;
 pub fn Projects() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
 
+    let location = use_location();
+
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
-    let search = use_search(Callback::new(move |_| {
-        pagination.set_page.set(0);
-    }));
-    let sort = use_sort(
-        "updated_at",
-        "desc",
-        Callback::new(move |_| {
-            pagination.set_page.set(0);
-        }),
-    );
+    let search = use_search();
+    let sort = use_sort("updated_at", "desc");
 
     // Get page state for breadcrumb navigation
     let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>()
@@ -151,7 +146,7 @@ pub fn Projects() -> impl IntoView {
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         let project_external_refs = project.external_refs.clone();
-                                        let page_signal = pagination.page;
+                                        let current_query_str = location.search.get();
                                         let state = page_state.clone();
 
                                         view! {
@@ -159,7 +154,7 @@ pub fn Projects() -> impl IntoView {
                                                 <a
                                                     href=format!("/projects/{}", project_id)
                                                     on:click=move |_| {
-                                                        state.set_page("projects", page_signal.get());
+                                                        state.set_query("projects", &current_query_str);
                                                     }
                                                     class="flex flex-col h-full"
                                                 >

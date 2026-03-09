@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::use_location;
 
 use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{
@@ -20,18 +21,12 @@ pub fn Notes() -> impl IntoView {
 fn NotesList() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
 
+    let location = use_location();
+
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
-    let search = use_search(Callback::new(move |_| {
-        pagination.set_page.set(0);
-    }));
-    let sort = use_sort(
-        "last_activity_at",
-        "desc",
-        Callback::new(move |_| {
-            pagination.set_page.set(0);
-        }),
-    );
+    let search = use_search();
+    let sort = use_sort("last_activity_at", "desc");
 
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
@@ -159,12 +154,12 @@ fn NotesList() -> impl IntoView {
                                                     .items
                                                     .iter()
                                                     .map(|note| {
-                                                        let page_signal = pagination.page;
+                                                        let query_str = location.search.get();
 
                                                         view! {
                                                             <NoteCard
                                                                 note=note.clone()
-                                                                current_page=page_signal
+                                                                current_query=query_str
                                                                 breadcrumb_name="notes".to_string()
                                                             />
                                                         }

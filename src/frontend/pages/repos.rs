@@ -22,16 +22,8 @@ fn ReposList() -> impl IntoView {
 
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
-    let search = use_search(Callback::new(move |_| {
-        pagination.set_page.set(0); // Reset to first page on new search
-    }));
-    let sort = use_sort(
-        "created_at",
-        "desc",
-        Callback::new(move |_| {
-            pagination.set_page.set(0); // Reset to first page on sort change
-        }),
-    );
+    let search = use_search();
+    let sort = use_sort("created_at", "desc");
 
     let (repos_data, set_repos_data) = signal(None::<Result<Paginated<Repo>, ApiClientError>>);
 
