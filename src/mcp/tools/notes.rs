@@ -55,13 +55,13 @@ pub struct ListNotesParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetNoteParams {
+pub struct ReadNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Include note content in response (default: true). Set to false to retrieve only metadata."
+        description = "Optional array of line ranges to fetch as tuples [start, end] where lines are 1-indexed. Omit for full note content, empty array [] for metadata only, or specify ranges like [[1, 3], [7, 9]] for specific lines. Ranges will be sorted and validated for overlaps."
     )]
-    pub include_content: Option<bool>,
+    pub ranges: Option<Vec<(usize, usize)>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -91,15 +91,17 @@ pub struct CreateNoteParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct UpdateNoteParams {
+pub struct DeleteNoteParams {
+    #[schemars(description = "Note ID")]
+    pub note_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(description = "Note title (optional)")]
     pub title: Option<String>,
-    #[schemars(
-        description = "Note content (optional). KEEP UNDER 10k chars. If note is getting large, create continuation note with 'parent:THIS_ID' tag instead."
-    )]
-    pub content: Option<String>,
     #[schemars(
         description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
     )]
@@ -123,12 +125,10 @@ pub struct UpdateNoteParams {
         description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
     )]
     pub project_ids: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct DeleteNoteParams {
-    #[schemars(description = "Note ID")]
-    pub note_id: String,
+    #[schemars(
+        description = "Array of patches as tuples [[start, end], replacement_text]. Example: [[[2, 3], 'new content'], [[7, 8], 'other content']]. Patches will be sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
+    )]
+    pub patches: Vec<((usize, usize), String)>,
 }
 
 #[derive(Clone)]
@@ -204,33 +204,6 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Get a note by ID. Returns full content by default - set include_content=false for metadata only."
-    )]
-    pub async fn get_note(
-        &self,
-        params: Parameters<GetNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Default to include_content=true for backward compatibility
-        let include_content = params.0.include_content.unwrap_or(true);
-
-        let note = if include_content {
-            self.db.notes().get(&params.0.note_id).await
-        } else {
-            self.db.notes().get_metadata_only(&params.0.note_id).await
-        }
-        .map_err(|e| {
-            McpError::resource_not_found(
-                "note_not_found",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&note).unwrap(),
-        )]))
-    }
-
-    #[tool(
         description = "Create a new note (Markdown supported). IMPORTANT: Keep under 10k chars (~2.5k tokens) to avoid context overflow. For larger content, split into multiple notes and link with tags: 'parent:NOTE_ID' (continuation), 'related:NOTE_ID' (reference). Link to projects/repos via project_ids/repo_ids."
     )]
     pub async fn create_note(
@@ -264,67 +237,6 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Update an existing note. All fields optional - only provided fields are updated. IMPORTANT: Keep under 10k chars. To add content without exceeding limit, create a new note with 'parent:THIS_ID' tag instead of updating."
-    )]
-    pub async fn update_note(
-        &self,
-        params: Parameters<UpdateNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Get existing note
-        let mut note = self
-            .db
-            .notes()
-            .get(&params.0.note_id)
-            .await
-            .map_err(map_db_error)?;
-
-        // Update fields
-        if let Some(title) = &params.0.title {
-            note.title = title.clone();
-        }
-        if let Some(content) = &params.0.content {
-            note.content = content.clone();
-        }
-        if let Some(tags) = &params.0.tags {
-            note.tags = tags.clone();
-        }
-        if let Some(parent_id) = &params.0.parent_id {
-            note.parent_id = parent_id.clone();
-        }
-        if let Some(idx) = &params.0.idx {
-            note.idx = *idx;
-        }
-        if let Some(repo_ids) = &params.0.repo_ids {
-            note.repo_ids = repo_ids.clone();
-        }
-        if let Some(project_ids) = &params.0.project_ids {
-            note.project_ids = project_ids.clone();
-        }
-
-        // Clear updated_at to ensure proper timestamp refresh
-        note.updated_at = None;
-
-        self.db.notes().update(&note).await.map_err(map_db_error)?;
-
-        // Fetch updated note to get auto-set updated_at
-        let updated = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
-
-        // Broadcast NoteUpdated notification
-        self.notifier.notify(UpdateMessage::NoteUpdated {
-            note_id: params.0.note_id.clone(),
-        });
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&updated).unwrap(),
-        )]))
-    }
-
-    #[tool(
         description = "Delete a note permanently. Use sparingly - consider archiving via tags instead."
     )]
     pub async fn delete_note(
@@ -346,5 +258,152 @@ impl<D: Database + 'static> NoteTools<D> {
             "Note {} deleted successfully",
             params.0.note_id
         ))]))
+    }
+
+    #[tool(
+        description = "Read a note. Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [[1, 3], [7, 9]] for specific lines. Ranges are automatically sorted and validated for overlaps."
+    )]
+    pub async fn read_note(
+        &self,
+        params: Parameters<ReadNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Handle ranges parameter semantics:
+        // - None: return full note with content (default)
+        // - Some([]): return metadata only (no content)
+        // - Some([ranges]): return specific line ranges
+
+        match &params.0.ranges {
+            // No ranges specified: return full note with content
+            None => {
+                let note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+                    McpError::resource_not_found(
+                        "note_not_found",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&note).unwrap(),
+                )]))
+            }
+
+            // Empty array: return metadata only (no content)
+            Some(ranges) if ranges.is_empty() => {
+                let note = self
+                    .db
+                    .notes()
+                    .get_metadata_only(&params.0.note_id)
+                    .await
+                    .map_err(|e| {
+                        McpError::resource_not_found(
+                            "note_not_found",
+                            Some(serde_json::json!({"error": e.to_string()})),
+                        )
+                    })?;
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&note).unwrap(),
+                )]))
+            }
+
+            // Specific line ranges: return line groups
+            Some(ranges) => {
+                let line_groups = self
+                    .db
+                    .notes()
+                    .get_line_ranges(&params.0.note_id, ranges)
+                    .await
+                    .map_err(map_db_error)?;
+
+                let response = json!({
+                    "note_id": params.0.note_id,
+                    "ranges": ranges,
+                    "line_groups": line_groups,
+                });
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+        }
+    }
+
+    #[tool(
+        description = "Edit a note - update metadata and/or apply line-range patches to content. All fields optional. Patches are automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers. For full content replacement, use a single patch covering all lines."
+    )]
+    pub async fn edit_note(
+        &self,
+        params: Parameters<EditNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Get existing note
+        let mut note = self
+            .db
+            .notes()
+            .get(&params.0.note_id)
+            .await
+            .map_err(map_db_error)?;
+
+        // Update metadata fields (same as update_note)
+        if let Some(title) = &params.0.title {
+            note.title = title.clone();
+        }
+        if let Some(tags) = &params.0.tags {
+            note.tags = tags.clone();
+        }
+        if let Some(parent_id) = &params.0.parent_id {
+            note.parent_id = parent_id.clone();
+        }
+        if let Some(idx) = &params.0.idx {
+            note.idx = *idx;
+        }
+        if let Some(repo_ids) = &params.0.repo_ids {
+            note.repo_ids = repo_ids.clone();
+        }
+        if let Some(project_ids) = &params.0.project_ids {
+            note.project_ids = project_ids.clone();
+        }
+
+        // Apply line-range patches to content if provided
+        if !params.0.patches.is_empty() {
+            self.db
+                .notes()
+                .apply_line_patches(&params.0.note_id, &params.0.patches)
+                .await
+                .map_err(map_db_error)?;
+
+            // Fetch note again after patches to get updated content, but preserve metadata changes
+            let patched_note = self
+                .db
+                .notes()
+                .get(&params.0.note_id)
+                .await
+                .map_err(map_db_error)?;
+
+            // Only update the content field, keep our metadata changes
+            note.content = patched_note.content;
+        }
+
+        // Clear updated_at to ensure proper timestamp refresh (same as update_note)
+        note.updated_at = None;
+
+        // Update the note with all changes
+        self.db.notes().update(&note).await.map_err(map_db_error)?;
+
+        // Fetch updated note to get auto-set updated_at (same as update_note)
+        let updated = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+            McpError::internal_error(
+                "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Broadcast NoteUpdated notification
+        self.notifier.notify(UpdateMessage::NoteUpdated {
+            note_id: params.0.note_id.clone(),
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&updated).unwrap(),
+        )]))
     }
 }

@@ -285,14 +285,6 @@ impl<D: Database + 'static> McpServer<D> {
         self.note_tools.list_notes(params).await
     }
 
-    #[tool(description = "Get a note by ID")]
-    pub async fn get_note(
-        &self,
-        params: Parameters<GetNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.note_tools.get_note(params).await
-    }
-
     #[tool(description = "Create a new note")]
     pub async fn create_note(
         &self,
@@ -301,20 +293,32 @@ impl<D: Database + 'static> McpServer<D> {
         self.note_tools.create_note(params).await
     }
 
-    #[tool(description = "Update an existing note")]
-    pub async fn update_note(
-        &self,
-        params: Parameters<UpdateNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.note_tools.update_note(params).await
-    }
-
     #[tool(description = "Delete a note")]
     pub async fn delete_note(
         &self,
         params: Parameters<DeleteNoteParams>,
     ) -> Result<CallToolResult, McpError> {
         self.note_tools.delete_note(params).await
+    }
+
+    #[tool(
+        description = "Read a note. Omit ranges for full content, use empty array [] for metadata only, or specify ranges for specific lines."
+    )]
+    pub async fn read_note(
+        &self,
+        params: Parameters<ReadNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.read_note(params).await
+    }
+
+    #[tool(
+        description = "Edit a note - update metadata (title, tags, relationships) and/or apply line-range patches to content. All fields optional. Patches are automatically sorted, validated, and applied in reverse order to maintain accurate line numbers."
+    )]
+    pub async fn edit_note(
+        &self,
+        params: Parameters<EditNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.edit_note(params).await
     }
 
     // =========================================================================
