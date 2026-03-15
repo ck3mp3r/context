@@ -477,13 +477,16 @@ impl<D: Database + 'static> NoteTools<D> {
                 .await
                 .map_err(map_db_error)?;
 
-            // Fetch note again after patches to get updated content
-            note = self
+            // Fetch note again after patches to get updated content, but preserve metadata changes
+            let patched_note = self
                 .db
                 .notes()
                 .get(&params.0.note_id)
                 .await
                 .map_err(map_db_error)?;
+
+            // Only update the content field, keep our metadata changes
+            note.content = patched_note.content;
         }
 
         // Clear updated_at to ensure proper timestamp refresh (same as update_note)
