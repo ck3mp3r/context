@@ -743,3 +743,71 @@ async fn test_list_subnotes() {
     assert_eq!(items[2]["title"], "Child 1");
     assert_eq!(items[2]["idx"], 30);
 }
+
+#[test]
+fn test_line_range_schema_is_object_with_start_end() {
+    use rmcp::handler::server::tool::schema_for_type;
+    use rmcp::handler::server::wrapper::Parameters;
+    let schema = schema_for_type::<Parameters<ReadNoteParams>>();
+    let json = serde_json::Value::Object((*schema).clone());
+
+    let ranges_prop = &json["properties"]["ranges"];
+    // Must be array type (possibly nullable: type: ["array","null"])
+    let is_array_type = ranges_prop["type"] == "array"
+        || ranges_prop["type"]
+            .as_array()
+            .map(|a| a.iter().any(|v| v == "array"))
+            .unwrap_or(false);
+    assert!(is_array_type, "ranges must be array type");
+    // items must be inlined object, not a $ref
+    let items = &ranges_prop["items"];
+    assert!(
+        items.get("$ref").is_none(),
+        "ranges items must not use $ref (causes GPT-4.1 failure)"
+    );
+    assert_eq!(
+        items["type"], "object",
+        "ranges items must be inlined object"
+    );
+    assert!(
+        items["properties"]["start"].is_object(),
+        "LineRange must have start"
+    );
+    assert!(
+        items["properties"]["end"].is_object(),
+        "LineRange must have end"
+    );
+}
+
+#[test]
+fn test_line_patch_schema_is_object_with_start_end_content() {
+    use rmcp::handler::server::tool::schema_for_type;
+    use rmcp::handler::server::wrapper::Parameters;
+    let schema = schema_for_type::<Parameters<EditNoteParams>>();
+    let json = serde_json::Value::Object((*schema).clone());
+
+    let patches = &json["properties"]["patches"];
+    assert_eq!(patches["type"], "array");
+    // items must be inlined object, not a $ref
+    let items = &patches["items"];
+    assert!(
+        items.get("$ref").is_none(),
+        "patches items must not use $ref (causes GPT-4.1 failure)"
+    );
+    assert_eq!(
+        items["type"], "object",
+        "patches items must be inlined object"
+    );
+    assert!(
+        items["properties"]["start"].is_object(),
+        "LinePatch must have start"
+    );
+    assert!(
+        items["properties"]["end"].is_object(),
+        "LinePatch must have end"
+    );
+    assert!(
+        items["properties"]["content"].is_object(),
+        "LinePatch must have content"
+    );
+}

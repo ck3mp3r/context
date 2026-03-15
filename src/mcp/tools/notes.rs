@@ -20,6 +20,28 @@ use crate::mcp::tools::map_db_error;
 // Parameter Structs
 // =============================================================================
 
+/// A line range for reading note content. Lines are 1-indexed.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(inline)]
+pub struct LineRange {
+    #[schemars(description = "Start line number (1-indexed, inclusive)")]
+    pub start: usize,
+    #[schemars(description = "End line number (1-indexed, inclusive)")]
+    pub end: usize,
+}
+
+/// A patch to apply to a note: replaces lines [start, end] with new content.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(inline)]
+pub struct LinePatch {
+    #[schemars(description = "Start line number (1-indexed, inclusive)")]
+    pub start: usize,
+    #[schemars(description = "End line number (1-indexed, inclusive)")]
+    pub end: usize,
+    #[schemars(description = "Replacement text for the given line range")]
+    pub content: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesParams {
     #[schemars(
@@ -59,9 +81,9 @@ pub struct ReadNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Optional array of line ranges to fetch as tuples [start, end] where lines are 1-indexed. Omit for full note content, empty array [] for metadata only, or specify ranges like [[1, 3], [7, 9]] for specific lines. Ranges will be sorted and validated for overlaps."
+        description = "Optional array of line ranges to fetch. Omit for full note content, empty array [] for metadata only, or specify ranges for specific lines. Ranges will be sorted and validated for overlaps."
     )]
-    pub ranges: Option<Vec<(usize, usize)>>,
+    pub ranges: Option<Vec<LineRange>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -126,9 +148,9 @@ pub struct EditNoteParams {
     )]
     pub project_ids: Option<Vec<String>>,
     #[schemars(
-        description = "Array of patches as tuples [[start, end], replacement_text]. Example: [[[2, 3], 'new content'], [[7, 8], 'other content']]. Patches will be sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
+        description = "Array of patches to apply. Each patch replaces lines [start, end] with new content. Patches will be sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
     )]
-    pub patches: Vec<((usize, usize), String)>,
+    pub patches: Vec<LinePatch>,
 }
 
 #[derive(Clone)]
@@ -308,10 +330,12 @@ impl<D: Database + 'static> NoteTools<D> {
 
             // Specific line ranges: return line groups
             Some(ranges) => {
+                let ranges_tuples: Vec<(usize, usize)> =
+                    ranges.iter().map(|r| (r.start, r.end)).collect();
                 let line_groups = self
                     .db
                     .notes()
-                    .get_line_ranges(&params.0.note_id, ranges)
+                    .get_line_ranges(&params.0.note_id, &ranges_tuples)
                     .await
                     .map_err(map_db_error)?;
 
@@ -365,9 +389,15 @@ impl<D: Database + 'static> NoteTools<D> {
 
         // Apply line-range patches to content if provided
         if !params.0.patches.is_empty() {
+            let patches_tuples: Vec<((usize, usize), String)> = params
+                .0
+                .patches
+                .iter()
+                .map(|p| ((p.start, p.end), p.content.clone()))
+                .collect();
             self.db
                 .notes()
-                .apply_line_patches(&params.0.note_id, &params.0.patches)
+                .apply_line_patches(&params.0.note_id, &patches_tuples)
                 .await
                 .map_err(map_db_error)?;
 
