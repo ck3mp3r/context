@@ -222,7 +222,7 @@ impl<D: Database + 'static> TaskListTools<D> {
     }
 
     #[tool(
-        description = "Create a new task list. IMPORTANT: Only create when starting a NEW workstream/project/feature. Most work should be added as tasks to existing lists. MUST specify project_id - ask user which project if unclear. Task lists group related work, not individual tasks."
+        description = "Create a new task list. ALWAYS call list_task_lists first to check for an existing suitable list before creating a new one. Only create when no existing list fits the workstream. MUST specify project_id - ask user which project if unclear."
     )]
     pub async fn create_task_list(
         &self,

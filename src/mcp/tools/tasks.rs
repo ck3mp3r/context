@@ -88,7 +88,7 @@ pub struct CreateTaskParams {
     )]
     pub priority: Option<i32>,
     #[schemars(
-        description = "Parent task ID for subtasks. BEST PRACTICE: Only ONE level deep (subtasks should not have subtasks). Optional."
+        description = "Parent task ID for subtasks. Max ONE level deep — the parent must be a top-level task (subtasks cannot have subtasks). Optional."
     )]
     pub parent_id: Option<String>,
     #[schemars(
@@ -281,7 +281,7 @@ impl<D: Database + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses. All specified tasks must have the same current status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
+        description = "Transition task between statuses. No-ops silently if already at target. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]. Blocked if subtasks are still in flight when targeting done/cancelled. Max task depth is 1 level (subtasks cannot have subtasks)."
     )]
     pub async fn transition_task(
         &self,
@@ -296,9 +296,10 @@ impl<D: Database + 'static> TaskTools<D> {
         })?;
 
         // Call database transition_tasks method
-        self.db
+        let transitioned = self
+            .db
             .tasks()
-            .transition_tasks(&params.0.task_ids, target_status)
+            .transition_tasks(&params.0.task_ids, target_status.clone())
             .await
             .map_err(map_db_error)?;
 
@@ -309,9 +310,9 @@ impl<D: Database + 'static> TaskTools<D> {
             });
         }
 
-        // Return success message
+        // Build success message
         let count = params.0.task_ids.len();
-        let message = if count == 1 {
+        let mut message = if count == 1 {
             format!("Successfully transitioned 1 task to {}", params.0.status)
         } else {
             format!(
@@ -319,6 +320,40 @@ impl<D: Database + 'static> TaskTools<D> {
                 count, params.0.status
             )
         };
+
+        // Reminder: if subtasks moved to in_progress/review, check if parent needs attention
+        if matches!(target_status, TaskStatus::InProgress | TaskStatus::Review) {
+            let parent_ids: Vec<String> = transitioned
+                .iter()
+                .filter_map(|t| t.parent_id.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
+            if !parent_ids.is_empty() {
+                let mut stale_parents = Vec::new();
+                for pid in &parent_ids {
+                    if let Ok(parent) = self.db.tasks().get(pid).await {
+                        if matches!(parent.status, TaskStatus::Backlog | TaskStatus::Todo) {
+                            stale_parents.push(pid.clone());
+                        }
+                    }
+                }
+                if !stale_parents.is_empty() {
+                    message.push_str(&format!(
+                        " [Reminder: parent task(s) {} are still in '{}' — consider transitioning them to 'in_progress'.]",
+                        stale_parents.join(", "),
+                        if stale_parents.len() == 1 {
+                            self.db.tasks().get(&stale_parents[0]).await
+                                .map(|t| t.status.to_string())
+                                .unwrap_or_default()
+                        } else {
+                            "backlog/todo".to_string()
+                        }
+                    ));
+                }
+            }
+        }
 
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
