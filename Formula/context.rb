@@ -7,20 +7,20 @@ class Context < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/ck3mp3r/context/releases/download/v0.7.0/context-0.7.0-aarch64-darwin.tgz"
-      sha256 "6a66836a68b71c877987f978948bf2dabbd8ed7b3ed31b7c951f4700b67f3cec"
+      sha256 "5faab46fda492f65f3a870475c05347c89c10252a45bac2376198242220b7b40"
     else
       url "https://github.com/ck3mp3r/context/releases/download/v0.7.0/context-0.7.0-x86_64-darwin.tgz"
-      sha256 "51e740f20ebad2dfd4a8793e21cee2974961f5a7e0c181207e6be2247a9d6f43"
+      sha256 "21dddcc144467e8540777dbfd0f210a5c84a9900f05b9113c5f8f23906525575"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
       url "https://github.com/ck3mp3r/context/releases/download/v0.7.0/context-0.7.0-x86_64-linux.tgz"
-      sha256 "634aef6adde51b07869efa80248602725b84fbf0bf595fada79c17a0b26ed84e"
+      sha256 "b6dfb7cc1811947681b8ba84f0b9f8571f5a731700034ac1c9d6bd7df94dc6a3"
     elsif Hardware::CPU.arm?
       url "https://github.com/ck3mp3r/context/releases/download/v0.7.0/context-0.7.0-aarch64-linux.tgz"
-      sha256 "bb43899be56e885f514c8b55a4f912df2b940699b5e467ed953262b769ae5f11"
+      sha256 "7466ef3280270613bf7319a48c9d8a5b4aba281252f1885cce39ede145bab8ef"
     end
   end
 
