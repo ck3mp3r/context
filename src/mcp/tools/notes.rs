@@ -17,6 +17,52 @@ use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort};
 use crate::mcp::tools::map_db_error;
 
 // =============================================================================
+// TOON Formatting Helper
+// =============================================================================
+
+/// Format content lines as TOON tabular array with line numbers.
+/// Format: lines[N]{ln,text}:
+///   1,First line
+///   2,"Second line, with comma"
+fn format_as_toon(content: &str, start_line: usize) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let count = lines.len();
+
+    if count == 0 {
+        return format!("lines[0]{{ln,text}}:");
+    }
+
+    let mut result = format!("lines[{}]{{ln,text}}:\n", count);
+
+    for (idx, line) in lines.iter().enumerate() {
+        let line_num = start_line + idx;
+        let escaped_line = escape_toon_value(line);
+        result.push_str(&format!("  {},{}\n", line_num, escaped_line));
+    }
+
+    // Remove trailing newline
+    result.pop();
+    result
+}
+
+/// Escape a value for TOON tabular format (comma-delimited).
+/// Quotes the value if it contains comma, quote, newline, or starts with quote.
+fn escape_toon_value(value: &str) -> String {
+    let needs_quoting = value.contains(',')
+        || value.contains('"')
+        || value.contains('\n')
+        || value.contains('\r')
+        || value.starts_with('"');
+
+    if needs_quoting {
+        // Quote and escape internal quotes by doubling them (CSV-style)
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+// =============================================================================
 // Parameter Structs
 // =============================================================================
 
@@ -84,6 +130,10 @@ pub struct ReadNoteParams {
         description = "Optional array of line ranges to fetch. Omit for full note content, empty array [] for metadata only, or specify ranges for specific lines. Ranges will be sorted and validated for overlaps."
     )]
     pub ranges: Option<Vec<LineRange>>,
+    #[schemars(
+        description = "Output format: 'json' (default, returns plain content) or 'toon' (returns TOON tabular format with explicit line numbers for easy patching)"
+    )]
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -283,7 +333,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Read a note. Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [[1, 3], [7, 9]] for specific lines. Ranges are automatically sorted and validated for overlaps."
+        description = "Read a note. Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [{start: 1, end: 3}, {start: 7, end: 9}] for specific lines. Ranges are automatically sorted and validated for overlaps. Use format='toon' to get content with explicit line numbers (lines[N]{ln,text}: format) - essential for accurate line-based patching with c5t_edit_note."
     )]
     pub async fn read_note(
         &self,
@@ -297,12 +347,17 @@ impl<D: Database + 'static> NoteTools<D> {
         match &params.0.ranges {
             // No ranges specified: return full note with content
             None => {
-                let note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+                let mut note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
                     McpError::resource_not_found(
                         "note_not_found",
                         Some(serde_json::json!({"error": e.to_string()})),
                     )
                 })?;
+
+                // Apply TOON formatting if requested
+                if params.0.format.as_deref() == Some("toon") {
+                    note.content = format_as_toon(&note.content, 1);
+                }
 
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&note).unwrap(),
@@ -332,22 +387,44 @@ impl<D: Database + 'static> NoteTools<D> {
             Some(ranges) => {
                 let ranges_tuples: Vec<(usize, usize)> =
                     ranges.iter().map(|r| (r.start, r.end)).collect();
-                let line_groups = self
+                let line_contents = self
                     .db
                     .notes()
                     .get_line_ranges(&params.0.note_id, &ranges_tuples)
                     .await
                     .map_err(map_db_error)?;
 
-                let response = json!({
-                    "note_id": params.0.note_id,
-                    "ranges": ranges,
-                    "line_groups": line_groups,
-                });
+                // Apply TOON formatting if requested
+                if params.0.format.as_deref() == Some("toon") {
+                    // Combine all lines into a single content string
+                    let combined_content = line_contents.join("\n");
 
-                Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&response).unwrap(),
-                )]))
+                    // Get start line number from first range
+                    let start_line = ranges.first().map(|r| r.start).unwrap_or(1);
+
+                    let formatted_content = format_as_toon(&combined_content, start_line);
+
+                    let response = json!({
+                        "note_id": params.0.note_id,
+                        "ranges": ranges,
+                        "content": formatted_content,
+                    });
+
+                    Ok(CallToolResult::success(vec![Content::text(
+                        serde_json::to_string_pretty(&response).unwrap(),
+                    )]))
+                } else {
+                    // Return original format with line_groups
+                    let response = json!({
+                        "note_id": params.0.note_id,
+                        "ranges": ranges,
+                        "line_groups": line_contents,
+                    });
+
+                    Ok(CallToolResult::success(vec![Content::text(
+                        serde_json::to_string_pretty(&response).unwrap(),
+                    )]))
+                }
             }
         }
     }
