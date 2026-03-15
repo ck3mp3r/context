@@ -50,6 +50,50 @@ fn validate_note_size(content: &str) -> DbResult<Option<String>> {
     }
 }
 
+/// Validates and sorts line ranges for reading or editing notes.
+///
+/// # Arguments
+/// * `ranges` - Slice of (start_line, end_line) tuples where lines are 1-indexed
+///
+/// # Returns
+/// * `Ok(Vec)` - Sorted ranges if valid (sorted by start line ascending)
+/// * `Err` - If any ranges overlap
+///
+/// # Examples
+/// ```
+/// // Valid ranges: (1, 3) and (5, 7) -> no overlap
+/// // Invalid ranges: (1, 3) and (2, 4) -> overlap on line 2-3
+/// ```
+fn validate_and_sort_ranges(ranges: &[(usize, usize)]) -> DbResult<Vec<(usize, usize)>> {
+    if ranges.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Sort ranges by start line (defensive programming - don't trust input order)
+    let mut sorted: Vec<(usize, usize)> = ranges.to_vec();
+    sorted.sort_by_key(|r| r.0);
+
+    // Check for overlaps after sorting
+    for i in 1..sorted.len() {
+        let prev_end = sorted[i - 1].1;
+        let curr_start = sorted[i].0;
+
+        if curr_start <= prev_end {
+            return Err(DbError::Validation {
+                message: format!(
+                    "Overlapping line ranges detected: ({}, {}) and ({}, {})",
+                    sorted[i - 1].0,
+                    sorted[i - 1].1,
+                    sorted[i].0,
+                    sorted[i].1
+                ),
+            });
+        }
+    }
+
+    Ok(sorted)
+}
+
 impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn create(&self, note: &Note) -> DbResult<Note> {
         // Validate content size
@@ -987,5 +1031,114 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             limit: query.page.limit,
             offset: query.page.offset.unwrap_or(0),
         })
+    }
+
+    async fn get_line_ranges(&self, id: &str, ranges: &[(usize, usize)]) -> DbResult<Vec<String>> {
+        // Validate and sort ranges
+        let sorted_ranges = validate_and_sort_ranges(ranges)?;
+
+        // Get the note content
+        let note = self.get(id).await?;
+        let lines: Vec<&str> = note.content.lines().collect();
+
+        // Extract each range
+        let mut result = Vec::new();
+        for (start, end) in sorted_ranges {
+            // Validate range bounds (1-indexed)
+            if start < 1 {
+                return Err(DbError::Validation {
+                    message: format!("Line numbers must be >= 1, got start={}", start),
+                });
+            }
+            if end < start {
+                return Err(DbError::Validation {
+                    message: format!("End line ({}) must be >= start line ({})", end, start),
+                });
+            }
+            if end > lines.len() {
+                return Err(DbError::Validation {
+                    message: format!(
+                        "Line range ({}, {}) exceeds note length ({})",
+                        start,
+                        end,
+                        lines.len()
+                    ),
+                });
+            }
+
+            // Extract lines (convert from 1-indexed to 0-indexed)
+            let range_lines = &lines[(start - 1)..end];
+            result.push(range_lines.join("\n"));
+        }
+
+        Ok(result)
+    }
+
+    async fn apply_line_patches(
+        &self,
+        id: &str,
+        patches: &[((usize, usize), String)],
+    ) -> DbResult<()> {
+        // Extract ranges for validation (defensive programming)
+        let ranges: Vec<(usize, usize)> = patches.iter().map(|(range, _)| *range).collect();
+
+        // Validate and sort ranges ascending (will check for overlaps)
+        let sorted_ranges = validate_and_sort_ranges(&ranges)?;
+
+        // Get the note content
+        let note = self.get(id).await?;
+        let mut lines: Vec<String> = note.content.lines().map(|s| s.to_string()).collect();
+
+        // Create sorted patches vector matching the sorted ranges
+        // This ensures patches match their validated ranges
+        let mut sorted_patches: Vec<((usize, usize), String)> = Vec::new();
+        for sorted_range in &sorted_ranges {
+            // Find the corresponding patch for this range
+            if let Some(patch) = patches.iter().find(|(r, _)| r == sorted_range) {
+                sorted_patches.push(patch.clone());
+            }
+        }
+
+        // CRITICAL: Apply patches in REVERSE order (bottom to top)
+        // This maintains accurate line numbers throughout the process
+        // Example: Patching lines 2-3 and 7-8:
+        //   1. Apply 7-8 first (doesn't affect lines 1-6)
+        //   2. Then apply 2-3 (line 2 is still at position 2)
+        for ((start, end), replacement) in sorted_patches.iter().rev() {
+            let start = *start;
+            let end = *end;
+
+            // Validate range bounds
+            if start < 1 {
+                return Err(DbError::Validation {
+                    message: format!("Line numbers must be >= 1, got start={}", start),
+                });
+            }
+            if end < start {
+                return Err(DbError::Validation {
+                    message: format!("End line ({}) must be >= start line ({})", end, start),
+                });
+            }
+            if end > lines.len() {
+                return Err(DbError::Validation {
+                    message: format!(
+                        "Line range ({}, {}) exceeds note length ({})",
+                        start,
+                        end,
+                        lines.len()
+                    ),
+                });
+            }
+
+            // Replace the line range (convert from 1-indexed to 0-indexed)
+            lines.splice((start - 1)..end, vec![replacement.clone()]);
+        }
+
+        // Update the note with the new content
+        let mut updated_note = note;
+        updated_note.content = lines.join("\n");
+        self.update(&updated_note).await?;
+
+        Ok(())
     }
 }

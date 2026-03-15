@@ -131,6 +131,26 @@ pub struct DeleteNoteParams {
     pub note_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ReadNoteParams {
+    #[schemars(description = "Note ID")]
+    pub note_id: String,
+    #[schemars(
+        description = "Optional array of line ranges to fetch as tuples [start, end] where lines are 1-indexed. Example: [[1, 3], [7, 9]] fetches lines 1-3 and 7-9. Omit to read full note content. Ranges will be sorted and validated for overlaps."
+    )]
+    pub ranges: Option<Vec<(usize, usize)>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct EditNoteParams {
+    #[schemars(description = "Note ID")]
+    pub note_id: String,
+    #[schemars(
+        description = "Array of patches as tuples [[start, end], replacement_text]. Example: [[[2, 3], 'new content'], [[7, 8], 'other content']]. Patches will be sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
+    )]
+    pub patches: Vec<((usize, usize), String)>,
+}
+
 #[derive(Clone)]
 pub struct NoteTools<D: Database> {
     db: Arc<D>,
@@ -346,5 +366,77 @@ impl<D: Database + 'static> NoteTools<D> {
             "Note {} deleted successfully",
             params.0.note_id
         ))]))
+    }
+
+    #[tool(
+        description = "Read a note. Optionally provide line ranges to read specific sections. If no ranges provided, returns full note content. Ranges are tuples of (start_line, end_line) where lines are 1-indexed and will be automatically sorted and validated for overlaps."
+    )]
+    pub async fn read_note(
+        &self,
+        params: Parameters<ReadNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // If no ranges provided, return full note content
+        if params.0.ranges.is_none() {
+            let note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+                McpError::resource_not_found(
+                    "note_not_found",
+                    Some(serde_json::json!({"error": e.to_string()})),
+                )
+            })?;
+
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&note).unwrap(),
+            )]));
+        }
+
+        // Otherwise, read specific line ranges
+        let ranges = params.0.ranges.as_ref().unwrap();
+        let line_groups = self
+            .db
+            .notes()
+            .get_line_ranges(&params.0.note_id, ranges)
+            .await
+            .map_err(map_db_error)?;
+
+        let response = json!({
+            "note_id": params.0.note_id,
+            "ranges": ranges,
+            "line_groups": line_groups,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    #[tool(
+        description = "Edit a note by applying line-range patches. Provide patches as tuples of ((start_line, end_line), replacement_text). Patches will be automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers. For full content replacement, use a single patch covering all lines."
+    )]
+    pub async fn edit_note(
+        &self,
+        params: Parameters<EditNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .notes()
+            .apply_line_patches(&params.0.note_id, &params.0.patches)
+            .await
+            .map_err(map_db_error)?;
+
+        // Broadcast NoteUpdated notification
+        self.notifier.notify(UpdateMessage::NoteUpdated {
+            note_id: params.0.note_id.clone(),
+        });
+
+        // Fetch updated note to return
+        let updated = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+            McpError::internal_error(
+                "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&updated).unwrap(),
+        )]))
     }
 }

@@ -116,6 +116,23 @@ pub trait NoteRepository: Send + Sync {
         search_term: &str,
         query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+    /// Get specific line ranges from a note.
+    /// Ranges are tuples of (start_line, end_line) where lines are 1-indexed.
+    /// Ranges will be sorted and validated for overlap before processing.
+    fn get_line_ranges(
+        &self,
+        id: &str,
+        ranges: &[(usize, usize)],
+    ) -> impl Future<Output = DbResult<Vec<String>>> + Send;
+    /// Apply patches to specific line ranges in a note.
+    /// Patches are tuples of ((start_line, end_line), replacement_content).
+    /// Patches will be sorted, validated for overlap, and applied in reverse order
+    /// to maintain accurate line numbers.
+    fn apply_line_patches(
+        &self,
+        id: &str,
+        patches: &[((usize, usize), String)],
+    ) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for Skill operations.

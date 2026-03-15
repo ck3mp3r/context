@@ -317,6 +317,26 @@ impl<D: Database + 'static> McpServer<D> {
         self.note_tools.delete_note(params).await
     }
 
+    #[tool(
+        description = "Read a note. Optionally provide line ranges to read specific sections. If no ranges provided, returns full note content."
+    )]
+    pub async fn read_note(
+        &self,
+        params: Parameters<ReadNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.read_note(params).await
+    }
+
+    #[tool(
+        description = "Edit a note by applying line-range patches. Patches are automatically sorted, validated, and applied in reverse order to maintain accurate line numbers."
+    )]
+    pub async fn edit_note(
+        &self,
+        params: Parameters<EditNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.edit_note(params).await
+    }
+
     // =========================================================================
     // Skill Tools
     // =========================================================================
