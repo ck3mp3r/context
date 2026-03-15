@@ -301,14 +301,6 @@ impl<D: Database + 'static> McpServer<D> {
         self.note_tools.create_note(params).await
     }
 
-    #[tool(description = "Update an existing note")]
-    pub async fn update_note(
-        &self,
-        params: Parameters<UpdateNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.note_tools.update_note(params).await
-    }
-
     #[tool(description = "Delete a note")]
     pub async fn delete_note(
         &self,

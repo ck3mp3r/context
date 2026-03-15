@@ -3,7 +3,7 @@
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
 use crate::mcp::tools::notes::{
-    CreateNoteParams, DeleteNoteParams, GetNoteParams, ListNotesParams, NoteTools, UpdateNoteParams,
+    CreateNoteParams, DeleteNoteParams, EditNoteParams, GetNoteParams, ListNotesParams, NoteTools,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
@@ -190,7 +190,7 @@ async fn test_list_notes_with_tag_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_note() {
+async fn test_edit_note() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -213,22 +213,22 @@ async fn test_update_note() {
 
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
-    // Update note
-    let update_params = UpdateNoteParams {
+    // Update note metadata only (no patches)
+    let edit_params = EditNoteParams {
         note_id: created.id.clone(),
         title: Some("Updated Title".to_string()),
-        content: Some("Updated content with more details".to_string()),
         tags: Some(vec!["updated".to_string()]),
         parent_id: None,
         idx: None,
         repo_ids: None,
         project_ids: None,
+        patches: vec![], // Empty patches for metadata-only update
     };
 
     let result = tools
-        .update_note(Parameters(update_params))
+        .edit_note(Parameters(edit_params))
         .await
-        .expect("update should succeed");
+        .expect("edit should succeed");
 
     let content_text = match &result.content[0].raw {
         RawContent::Text(text) => text.text.as_str(),
@@ -238,7 +238,7 @@ async fn test_update_note() {
 
     assert_eq!(updated.id, created.id);
     assert_eq!(updated.title, "Updated Title");
-    assert_eq!(updated.content, "Updated content with more details");
+    assert_eq!(updated.content, "Original content"); // Content unchanged
     assert_eq!(updated.tags, vec!["updated".to_string()]);
 }
 
@@ -633,22 +633,22 @@ async fn test_update_note_idx() {
     let created: Note = serde_json::from_str(create_text).unwrap();
     assert_eq!(created.idx, Some(10));
 
-    // Update idx
-    let update_params = UpdateNoteParams {
+    // Update idx using edit_note
+    let edit_params = EditNoteParams {
         note_id: created.id.clone(),
         title: Some("Test Note".to_string()),
-        content: Some("Content".to_string()),
         tags: None,
         parent_id: None,
         idx: Some(Some(20)),
         repo_ids: None,
         project_ids: None,
+        patches: vec![], // Empty patches for metadata-only update
     };
 
     let update_result = tools
-        .update_note(Parameters(update_params))
+        .edit_note(Parameters(edit_params))
         .await
-        .expect("update should succeed");
+        .expect("edit should succeed");
 
     let update_text = match &update_result.content[0].raw {
         RawContent::Text(text) => text.text.as_str(),

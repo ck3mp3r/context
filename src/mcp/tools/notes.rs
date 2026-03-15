@@ -91,41 +91,6 @@ pub struct CreateNoteParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct UpdateNoteParams {
-    #[schemars(description = "Note ID")]
-    pub note_id: String,
-    #[schemars(description = "Note title (optional)")]
-    pub title: Option<String>,
-    #[schemars(
-        description = "Note content (optional). KEEP UNDER 10k chars. If note is getting large, create continuation note with 'parent:THIS_ID' tag instead."
-    )]
-    pub content: Option<String>,
-    #[schemars(
-        description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
-    )]
-    pub tags: Option<Vec<String>>,
-    #[schemars(
-        description = "Parent note ID for hierarchical notes (optional). Use empty string \"\" or null to remove parent."
-    )]
-    #[serde(
-        default,
-        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
-    )]
-    pub parent_id: Option<Option<String>>,
-    #[schemars(description = "Index for manual ordering (optional)")]
-    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
-    pub idx: Option<Option<i32>>,
-    #[schemars(
-        description = "Repository IDs to link (optional). Associate with relevant repos for context."
-    )]
-    pub repo_ids: Option<Vec<String>>,
-    #[schemars(
-        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
-    )]
-    pub project_ids: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
@@ -305,67 +270,6 @@ impl<D: Database + 'static> NoteTools<D> {
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&created).unwrap(),
-        )]))
-    }
-
-    #[tool(
-        description = "Update an existing note. All fields optional - only provided fields are updated. IMPORTANT: Keep under 10k chars. To add content without exceeding limit, create a new note with 'parent:THIS_ID' tag instead of updating."
-    )]
-    pub async fn update_note(
-        &self,
-        params: Parameters<UpdateNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Get existing note
-        let mut note = self
-            .db
-            .notes()
-            .get(&params.0.note_id)
-            .await
-            .map_err(map_db_error)?;
-
-        // Update fields
-        if let Some(title) = &params.0.title {
-            note.title = title.clone();
-        }
-        if let Some(content) = &params.0.content {
-            note.content = content.clone();
-        }
-        if let Some(tags) = &params.0.tags {
-            note.tags = tags.clone();
-        }
-        if let Some(parent_id) = &params.0.parent_id {
-            note.parent_id = parent_id.clone();
-        }
-        if let Some(idx) = &params.0.idx {
-            note.idx = *idx;
-        }
-        if let Some(repo_ids) = &params.0.repo_ids {
-            note.repo_ids = repo_ids.clone();
-        }
-        if let Some(project_ids) = &params.0.project_ids {
-            note.project_ids = project_ids.clone();
-        }
-
-        // Clear updated_at to ensure proper timestamp refresh
-        note.updated_at = None;
-
-        self.db.notes().update(&note).await.map_err(map_db_error)?;
-
-        // Fetch updated note to get auto-set updated_at
-        let updated = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
-            McpError::internal_error(
-                "database_error",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
-
-        // Broadcast NoteUpdated notification
-        self.notifier.notify(UpdateMessage::NoteUpdated {
-            note_id: params.0.note_id.clone(),
-        });
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&updated).unwrap(),
         )]))
     }
 
