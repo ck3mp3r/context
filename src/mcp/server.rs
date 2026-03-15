@@ -328,7 +328,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        description = "Edit a note by applying line-range patches. Patches are automatically sorted, validated, and applied in reverse order to maintain accurate line numbers."
+        description = "Edit a note - update metadata (title, tags, relationships) and/or apply line-range patches to content. All fields optional. Patches are automatically sorted, validated, and applied in reverse order to maintain accurate line numbers."
     )]
     pub async fn edit_note(
         &self,

@@ -145,6 +145,31 @@ pub struct ReadNoteParams {
 pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
+    #[schemars(description = "Note title (optional)")]
+    pub title: Option<String>,
+    #[schemars(
+        description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
+    )]
+    pub tags: Option<Vec<String>>,
+    #[schemars(
+        description = "Parent note ID for hierarchical notes (optional). Use empty string \"\" or null to remove parent."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
+    )]
+    pub parent_id: Option<Option<String>>,
+    #[schemars(description = "Index for manual ordering (optional)")]
+    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
+    pub idx: Option<Option<i32>>,
+    #[schemars(
+        description = "Repository IDs to link (optional). Associate with relevant repos for context."
+    )]
+    pub repo_ids: Option<Vec<String>>,
+    #[schemars(
+        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
+    )]
+    pub project_ids: Option<Vec<String>>,
     #[schemars(
         description = "Array of patches as tuples [[start, end], replacement_text]. Example: [[[2, 3], 'new content'], [[7, 8], 'other content']]. Patches will be sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
     )]
@@ -410,30 +435,75 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Edit a note by applying line-range patches. Provide patches as tuples of ((start_line, end_line), replacement_text). Patches will be automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers. For full content replacement, use a single patch covering all lines."
+        description = "Edit a note - update metadata and/or apply line-range patches to content. All fields optional. Patches are automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers. For full content replacement, use a single patch covering all lines."
     )]
     pub async fn edit_note(
         &self,
         params: Parameters<EditNoteParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.db
+        // Get existing note
+        let mut note = self
+            .db
             .notes()
-            .apply_line_patches(&params.0.note_id, &params.0.patches)
+            .get(&params.0.note_id)
             .await
             .map_err(map_db_error)?;
 
-        // Broadcast NoteUpdated notification
-        self.notifier.notify(UpdateMessage::NoteUpdated {
-            note_id: params.0.note_id.clone(),
-        });
+        // Update metadata fields (same as update_note)
+        if let Some(title) = &params.0.title {
+            note.title = title.clone();
+        }
+        if let Some(tags) = &params.0.tags {
+            note.tags = tags.clone();
+        }
+        if let Some(parent_id) = &params.0.parent_id {
+            note.parent_id = parent_id.clone();
+        }
+        if let Some(idx) = &params.0.idx {
+            note.idx = *idx;
+        }
+        if let Some(repo_ids) = &params.0.repo_ids {
+            note.repo_ids = repo_ids.clone();
+        }
+        if let Some(project_ids) = &params.0.project_ids {
+            note.project_ids = project_ids.clone();
+        }
 
-        // Fetch updated note to return
+        // Apply line-range patches to content if provided
+        if !params.0.patches.is_empty() {
+            self.db
+                .notes()
+                .apply_line_patches(&params.0.note_id, &params.0.patches)
+                .await
+                .map_err(map_db_error)?;
+
+            // Fetch note again after patches to get updated content
+            note = self
+                .db
+                .notes()
+                .get(&params.0.note_id)
+                .await
+                .map_err(map_db_error)?;
+        }
+
+        // Clear updated_at to ensure proper timestamp refresh (same as update_note)
+        note.updated_at = None;
+
+        // Update the note with all changes
+        self.db.notes().update(&note).await.map_err(map_db_error)?;
+
+        // Fetch updated note to get auto-set updated_at (same as update_note)
         let updated = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
             McpError::internal_error(
                 "database_error",
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
+
+        // Broadcast NoteUpdated notification
+        self.notifier.notify(UpdateMessage::NoteUpdated {
+            note_id: params.0.note_id.clone(),
+        });
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&updated).unwrap(),
