@@ -3,7 +3,7 @@
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Note, NoteRepository, SqliteDatabase};
 use crate::mcp::tools::notes::{
-    CreateNoteParams, DeleteNoteParams, EditNoteParams, GetNoteParams, ListNotesParams, NoteTools,
+    CreateNoteParams, DeleteNoteParams, EditNoteParams, ListNotesParams, NoteTools, ReadNoteParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
@@ -47,7 +47,7 @@ async fn test_list_notes_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_and_get_note() {
+async fn test_create_and_read_note() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -84,16 +84,16 @@ async fn test_create_and_get_note() {
     );
     assert!(!created.id.is_empty());
 
-    // Get the note
-    let get_params = GetNoteParams {
+    // Read the note (full content - ranges omitted)
+    let read_params = ReadNoteParams {
         note_id: created.id.clone(),
-        include_content: None, // Default to true
+        ranges: None, // Omit ranges for full content
     };
 
     let result = tools
-        .get_note(Parameters(get_params))
+        .read_note(Parameters(read_params))
         .await
-        .expect("get should succeed");
+        .expect("read should succeed");
 
     let content_text = match &result.content[0].raw {
         RawContent::Text(text) => text.text.as_str(),
@@ -106,18 +106,18 @@ async fn test_create_and_get_note() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_note_not_found() {
+async fn test_read_note_not_found() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
-    let params = GetNoteParams {
+    let params = ReadNoteParams {
         note_id: "nonexist".to_string(),
-        include_content: None,
+        ranges: None,
     };
 
-    let result = tools.get_note(Parameters(params)).await;
+    let result = tools.read_note(Parameters(params)).await;
     assert!(result.is_err());
 }
 

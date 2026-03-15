@@ -285,14 +285,6 @@ impl<D: Database + 'static> McpServer<D> {
         self.note_tools.list_notes(params).await
     }
 
-    #[tool(description = "Get a note by ID")]
-    pub async fn get_note(
-        &self,
-        params: Parameters<GetNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.note_tools.get_note(params).await
-    }
-
     #[tool(description = "Create a new note")]
     pub async fn create_note(
         &self,
@@ -310,7 +302,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        description = "Read a note. Optionally provide line ranges to read specific sections. If no ranges provided, returns full note content."
+        description = "Read a note. Omit ranges for full content, use empty array [] for metadata only, or specify ranges for specific lines."
     )]
     pub async fn read_note(
         &self,

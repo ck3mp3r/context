@@ -55,13 +55,13 @@ pub struct ListNotesParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetNoteParams {
+pub struct ReadNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Include note content in response (default: true). Set to false to retrieve only metadata."
+        description = "Optional array of line ranges to fetch as tuples [start, end] where lines are 1-indexed. Omit for full note content, empty array [] for metadata only, or specify ranges like [[1, 3], [7, 9]] for specific lines. Ranges will be sorted and validated for overlaps."
     )]
-    pub include_content: Option<bool>,
+    pub ranges: Option<Vec<(usize, usize)>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -94,16 +94,6 @@ pub struct CreateNoteParams {
 pub struct DeleteNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ReadNoteParams {
-    #[schemars(description = "Note ID")]
-    pub note_id: String,
-    #[schemars(
-        description = "Optional array of line ranges to fetch as tuples [start, end] where lines are 1-indexed. Example: [[1, 3], [7, 9]] fetches lines 1-3 and 7-9. Omit to read full note content. Ranges will be sorted and validated for overlaps."
-    )]
-    pub ranges: Option<Vec<(usize, usize)>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -214,33 +204,6 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Get a note by ID. Returns full content by default - set include_content=false for metadata only."
-    )]
-    pub async fn get_note(
-        &self,
-        params: Parameters<GetNoteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Default to include_content=true for backward compatibility
-        let include_content = params.0.include_content.unwrap_or(true);
-
-        let note = if include_content {
-            self.db.notes().get(&params.0.note_id).await
-        } else {
-            self.db.notes().get_metadata_only(&params.0.note_id).await
-        }
-        .map_err(|e| {
-            McpError::resource_not_found(
-                "note_not_found",
-                Some(serde_json::json!({"error": e.to_string()})),
-            )
-        })?;
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&note).unwrap(),
-        )]))
-    }
-
-    #[tool(
         description = "Create a new note (Markdown supported). IMPORTANT: Keep under 10k chars (~2.5k tokens) to avoid context overflow. For larger content, split into multiple notes and link with tags: 'parent:NOTE_ID' (continuation), 'related:NOTE_ID' (reference). Link to projects/repos via project_ids/repo_ids."
     )]
     pub async fn create_note(
@@ -298,44 +261,71 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Read a note. Optionally provide line ranges to read specific sections. If no ranges provided, returns full note content. Ranges are tuples of (start_line, end_line) where lines are 1-indexed and will be automatically sorted and validated for overlaps."
+        description = "Read a note. Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [[1, 3], [7, 9]] for specific lines. Ranges are automatically sorted and validated for overlaps."
     )]
     pub async fn read_note(
         &self,
         params: Parameters<ReadNoteParams>,
     ) -> Result<CallToolResult, McpError> {
-        // If no ranges provided, return full note content
-        if params.0.ranges.is_none() {
-            let note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
-                McpError::resource_not_found(
-                    "note_not_found",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
+        // Handle ranges parameter semantics:
+        // - None: return full note with content (default)
+        // - Some([]): return metadata only (no content)
+        // - Some([ranges]): return specific line ranges
 
-            return Ok(CallToolResult::success(vec![Content::text(
-                serde_json::to_string_pretty(&note).unwrap(),
-            )]));
+        match &params.0.ranges {
+            // No ranges specified: return full note with content
+            None => {
+                let note = self.db.notes().get(&params.0.note_id).await.map_err(|e| {
+                    McpError::resource_not_found(
+                        "note_not_found",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&note).unwrap(),
+                )]))
+            }
+
+            // Empty array: return metadata only (no content)
+            Some(ranges) if ranges.is_empty() => {
+                let note = self
+                    .db
+                    .notes()
+                    .get_metadata_only(&params.0.note_id)
+                    .await
+                    .map_err(|e| {
+                        McpError::resource_not_found(
+                            "note_not_found",
+                            Some(serde_json::json!({"error": e.to_string()})),
+                        )
+                    })?;
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&note).unwrap(),
+                )]))
+            }
+
+            // Specific line ranges: return line groups
+            Some(ranges) => {
+                let line_groups = self
+                    .db
+                    .notes()
+                    .get_line_ranges(&params.0.note_id, ranges)
+                    .await
+                    .map_err(map_db_error)?;
+
+                let response = json!({
+                    "note_id": params.0.note_id,
+                    "ranges": ranges,
+                    "line_groups": line_groups,
+                });
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
         }
-
-        // Otherwise, read specific line ranges
-        let ranges = params.0.ranges.as_ref().unwrap();
-        let line_groups = self
-            .db
-            .notes()
-            .get_line_ranges(&params.0.note_id, ranges)
-            .await
-            .map_err(map_db_error)?;
-
-        let response = json!({
-            "note_id": params.0.note_id,
-            "ranges": ranges,
-            "line_groups": line_groups,
-        });
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
     }
 
     #[tool(
