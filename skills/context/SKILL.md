@@ -93,7 +93,33 @@ create_note(
 - Hierarchical via `parent_id` — subnotes for detail, parent for summary
 - Tag conventions: `parent:NOTE_ID` (continuation), `related:NOTE_ID` (reference)
 - Use `include_content: false` when listing to avoid context bloat
-- Use `read_note` with line ranges for large notes; `edit_note` for partial updates
+- Use `read_note` with `format="toon"` for line-numbered output (essential for accurate patching)
+
+### Note Editing - CRITICAL
+
+**🚨 DANGER: Always batch multiple edits into a single `edit_note` call**
+
+- **WRONG:** Multiple sequential `edit_note` calls
+  ```
+  edit_note(patches: [[10, 12, "new"]])  // Line numbers change!
+  edit_note(patches: [[20, 22, "new"]])  // Now editing wrong lines!
+  ```
+
+- **CORRECT:** Single `edit_note` with all patches
+  ```
+  edit_note(patches: [
+    [[10, 12, "new"]],
+    [[20, 22, "new"]],
+    [[50, 55, "new"]]
+  ])
+  ```
+
+**Why:** Patches are applied in reverse order (bottom-up) automatically. Multiple calls cause line number shifts between calls, resulting in edits hitting wrong lines.
+
+**Workflow:**
+1. `read_note(format="toon")` → get explicit line numbers
+2. Identify ALL lines to edit
+3. Make ONE `edit_note` call with all patches
 
 ## Sync
 
@@ -111,3 +137,4 @@ sync(operation="import")   — restore from git
 - Batching status updates instead of transitioning in real-time
 - Forgetting to promote parent task to `in_progress` when starting subtask work
 - Linking session notes without a `project_ids` — they become unfindable
+- **Making sequential `edit_note` calls instead of batching patches (causes line number misalignment)**
