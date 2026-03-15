@@ -79,10 +79,37 @@ fn validate_task(task: &Task) -> DbResult<()> {
     }
 }
 
+/// Checks that the given parent_id refers to a top-level task (no grandparent nesting).
+async fn check_parent_depth(pool: &SqlitePool, parent_id: &str) -> DbResult<()> {
+    let grandparent: Option<String> = sqlx::query_scalar("SELECT parent_id FROM task WHERE id = ?")
+        .bind(parent_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?
+        .flatten();
+
+    if grandparent.is_some() {
+        return Err(DbError::Validation {
+            message: format!(
+                "Task '{}' is already a subtask. Nesting subtasks more than one level deep is not allowed.",
+                parent_id
+            ),
+        });
+    }
+    Ok(())
+}
+
 impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn create(&self, task: &Task) -> DbResult<Task> {
         // Validate task
         validate_task(task)?;
+
+        // Depth guard: parent must be a top-level task
+        if let Some(parent_id) = &task.parent_id {
+            check_parent_depth(self.pool, parent_id).await?;
+        }
 
         // Use provided ID if not empty, otherwise generate one
         let id = if task.id.is_empty() {
@@ -498,6 +525,11 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Validate task
         validate_task(task)?;
 
+        // Depth guard: parent must be a top-level task
+        if let Some(parent_id) = &task.parent_id {
+            check_parent_depth(self.pool, parent_id).await?;
+        }
+
         // Fetch current task to detect status changes
         let current = self.get(&task.id).await?;
 
@@ -715,15 +747,52 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             }
         }
 
+        // No-op: already at target status - return tasks as-is without error
+        if *first_status == target_status {
+            tx.rollback().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(tasks);
+        }
+
         // Validate transition is allowed
         let allowed = allowed_transitions(first_status);
         if !allowed.contains(&target_status) {
             return Err(DbError::Validation {
                 message: format!(
-                    "invalid_transition: Cannot transition from {:?} to {:?}",
-                    first_status, target_status
+                    "invalid_transition: Cannot transition from {:?} to {:?}. Valid transitions: {:?}",
+                    first_status, target_status, allowed
                 ),
             });
+        }
+
+        // Guard: cannot mark done/cancelled while subtasks are still in flight
+        if matches!(target_status, TaskStatus::Done | TaskStatus::Cancelled) {
+            let in_flight_statuses = "('todo','in_progress','review')";
+            for task in &tasks {
+                let blocking: Vec<String> = sqlx::query_scalar(&format!(
+                    "SELECT id FROM task WHERE parent_id = ? AND status IN {}",
+                    in_flight_statuses
+                ))
+                .bind(&task.id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+                if !blocking.is_empty() {
+                    return Err(DbError::Validation {
+                        message: format!(
+                            "Cannot transition task '{}' to {:?}: {} subtask(s) still in flight: {}. Complete or cancel them first.",
+                            task.id,
+                            target_status,
+                            blocking.len(),
+                            blocking.join(", ")
+                        ),
+                    });
+                }
+            }
         }
 
         let target_status_str = target_status.to_string();

@@ -2170,3 +2170,171 @@ async fn test_cancelled_workflow_preserves_history() {
     let task = db.tasks().get(&created.id).await.unwrap();
     assert_eq!(task.status, TaskStatus::Cancelled);
 }
+
+// =============================================================================
+// Guardrail Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_same_status_is_noop() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist1", "Guardrail List"))
+        .await
+        .unwrap();
+
+    let task = make_task("grdtsk01", "grdlist1", "Task");
+    db.tasks().create(&task).await.unwrap();
+
+    // Transitioning to the same status (backlog → backlog) should succeed silently
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&task.id), TaskStatus::Backlog)
+        .await;
+    assert!(result.is_ok(), "Same-status transition should be a no-op");
+
+    // Status should still be backlog
+    let fetched = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(fetched.status, TaskStatus::Backlog);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_done_blocked_by_in_flight_subtasks() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist2", "Guardrail List 2"))
+        .await
+        .unwrap();
+
+    // Create parent task in in_progress
+    let mut parent = make_task("grdpar01", "grdlist2", "Parent");
+    parent.status = TaskStatus::InProgress;
+    db.tasks().create(&parent).await.unwrap();
+
+    // Create subtask still in_progress
+    let mut subtask = make_task("grdsub01", "grdlist2", "Subtask");
+    subtask.parent_id = Some("grdpar01".to_string());
+    subtask.status = TaskStatus::InProgress;
+    db.tasks().create(&subtask).await.unwrap();
+
+    // Trying to mark parent done should be blocked
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Done)
+        .await;
+    assert!(result.is_err(), "Should be blocked by in-flight subtask");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("in flight") || err.contains("subtask"),
+        "Error should mention subtasks: {err}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_cancelled_blocked_by_in_flight_subtasks() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist3", "Guardrail List 3"))
+        .await
+        .unwrap();
+
+    let mut parent = make_task("grdpar02", "grdlist3", "Parent");
+    parent.status = TaskStatus::InProgress;
+    db.tasks().create(&parent).await.unwrap();
+
+    let mut subtask = make_task("grdsub02", "grdlist3", "Subtask");
+    subtask.parent_id = Some("grdpar02".to_string());
+    subtask.status = TaskStatus::Todo;
+    db.tasks().create(&subtask).await.unwrap();
+
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Cancelled)
+        .await;
+    assert!(result.is_err(), "Should be blocked by in-flight subtask");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_done_allowed_when_subtasks_completed() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist4", "Guardrail List 4"))
+        .await
+        .unwrap();
+
+    let mut parent = make_task("grdpar03", "grdlist4", "Parent");
+    parent.status = TaskStatus::InProgress;
+    db.tasks().create(&parent).await.unwrap();
+
+    // Subtask is already done
+    let mut subtask = make_task("grdsub03", "grdlist4", "Subtask");
+    subtask.parent_id = Some("grdpar03".to_string());
+    subtask.status = TaskStatus::Done;
+    db.tasks().create(&subtask).await.unwrap();
+
+    // Parent should now be transitionable to done
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Done)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Should allow done when all subtasks complete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_rejects_grandparent_nesting() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist5", "Guardrail List 5"))
+        .await
+        .unwrap();
+
+    // Level 0: top-level task
+    let parent = make_task("grdpar04", "grdlist5", "Parent");
+    db.tasks().create(&parent).await.unwrap();
+
+    // Level 1: subtask (ok)
+    let mut subtask = make_task("grdsub04", "grdlist5", "Subtask");
+    subtask.parent_id = Some("grdpar04".to_string());
+    db.tasks().create(&subtask).await.unwrap();
+
+    // Level 2: sub-subtask (must be rejected)
+    let mut subsubtask = make_task("grdss001", "grdlist5", "Sub-subtask");
+    subsubtask.parent_id = Some("grdsub04".to_string());
+    let result = db.tasks().create(&subsubtask).await;
+    assert!(result.is_err(), "Sub-subtasks must be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("level") || err.contains("subtask") || err.contains("Nesting"),
+        "Error should mention depth limit: {err}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_rejects_grandparent_nesting() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist6", "Guardrail List 6"))
+        .await
+        .unwrap();
+
+    let parent = make_task("grdpar05", "grdlist6", "Parent");
+    db.tasks().create(&parent).await.unwrap();
+
+    let mut subtask = make_task("grdsub05", "grdlist6", "Subtask");
+    subtask.parent_id = Some("grdpar05".to_string());
+    db.tasks().create(&subtask).await.unwrap();
+
+    // A separate top-level task we'll try to re-parent under the subtask
+    let mut reparented = make_task("grdflat1", "grdlist6", "Flat Task");
+    db.tasks().create(&reparented).await.unwrap();
+
+    reparented.parent_id = Some("grdsub05".to_string());
+    let result = db.tasks().update(&reparented).await;
+    assert!(
+        result.is_err(),
+        "Re-parenting under a subtask must be rejected"
+    );
+}
