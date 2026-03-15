@@ -333,10 +333,10 @@ impl<D: Database + 'static> TaskTools<D> {
             if !parent_ids.is_empty() {
                 let mut stale_parents = Vec::new();
                 for pid in &parent_ids {
-                    if let Ok(parent) = self.db.tasks().get(pid).await {
-                        if matches!(parent.status, TaskStatus::Backlog | TaskStatus::Todo) {
-                            stale_parents.push(pid.clone());
-                        }
+                    if let Ok(parent) = self.db.tasks().get(pid).await
+                        && matches!(parent.status, TaskStatus::Backlog | TaskStatus::Todo)
+                    {
+                        stale_parents.push(pid.clone());
                     }
                 }
                 if !stale_parents.is_empty() {
