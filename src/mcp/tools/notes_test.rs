@@ -88,6 +88,7 @@ async fn test_create_and_read_note() {
     let read_params = ReadNoteParams {
         note_id: created.id.clone(),
         ranges: None, // Omit ranges for full content
+        format: None, // Default JSON format
     };
 
     let result = tools
@@ -115,6 +116,7 @@ async fn test_read_note_not_found() {
     let params = ReadNoteParams {
         note_id: "nonexist".to_string(),
         ranges: None,
+        format: None,
     };
 
     let result = tools.read_note(Parameters(params)).await;
@@ -810,4 +812,127 @@ fn test_line_patch_schema_is_object_with_start_end_content() {
         items["properties"]["content"].is_object(),
         "LinePatch must have content"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_read_note_toon_format() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create a note with multi-line content including commas
+    let create_params = CreateNoteParams {
+        title: "Test Note".to_string(),
+        content: "First line\nSecond line, with comma\nThird line".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let result = tools
+        .create_note(Parameters(create_params))
+        .await
+        .expect("create should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let created: Note = serde_json::from_str(content_text).unwrap();
+
+    // Read with TOON format
+    let read_params = ReadNoteParams {
+        note_id: created.id.clone(),
+        ranges: None,
+        format: Some("toon".to_string()),
+    };
+
+    let result = tools
+        .read_note(Parameters(read_params))
+        .await
+        .expect("read should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    // Parse JSON response to extract TOON content
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let toon_content = json["content"].as_str().expect("content should be string");
+
+    // Verify TOON format structure
+    assert!(toon_content.contains("lines[3]{ln,text}:"));
+    assert!(toon_content.contains("1,First line"));
+    assert!(
+        toon_content.contains("\"2,Second line, with comma\"")
+            || toon_content.contains("2,\"Second line, with comma\"")
+    );
+    assert!(toon_content.contains("3,Third line"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_read_note_toon_format_with_ranges() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create a note with 5 lines
+    let create_params = CreateNoteParams {
+        title: "Multi-line Note".to_string(),
+        content: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let result = tools
+        .create_note(Parameters(create_params))
+        .await
+        .expect("create should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let created: Note = serde_json::from_str(content_text).unwrap();
+
+    // Read lines 2-4 with TOON format
+    let read_params = ReadNoteParams {
+        note_id: created.id.clone(),
+        ranges: Some(vec![crate::mcp::tools::notes::LineRange {
+            start: 2,
+            end: 4,
+        }]),
+        format: Some("toon".to_string()),
+    };
+
+    let result = tools
+        .read_note(Parameters(read_params))
+        .await
+        .expect("read should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    // Parse JSON response
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let toon_content = json["content"].as_str().expect("content should be string");
+
+    // Verify TOON format with correct line numbers
+    assert!(toon_content.contains("lines[3]{ln,text}:"));
+    assert!(toon_content.contains("2,Line 2"));
+    assert!(toon_content.contains("3,Line 3"));
+    assert!(toon_content.contains("4,Line 4"));
+    // Should NOT contain lines 1 or 5
+    assert!(!toon_content.contains("1,Line 1"));
+    assert!(!toon_content.contains("5,Line 5"));
 }
