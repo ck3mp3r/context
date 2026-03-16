@@ -43,7 +43,7 @@ fn format_as_toon(content: &str, start_line: usize) -> String {
     let count = lines.len();
 
     if count == 0 {
-        return format!("lines[0]{{ln,text}}:");
+        return "lines[0]{ln,text}:".to_string();
     }
 
     let mut result = format!("lines[{}]{{ln,text}}:\n", count);
