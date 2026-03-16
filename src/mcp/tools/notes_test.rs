@@ -7,6 +7,7 @@ use crate::mcp::tools::notes::{
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::RawContent;
+use sha2::Digest;
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -100,10 +101,49 @@ async fn test_create_and_read_note() {
         RawContent::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
-    let retrieved: Note = serde_json::from_str(content_text).unwrap();
+    let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    let retrieved: Note = serde_json::from_value(json.clone()).unwrap();
 
     assert_eq!(retrieved.id, created.id);
     assert_eq!(retrieved.title, "Meeting Notes");
+
+    // Verify etag field exists and is valid
+    assert!(json.get("etag").is_some(), "etag field should exist");
+    let etag1 = json["etag"].as_str().expect("etag should be a string");
+    assert!(!etag1.is_empty(), "etag should not be empty");
+    assert_eq!(etag1.len(), 64, "etag should be 64 chars (SHA256 hex)");
+
+    // Read again - same note should return same etag (idempotent)
+    let read_params2 = ReadNoteParams {
+        note_id: created.id.clone(),
+        ranges: None,
+        format: None,
+    };
+
+    let result2 = tools
+        .read_note(Parameters(read_params2))
+        .await
+        .expect("second read should succeed");
+
+    let content_text2 = match &result2.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json2: serde_json::Value = serde_json::from_str(content_text2).unwrap();
+    let etag2 = json2["etag"].as_str().expect("etag should be a string");
+
+    assert_eq!(etag1, etag2, "same note read twice should return same etag");
+
+    // Verify etag is deterministic - same updated_at should produce same etag
+    let updated_at = json["updated_at"]
+        .as_str()
+        .expect("updated_at should exist");
+    let expected_etag = {
+        let mut hasher = sha2::Sha256::new();
+        sha2::Digest::update(&mut hasher, updated_at.as_bytes());
+        format!("{:x}", hasher.finalize())
+    };
+    assert_eq!(etag1, expected_etag, "etag should match SHA256(updated_at)");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -215,9 +255,27 @@ async fn test_edit_note() {
 
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
+    // Read note to get initial etag
+    let read_params = ReadNoteParams {
+        note_id: created.id.clone(),
+        ranges: None,
+        format: None,
+    };
+    let read_result = tools
+        .read_note(Parameters(read_params))
+        .await
+        .expect("read should succeed");
+    let read_text = match &read_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let read_json: serde_json::Value = serde_json::from_str(read_text).unwrap();
+    let etag = read_json["etag"].as_str().expect("etag should exist");
+
     // Update note metadata only (no patches)
     let edit_params = EditNoteParams {
         note_id: created.id.clone(),
+        etag: etag.to_string(),
         title: Some("Updated Title".to_string()),
         tags: Some(vec!["updated".to_string()]),
         parent_id: None,
@@ -635,9 +693,27 @@ async fn test_update_note_idx() {
     let created: Note = serde_json::from_str(create_text).unwrap();
     assert_eq!(created.idx, Some(10));
 
+    // Read note to get etag
+    let read_params = ReadNoteParams {
+        note_id: created.id.clone(),
+        ranges: None,
+        format: None,
+    };
+    let read_result = tools
+        .read_note(Parameters(read_params))
+        .await
+        .expect("read should succeed");
+    let read_text = match &read_result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let read_json: serde_json::Value = serde_json::from_str(read_text).unwrap();
+    let etag = read_json["etag"].as_str().expect("etag should exist");
+
     // Update idx using edit_note
     let edit_params = EditNoteParams {
         note_id: created.id.clone(),
+        etag: etag.to_string(),
         title: Some("Test Note".to_string()),
         tags: None,
         parent_id: None,
@@ -935,4 +1011,60 @@ async fn test_read_note_toon_format_with_ranges() {
     // Should NOT contain lines 1 or 5
     assert!(!toon_content.contains("1,Line 1"));
     assert!(!toon_content.contains("5,Line 5"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_edit_note_with_invalid_etag_fails() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    // Create a note directly
+    let note = Note {
+        id: String::new(),
+        title: "Original Title".to_string(),
+        content: "Original content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+    let created = db.notes().create(&note).await.unwrap();
+
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Try to edit with wrong etag
+    let edit_params = EditNoteParams {
+        note_id: created.id.clone(),
+        etag: "invalid_etag_12345678901234567890123456789012345678901234567890123456".to_string(),
+        title: Some("New Title".to_string()),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+        patches: vec![],
+    };
+
+    let result = tools.edit_note(Parameters(edit_params)).await;
+
+    // Should fail with etag mismatch error
+    assert!(result.is_err(), "edit with invalid etag should fail");
+    let err = result.unwrap_err();
+
+    // Print the full error to see what LLM would see
+    println!("Error message: {:?}", err);
+    println!("Error display: {}", err);
+
+    // Check error contains instruction to re-read
+    let err_string = format!("{:?}", err);
+    assert!(
+        err_string.to_lowercase().contains("re-read"),
+        "error should instruct to re-read: {}",
+        err_string
+    );
 }

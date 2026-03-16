@@ -10,11 +10,25 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::Digest;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort};
 use crate::mcp::tools::map_db_error;
+
+// =============================================================================
+// ETag Helper
+// =============================================================================
+
+/// Compute ETag from updated_at timestamp for concurrency control.
+/// Returns a 64-character hex string (SHA256 hash).
+fn compute_etag(updated_at: &str) -> String {
+    let mut hasher = sha2::Sha256::new();
+    sha2::Digest::update(&mut hasher, updated_at.as_bytes());
+    let result = hasher.finalize();
+    format!("{:x}", result)
+}
 
 // =============================================================================
 // TOON Formatting Helper
@@ -29,7 +43,7 @@ fn format_as_toon(content: &str, start_line: usize) -> String {
     let count = lines.len();
 
     if count == 0 {
-        return format!("lines[0]{{ln,text}}:");
+        return "lines[0]{ln,text}:".to_string();
     }
 
     let mut result = format!("lines[{}]{{ln,text}}:\n", count);
@@ -127,11 +141,11 @@ pub struct ReadNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Optional array of line ranges to fetch. Omit for full note content, empty array [] for metadata only, or specify ranges for specific lines. Ranges will be sorted and validated for overlaps."
+        description = "Line ranges to fetch. Omit=full content, []=metadata only, or specify ranges. Sorted & validated for overlaps."
     )]
     pub ranges: Option<Vec<LineRange>>,
     #[schemars(
-        description = "Output format: 'json' (default, returns plain content) or 'toon' (returns TOON tabular format with explicit line numbers for easy patching)"
+        description = "Format: 'toon' (default, with line numbers) or 'json' (plain content)"
     )]
     pub format: Option<String>,
 }
@@ -141,24 +155,20 @@ pub struct CreateNoteParams {
     #[schemars(description = "Note title")]
     pub title: String,
     #[schemars(
-        description = "Note content (Markdown supported). KEEP UNDER 10k chars to avoid context overflow. Larger content? Create new note with 'parent:THIS_ID' tag."
+        description = "Note content (Markdown). Keep under 10k chars. For larger content, use parent:NOTE_ID tag."
     )]
     pub content: String,
     #[schemars(
-        description = "Tags for organization. Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references, 'session' for persistent session notes. CRITICAL: Session notes MUST be re-read after context compaction to restore state."
+        description = "Tags. Use parent:NOTE_ID (continuation), related:NOTE_ID (reference), session (persistent)."
     )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Parent note ID for hierarchical notes (optional)")]
+    #[schemars(description = "Parent note ID (optional)")]
     pub parent_id: Option<String>,
-    #[schemars(description = "Index for manual ordering (lower values first, optional)")]
+    #[schemars(description = "Manual ordering index (optional)")]
     pub idx: Option<i32>,
-    #[schemars(
-        description = "Repository IDs to link (optional). Associate with relevant repos for context."
-    )]
+    #[schemars(description = "Repository IDs to link (optional)")]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(
-        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
-    )]
+    #[schemars(description = "Project IDs to link (REQUIRED for session notes)")]
     pub project_ids: Option<Vec<String>>,
 }
 
@@ -172,33 +182,29 @@ pub struct DeleteNoteParams {
 pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
+    #[schemars(
+        description = "ETag from read_note (REQUIRED). Validates note unchanged since read. If fails, re-read first."
+    )]
+    pub etag: String,
     #[schemars(description = "Note title (optional)")]
     pub title: Option<String>,
-    #[schemars(
-        description = "Tags (optional). Use 'parent:NOTE_ID' for continuations, 'related:NOTE_ID' for references. Replaces all existing tags when provided."
-    )]
+    #[schemars(description = "Tags. Use parent:NOTE_ID, related:NOTE_ID. Replaces all existing.")]
     pub tags: Option<Vec<String>>,
-    #[schemars(
-        description = "Parent note ID for hierarchical notes (optional). Use empty string \"\" or null to remove parent."
-    )]
+    #[schemars(description = "Parent note ID. Use empty string or null to remove.")]
     #[serde(
         default,
         deserialize_with = "crate::serde_utils::double_option_string_or_empty"
     )]
     pub parent_id: Option<Option<String>>,
-    #[schemars(description = "Index for manual ordering (optional)")]
+    #[schemars(description = "Manual ordering index (optional)")]
     #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
     pub idx: Option<Option<i32>>,
-    #[schemars(
-        description = "Repository IDs to link (optional). Associate with relevant repos for context."
-    )]
+    #[schemars(description = "Repository IDs to link (optional)")]
     pub repo_ids: Option<Vec<String>>,
-    #[schemars(
-        description = "Project IDs to link (RECOMMENDED). Attach to relevant project for organization and discoverability. REQUIRED for session notes - always link session notes to their project(s)."
-    )]
+    #[schemars(description = "Project IDs to link (REQUIRED for session notes)")]
     pub project_ids: Option<Vec<String>>,
     #[schemars(
-        description = "Array of patches to apply. Each patch replaces lines [start, end] with new content. Patches will be sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
+        description = "Line patches. Each replaces lines [start, end] with content. Sorted, validated, applied reverse order."
     )]
     pub patches: Vec<LinePatch>,
 }
@@ -226,7 +232,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "List notes with optional full-text search. Provide 'query' parameter to search, omit to list all. Default excludes content (metadata only) - use include_content=true for full notes. Filter by tags, project_id, parent_id, or note_type. Sort by title, created_at, updated_at, or last_activity_at. Limit default: 10, max: 20."
+        description = "List notes. Query for FTS search. Default: metadata only (use include_content=true for full). Filter by tags/project_id/parent_id/note_type. Limit: 10 (max 20)."
     )]
     pub async fn list_notes(
         &self,
@@ -276,7 +282,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Create a new note (Markdown supported). IMPORTANT: Keep under 10k chars (~2.5k tokens) to avoid context overflow. For larger content, split into multiple notes and link with tags: 'parent:NOTE_ID' (continuation), 'related:NOTE_ID' (reference). Link to projects/repos via project_ids/repo_ids."
+        description = "Create note (Markdown). Keep under 10k chars. For larger: split & link with parent:NOTE_ID tag."
     )]
     pub async fn create_note(
         &self,
@@ -308,9 +314,7 @@ impl<D: Database + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(
-        description = "Delete a note permanently. Use sparingly - consider archiving via tags instead."
-    )]
+    #[tool(description = "Delete note permanently. Consider archiving with tags instead.")]
     pub async fn delete_note(
         &self,
         params: Parameters<DeleteNoteParams>,
@@ -333,7 +337,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Read a note. Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [{start: 1, end: 3}, {start: 7, end: 9}] for specific lines. Ranges are automatically sorted and validated for overlaps. Use format='toon' to get content with explicit line numbers (lines[N]{ln,text}: format) - essential for accurate line-based patching with c5t_edit_note."
+        description = "Read note. Returns etag (for edit_note) and content in TOON format (line numbers). Ranges: omit=full, []=metadata, or specify. Use format='json' for plain content."
     )]
     pub async fn read_note(
         &self,
@@ -354,13 +358,20 @@ impl<D: Database + 'static> NoteTools<D> {
                     )
                 })?;
 
-                // Apply TOON formatting if requested
-                if params.0.format.as_deref() == Some("toon") {
+                // Compute etag from updated_at
+                let etag = compute_etag(note.updated_at.as_ref().unwrap_or(&String::new()));
+
+                // Apply TOON formatting by default (can opt-out with format="json")
+                if params.0.format.as_deref() != Some("json") {
                     note.content = format_as_toon(&note.content, 1);
                 }
 
+                // Create response with etag
+                let mut note_json = serde_json::to_value(&note).unwrap();
+                note_json["etag"] = serde_json::Value::String(etag);
+
                 Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&note).unwrap(),
+                    serde_json::to_string_pretty(&note_json).unwrap(),
                 )]))
             }
 
@@ -378,8 +389,15 @@ impl<D: Database + 'static> NoteTools<D> {
                         )
                     })?;
 
+                // Compute etag from updated_at
+                let etag = compute_etag(note.updated_at.as_ref().unwrap_or(&String::new()));
+
+                // Create response with etag
+                let mut note_json = serde_json::to_value(&note).unwrap();
+                note_json["etag"] = serde_json::Value::String(etag);
+
                 Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&note).unwrap(),
+                    serde_json::to_string_pretty(&note_json).unwrap(),
                 )]))
             }
 
@@ -394,8 +412,8 @@ impl<D: Database + 'static> NoteTools<D> {
                     .await
                     .map_err(map_db_error)?;
 
-                // Apply TOON formatting if requested
-                if params.0.format.as_deref() == Some("toon") {
+                // Apply TOON formatting by default (can opt-out with format="json")
+                if params.0.format.as_deref() != Some("json") {
                     // Combine all lines into a single content string
                     let combined_content = line_contents.join("\n");
 
@@ -430,19 +448,37 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Edit a note - update metadata and/or apply line-range patches to content. All fields optional. Patches are automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers. For full content replacement, use a single patch covering all lines."
+        description = "Edit note. REQUIRES etag from read_note. Updates metadata and/or applies line patches. If etag fails, re-read first."
     )]
     pub async fn edit_note(
         &self,
         params: Parameters<EditNoteParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Get existing note
-        let mut note = self
+        // Get existing note to validate etag
+        let current_note = self
             .db
             .notes()
             .get(&params.0.note_id)
             .await
             .map_err(map_db_error)?;
+
+        // Compute current etag from updated_at
+        let current_etag = compute_etag(current_note.updated_at.as_ref().unwrap_or(&String::new()));
+
+        // Validate etag
+        if current_etag != params.0.etag {
+            return Err(McpError::invalid_params(
+                "Note has been modified since last read. Please re-read the note before editing.",
+                Some(serde_json::json!({
+                    "note_id": params.0.note_id,
+                    "expected_etag": current_etag,
+                    "provided_etag": params.0.etag
+                })),
+            ));
+        }
+
+        // Get existing note for editing
+        let mut note = current_note;
 
         // Update metadata fields (same as update_note)
         if let Some(title) = &params.0.title {
