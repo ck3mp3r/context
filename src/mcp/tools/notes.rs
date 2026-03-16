@@ -187,7 +187,7 @@ pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Checksum from read_note response (REQUIRED). Ensures note hasn't been modified since last read. If etag validation fails, re-read the note before editing."
+        description = "ETag from read_note response (REQUIRED). Ensures note hasn't been modified since last read. If etag validation fails, re-read the note before editing."
     )]
     pub etag: String,
     #[schemars(description = "Note title (optional)")]
