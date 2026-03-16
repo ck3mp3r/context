@@ -107,22 +107,13 @@ async fn test_create_and_read_note() {
     assert_eq!(retrieved.id, created.id);
     assert_eq!(retrieved.title, "Meeting Notes");
 
-    // Verify checksum field exists and is valid
-    assert!(
-        json.get("checksum").is_some(),
-        "checksum field should exist"
-    );
-    let checksum1 = json["checksum"]
-        .as_str()
-        .expect("checksum should be a string");
-    assert!(!checksum1.is_empty(), "checksum should not be empty");
-    assert_eq!(
-        checksum1.len(),
-        64,
-        "checksum should be 64 chars (SHA256 hex)"
-    );
+    // Verify etag field exists and is valid
+    assert!(json.get("etag").is_some(), "etag field should exist");
+    let etag1 = json["etag"].as_str().expect("etag should be a string");
+    assert!(!etag1.is_empty(), "etag should not be empty");
+    assert_eq!(etag1.len(), 64, "etag should be 64 chars (SHA256 hex)");
 
-    // Read again - same note should return same checksum (idempotent)
+    // Read again - same note should return same etag (idempotent)
     let read_params2 = ReadNoteParams {
         note_id: created.id.clone(),
         ranges: None,
@@ -139,28 +130,20 @@ async fn test_create_and_read_note() {
         _ => panic!("Expected text content"),
     };
     let json2: serde_json::Value = serde_json::from_str(content_text2).unwrap();
-    let checksum2 = json2["checksum"]
-        .as_str()
-        .expect("checksum should be a string");
+    let etag2 = json2["etag"].as_str().expect("etag should be a string");
 
-    assert_eq!(
-        checksum1, checksum2,
-        "same note read twice should return same checksum"
-    );
+    assert_eq!(etag1, etag2, "same note read twice should return same etag");
 
-    // Verify checksum is deterministic - same updated_at should produce same checksum
+    // Verify etag is deterministic - same updated_at should produce same etag
     let updated_at = json["updated_at"]
         .as_str()
         .expect("updated_at should exist");
-    let expected_checksum = {
+    let expected_etag = {
         let mut hasher = sha2::Sha256::new();
         sha2::Digest::update(&mut hasher, updated_at.as_bytes());
         format!("{:x}", hasher.finalize())
     };
-    assert_eq!(
-        checksum1, expected_checksum,
-        "checksum should match SHA256(updated_at)"
-    );
+    assert_eq!(etag1, expected_etag, "etag should match SHA256(updated_at)");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -272,7 +255,7 @@ async fn test_edit_note() {
 
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
-    // Read note to get initial checksum
+    // Read note to get initial etag
     let read_params = ReadNoteParams {
         note_id: created.id.clone(),
         ranges: None,
@@ -287,14 +270,12 @@ async fn test_edit_note() {
         _ => panic!("Expected text content"),
     };
     let read_json: serde_json::Value = serde_json::from_str(read_text).unwrap();
-    let checksum = read_json["checksum"]
-        .as_str()
-        .expect("checksum should exist");
+    let etag = read_json["etag"].as_str().expect("etag should exist");
 
     // Update note metadata only (no patches)
     let edit_params = EditNoteParams {
         note_id: created.id.clone(),
-        checksum: checksum.to_string(),
+        etag: etag.to_string(),
         title: Some("Updated Title".to_string()),
         tags: Some(vec!["updated".to_string()]),
         parent_id: None,
@@ -712,7 +693,7 @@ async fn test_update_note_idx() {
     let created: Note = serde_json::from_str(create_text).unwrap();
     assert_eq!(created.idx, Some(10));
 
-    // Read note to get checksum
+    // Read note to get etag
     let read_params = ReadNoteParams {
         note_id: created.id.clone(),
         ranges: None,
@@ -727,14 +708,12 @@ async fn test_update_note_idx() {
         _ => panic!("Expected text content"),
     };
     let read_json: serde_json::Value = serde_json::from_str(read_text).unwrap();
-    let checksum = read_json["checksum"]
-        .as_str()
-        .expect("checksum should exist");
+    let etag = read_json["etag"].as_str().expect("etag should exist");
 
     // Update idx using edit_note
     let edit_params = EditNoteParams {
         note_id: created.id.clone(),
-        checksum: checksum.to_string(),
+        etag: etag.to_string(),
         title: Some("Test Note".to_string()),
         tags: None,
         parent_id: None,
@@ -1035,7 +1014,7 @@ async fn test_read_note_toon_format_with_ranges() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note_with_invalid_checksum_fails() {
+async fn test_edit_note_with_invalid_etag_fails() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -1058,11 +1037,10 @@ async fn test_edit_note_with_invalid_checksum_fails() {
 
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
-    // Try to edit with wrong checksum
+    // Try to edit with wrong etag
     let edit_params = EditNoteParams {
         note_id: created.id.clone(),
-        checksum: "invalid_checksum_12345678901234567890123456789012345678901234567890123456"
-            .to_string(),
+        etag: "invalid_etag_12345678901234567890123456789012345678901234567890123456".to_string(),
         title: Some("New Title".to_string()),
         tags: None,
         parent_id: None,
@@ -1074,8 +1052,8 @@ async fn test_edit_note_with_invalid_checksum_fails() {
 
     let result = tools.edit_note(Parameters(edit_params)).await;
 
-    // Should fail with checksum mismatch error
-    assert!(result.is_err(), "edit with invalid checksum should fail");
+    // Should fail with etag mismatch error
+    assert!(result.is_err(), "edit with invalid etag should fail");
     let err = result.unwrap_err();
 
     // Print the full error to see what LLM would see

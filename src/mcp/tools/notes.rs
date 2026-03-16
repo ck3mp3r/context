@@ -18,12 +18,12 @@ use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort};
 use crate::mcp::tools::map_db_error;
 
 // =============================================================================
-// Checksum Helper
+// ETag Helper
 // =============================================================================
 
-/// Compute SHA256 checksum from updated_at timestamp.
-/// Returns a 64-character hex string.
-fn compute_checksum(updated_at: &str) -> String {
+/// Compute ETag from updated_at timestamp for concurrency control.
+/// Returns a 64-character hex string (SHA256 hash).
+fn compute_etag(updated_at: &str) -> String {
     let mut hasher = sha2::Sha256::new();
     sha2::Digest::update(&mut hasher, updated_at.as_bytes());
     let result = hasher.finalize();
@@ -187,9 +187,9 @@ pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Checksum from read_note response (REQUIRED). Ensures note hasn't been modified since last read. If checksum validation fails, re-read the note before editing."
+        description = "Checksum from read_note response (REQUIRED). Ensures note hasn't been modified since last read. If etag validation fails, re-read the note before editing."
     )]
-    pub checksum: String,
+    pub etag: String,
     #[schemars(description = "Note title (optional)")]
     pub title: Option<String>,
     #[schemars(
@@ -351,7 +351,7 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Read a note. Returns note data with a checksum field (required for edit_note) and content in TOON format by default (with line numbers for accurate patching). Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [{start: 1, end: 3}, {start: 7, end: 9}] for specific lines. Ranges are automatically sorted and validated for overlaps. Use format='json' to get plain content without line numbers."
+        description = "Read a note. Returns note data with a etag field (required for edit_note) and content in TOON format by default (with line numbers for accurate patching). Control content via ranges parameter: omit for full note with content, empty array [] for metadata only, or specify ranges like [{start: 1, end: 3}, {start: 7, end: 9}] for specific lines. Ranges are automatically sorted and validated for overlaps. Use format='json' to get plain content without line numbers."
     )]
     pub async fn read_note(
         &self,
@@ -372,17 +372,17 @@ impl<D: Database + 'static> NoteTools<D> {
                     )
                 })?;
 
-                // Compute checksum from updated_at
-                let checksum = compute_checksum(note.updated_at.as_ref().unwrap_or(&String::new()));
+                // Compute etag from updated_at
+                let etag = compute_etag(note.updated_at.as_ref().unwrap_or(&String::new()));
 
                 // Apply TOON formatting by default (can opt-out with format="json")
                 if params.0.format.as_deref() != Some("json") {
                     note.content = format_as_toon(&note.content, 1);
                 }
 
-                // Create response with checksum
+                // Create response with etag
                 let mut note_json = serde_json::to_value(&note).unwrap();
-                note_json["checksum"] = serde_json::Value::String(checksum);
+                note_json["etag"] = serde_json::Value::String(etag);
 
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&note_json).unwrap(),
@@ -403,12 +403,12 @@ impl<D: Database + 'static> NoteTools<D> {
                         )
                     })?;
 
-                // Compute checksum from updated_at
-                let checksum = compute_checksum(note.updated_at.as_ref().unwrap_or(&String::new()));
+                // Compute etag from updated_at
+                let etag = compute_etag(note.updated_at.as_ref().unwrap_or(&String::new()));
 
-                // Create response with checksum
+                // Create response with etag
                 let mut note_json = serde_json::to_value(&note).unwrap();
-                note_json["checksum"] = serde_json::Value::String(checksum);
+                note_json["etag"] = serde_json::Value::String(etag);
 
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&note_json).unwrap(),
@@ -462,13 +462,13 @@ impl<D: Database + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Edit a note - update metadata and/or apply line-range patches to content. REQUIRES checksum from read_note response to prevent editing stale data. If checksum validation fails, re-read the note before editing. All metadata fields optional. Patches are automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
+        description = "Edit a note - update metadata and/or apply line-range patches to content. REQUIRES etag from read_note response to prevent editing stale data. If etag validation fails, re-read the note before editing. All metadata fields optional. Patches are automatically sorted, validated for overlaps, and applied in reverse order to maintain accurate line numbers."
     )]
     pub async fn edit_note(
         &self,
         params: Parameters<EditNoteParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Get existing note to validate checksum
+        // Get existing note to validate etag
         let current_note = self
             .db
             .notes()
@@ -476,18 +476,17 @@ impl<D: Database + 'static> NoteTools<D> {
             .await
             .map_err(map_db_error)?;
 
-        // Compute current checksum from updated_at
-        let current_checksum =
-            compute_checksum(current_note.updated_at.as_ref().unwrap_or(&String::new()));
+        // Compute current etag from updated_at
+        let current_etag = compute_etag(current_note.updated_at.as_ref().unwrap_or(&String::new()));
 
-        // Validate checksum
-        if current_checksum != params.0.checksum {
+        // Validate etag
+        if current_etag != params.0.etag {
             return Err(McpError::invalid_params(
                 "Note has been modified since last read. Please re-read the note before editing.",
                 Some(serde_json::json!({
                     "note_id": params.0.note_id,
-                    "expected_checksum": current_checksum,
-                    "provided_checksum": params.0.checksum
+                    "expected_etag": current_etag,
+                    "provided_etag": params.0.etag
                 })),
             ));
         }
