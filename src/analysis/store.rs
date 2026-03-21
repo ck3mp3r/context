@@ -1,39 +1,84 @@
-// NanoGraph wrapper for code analysis
-//
-// This module wraps NanoGraph database operations for code graph storage.
+//! NanoGraph CLI wrapper for code analysis
+//!
+//! This module wraps the NanoGraph CLI for code graph storage.
+//! Instead of embedding NanoGraph as a library (which adds 400MB+ to the binary),
+//! we shell out to the standalone `nanograph` CLI tool.
 
 use crate::analysis::types::ExtractedSymbol;
-use arrow_array::{Array, Int32Array, RecordBatch, StringArray};
-use nanograph::ParamMap;
-use nanograph::error::NanoError;
-use nanograph::query::ast::Literal;
-use nanograph::result::RunResult;
-use nanograph::store::database::Database;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use thiserror::Error;
 
-/// Wrapper around NanoGraph database for code analysis
+#[derive(Debug, Error)]
+pub enum StoreError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("NanoGraph CLI not found. Install with: brew install nanograph/tap/nanograph")]
+    CliNotFound,
+
+    #[error("NanoGraph CLI error: {0}")]
+    CliFailed(String),
+
+    #[error("Failed to parse JSON: {0}")]
+    JsonParse(#[from] serde_json::Error),
+}
+
+/// Wrapper around NanoGraph CLI for code analysis
 pub struct CodeGraph {
-    db: Database,
+    db_path: PathBuf,
     repo_id: String,
 }
 
 impl CodeGraph {
     /// Create or open a code graph database
-    pub async fn new(db_path: &Path, repo_id: &str) -> Result<Self, NanoError> {
+    ///
+    /// This initializes the NanoGraph database at the given path.
+    /// If the database doesn't exist, it creates it with our schema.
+    pub async fn new(db_path: &Path, repo_id: &str) -> Result<Self, StoreError> {
         let analysis_path = db_path.join("analysis.nano");
 
-        let db = if analysis_path.exists() {
-            Database::open(&analysis_path).await?
-        } else {
-            // Read schema from our schema.pg file
-            let schema_source = include_str!("schema.pg");
-            Database::init(&analysis_path, schema_source).await?
-        };
+        // Check if nanograph CLI is available
+        if !Self::check_cli_available() {
+            return Err(StoreError::CliNotFound);
+        }
+
+        // Initialize if doesn't exist
+        if !analysis_path.exists() {
+            std::fs::create_dir_all(&analysis_path)?;
+
+            // Write schema file
+            let schema_path = analysis_path.join("schema.pg");
+            std::fs::write(&schema_path, include_str!("schema.pg"))?;
+
+            // Initialize database
+            let output = Command::new("nanograph")
+                .arg("init")
+                .arg("--db")
+                .arg(&analysis_path)
+                .arg("--schema")
+                .arg(&schema_path)
+                .output()?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(StoreError::CliFailed(stderr.to_string()));
+            }
+        }
 
         Ok(Self {
-            db,
+            db_path: analysis_path,
             repo_id: repo_id.to_string(),
         })
+    }
+
+    /// Check if nanograph CLI is available
+    fn check_cli_available() -> bool {
+        Command::new("nanograph")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 
     /// Insert a file node into the graph
@@ -50,26 +95,40 @@ impl CodeGraph {
         path: &str,
         language: &str,
         hash: &str,
-    ) -> Result<String, NanoError> {
+    ) -> Result<String, StoreError> {
+        // Create JSONL data for the file node
         let file_id = format!("file:{}", path);
+        let data = serde_json::json!({
+            "@type": "File",
+            "file_id": &file_id,
+            "path": path,
+            "language": language,
+            "hash": hash,
+            "repo_id": &self.repo_id,
+        });
 
-        let query_source = r#"
-query insert_file($file_id: String, $repo_id: String, $path: String, $language: String, $hash: String) {
-    insert File { file_id: $file_id, repo_id: $repo_id, path: $path, language: $language, hash: $hash }
-}
-"#;
+        // Write to temp file
+        let temp_file = self.db_path.join("temp_file.jsonl");
+        std::fs::write(&temp_file, format!("{}\n", data))?;
 
-        let mut params = ParamMap::new();
-        params.insert("file_id".to_string(), Literal::String(file_id.clone()));
-        params.insert("repo_id".to_string(), Literal::String(self.repo_id.clone()));
-        params.insert("path".to_string(), Literal::String(path.to_string()));
-        params.insert(
-            "language".to_string(),
-            Literal::String(language.to_string()),
-        );
-        params.insert("hash".to_string(), Literal::String(hash.to_string()));
+        // Load into nanograph
+        let output = Command::new("nanograph")
+            .arg("load")
+            .arg("--db")
+            .arg(&self.db_path)
+            .arg("--data")
+            .arg(&temp_file)
+            .arg("--mode")
+            .arg("merge")
+            .output()?;
 
-        self.db.run(query_source, "insert_file", &params).await?;
+        // Clean up
+        let _ = std::fs::remove_file(&temp_file);
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(StoreError::CliFailed(stderr.to_string()));
+        }
 
         Ok(file_id)
     }
@@ -77,283 +136,164 @@ query insert_file($file_id: String, $repo_id: String, $path: String, $language: 
     /// Insert a symbol node into the graph
     ///
     /// # Arguments
-    /// * `symbol` - Extracted symbol with metadata (name, kind, location, etc.)
+    /// * `symbol` - Extracted symbol information
     ///
     /// # Returns
     /// Symbol ID used for creating relationships
-    pub async fn insert_symbol(&mut self, symbol: &ExtractedSymbol) -> Result<String, NanoError> {
+    pub async fn insert_symbol(&mut self, symbol: &ExtractedSymbol) -> Result<String, StoreError> {
         let symbol_id = format!(
-            "{}:{}:{}:{}",
-            self.repo_id, symbol.file_path, symbol.start_line, symbol.name
+            "symbol:{}:{}:{}",
+            symbol.file_path, symbol.name, symbol.start_line
         );
+        let data = serde_json::json!({
+            "@type": "Symbol",
+            "symbol_id": &symbol_id,
+            "name": &symbol.name,
+            "kind": symbol.kind.as_str(),
+            "file_path": &symbol.file_path,
+            "start_line": symbol.start_line,
+            "end_line": symbol.end_line,
+            "signature": symbol.signature.as_deref().unwrap_or(""),
+            "repo_id": &self.repo_id,
+        });
 
-        let query_source = r#"
-query insert_symbol($symbol_id: String, $repo_id: String, $name: String, $kind: String, 
-                   $file_path: String, $start_line: I32, $end_line: I32, 
-                   $signature: String?, $content: String?) {
-    insert Symbol { 
-        symbol_id: $symbol_id, 
-        repo_id: $repo_id, 
-        name: $name, 
-        kind: $kind, 
-        file_path: $file_path, 
-        start_line: $start_line, 
-        end_line: $end_line,
-        signature: $signature,
-        content: $content
-    }
-}
-"#;
+        let temp_file = self.db_path.join("temp_symbol.jsonl");
+        std::fs::write(&temp_file, format!("{}\n", data))?;
 
-        let mut params = ParamMap::new();
-        params.insert("symbol_id".to_string(), Literal::String(symbol_id.clone()));
-        params.insert("repo_id".to_string(), Literal::String(self.repo_id.clone()));
-        params.insert("name".to_string(), Literal::String(symbol.name.clone()));
-        params.insert(
-            "kind".to_string(),
-            Literal::String(symbol.kind.as_str().to_string()),
-        );
-        params.insert(
-            "file_path".to_string(),
-            Literal::String(symbol.file_path.clone()),
-        );
-        params.insert(
-            "start_line".to_string(),
-            Literal::Integer(symbol.start_line as i64),
-        );
-        params.insert(
-            "end_line".to_string(),
-            Literal::Integer(symbol.end_line as i64),
-        );
-        params.insert(
-            "signature".to_string(),
-            symbol
-                .signature
-                .as_ref()
-                .map(|s| Literal::String(s.clone()))
-                .unwrap_or_else(|| Literal::String(String::new())),
-        );
-        params.insert(
-            "content".to_string(),
-            Literal::String(symbol.content.clone()),
-        );
+        let output = Command::new("nanograph")
+            .arg("load")
+            .arg("--db")
+            .arg(&self.db_path)
+            .arg("--data")
+            .arg(&temp_file)
+            .arg("--mode")
+            .arg("merge")
+            .output()?;
 
-        self.db.run(query_source, "insert_symbol", &params).await?;
+        let _ = std::fs::remove_file(&temp_file);
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(StoreError::CliFailed(stderr.to_string()));
+        }
 
         Ok(symbol_id)
     }
 
-    /// Create a containment relationship (File → Symbol or Symbol → Symbol)
-    ///
-    /// # Arguments
-    /// * `parent_id` - ID of container (File or Symbol)
-    /// * `child_id` - ID of contained Symbol
-    /// * `confidence` - Confidence score (0.0-1.0, typically 1.0 for same-file)
-    ///
-    /// # Note
-    /// Automatically determines edge type based on parent_id prefix:
-    /// - `file:*` → FileContains edge
-    /// - Other → SymbolContains edge
+    /// Insert a containment relationship (File contains Symbol)
     pub async fn insert_contains(
         &mut self,
-        parent_id: &str,
-        child_id: &str,
-        confidence: f64,
-    ) -> Result<(), NanoError> {
-        // Determine which edge type based on parent_id prefix
-        let (query_name, edge_type) = if parent_id.starts_with("file:") {
-            ("insert_file_contains", "FileContains")
-        } else {
-            ("insert_symbol_contains", "SymbolContains")
-        };
+        file_id: &str,
+        symbol_id: &str,
+        confidence: f32,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "@type": "FileContains",
+            "from": file_id,
+            "to": symbol_id,
+            "confidence": confidence,
+        });
 
-        let query_source = format!(
-            r#"
-query {}($from: String, $to: String, $confidence: F64) {{
-    insert {} {{ from: $from, to: $to, confidence: $confidence }}
-}}
-"#,
-            query_name, edge_type
-        );
+        let temp_file = self.db_path.join("temp_edge.jsonl");
+        std::fs::write(&temp_file, format!("{}\n", data))?;
 
-        let mut params = ParamMap::new();
-        params.insert("from".to_string(), Literal::String(parent_id.to_string()));
-        params.insert("to".to_string(), Literal::String(child_id.to_string()));
-        params.insert("confidence".to_string(), Literal::Float(confidence));
+        let output = Command::new("nanograph")
+            .arg("load")
+            .arg("--db")
+            .arg(&self.db_path)
+            .arg("--data")
+            .arg(&temp_file)
+            .arg("--mode")
+            .arg("merge")
+            .output()?;
 
-        self.db.run(&query_source, query_name, &params).await?;
+        let _ = std::fs::remove_file(&temp_file);
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(StoreError::CliFailed(stderr.to_string()));
+        }
 
         Ok(())
     }
 
-    /// Query all symbols in a specific file
-    ///
-    /// # Arguments
-    /// * `file_path` - Path to the file (must match path used in insert_file)
-    ///
-    /// # Returns
-    /// Vector of symbols with their metadata (name, kind, location, etc.)
+    /// Query symbols in a specific file
     pub async fn query_symbols_in_file(
         &self,
         file_path: &str,
-    ) -> Result<Vec<SymbolResult>, NanoError> {
-        let query_source = r#"
-query get_symbols($file_path: String) {
-    match {
+    ) -> Result<Vec<ExtractedSymbol>, StoreError> {
+        // Create a query file with a named query
+        let query = format!(
+            r#"
+query get_symbols {{
+    match {{
         $s: Symbol
-        $s.file_path = $file_path
-    }
-    return {
+        $s.file_path = "{}"
+    }}
+    return {{
+        $s.symbol_id
         $s.name
         $s.kind
         $s.file_path
         $s.start_line
         $s.end_line
-        $s.content
         $s.signature
-    }
-}
-"#;
-
-        let mut params = ParamMap::new();
-        params.insert(
-            "file_path".to_string(),
-            Literal::String(file_path.to_string()),
+    }}
+}}
+"#,
+            file_path
         );
 
-        let result = self.db.run(query_source, "get_symbols", &params).await?;
+        let query_file = self.db_path.join("temp_query.gq");
+        std::fs::write(&query_file, query)?;
 
-        match result {
-            RunResult::Query(qr) => {
-                // Convert Arrow RecordBatches to SymbolResult structs
-                let mut symbols = Vec::new();
+        // Run query with --name parameter
+        let output = Command::new("nanograph")
+            .arg("run")
+            .arg("--db")
+            .arg(&self.db_path)
+            .arg("--query")
+            .arg(&query_file)
+            .arg("--name")
+            .arg("get_symbols")
+            .arg("--format")
+            .arg("json")
+            .output()?;
 
-                for batch in qr.batches() {
-                    symbols.extend(parse_symbol_batch(batch)?);
-                }
+        let _ = std::fs::remove_file(&query_file);
 
-                Ok(symbols)
-            }
-            RunResult::Mutation(_) => Err(NanoError::Execution(
-                "Expected query result, got mutation".to_string(),
-            )),
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(StoreError::CliFailed(stderr.to_string()));
         }
+
+        // Parse JSON output
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let results: Vec<serde_json::Value> = serde_json::from_str(&stdout)?;
+
+        // Convert to ExtractedSymbol
+        let mut symbols = Vec::new();
+        for row in results {
+            let kind_str = row["kind"].as_str().unwrap_or("unknown");
+            symbols.push(ExtractedSymbol {
+                name: row["name"].as_str().unwrap_or("").to_string(),
+                kind: kind_str
+                    .parse()
+                    .unwrap_or(crate::analysis::types::SymbolKind::Function),
+                file_path: row["file_path"].as_str().unwrap_or("").to_string(),
+                start_line: row["start_line"].as_i64().unwrap_or(0) as usize,
+                end_line: row["end_line"].as_i64().unwrap_or(0) as usize,
+                content: String::new(), // Not stored in graph, would need to re-read file
+                signature: row["signature"].as_str().and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s.to_string())
+                    }
+                }),
+            });
+        }
+
+        Ok(symbols)
     }
-}
-
-/// Result type for symbol queries
-#[derive(Debug, Clone)]
-pub struct SymbolResult {
-    pub id: String,
-    pub name: String,
-    pub kind: String,
-    pub file_path: String,
-    pub start_line: i32,
-    pub end_line: i32,
-    pub content: Option<String>,
-    pub signature: Option<String>,
-}
-
-/// Parse a RecordBatch into SymbolResult structs
-fn parse_symbol_batch(batch: &RecordBatch) -> Result<Vec<SymbolResult>, NanoError> {
-    let num_rows = batch.num_rows();
-    let mut results = Vec::with_capacity(num_rows);
-
-    // Get columns by name
-    let name_col = batch
-        .column_by_name("name")
-        .ok_or_else(|| NanoError::Execution("Missing 'name' column".to_string()))?
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| NanoError::Execution("'name' column is not StringArray".to_string()))?;
-
-    let kind_col = batch
-        .column_by_name("kind")
-        .ok_or_else(|| NanoError::Execution("Missing 'kind' column".to_string()))?
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| NanoError::Execution("'kind' column is not StringArray".to_string()))?;
-
-    let file_path_col = batch
-        .column_by_name("file_path")
-        .ok_or_else(|| NanoError::Execution("Missing 'file_path' column".to_string()))?
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| NanoError::Execution("'file_path' column is not StringArray".to_string()))?;
-
-    let start_line_col = batch
-        .column_by_name("start_line")
-        .ok_or_else(|| NanoError::Execution("Missing 'start_line' column".to_string()))?
-        .as_any()
-        .downcast_ref::<Int32Array>()
-        .ok_or_else(|| NanoError::Execution("'start_line' column is not Int32Array".to_string()))?;
-
-    let end_line_col = batch
-        .column_by_name("end_line")
-        .ok_or_else(|| NanoError::Execution("Missing 'end_line' column".to_string()))?
-        .as_any()
-        .downcast_ref::<Int32Array>()
-        .ok_or_else(|| NanoError::Execution("'end_line' column is not Int32Array".to_string()))?;
-
-    let content_col = batch
-        .column_by_name("content")
-        .ok_or_else(|| NanoError::Execution("Missing 'content' column".to_string()))?
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| NanoError::Execution("'content' column is not StringArray".to_string()))?;
-
-    let signature_col = batch
-        .column_by_name("signature")
-        .ok_or_else(|| NanoError::Execution("Missing 'signature' column".to_string()))?
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| NanoError::Execution("'signature' column is not StringArray".to_string()))?;
-
-    // Iterate through rows
-    for i in 0..num_rows {
-        let name = name_col.value(i).to_string();
-        let kind = kind_col.value(i).to_string();
-        let file_path = file_path_col.value(i).to_string();
-        let start_line = start_line_col.value(i);
-        let end_line = end_line_col.value(i);
-
-        // Handle optional fields (empty strings mean None)
-        let content = if content_col.is_null(i) {
-            None
-        } else {
-            let val = content_col.value(i);
-            if val.is_empty() {
-                None
-            } else {
-                Some(val.to_string())
-            }
-        };
-
-        let signature = if signature_col.is_null(i) {
-            None
-        } else {
-            let val = signature_col.value(i);
-            if val.is_empty() {
-                None
-            } else {
-                Some(val.to_string())
-            }
-        };
-
-        // Generate ID from components
-        let id = format!("{}:{}:{}", file_path, start_line, name);
-
-        results.push(SymbolResult {
-            id,
-            name,
-            kind,
-            file_path,
-            start_line,
-            end_line,
-            content,
-            signature,
-        });
-    }
-
-    Ok(results)
 }

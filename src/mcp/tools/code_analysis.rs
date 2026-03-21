@@ -82,20 +82,16 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         let graph_path = get_analysis_path(&params.0.repo_id);
 
         // Use service layer with dependency injection (SOLID!)
-        // NanoGraph has Send/Sync constraints, so we use spawn_blocking
         let extractor = RustExtractor;
-        let repo_id_string = params.0.repo_id.clone();
-
-        let result = tokio::task::spawn_blocking(move || {
-            service::analyze_repository(&repo_path, &repo_id_string, &graph_path, &extractor)
-        })
-        .await
-        .map_err(|e| {
-            McpError::internal_error("task_join_error", Some(json!({ "error": e.to_string() })))
-        })?
-        .map_err(|e| {
-            McpError::internal_error("analysis_error", Some(json!({ "error": e.to_string() })))
-        })?;
+        let result =
+            service::analyze_repository(&repo_path, &params.0.repo_id, &graph_path, &extractor)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        "analysis_error",
+                        Some(json!({ "error": e.to_string() })),
+                    )
+                })?;
 
         let response = json!({
             "files_analyzed": result.files_analyzed,
@@ -119,21 +115,18 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         params: Parameters<QueryCodeGraphParams>,
     ) -> Result<CallToolResult, McpError> {
         let graph_path = get_analysis_path(&params.0.repo_id);
-        let repo_id = params.0.repo_id.clone();
-        let file_path = params.0.file_path.clone();
+        let graph = crate::analysis::CodeGraph::new(&graph_path, &params.0.repo_id)
+            .await
+            .map_err(|e| {
+                McpError::internal_error("graph_error", Some(json!({ "error": e.to_string() })))
+            })?;
 
-        let symbols = tokio::task::spawn_blocking(move || {
-            let runtime = tokio::runtime::Handle::current();
-            let graph = runtime.block_on(crate::analysis::CodeGraph::new(&graph_path, &repo_id))?;
-            runtime.block_on(graph.query_symbols_in_file(&file_path))
-        })
-        .await
-        .map_err(|e| {
-            McpError::internal_error("task_join_error", Some(json!({ "error": e.to_string() })))
-        })?
-        .map_err(|e| {
-            McpError::internal_error("query_error", Some(json!({ "error": e.to_string() })))
-        })?;
+        let symbols = graph
+            .query_symbols_in_file(&params.0.file_path)
+            .await
+            .map_err(|e| {
+                McpError::internal_error("query_error", Some(json!({ "error": e.to_string() })))
+            })?;
 
         let symbol_infos: Vec<_> = symbols
             .into_iter()

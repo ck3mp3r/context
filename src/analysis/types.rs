@@ -15,7 +15,7 @@ pub struct ExtractedSymbol {
 }
 
 /// Symbol kinds - language-agnostic categories
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum SymbolKind {
     Function,
     Class,
@@ -26,6 +26,27 @@ pub enum SymbolKind {
     Constant,
     Variable,
     Impl { target_type: String },
+}
+
+impl std::str::FromStr for SymbolKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "function" => Ok(Self::Function),
+            "class" => Ok(Self::Class),
+            "interface" => Ok(Self::Interface),
+            "struct" => Ok(Self::Struct),
+            "trait" => Ok(Self::Trait),
+            "enum" => Ok(Self::Enum),
+            "constant" => Ok(Self::Constant),
+            "variable" => Ok(Self::Variable),
+            "impl" => Ok(Self::Impl {
+                target_type: String::new(),
+            }),
+            _ => Err(format!("Unknown symbol kind: {}", s)),
+        }
+    }
 }
 
 impl SymbolKind {

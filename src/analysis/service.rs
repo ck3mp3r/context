@@ -12,8 +12,8 @@ pub enum AnalysisError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("NanoGraph error: {0}")]
-    NanoGraph(#[from] nanograph::error::NanoError),
+    #[error("Store error: {0}")]
+    Store(#[from] crate::analysis::store::StoreError),
 
     #[error("Repository has no local path")]
     NoLocalPath,
@@ -33,20 +33,13 @@ pub struct AnalysisResult {
 /// # SOLID Principles
 /// - **Dependency Inversion**: Depends on SymbolExtractor trait
 /// - **Single Responsibility**: Only coordinates analysis workflow
-///
-/// # Note
-/// This function is synchronous (not async) because NanoGraph operations
-/// are blocking and have Send/Sync constraints that don't work well in
-/// async contexts. Callers should use `tokio::task::spawn_blocking`.
-pub fn analyze_repository<E: SymbolExtractor>(
+pub async fn analyze_repository<E: SymbolExtractor>(
     repo_path: &Path,
     repo_id: &str,
     graph_path: &Path,
     extractor: &E,
 ) -> Result<AnalysisResult, AnalysisError> {
-    // Use tokio runtime's block_on for NanoGraph async operations
-    let runtime = tokio::runtime::Handle::current();
-    let mut graph = runtime.block_on(CodeGraph::new(graph_path, repo_id))?;
+    let mut graph = CodeGraph::new(graph_path, repo_id).await?;
 
     let registry = LanguageRegistry::new();
     let files = scan_supported_files(repo_path, &registry)?;
@@ -68,11 +61,11 @@ pub fn analyze_repository<E: SymbolExtractor>(
         total_symbols += symbols.len();
 
         // Insert into graph
-        let file_id = runtime.block_on(graph.insert_file(&relative_path, "rust", "hash"))?;
+        let file_id = graph.insert_file(&relative_path, "rust", "hash").await?;
 
         for symbol in &symbols {
-            let symbol_id = runtime.block_on(graph.insert_symbol(symbol))?;
-            runtime.block_on(graph.insert_contains(&file_id, &symbol_id, 1.0))?;
+            let symbol_id = graph.insert_symbol(symbol).await?;
+            graph.insert_contains(&file_id, &symbol_id, 1.0).await?;
             total_relationships += 1;
         }
     }
