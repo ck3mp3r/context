@@ -15,7 +15,7 @@ impl Parser {
     /// Create a new parser for Rust
     pub fn new_rust() -> Result<Self, tree_sitter::LanguageError> {
         let mut parser = TsParser::new();
-        let language = unsafe { tree_sitter_rust::LANGUAGE.into() };
+        let language: Language = unsafe { tree_sitter_rust::LANGUAGE.into() };
         parser.set_language(&language)?;
 
         Ok(Self {

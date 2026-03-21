@@ -2,7 +2,7 @@
 //
 // Extracts Rust-specific symbols: functions, structs, traits, impls, enums, etc.
 
-use crate::analysis::Parser;
+use crate::analysis::parser::Parser;
 use crate::analysis::types::{ExtractedRelationship, ExtractedSymbol, SymbolKind};
 use tree_sitter::Node;
 
