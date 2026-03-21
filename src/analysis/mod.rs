@@ -24,6 +24,9 @@ pub mod extractor;
 #[cfg(feature = "backend")]
 pub mod languages;
 
+#[cfg(feature = "backend")]
+pub mod service;
+
 // Re-exports for convenience
 #[cfg(feature = "backend")]
 pub use store::CodeGraph;
