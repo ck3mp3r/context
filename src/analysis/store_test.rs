@@ -63,6 +63,9 @@ async fn test_insert_contains_edge() {
 
     let result = graph.insert_contains(&file_id, &symbol_id, 1.0).await;
 
+    if let Err(e) = &result {
+        eprintln!("insert_contains error: {:?}", e);
+    }
     assert!(result.is_ok());
 }
 
@@ -85,6 +88,9 @@ async fn test_query_symbols_in_file() {
 
     let symbols = graph.query_symbols_in_file("src/main.rs").await;
 
+    if let Err(e) = &symbols {
+        eprintln!("query_symbols_in_file error: {:?}", e);
+    }
     assert!(symbols.is_ok());
     let symbols = symbols.unwrap();
     assert_eq!(symbols.len(), 2);

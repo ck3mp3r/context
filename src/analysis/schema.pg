@@ -12,7 +12,7 @@
 // ============================================================================
 
 node File {
-    id: String @key
+    file_id: String @key  // NOT 'id' - conflicts with NanoGraph's internal __ng_id
     repo_id: String @index
     path: String @index
     language: String
@@ -20,7 +20,7 @@ node File {
 }
 
 node Symbol {
-    id: String @key
+    symbol_id: String @key  // NOT 'id' - conflicts with NanoGraph's internal __ng_id
     repo_id: String @index
     name: String @index
     kind: String @index  // function, class, interface, struct, trait, enum, constant, variable
