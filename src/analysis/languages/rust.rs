@@ -72,56 +72,51 @@ fn walk_node(node: Node, code: &str, file_path: &str, symbols: &mut Vec<Extracte
 }
 
 fn extract_function(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
+    let signature = extract_function_signature(node, code);
+    push_symbol(
+        node,
+        code,
+        file_path,
+        SymbolKind::Function,
+        signature,
+        symbols,
+    );
+}
+
+fn extract_struct(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
+    push_symbol(node, code, file_path, SymbolKind::Struct, None, symbols);
+}
+
+fn extract_trait(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
+    push_symbol(node, code, file_path, SymbolKind::Trait, None, symbols);
+}
+
+fn extract_enum(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
+    push_symbol(node, code, file_path, SymbolKind::Enum, None, symbols);
+}
+
+/// Helper to create and push a symbol (reduces duplication)
+fn push_symbol(
+    node: Node,
+    code: &str,
+    file_path: &str,
+    kind: SymbolKind,
+    signature: Option<String>,
+    symbols: &mut Vec<ExtractedSymbol>,
+) {
     let name = get_name(node, code);
     let start_line = node.start_position().row + 1;
     let end_line = node.end_position().row + 1;
     let content = get_text(node, code);
 
-    // Extract function signature (simplified - just the first line for now)
-    let signature = extract_function_signature(node, code);
-
     symbols.push(ExtractedSymbol {
         name,
-        kind: SymbolKind::Function,
+        kind,
         file_path: file_path.to_string(),
         start_line,
         end_line,
         content,
         signature,
-    });
-}
-
-fn extract_struct(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
-    let name = get_name(node, code);
-    let start_line = node.start_position().row + 1;
-    let end_line = node.end_position().row + 1;
-    let content = get_text(node, code);
-
-    symbols.push(ExtractedSymbol {
-        name,
-        kind: SymbolKind::Struct,
-        file_path: file_path.to_string(),
-        start_line,
-        end_line,
-        content,
-        signature: None,
-    });
-}
-
-fn extract_trait(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
-    let name = get_name(node, code);
-    let start_line = node.start_position().row + 1;
-    let end_line = node.end_position().row + 1;
-    let content = get_text(node, code);
-
-    symbols.push(ExtractedSymbol {
-        name,
-        kind: SymbolKind::Trait,
-        file_path: file_path.to_string(),
-        start_line,
-        end_line,
-        content,
-        signature: None,
     });
 }
 
@@ -153,23 +148,6 @@ fn extract_impl(node: Node, code: &str, file_path: &str, symbols: &mut Vec<Extra
             }
         }
     }
-}
-
-fn extract_enum(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
-    let name = get_name(node, code);
-    let start_line = node.start_position().row + 1;
-    let end_line = node.end_position().row + 1;
-    let content = get_text(node, code);
-
-    symbols.push(ExtractedSymbol {
-        name,
-        kind: SymbolKind::Enum,
-        file_path: file_path.to_string(),
-        start_line,
-        end_line,
-        content,
-        signature: None,
-    });
 }
 
 fn get_name(node: Node, code: &str) -> String {

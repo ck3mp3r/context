@@ -9,13 +9,12 @@ use nanograph::error::NanoError;
 use nanograph::query::ast::Literal;
 use nanograph::result::RunResult;
 use nanograph::store::database::Database;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Wrapper around NanoGraph database for code analysis
 pub struct CodeGraph {
     db: Database,
     repo_id: String,
-    db_path: PathBuf,
 }
 
 impl CodeGraph {
@@ -34,11 +33,18 @@ impl CodeGraph {
         Ok(Self {
             db,
             repo_id: repo_id.to_string(),
-            db_path: analysis_path,
         })
     }
 
-    /// Insert a file node
+    /// Insert a file node into the graph
+    ///
+    /// # Arguments
+    /// * `path` - File path relative to repository root
+    /// * `language` - Programming language (e.g., "rust", "typescript")
+    /// * `hash` - SHA256 hash of file content for change detection
+    ///
+    /// # Returns
+    /// File ID used for creating relationships
     pub async fn insert_file(
         &mut self,
         path: &str,
@@ -68,7 +74,13 @@ query insert_file($file_id: String, $repo_id: String, $path: String, $language: 
         Ok(file_id)
     }
 
-    /// Insert a symbol node
+    /// Insert a symbol node into the graph
+    ///
+    /// # Arguments
+    /// * `symbol` - Extracted symbol with metadata (name, kind, location, etc.)
+    ///
+    /// # Returns
+    /// Symbol ID used for creating relationships
     pub async fn insert_symbol(&mut self, symbol: &ExtractedSymbol) -> Result<String, NanoError> {
         let symbol_id = format!(
             "{}:{}:{}:{}",
@@ -131,7 +143,17 @@ query insert_symbol($symbol_id: String, $repo_id: String, $name: String, $kind: 
         Ok(symbol_id)
     }
 
-    /// Create a FileContains relationship (File -> Symbol)
+    /// Create a containment relationship (File → Symbol or Symbol → Symbol)
+    ///
+    /// # Arguments
+    /// * `parent_id` - ID of container (File or Symbol)
+    /// * `child_id` - ID of contained Symbol
+    /// * `confidence` - Confidence score (0.0-1.0, typically 1.0 for same-file)
+    ///
+    /// # Note
+    /// Automatically determines edge type based on parent_id prefix:
+    /// - `file:*` → FileContains edge
+    /// - Other → SymbolContains edge
     pub async fn insert_contains(
         &mut self,
         parent_id: &str,
@@ -164,7 +186,13 @@ query {}($from: String, $to: String, $confidence: F64) {{
         Ok(())
     }
 
-    /// Query symbols in a file
+    /// Query all symbols in a specific file
+    ///
+    /// # Arguments
+    /// * `file_path` - Path to the file (must match path used in insert_file)
+    ///
+    /// # Returns
+    /// Vector of symbols with their metadata (name, kind, location, etc.)
     pub async fn query_symbols_in_file(
         &self,
         file_path: &str,
