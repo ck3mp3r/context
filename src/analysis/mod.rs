@@ -37,3 +37,6 @@ mod types_test;
 
 #[cfg(all(test, feature = "backend"))]
 mod store_test;
+
+#[cfg(all(test, feature = "backend"))]
+mod parser_test;
