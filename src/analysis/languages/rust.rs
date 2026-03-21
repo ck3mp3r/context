@@ -77,6 +77,9 @@ fn extract_function(node: Node, code: &str, file_path: &str, symbols: &mut Vec<E
     let end_line = node.end_position().row + 1;
     let content = get_text(node, code);
 
+    // Extract function signature (simplified - just the first line for now)
+    let signature = extract_function_signature(node, code);
+
     symbols.push(ExtractedSymbol {
         name,
         kind: SymbolKind::Function,
@@ -84,7 +87,7 @@ fn extract_function(node: Node, code: &str, file_path: &str, symbols: &mut Vec<E
         start_line,
         end_line,
         content,
-        signature: None, // TODO: Extract function signature
+        signature,
     });
 }
 
@@ -128,6 +131,7 @@ fn extract_impl(node: Node, code: &str, file_path: &str, symbols: &mut Vec<Extra
     let end_line = node.end_position().row + 1;
     let content = get_text(node, code);
 
+    // Extract the impl block itself
     symbols.push(ExtractedSymbol {
         name: format!("impl {}", target_type),
         kind: SymbolKind::Impl {
@@ -139,6 +143,16 @@ fn extract_impl(node: Node, code: &str, file_path: &str, symbols: &mut Vec<Extra
         content,
         signature: None,
     });
+
+    // Also extract methods from the impl block
+    if let Some(body) = node.child_by_field_name("body") {
+        let mut cursor = body.walk();
+        for child in body.children(&mut cursor) {
+            if child.kind() == "function_item" {
+                extract_function(child, code, file_path, symbols);
+            }
+        }
+    }
 }
 
 fn extract_enum(node: Node, code: &str, file_path: &str, symbols: &mut Vec<ExtractedSymbol>) {
@@ -172,4 +186,21 @@ fn get_impl_target(node: Node, code: &str) -> String {
 
 fn get_text(node: Node, code: &str) -> String {
     code[node.byte_range()].to_string()
+}
+
+fn extract_function_signature(node: Node, code: &str) -> Option<String> {
+    // Extract function signature up to the opening brace
+    // This is a simplified version - just get everything before the body
+    let start = node.start_byte();
+
+    // Find the body (block node)
+    if let Some(body) = node.child_by_field_name("body") {
+        let body_start = body.start_byte();
+        // Get text from function start to body start, trim whitespace
+        let sig = code[start..body_start].trim_end().to_string();
+        Some(sig)
+    } else {
+        // No body (e.g., trait method declaration)
+        Some(get_text(node, code))
+    }
 }
