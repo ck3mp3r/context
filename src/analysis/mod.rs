@@ -34,3 +34,6 @@ pub use types::{ExtractedRelationship, ExtractedSymbol, RelationType, SymbolKind
 // Tests
 #[cfg(all(test, feature = "backend"))]
 mod types_test;
+
+#[cfg(all(test, feature = "backend"))]
+mod store_test;

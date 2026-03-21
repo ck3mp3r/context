@@ -7,6 +7,7 @@ use tree_sitter::{Language, Parser as TsParser, Tree};
 /// Wrapper around tree-sitter Parser
 pub struct Parser {
     parser: TsParser,
+    #[allow(dead_code)]
     language: Language,
     language_name: String,
 }
@@ -15,7 +16,7 @@ impl Parser {
     /// Create a new parser for Rust
     pub fn new_rust() -> Result<Self, tree_sitter::LanguageError> {
         let mut parser = TsParser::new();
-        let language: Language = unsafe { tree_sitter_rust::LANGUAGE.into() };
+        let language: Language = tree_sitter_rust::LANGUAGE.into();
         parser.set_language(&language)?;
 
         Ok(Self {
@@ -39,13 +40,14 @@ impl Parser {
 /// Registry of supported languages
 pub struct LanguageRegistry {
     // Rust only for MVP
+    #[allow(dead_code)]
     rust: Language,
 }
 
 impl LanguageRegistry {
     pub fn new() -> Self {
         Self {
-            rust: unsafe { tree_sitter_rust::LANGUAGE.into() },
+            rust: tree_sitter_rust::LANGUAGE.into(),
         }
     }
 
