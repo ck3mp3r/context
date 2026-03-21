@@ -1,0 +1,65 @@
+// Code Analysis Schema
+// Purpose-built for c5t - NOT copying GitNexus
+//
+// Design philosophy:
+// - Simple: 2 node types (File, Symbol) instead of 30+
+// - Generic: Symbol.kind field handles all code entities
+// - Language-agnostic: Same schema for TypeScript, Rust, Python, etc.
+// - Confidence tracking: Tree-sitter can be uncertain about cross-file refs
+
+// ============================================================================
+// Node Types
+// ============================================================================
+
+node File {
+    id: String @key
+    repo_id: String @index
+    path: String @index
+    language: String
+    hash: String  // SHA256 of content for change detection
+}
+
+node Symbol {
+    id: String @key
+    repo_id: String @index
+    name: String @index
+    kind: String @index  // function, class, interface, struct, trait, enum, constant, variable
+    file_path: String @index
+    start_line: I32
+    end_line: I32
+    signature: String?  // For functions/methods: "fn foo(a: i32) -> String"
+    content: String?    // Code snippet with context (±2 lines)
+    // Phase 2: embedding: Vector(384)? @embed(content)
+}
+
+// ============================================================================
+// Relationship Types
+// ============================================================================
+
+// Containment: File contains Symbol
+edge FileContains: File -> Symbol {
+    confidence: F64 @default(1.0)  // Always 1.0 for same-file
+}
+
+// Symbol contains Symbol (Class → Method)
+edge SymbolContains: Symbol -> Symbol {
+    confidence: F64 @default(1.0)  // Always 1.0 for same-file containment
+}
+
+// Function/method calls
+edge Calls: Symbol -> Symbol {
+    confidence: F64 @default(1.0)  // < 1.0 for dynamic calls, reflection
+    call_site_line: I32            // Where the call happens
+}
+
+// References: imports, type annotations, variable usage
+edge References: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+    reference_type: String         // "import", "type_annotation", "usage"
+}
+
+// Inheritance: extends, implements, trait bounds
+edge Inherits: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+    inheritance_type: String       // "extends", "implements", "trait_bound"
+}

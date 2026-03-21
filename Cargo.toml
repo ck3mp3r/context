@@ -28,6 +28,7 @@ backend = [
     "dep:futures-util",
     "dep:miette",
     "dep:mime_guess",
+    "dep:nanograph",
     "dep:reqwest",
     "dep:rmcp",
     "dep:rust-embed",
@@ -40,6 +41,8 @@ backend = [
     "dep:tower-http",
     "dep:tracing",
     "dep:tracing-subscriber",
+    "dep:tree-sitter",
+    "dep:tree-sitter-rust",
     "dep:utoipa",
     "dep:utoipa-axum",
     "dep:utoipa-scalar",
@@ -92,6 +95,10 @@ optional = true
 
 [dependencies.mime_guess]
 version = "2.0.5"
+optional = true
+
+[dependencies.nanograph]
+version = "1.0.0"
 optional = true
 
 [dependencies.reqwest]
@@ -183,6 +190,14 @@ optional = true
 [dependencies.tracing-subscriber]
 version = "0.3.23"
 features = ["env-filter"]
+optional = true
+
+[dependencies.tree-sitter]
+version = "0.24"
+optional = true
+
+[dependencies.tree-sitter-rust]
+version = "0.24.1"
 optional = true
 
 [dependencies.utoipa]
