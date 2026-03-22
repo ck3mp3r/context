@@ -63,6 +63,18 @@ impl Job for TestMockJob {
     }
 
     async fn execute(&self, params: serde_json::Value) -> Result<serde_json::Value, JobError> {
+        // Sleep for duration_ms if specified
+        if let Some(duration_ms) = params.get("duration_ms").and_then(|v| v.as_u64()) {
+            tokio::time::sleep(tokio::time::Duration::from_millis(duration_ms)).await;
+        }
+
+        // Fail if should_fail is true
+        if let Some(true) = params.get("should_fail").and_then(|v| v.as_bool()) {
+            return Err(JobError::ExecutionFailed(
+                "TestMockJob was configured to fail".to_string(),
+            ));
+        }
+
         Ok(serde_json::json!({
             "success": true,
             "params": params

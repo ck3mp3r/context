@@ -13,3 +13,7 @@ pub use handlers::AnalyzeRepositoryJob;
 pub use job_trait::{Job, JobError};
 pub use queue::{JobQueue, JobStatus, QueueError, Status};
 pub use registry::{JobInstance, JobRegistry};
+
+#[cfg(test)]
+#[path = "integration_test.rs"]
+mod integration_test;
