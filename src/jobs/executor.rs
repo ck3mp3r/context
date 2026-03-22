@@ -5,7 +5,7 @@ use super::queue::{JobQueue, QueueError, Status};
 use super::registry::JobRegistry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{info, debug, error};
+use tracing::{debug, error, info};
 
 #[derive(Clone)]
 pub struct JobExecutor {
@@ -45,9 +45,15 @@ impl JobExecutor {
             tokio::spawn(async move {
                 info!("Progress listener started for job: {}", job_id_clone);
                 while let Some(update) = progress_rx.recv().await {
-                    debug!("Progress listener received: {}/{}", update.current, update.total);
+                    debug!(
+                        "Progress listener received: {}/{}",
+                        update.current, update.total
+                    );
                     match queue_clone.update_progress(&job_id_clone, update.current, update.total) {
-                        Ok(_) => debug!("Progress updated in queue: {}/{}", update.current, update.total),
+                        Ok(_) => debug!(
+                            "Progress updated in queue: {}/{}",
+                            update.current, update.total
+                        ),
                         Err(e) => error!("Failed to update progress in queue: {}", e),
                     }
                 }

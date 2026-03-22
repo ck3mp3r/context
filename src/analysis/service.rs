@@ -72,7 +72,7 @@ where
     tracing::info!("Creating CodeGraph for repo_id: {}", repo_id);
     let mut graph = CodeGraph::new(graph_path, repo_id).await?;
     tracing::info!("CodeGraph created successfully");
-    
+
     let registry = LanguageRegistry::new();
 
     // Load metadata to check for incremental analysis
@@ -80,7 +80,7 @@ where
     tracing::debug!("Getting current commit for {:?}", repo_path);
     let current_commit = get_current_commit(repo_path)?;
     tracing::debug!("Current commit: {}", current_commit);
-    
+
     let last_commit = load_metadata(&metadata_path)?;
     tracing::debug!("Last commit: {:?}", last_commit);
 
@@ -141,6 +141,11 @@ where
         tokio::task::yield_now().await;
     }
 
+    // Commit all batched data to nanograph
+    tracing::info!("Committing all data to nanograph...");
+    graph.commit().await?;
+    tracing::info!("Commit complete");
+
     // Save metadata with current commit
     save_metadata(&metadata_path, &current_commit)?;
 
@@ -170,13 +175,12 @@ fn scan_supported_files(
         match entry {
             Ok(entry) => {
                 let path = entry.path();
-                if path.is_file() {
-                    if let Some(ext) = path.extension() {
-                        if registry.supports_extension(ext.to_str().unwrap_or("")) {
-                            tracing::trace!("Found supported file: {:?}", path);
-                            supported_files.push(path.to_path_buf());
-                        }
-                    }
+                if path.is_file()
+                    && let Some(ext) = path.extension()
+                    && registry.supports_extension(ext.to_str().unwrap_or(""))
+                {
+                    tracing::trace!("Found supported file: {:?}", path);
+                    supported_files.push(path.to_path_buf());
                 }
             }
             Err(e) => {
@@ -192,7 +196,7 @@ fn scan_supported_files(
 /// Get current git commit SHA (short)
 fn get_current_commit(repo_path: &Path) -> Result<String, AnalysisError> {
     let output = std::process::Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .current_dir(repo_path)
         .output()
         .map_err(|e| AnalysisError::GitError(format!("Failed to run git: {}", e)))?;
@@ -219,7 +223,7 @@ fn get_changed_files(
     }
 
     let output = std::process::Command::new("git")
-        .args(&[
+        .args([
             "diff",
             "--name-status",
             &format!("{}..{}", from_commit, to_commit),
@@ -261,10 +265,10 @@ fn get_changed_files(
 
         // Check if file extension is supported
         let path = repo_path.join(file_path);
-        if let Some(ext) = path.extension() {
-            if registry.supports_extension(ext.to_str().unwrap_or("")) {
-                changed_files.push(path);
-            }
+        if let Some(ext) = path.extension()
+            && registry.supports_extension(ext.to_str().unwrap_or(""))
+        {
+            changed_files.push(path);
         }
     }
 

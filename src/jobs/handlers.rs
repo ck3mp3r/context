@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use tracing::{info, debug, error};
+use tracing::{debug, error, info};
 
 /// Analyze repository job
 #[derive(Default)]
@@ -40,7 +40,10 @@ impl Job for AnalyzeRepositoryJob {
     ) -> Result<Value, JobError> {
         info!("Starting analyze_repository job");
         let params: AnalyzeParams = serde_json::from_value(params)?;
-        info!("Job params: repo_id={}, path={}", params.repo_id, params.path);
+        info!(
+            "Job params: repo_id={}, path={}",
+            params.repo_id, params.path
+        );
 
         // Get analysis path (same logic as MCP tool)
         let graph_path = get_analysis_path(&params.repo_id);
@@ -58,11 +61,10 @@ impl Job for AnalyzeRepositoryJob {
             // Write schema
             let schema_path = analysis_path.join("schema.pg");
             debug!("Writing schema to {:?}", schema_path);
-            std::fs::write(&schema_path, include_str!("../analysis/schema.pg"))
-                .map_err(|e| {
-                    error!("Failed to write schema: {}", e);
-                    JobError::AnalysisError(format!("Failed to write schema: {}", e))
-                })?;
+            std::fs::write(&schema_path, include_str!("../analysis/schema.pg")).map_err(|e| {
+                error!("Failed to write schema: {}", e);
+                JobError::AnalysisError(format!("Failed to write schema: {}", e))
+            })?;
 
             // Initialize nanograph
             info!("Running nanograph init command");
@@ -105,7 +107,10 @@ impl Job for AnalyzeRepositoryJob {
                     match tx.try_send(ProgressUpdate { current, total }) {
                         Ok(_) => debug!("Progress sent successfully: {}/{}", current, total),
                         Err(mpsc::error::TrySendError::Full(_)) => {
-                            debug!("Progress channel full, skipping update {}/{}", current, total)
+                            debug!(
+                                "Progress channel full, skipping update {}/{}",
+                                current, total
+                            )
                         }
                         Err(mpsc::error::TrySendError::Closed(_)) => {
                             error!("Progress channel closed")

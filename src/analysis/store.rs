@@ -28,6 +28,7 @@ pub enum StoreError {
 pub struct CodeGraph {
     db_path: PathBuf,
     repo_id: String,
+    batch_file: PathBuf,
 }
 
 impl CodeGraph {
@@ -67,8 +68,9 @@ impl CodeGraph {
         }
 
         Ok(Self {
-            db_path: analysis_path,
+            db_path: analysis_path.clone(),
             repo_id: repo_id.to_string(),
+            batch_file: analysis_path.join("batch.jsonl"),
         })
     }
 
@@ -99,37 +101,25 @@ impl CodeGraph {
         // Create JSONL data for the file node
         let file_id = format!("file:{}", path);
         let data = serde_json::json!({
-            "@type": "File",
-            "file_id": &file_id,
-            "path": path,
-            "language": language,
-            "hash": hash,
-            "repo_id": &self.repo_id,
+            "type": "File",
+            "data": {
+                "file_id": &file_id,
+                "path": path,
+                "language": language,
+                "hash": hash,
+                "repo_id": &self.repo_id,
+            }
         });
 
-        // Write to temp file
-        let temp_file = self.db_path.join("temp_file.jsonl");
-        std::fs::write(&temp_file, format!("{}\n", data))?;
+        // Append to batch file
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.batch_file)?;
+        writeln!(file, "{}", serde_json::to_string(&data)?)?;
 
-        // Load into nanograph
-        let output = Command::new("nanograph")
-            .arg("load")
-            .arg("--db")
-            .arg(&self.db_path)
-            .arg("--data")
-            .arg(&temp_file)
-            .arg("--mode")
-            .arg("merge")
-            .output()?;
-
-        // Clean up
-        let _ = std::fs::remove_file(&temp_file);
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(StoreError::CliFailed(stderr.to_string()));
-        }
-
+        tracing::debug!("Appended file node to batch: {}", path);
         Ok(file_id)
     }
 
@@ -146,37 +136,28 @@ impl CodeGraph {
             symbol.file_path, symbol.name, symbol.start_line
         );
         let data = serde_json::json!({
-            "@type": "Symbol",
-            "symbol_id": &symbol_id,
-            "name": &symbol.name,
-            "kind": symbol.kind.as_str(),
-            "file_path": &symbol.file_path,
-            "start_line": symbol.start_line,
-            "end_line": symbol.end_line,
-            "signature": symbol.signature.as_deref().unwrap_or(""),
-            "repo_id": &self.repo_id,
+            "type": "Symbol",
+            "data": {
+                "symbol_id": &symbol_id,
+                "name": &symbol.name,
+                "kind": symbol.kind.as_str(),
+                "file_path": &symbol.file_path,
+                "start_line": symbol.start_line,
+                "end_line": symbol.end_line,
+                "signature": symbol.signature.as_deref().unwrap_or(""),
+                "repo_id": &self.repo_id,
+            }
         });
 
-        let temp_file = self.db_path.join("temp_symbol.jsonl");
-        std::fs::write(&temp_file, format!("{}\n", data))?;
+        // Append to batch file
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.batch_file)?;
+        writeln!(file, "{}", serde_json::to_string(&data)?)?;
 
-        let output = Command::new("nanograph")
-            .arg("load")
-            .arg("--db")
-            .arg(&self.db_path)
-            .arg("--data")
-            .arg(&temp_file)
-            .arg("--mode")
-            .arg("merge")
-            .output()?;
-
-        let _ = std::fs::remove_file(&temp_file);
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(StoreError::CliFailed(stderr.to_string()));
-        }
-
+        tracing::debug!("Appended symbol node to batch: {}", symbol.name);
         Ok(symbol_id)
     }
 
@@ -188,31 +169,59 @@ impl CodeGraph {
         confidence: f32,
     ) -> Result<(), StoreError> {
         let data = serde_json::json!({
-            "@type": "FileContains",
+            "edge": "FileContains",
             "from": file_id,
             "to": symbol_id,
-            "confidence": confidence,
+            "data": {
+                "confidence": confidence,
+            }
         });
 
-        let temp_file = self.db_path.join("temp_edge.jsonl");
-        std::fs::write(&temp_file, format!("{}\n", data))?;
+        // Append to batch file
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.batch_file)?;
+        writeln!(file, "{}", serde_json::to_string(&data)?)?;
 
+        tracing::debug!("Appended edge to batch: {} -> {}", file_id, symbol_id);
+        Ok(())
+    }
+
+    /// Commit all batched data to nanograph (call this once at the end)
+    pub async fn commit(&mut self) -> Result<(), StoreError> {
+        if !self.batch_file.exists() {
+            tracing::warn!("No batch file to commit");
+            return Ok(());
+        }
+
+        tracing::info!("Committing batch file to nanograph: {:?}", self.batch_file);
         let output = Command::new("nanograph")
             .arg("load")
             .arg("--db")
             .arg(&self.db_path)
             .arg("--data")
-            .arg(&temp_file)
+            .arg(&self.batch_file)
             .arg("--mode")
             .arg("merge")
             .output()?;
 
-        let _ = std::fs::remove_file(&temp_file);
-
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            tracing::error!(
+                "nanograph load failed: stderr={}, stdout={}",
+                stderr,
+                stdout
+            );
             return Err(StoreError::CliFailed(stderr.to_string()));
         }
+
+        tracing::info!("Successfully committed all data to nanograph");
+
+        // Clean up batch file
+        let _ = std::fs::remove_file(&self.batch_file);
 
         Ok(())
     }

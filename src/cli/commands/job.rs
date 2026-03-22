@@ -63,11 +63,11 @@ async fn list_jobs(
     let response: serde_json::Value =
         ApiClient::handle_response(client.get(&url).send().await?).await?;
 
-    let items = response["items"].as_array().ok_or_else(|| {
-        CliError::InvalidResponse {
+    let items = response["items"]
+        .as_array()
+        .ok_or_else(|| CliError::InvalidResponse {
             message: "Invalid response format".to_string(),
-        }
-    })?;
+        })?;
 
     if items.is_empty() {
         return Ok("No jobs found".to_string());
@@ -108,7 +108,10 @@ async fn get_job(client: &ApiClient, job_id: &str) -> Result<String, CliError> {
     }
 
     if let Some(result) = response.get("result") {
-        output.push_str(&format!("Result:\n{}\n", serde_json::to_string_pretty(result).unwrap()));
+        output.push_str(&format!(
+            "Result:\n{}\n",
+            serde_json::to_string_pretty(result).unwrap()
+        ));
     }
 
     if let Some(error) = response.get("error") {

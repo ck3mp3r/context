@@ -198,8 +198,8 @@ impl JobQueue {
         let jobs = self.jobs.read().unwrap();
         jobs.values()
             .filter(|job| {
-                let status_match = status.map_or(true, |s| job.status.to_string() == s);
-                let type_match = job_type.map_or(true, |t| job.job_type == t);
+                let status_match = status.is_none_or(|s| job.status.to_string() == s);
+                let type_match = job_type.is_none_or(|t| job.job_type == t);
                 status_match && type_match
             })
             .cloned()
