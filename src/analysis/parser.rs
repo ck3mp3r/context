@@ -58,14 +58,13 @@ impl LanguageRegistry {
     /// Tries to parse with each supported language and returns the one that succeeds
     pub fn detect_language(&self, content: &str, file_path: &str) -> Option<DetectedLanguage> {
         // Try extension hint first for performance
-        if let Some(ext) = std::path::Path::new(file_path).extension() {
-            if let Some(ext_str) = ext.to_str() {
-                if let Some(lang) = self.detect_from_extension(ext_str) {
-                    // Verify with parser
-                    if self.can_parse(content, &lang) {
-                        return Some(lang);
-                    }
-                }
+        if let Some(ext) = std::path::Path::new(file_path).extension()
+            && let Some(ext_str) = ext.to_str()
+            && let Some(lang) = self.detect_from_extension(ext_str)
+        {
+            // Verify with parser
+            if self.can_parse(content, &lang) {
+                return Some(lang);
             }
         }
 
@@ -97,12 +96,12 @@ impl LanguageRegistry {
     fn can_parse(&self, content: &str, language: &DetectedLanguage) -> bool {
         match language {
             DetectedLanguage::Rust => {
-                if let Ok(mut parser) = Parser::new_rust() {
-                    if let Some(tree) = parser.parse(content) {
-                        // Check if parse was successful (not just error recovery)
-                        let root = tree.root_node();
-                        return !root.has_error();
-                    }
+                if let Ok(mut parser) = Parser::new_rust()
+                    && let Some(tree) = parser.parse(content)
+                {
+                    // Check if parse was successful (not just error recovery)
+                    let root = tree.root_node();
+                    return !root.has_error();
                 }
                 false
             }

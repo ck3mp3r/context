@@ -6,6 +6,7 @@
 use crate::analysis::service;
 use crate::db::{Database, RepoRepository};
 use crate::mcp::tools::map_db_error;
+use crate::sync::get_data_dir;
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -190,23 +191,9 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
     }
 }
 
+/// Get the analysis directory path for a repository
+///
+/// Uses the XDG-compliant data directory from sync::paths
 fn get_analysis_path(repo_id: &str) -> PathBuf {
-    // Inline version of get_data_dir to avoid module privacy issues
-    let data_dir = std::env::var("C5T_DATA_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            #[cfg(target_os = "macos")]
-            {
-                let home = std::env::var("HOME").expect("HOME not set");
-                PathBuf::from(home).join("Library/Application Support/c5t")
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let home = std::env::var("HOME").expect("HOME not set");
-                PathBuf::from(home).join(".local/share/c5t")
-            }
-        });
-
-    data_dir.join("repos").join(repo_id)
+    get_data_dir().join("repos").join(repo_id)
 }
