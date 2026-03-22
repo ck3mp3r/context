@@ -1,9 +1,9 @@
 //! Code analysis service
 //!
 //! High-level service for analyzing repositories.
-//! Follows SOLID principles - depends on abstractions, not implementations.
+//! Uses LanguageRegistry to get appropriate extractors per file.
 
-use crate::analysis::{extractor::SymbolExtractor, parser::LanguageRegistry, store::CodeGraph};
+use crate::analysis::{parser::LanguageRegistry, store::CodeGraph};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -30,14 +30,11 @@ pub struct AnalysisResult {
 
 /// Analyze a repository and store results in NanoGraph
 ///
-/// # SOLID Principles
-/// - **Dependency Inversion**: Depends on SymbolExtractor trait
-/// - **Single Responsibility**: Only coordinates analysis workflow
-pub async fn analyze_repository<E: SymbolExtractor>(
+/// Uses LanguageRegistry to get the right extractor for each file type
+pub async fn analyze_repository(
     repo_path: &Path,
     repo_id: &str,
     graph_path: &Path,
-    extractor: &E,
 ) -> Result<AnalysisResult, AnalysisError> {
     let mut graph = CodeGraph::new(graph_path, repo_id).await?;
 
@@ -56,7 +53,12 @@ pub async fn analyze_repository<E: SymbolExtractor>(
             .to_string_lossy()
             .to_string();
 
-        // Extract symbols using the provided extractor
+        // Detect language from content using Tree-sitter
+        let extractor = registry
+            .get_extractor_for_file(&relative_path, &content)
+            .ok_or_else(|| AnalysisError::UnsupportedFile(relative_path.clone()))?;
+
+        // Extract symbols using the detected language's extractor
         let symbols = extractor.extract_symbols(&content, &relative_path);
         total_symbols += symbols.len();
 

@@ -3,7 +3,7 @@
 //! Handles MCP tools for code analysis operations.
 //! Follows SOLID principles - thin MCP layer delegating to service layer.
 
-use crate::analysis::{languages::rust::RustExtractor, service};
+use crate::analysis::service;
 use crate::db::{Database, RepoRepository};
 use crate::mcp::tools::map_db_error;
 use rmcp::{
@@ -118,17 +118,12 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         }
 
         // Spawn analysis as background process
-        // We spawn a new c5t process that will run the analysis
+        // Analysis now detects languages automatically
         let repo_id = params.0.repo_id.clone();
         tokio::spawn(async move {
-            let extractor = RustExtractor;
-            let _ = service::analyze_repository(
-                &PathBuf::from(&repo_path_str),
-                &repo_id,
-                &graph_path,
-                &extractor,
-            )
-            .await;
+            let _ =
+                service::analyze_repository(&PathBuf::from(&repo_path_str), &repo_id, &graph_path)
+                    .await;
         });
 
         let response = json!({
