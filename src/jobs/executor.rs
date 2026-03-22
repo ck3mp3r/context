@@ -1,29 +1,28 @@
-//! Job executor - spawns async tasks for job execution
+//! Job executor - spawns async tasks
 //!
 //! Uses tokio::spawn for non-blocking background execution.
-//! Jobs are executed based on their JobHandler enum variant.
+//! Pure static dispatch with registry lookup.
 
 use super::queue::{JobQueue, QueueError, Status};
+use super::registry::JobRegistry;
 use std::sync::Arc;
 
 /// Job executor manages async job execution
-#[derive(Clone)]
 pub struct JobExecutor {
     queue: Arc<JobQueue>,
+    registry: Arc<JobRegistry>,
 }
 
 impl JobExecutor {
     /// Create a new job executor
-    pub fn new(queue: JobQueue) -> Self {
+    pub fn new(queue: JobQueue, registry: JobRegistry) -> Self {
         Self {
             queue: Arc::new(queue),
+            registry: Arc::new(registry),
         }
     }
 
     /// Execute a job asynchronously
-    ///
-    /// This spawns a tokio task and returns immediately.
-    /// The job status is tracked in the queue.
     pub async fn execute_job(&self, job_id: &str) -> Result<(), QueueError> {
         // 1. Load job from queue
         let job = self.queue.get(job_id)?;
@@ -31,22 +30,18 @@ impl JobExecutor {
         // 2. Update status to "running"
         self.queue.update_status(job_id, Status::Running)?;
 
-        // 3. Spawn tokio task for async execution
+        // 3. Spawn tokio task
         let queue = self.queue.clone();
+        let registry = self.registry.clone();
         let job_id_owned = job_id.to_string();
-        let handler = job.job_type;
-        let params = job.params;
+        let job_type = job.job_type.clone();
+        let params = job.params.clone();
 
         tokio::spawn(async move {
-            // Execute the job
-            match handler.execute(params).await {
+            // Execute via registry
+            match registry.execute(&job_type, params).await {
                 Ok(result) => {
-                    // Serialize result to JSON
-                    if let Ok(json_result) = serde_json::to_value(&result) {
-                        let _ = queue.complete(&job_id_owned, json_result);
-                    } else {
-                        let _ = queue.fail(&job_id_owned, "Failed to serialize result".to_string());
-                    }
+                    let _ = queue.complete(&job_id_owned, result);
                 }
                 Err(e) => {
                     let _ = queue.fail(&job_id_owned, e.to_string());
