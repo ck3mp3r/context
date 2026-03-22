@@ -11,11 +11,11 @@ use super::static_assets::serve_frontend;
 use super::v1::{
     CreateJobRequest, CreateNoteRequest, CreateProjectRequest, CreateRepoRequest,
     CreateSkillRequest, CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse,
-    EnableSkillResponse, ErrorResponse, ImportSkillRequest, JobResponse, ListJobsQuery,
-    NoteResponse, PaginatedJobs, PatchNoteRequest, PatchProjectRequest, PatchRepoRequest,
-    PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse,
-    SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest,
-    UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    EnableSkillResponse, ErrorResponse, ImportSkillRequest, JobResponse, NoteResponse,
+    PaginatedJobs, PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
+    PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse, SkillResponse,
+    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use crate::db::Database;

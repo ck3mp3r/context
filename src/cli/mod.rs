@@ -1250,9 +1250,12 @@ pub async fn run() -> Result<()> {
             }
         },
         Some(Commands::Analyze { path, repo_id }) => {
-            // TODO: Implement after job queue is ready
-            let _ = (path, repo_id);
-            println!("Code analysis not yet implemented. Coming soon!");
+            let args = commands::analyze::AnalyzeArgs {
+                repo: repo_id.unwrap_or_else(|| path.to_string_lossy().to_string()),
+                poll_interval: 2,
+            };
+            let output = commands::analyze::analyze(&api_client, args).await?;
+            println!("{}", output);
         }
         None => {
             // Show help when no command provided
