@@ -1,24 +1,11 @@
-//! Job handlers - concrete implementations only
-//!
-//! NO traits, NO generics, NO dyn - just plain structs and functions
+//! Job handlers - concrete implementations
 
+use super::job_trait::{Job, JobError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum JobError {
-    #[error("Execution failed: {0}")]
-    ExecutionFailed(String),
-
-    #[error("Invalid parameters: {0}")]
-    InvalidParams(#[from] serde_json::Error),
-
-    #[error("Analysis error: {0}")]
-    AnalysisError(String),
-}
 
 /// Analyze repository job
+#[derive(Default)]
 pub struct AnalyzeRepositoryJob;
 
 #[derive(Debug, Deserialize)]
@@ -36,8 +23,12 @@ struct AnalyzeResult {
     relationships_created: usize,
 }
 
-impl AnalyzeRepositoryJob {
-    pub async fn execute(params: Value) -> Result<Value, JobError> {
+impl Job for AnalyzeRepositoryJob {
+    fn job_type() -> &'static str {
+        "analyze_repository"
+    }
+
+    async fn execute(&self, params: Value) -> Result<Value, JobError> {
         let params: AnalyzeParams = serde_json::from_value(params)?;
 
         // TODO: Actual implementation
@@ -53,5 +44,5 @@ impl AnalyzeRepositoryJob {
 }
 
 #[cfg(test)]
-#[path = "job_test.rs"]
-mod job_test;
+#[path = "handlers_test.rs"]
+mod handlers_test;

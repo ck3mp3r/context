@@ -2,31 +2,31 @@
 
 use super::*;
 
-#[tokio::test]
-async fn test_execute_analyze_repository() {
+#[test]
+fn test_registry_get_job() {
     let registry = JobRegistry::new();
-
-    let params = serde_json::json!({
-        "repo_id": "test123",
-        "path": "/test/path"
-    });
-
-    let result = registry.execute("analyze_repository", params).await;
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
-async fn test_execute_unknown_type() {
-    let registry = JobRegistry::new();
-    let result = registry.execute("unknown", serde_json::json!({})).await;
-    assert!(result.is_err());
+    let instance = registry.get("analyze_repository");
+    assert!(instance.is_ok());
 }
 
 #[test]
-fn test_registry_is_send_sync() {
-    fn assert_send<T: Send>() {}
-    fn assert_sync<T: Sync>() {}
+fn test_registry_unknown_type() {
+    let registry = JobRegistry::new();
+    let result = registry.get("unknown");
+    assert!(result.is_err());
+}
 
-    assert_send::<JobRegistry>();
-    assert_sync::<JobRegistry>();
+#[tokio::test]
+async fn test_job_instance_execute() {
+    let registry = JobRegistry::new();
+    let instance = registry.get("analyze_repository").unwrap();
+
+    let result = instance
+        .execute(serde_json::json!({
+            "repo_id": "test",
+            "path": "/test"
+        }))
+        .await;
+
+    assert!(result.is_ok());
 }

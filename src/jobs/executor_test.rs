@@ -12,12 +12,12 @@ async fn test_executor_spawns_job() {
     let registry = JobRegistry::new();
     let executor = JobExecutor::new(queue.clone(), registry);
 
-    let job_id = "test-job-1".to_string();
+    let job_id = "test-1".to_string();
     queue
         .create(
             job_id.clone(),
             "analyze_repository".to_string(),
-            json!({"repo_id": "repo123", "path": "/test"}),
+            json!({"repo_id": "r1", "path": "/test"}),
         )
         .unwrap();
 
@@ -34,12 +34,12 @@ async fn test_executor_completes_job() {
     let registry = JobRegistry::new();
     let executor = JobExecutor::new(queue.clone(), registry);
 
-    let job_id = "test-job-2".to_string();
+    let job_id = "test-2".to_string();
     queue
         .create(
             job_id.clone(),
             "analyze_repository".to_string(),
-            json!({"repo_id": "repo456", "path": "/test"}),
+            json!({"repo_id": "r2", "path": "/test"}),
         )
         .unwrap();
 
@@ -51,7 +51,7 @@ async fn test_executor_completes_job() {
 }
 
 #[tokio::test]
-async fn test_executor_handles_nonexistent_job() {
+async fn test_executor_handles_nonexistent() {
     let queue = JobQueue::new();
     let registry = JobRegistry::new();
     let executor = JobExecutor::new(queue, registry);
@@ -61,7 +61,7 @@ async fn test_executor_handles_nonexistent_job() {
 }
 
 #[tokio::test]
-async fn test_executor_runs_multiple_jobs() {
+async fn test_executor_runs_multiple() {
     let queue = JobQueue::new();
     let registry = JobRegistry::new();
     let executor = JobExecutor::new(queue.clone(), registry);
@@ -72,7 +72,7 @@ async fn test_executor_runs_multiple_jobs() {
             .create(
                 job_id.clone(),
                 "analyze_repository".to_string(),
-                json!({"repo_id": format!("repo-{}", i), "path": "/test"}),
+                json!({"repo_id": format!("r{}", i), "path": "/test"}),
             )
             .unwrap();
         executor.execute_job(&job_id).await.unwrap();

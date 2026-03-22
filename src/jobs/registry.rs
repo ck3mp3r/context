@@ -1,8 +1,9 @@
-//! Job registry - compile-time dispatch
+//! Job registry - returns job instances using generics
 //!
-//! Pure match statement - NO dyn, NO Box, NO traits
+//! Pure static dispatch - uses match to return concrete job types
 
-use serde_json::Value;
+use super::handlers::AnalyzeRepositoryJob;
+use super::job_trait::{Job, JobError};
 
 pub struct JobRegistry;
 
@@ -11,15 +12,11 @@ impl JobRegistry {
         Self
     }
 
-    /// Execute job by type - pure static dispatch via match
-    pub async fn execute(
-        &self,
-        job_type: &str,
-        params: Value,
-    ) -> Result<Value, super::job::JobError> {
+    /// Get a job instance by type - returns concrete type via enum
+    pub fn get(&self, job_type: &str) -> Result<JobInstance, JobError> {
         match job_type {
-            "analyze_repository" => super::job::AnalyzeRepositoryJob::execute(params).await,
-            _ => Err(super::job::JobError::ExecutionFailed(format!(
+            "analyze_repository" => Ok(JobInstance::AnalyzeRepository(AnalyzeRepositoryJob)),
+            _ => Err(JobError::ExecutionFailed(format!(
                 "Unknown job type: {}",
                 job_type
             ))),
@@ -30,6 +27,23 @@ impl JobRegistry {
 impl Default for JobRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Job instance enum - each variant holds a concrete job type
+///
+/// This allows returning different job types while maintaining static dispatch
+pub enum JobInstance {
+    AnalyzeRepository(AnalyzeRepositoryJob),
+    // Add more variants here
+}
+
+impl JobInstance {
+    /// Execute the job - dispatches to concrete type
+    pub async fn execute(&self, params: serde_json::Value) -> Result<serde_json::Value, JobError> {
+        match self {
+            JobInstance::AnalyzeRepository(job) => job.execute(params).await,
+        }
     }
 }
 

@@ -1,13 +1,15 @@
-//! Job queue module - background job system
+//! Job queue module - pure static dispatch
 //!
-//! Pure static dispatch - NO dyn, NO Box, NO trait objects
+//! NO dyn, NO Box - registry returns job instances via enum
 
 pub mod executor;
-pub mod job;
+pub mod handlers;
+pub mod job_trait;
 pub mod queue;
 pub mod registry;
 
 pub use executor::JobExecutor;
-pub use job::{AnalyzeRepositoryJob, JobError};
+pub use handlers::AnalyzeRepositoryJob;
+pub use job_trait::{Job, JobError};
 pub use queue::{JobQueue, JobStatus, QueueError, Status};
-pub use registry::JobRegistry;
+pub use registry::{JobInstance, JobRegistry};
