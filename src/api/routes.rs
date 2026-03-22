@@ -9,13 +9,13 @@ use super::handlers::{self, HealthResponse};
 use super::state::AppState;
 use super::static_assets::serve_frontend;
 use super::v1::{
-    CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
-    CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse, EnableSkillResponse,
-    ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest, PatchProjectRequest,
-    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest,
-    RepoResponse, SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
-    UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest,
-    UpdateTaskRequest,
+    CreateJobRequest, CreateNoteRequest, CreateProjectRequest, CreateRepoRequest,
+    CreateSkillRequest, CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse,
+    EnableSkillResponse, ErrorResponse, ImportSkillRequest, JobResponse, ListJobsQuery,
+    NoteResponse, PaginatedJobs, PatchNoteRequest, PatchProjectRequest, PatchRepoRequest,
+    PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse,
+    SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest,
+    UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use crate::db::Database;
@@ -92,6 +92,10 @@ macro_rules! routes {
         super::v1::export_sync,
         super::v1::import_sync,
         super::v1::get_sync_status,
+        super::v1::create_job,
+        super::v1::get_job,
+        super::v1::list_jobs,
+        super::v1::cancel_job,
     ),
     components(
         schemas(
@@ -134,6 +138,11 @@ macro_rules! routes {
              UpdateSkillRequest,
              EnableSkillResponse,
              DisableSkillResponse,
+             // --- Jobs ---
+             JobResponse,
+             CreateJobRequest,
+             PaginatedJobs,
+             super::v1::ProgressInfo,
         )
     ),
     tags(
@@ -224,6 +233,11 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         post "/sync/import" => super::v1::import_sync,
         get "/sync/status" => super::v1::get_sync_status,
         get "/task-lists/{id}/stats" => super::v1::get_task_list_stats,
+        // Jobs
+        post "/jobs" => super::v1::create_job,
+        get "/jobs/{id}" => super::v1::get_job,
+        get "/jobs" => super::v1::list_jobs,
+        delete "/jobs/{id}" => super::v1::cancel_job,
     });
 
     let mut router = system_routes

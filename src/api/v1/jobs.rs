@@ -12,7 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::db::Database;
-use crate::jobs::{JobQueue, JobStatus};
+use crate::jobs::JobStatus;
 
 // Reuse ErrorResponse from projects module (defined in all v1 modules)
 use super::projects::ErrorResponse;
@@ -143,8 +143,44 @@ pub async fn create_job<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Json(req): Json<CreateJobRequest>,
 ) -> Result<(StatusCode, Json<JobResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Get JobQueue from state
-    todo!("Implement create_job")
+    use crate::db::utils::generate_entity_id;
+    let job_id = generate_entity_id();
+
+    state
+        .job_queue()
+        .create(job_id.clone(), req.job_type, req.params)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    state
+        .job_executor()
+        .execute_job(&job_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    let job = state.job_queue().get(&job_id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok((StatusCode::CREATED, Json(job.into())))
 }
 
 /// Get job by ID
@@ -165,8 +201,16 @@ pub async fn get_job<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Get JobQueue from state
-    todo!("Implement get_job")
+    let job = state.job_queue().get(&id).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(job.into()))
 }
 
 /// List jobs with optional filtering
@@ -184,8 +228,28 @@ pub async fn list_jobs<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Query(query): Query<ListJobsQuery>,
 ) -> Result<Json<PaginatedJobs>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Get JobQueue from state
-    todo!("Implement list_jobs")
+    let status_filter = query.status.as_deref();
+    let type_filter = query.job_type.as_deref();
+
+    let all_jobs = state.job_queue().list(status_filter, type_filter);
+
+    let limit = query.limit.unwrap_or(10).min(100);
+    let offset = query.offset.unwrap_or(0);
+
+    let total = all_jobs.len();
+    let items: Vec<JobResponse> = all_jobs
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|j| j.into())
+        .collect();
+
+    Ok(Json(PaginatedJobs {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 /// Cancel a job
@@ -207,8 +271,28 @@ pub async fn cancel_job<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Get JobQueue from state
-    todo!("Implement cancel_job")
+    state
+        .job_queue()
+        .update_status(&id, crate::jobs::Status::Cancelled)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    let job = state.job_queue().get(&id).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(job.into()))
 }
 
 #[cfg(test)]

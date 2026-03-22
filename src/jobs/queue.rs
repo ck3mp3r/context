@@ -192,6 +192,19 @@ impl JobQueue {
             .cloned()
             .collect()
     }
+
+    /// List all jobs with optional filtering by status and job_type
+    pub fn list(&self, status: Option<&str>, job_type: Option<&str>) -> Vec<JobStatus> {
+        let jobs = self.jobs.read().unwrap();
+        jobs.values()
+            .filter(|job| {
+                let status_match = status.map_or(true, |s| job.status.to_string() == s);
+                let type_match = job_type.map_or(true, |t| job.job_type == t);
+                status_match && type_match
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 impl Default for JobQueue {
