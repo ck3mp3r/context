@@ -80,9 +80,11 @@ impl Job for AnalyzeRepositoryJob {
             &PathBuf::from(&params.path),
             &params.repo_id,
             &graph_path,
-            move |current, total| {
+            |current, total| {
                 if let Some(ref tx) = progress_tx {
-                    let _ = tx.try_send(ProgressUpdate { current, total });
+                    // Use blocking send to ensure no progress updates are lost
+                    // This will wait if the channel buffer is full
+                    let _ = tx.blocking_send(ProgressUpdate { current, total });
                 }
             },
         )

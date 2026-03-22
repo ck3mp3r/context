@@ -48,7 +48,6 @@ async fn test_analyze_repo_not_found() {
 
     let args = AnalyzeArgs {
         repo: "nonexistent-repo".to_string(),
-        poll_interval: 1,
     };
 
     let result = analyze(&api_client, args).await;
@@ -64,9 +63,7 @@ async fn test_analyze_args_structure() {
     // Verify that AnalyzeArgs has the expected structure
     let args = AnalyzeArgs {
         repo: "test-repo".to_string(),
-        poll_interval: 5,
     };
 
     assert_eq!(args.repo, "test-repo");
-    assert_eq!(args.poll_interval, 5);
 }

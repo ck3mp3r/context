@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod api;
+pub mod job;
 pub mod note;
 pub mod project;
 pub mod repo;

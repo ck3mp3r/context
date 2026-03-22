@@ -97,6 +97,11 @@ enum Commands {
         #[command(subcommand)]
         command: SyncCommands,
     },
+    /// Job management
+    Job {
+        #[command(flatten)]
+        args: commands::job::JobArgs,
+    },
     /// Analyze a repository's code and extract symbols into the code graph
     Analyze {
         /// Path to repository (defaults to current directory)
@@ -1249,10 +1254,13 @@ pub async fn run() -> Result<()> {
                 println!("{}", output);
             }
         },
+        Some(Commands::Job { args }) => {
+            let output = commands::job::handle_job(&api_client, args).await?;
+            println!("{}", output);
+        }
         Some(Commands::Analyze { path, repo_id }) => {
             let args = commands::analyze::AnalyzeArgs {
                 repo: repo_id.unwrap_or_else(|| path.to_string_lossy().to_string()),
-                poll_interval: 2,
             };
             let output = commands::analyze::analyze(&api_client, args).await?;
             println!("{}", output);
