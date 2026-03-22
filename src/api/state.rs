@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use super::notifier::ChangeNotifier;
 use crate::db::Database;
+use crate::jobs::{JobExecutor, JobQueue};
 use crate::sync::{GitOps, SyncManager};
 
 /// Shared application state.
 ///
-/// Contains the database connection, sync manager, and change notifier for real-time updates.
+/// Contains the database connection, sync manager, change notifier, and job queue for background tasks.
 ///
 /// # SOLID Principles
 ///
@@ -23,10 +24,12 @@ pub struct AppState<D: Database, G: GitOps + Send + Sync> {
     sync_manager: SyncManager<G>,
     notifier: ChangeNotifier,
     skills_dir: PathBuf,
+    job_queue: JobQueue,
+    job_executor: JobExecutor,
 }
 
 // Manual Clone impl - we only need Arc to be cloneable, not D or G
-// We wrap sync_manager in Arc to make it cloneable
+// JobQueue and JobExecutor are Clone (use Arc internally)
 // ChangeNotifier is Clone (derives it)
 impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
     fn clone(&self) -> Self {
@@ -35,12 +38,14 @@ impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
             sync_manager: self.sync_manager.clone(), // SyncManager::clone() clones the Arc, not the G
             notifier: self.notifier.clone(),
             skills_dir: self.skills_dir.clone(),
+            job_queue: self.job_queue.clone(),
+            job_executor: self.job_executor.clone(),
         }
     }
 }
 
 impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
-    /// Create a new AppState with the given database, sync manager, and notifier.
+    /// Create a new AppState with the given database, sync manager, notifier, and job infrastructure.
     ///
     /// # SOLID: Dependency Inversion Principle
     ///
@@ -49,17 +54,23 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
     /// - `sync_manager`: Sync manager with GitOps implementation
     /// - `notifier`: Change notifier for pub/sub
     /// - `skills_dir`: Skills cache directory path
+    /// - `job_queue`: Job queue for background tasks
+    /// - `job_executor`: Job executor for running jobs
     pub fn new(
         db: D,
         sync_manager: SyncManager<G>,
         notifier: ChangeNotifier,
         skills_dir: PathBuf,
+        job_queue: JobQueue,
+        job_executor: JobExecutor,
     ) -> Self {
         Self {
             db: Arc::new(db),
             sync_manager,
             notifier,
             skills_dir,
+            job_queue,
+            job_executor,
         }
     }
 
@@ -88,5 +99,15 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
     /// Get a reference to the skills directory path.
     pub fn skills_dir(&self) -> &PathBuf {
         &self.skills_dir
+    }
+
+    /// Get a reference to the job queue.
+    pub fn job_queue(&self) -> &JobQueue {
+        &self.job_queue
+    }
+
+    /// Get a reference to the job executor.
+    pub fn job_executor(&self) -> &JobExecutor {
+        &self.job_executor
     }
 }

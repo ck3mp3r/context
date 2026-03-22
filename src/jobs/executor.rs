@@ -4,6 +4,7 @@ use super::queue::{JobQueue, QueueError, Status};
 use super::registry::JobRegistry;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct JobExecutor {
     queue: Arc<JobQueue>,
     registry: Arc<JobRegistry>,
