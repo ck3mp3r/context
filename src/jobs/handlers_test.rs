@@ -6,7 +6,7 @@ use serde_json::json;
 #[tokio::test]
 async fn test_invalid_params() {
     let job = AnalyzeRepositoryJob;
-    let result = job.execute(json!({"wrong": "params"})).await;
+    let result = job.execute(json!({"wrong": "params"}), None).await;
     assert!(result.is_err());
 }
 

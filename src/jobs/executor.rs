@@ -1,8 +1,10 @@
 //! Job executor - spawns async tasks
 
+use super::job_trait::ProgressUpdate;
 use super::queue::{JobQueue, QueueError, Status};
 use super::registry::JobRegistry;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct JobExecutor {
@@ -29,9 +31,22 @@ impl JobExecutor {
         let params = job.params.clone();
 
         tokio::spawn(async move {
+            // Create progress channel
+            let (progress_tx, mut progress_rx) = mpsc::channel::<ProgressUpdate>(100);
+            let queue_clone = queue.clone();
+            let job_id_clone = job_id_owned.clone();
+
+            // Spawn listener for progress updates
+            tokio::spawn(async move {
+                while let Some(update) = progress_rx.recv().await {
+                    let _ =
+                        queue_clone.update_progress(&job_id_clone, update.current, update.total);
+                }
+            });
+
             // Get job instance from registry
             match registry.get(&job_type) {
-                Ok(job_instance) => match job_instance.execute(params).await {
+                Ok(job_instance) => match job_instance.execute(params, Some(progress_tx)).await {
                     Ok(result) => {
                         let _ = queue.complete(&job_id_owned, result);
                     }

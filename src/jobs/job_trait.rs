@@ -4,6 +4,14 @@
 
 use serde_json::Value;
 use thiserror::Error;
+use tokio::sync::mpsc;
+
+/// Progress update from a job
+#[derive(Debug, Clone)]
+pub struct ProgressUpdate {
+    pub current: usize,
+    pub total: usize,
+}
 
 #[derive(Debug, Error)]
 pub enum JobError {
@@ -26,5 +34,6 @@ pub trait Job: Send + Sync + Sized + Default {
     fn execute(
         &self,
         params: Value,
+        progress_tx: Option<mpsc::Sender<ProgressUpdate>>,
     ) -> impl std::future::Future<Output = Result<Value, JobError>> + Send;
 }

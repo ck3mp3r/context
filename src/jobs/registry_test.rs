@@ -22,9 +22,12 @@ async fn test_job_instance_execute() {
     let instance = registry.get("test_mock").unwrap();
 
     let result = instance
-        .execute(serde_json::json!({
-            "test": "data"
-        }))
+        .execute(
+            serde_json::json!({
+                "test": "data"
+            }),
+            None,
+        )
         .await;
 
     assert!(result.is_ok());

@@ -1,11 +1,12 @@
 //! Job handlers - concrete implementations
 
-use super::job_trait::{Job, JobError};
+use super::job_trait::{Job, JobError, ProgressUpdate};
 use crate::analysis::service;
 use crate::sync::get_data_dir;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
+use tokio::sync::mpsc;
 
 /// Analyze repository job
 #[derive(Default)]
@@ -31,7 +32,11 @@ impl Job for AnalyzeRepositoryJob {
         "analyze_repository"
     }
 
-    async fn execute(&self, params: Value) -> Result<Value, JobError> {
+    async fn execute(
+        &self,
+        params: Value,
+        progress_tx: Option<mpsc::Sender<ProgressUpdate>>,
+    ) -> Result<Value, JobError> {
         let params: AnalyzeParams = serde_json::from_value(params)?;
 
         // Get analysis path (same logic as MCP tool)
@@ -70,11 +75,19 @@ impl Job for AnalyzeRepositoryJob {
             }
         }
 
-        // Run analysis
-        let analysis_result =
-            service::analyze_repository(&PathBuf::from(&params.path), &params.repo_id, &graph_path)
-                .await
-                .map_err(|e| JobError::AnalysisError(e.to_string()))?;
+        // Run analysis with progress reporting
+        let analysis_result = service::analyze_repository_with_progress(
+            &PathBuf::from(&params.path),
+            &params.repo_id,
+            &graph_path,
+            move |current, total| {
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.try_send(ProgressUpdate { current, total });
+                }
+            },
+        )
+        .await
+        .map_err(|e| JobError::AnalysisError(e.to_string()))?;
 
         // Return result
         let result = AnalyzeResult {

@@ -43,11 +43,15 @@ pub enum JobInstance {
 
 impl JobInstance {
     /// Execute the job - dispatches to concrete type
-    pub async fn execute(&self, params: serde_json::Value) -> Result<serde_json::Value, JobError> {
+    pub async fn execute(
+        &self,
+        params: serde_json::Value,
+        progress_tx: Option<tokio::sync::mpsc::Sender<super::job_trait::ProgressUpdate>>,
+    ) -> Result<serde_json::Value, JobError> {
         match self {
-            JobInstance::AnalyzeRepository(job) => job.execute(params).await,
+            JobInstance::AnalyzeRepository(job) => job.execute(params, progress_tx).await,
             #[cfg(test)]
-            JobInstance::TestMock(job) => job.execute(params).await,
+            JobInstance::TestMock(job) => job.execute(params, progress_tx).await,
         }
     }
 }
@@ -62,7 +66,11 @@ impl Job for TestMockJob {
         "test_mock"
     }
 
-    async fn execute(&self, params: serde_json::Value) -> Result<serde_json::Value, JobError> {
+    async fn execute(
+        &self,
+        params: serde_json::Value,
+        _progress_tx: Option<tokio::sync::mpsc::Sender<super::job_trait::ProgressUpdate>>,
+    ) -> Result<serde_json::Value, JobError> {
         // Sleep for duration_ms if specified
         if let Some(duration_ms) = params.get("duration_ms").and_then(|v| v.as_u64()) {
             tokio::time::sleep(tokio::time::Duration::from_millis(duration_ms)).await;
