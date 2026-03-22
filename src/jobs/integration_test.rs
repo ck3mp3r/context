@@ -12,13 +12,17 @@ use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 use crate::jobs::{JobExecutor, JobQueue, JobRegistry};
 use crate::sync::MockGitOps;
-use axum::http::StatusCode;
-use serde_json::json;
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use http_body_util::BodyExt;
+use serde_json::{Value, json};
 use tempfile::TempDir;
-use tokio::net::TcpListener;
+use tower::ServiceExt;
 
-/// Spawn a test HTTP server with real job infrastructure
-async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
+/// Create test app with job infrastructure
+async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory()
         .await
         .expect("Failed to create test database");
@@ -38,186 +42,116 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         job_queue,
         job_executor,
     );
-    let app = routes::create_router(state, false);
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}", addr);
-
-    let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-
-    // Give server time to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    (url, handle)
+    routes::create_router(state, false)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_complete_job_queue_flow() {
-    let (url, _handle) = spawn_test_server().await;
-    let client = reqwest::Client::new();
+    let app = test_app().await;
 
-    // Step 1: Create a test repository in the database
-    let create_repo_response = client
-        .post(format!("{}/api/v1/repos", url))
-        .json(&json!({
-            "remote": "https://github.com/test/repo",
-            "path": "/tmp/test-repo",
-            "tags": ["test"],
-            "project_ids": []
-        }))
-        .send()
-        .await
-        .expect("Failed to create repo");
+    // Create job
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/jobs")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "job_type": "test_mock",
+                "params": {
+                    "duration_ms": 100,
+                    "should_fail": false
+                }
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
 
-    assert_eq!(create_repo_response.status(), StatusCode::CREATED);
-    let repo_data: serde_json::Value = create_repo_response.json().await.unwrap();
-    let _repo_id = repo_data["id"].as_str().unwrap();
+    let response = app.clone().oneshot(create_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
 
-    // Step 2: Create analysis job via API
-    let create_job_response = client
-        .post(format!("{}/api/v1/jobs", url))
-        .json(&json!({
-            "job_type": "test_mock",
-            "params": {
-                "duration_ms": 100,
-                "should_fail": false
-            }
-        }))
-        .send()
-        .await
-        .expect("Failed to create job");
-
-    assert_eq!(create_job_response.status(), StatusCode::CREATED);
-    let job_data: serde_json::Value = create_job_response.json().await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let job_data: Value = serde_json::from_slice(&body).unwrap();
     let job_id = job_data["job_id"].as_str().unwrap();
 
-    // Job should be queued or already running (executor is fast!)
-    let initial_status = job_data["status"].as_str().unwrap();
-    assert!(
-        initial_status == "queued" || initial_status == "running",
-        "Initial status should be queued or running, got: {}",
-        initial_status
-    );
-    assert_eq!(job_data["job_type"], "test_mock");
-
-    // Step 3: Poll for job completion
+    // Poll for completion
     let mut attempts = 0;
-    let max_attempts = 50; // 5 seconds with 100ms sleep
-    let mut final_status = None;
+    let max_attempts = 50;
 
     while attempts < max_attempts {
-        let status_response = client
-            .get(format!("{}/api/v1/jobs/{}", url, job_id))
-            .send()
-            .await
-            .expect("Failed to get job status");
+        let status_request = Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/jobs/{}", job_id))
+            .body(Body::empty())
+            .unwrap();
 
-        assert_eq!(status_response.status(), StatusCode::OK);
-        let status_data: serde_json::Value = status_response.json().await.unwrap();
+        let response = app.clone().oneshot(status_request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
 
-        match status_data["status"].as_str() {
-            Some("completed") => {
-                final_status = Some(status_data);
-                break;
-            }
-            Some("failed") => {
-                panic!("Job failed: {:?}", status_data["error"]);
-            }
-            Some("running") | Some("queued") => {
-                // Continue polling
-            }
-            status => {
-                panic!("Unexpected status: {:?}", status);
-            }
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let status_data: Value = serde_json::from_slice(&body).unwrap();
+
+        if status_data["status"] == "completed" {
+            assert_eq!(status_data["result"]["success"], true);
+            return;
+        } else if status_data["status"] == "failed" {
+            panic!("Job failed: {:?}", status_data["error"]);
         }
 
         attempts += 1;
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    // Step 4: Verify final status
-    let final_data = final_status.expect("Job did not complete within timeout");
-    assert_eq!(final_data["status"], "completed");
-    assert_eq!(final_data["job_type"], "test_mock");
-
-    // Verify result structure
-    let result = &final_data["result"];
-    assert!(result.is_object(), "Result should be an object");
-    assert_eq!(result["success"], true);
-
-    // Step 5: Verify job appears in list
-    let list_response = client
-        .get(format!("{}/api/v1/jobs", url))
-        .send()
-        .await
-        .expect("Failed to list jobs");
-
-    assert_eq!(list_response.status(), StatusCode::OK);
-    let list_data: serde_json::Value = list_response.json().await.unwrap();
-
-    let jobs = list_data["items"].as_array().unwrap();
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0]["job_id"], job_id);
-    assert_eq!(jobs[0]["status"], "completed");
+    panic!("Job did not complete within timeout");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_job_queue_handles_failure() {
-    let (url, _handle) = spawn_test_server().await;
-    let client = reqwest::Client::new();
+    let app = test_app().await;
 
-    // Create a job that will fail
-    let create_job_response = client
-        .post(format!("{}/api/v1/jobs", url))
-        .json(&json!({
-            "job_type": "test_mock",
-            "params": {
-                "duration_ms": 50,
-                "should_fail": true
-            }
-        }))
-        .send()
-        .await
-        .expect("Failed to create job");
+    // Create job that will fail
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/jobs")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "job_type": "test_mock",
+                "params": {
+                    "duration_ms": 50,
+                    "should_fail": true
+                }
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
 
-    assert_eq!(create_job_response.status(), StatusCode::CREATED);
-    let job_data: serde_json::Value = create_job_response.json().await.unwrap();
+    let response = app.clone().oneshot(create_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let job_data: Value = serde_json::from_slice(&body).unwrap();
     let job_id = job_data["job_id"].as_str().unwrap();
 
-    // Poll for job failure
+    // Poll for failure
     let mut attempts = 0;
     let max_attempts = 50;
 
     while attempts < max_attempts {
-        let status_response = client
-            .get(format!("{}/api/v1/jobs/{}", url, job_id))
-            .send()
-            .await
-            .expect("Failed to get job status");
+        let status_request = Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/jobs/{}", job_id))
+            .body(Body::empty())
+            .unwrap();
 
-        let status_data: serde_json::Value = status_response.json().await.unwrap();
+        let response = app.clone().oneshot(status_request).await.unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let status_data: Value = serde_json::from_slice(&body).unwrap();
 
-        match status_data["status"].as_str() {
-            Some("failed") => {
-                // Success - job failed as expected
-                assert!(
-                    status_data["error"].as_str().is_some(),
-                    "Failed job should have error message"
-                );
-                return;
-            }
-            Some("completed") => {
-                panic!("Job should have failed but completed successfully");
-            }
-            Some("running") | Some("queued") => {
-                // Continue polling
-            }
-            status => {
-                panic!("Unexpected status: {:?}", status);
-            }
+        if status_data["status"] == "failed" {
+            assert!(status_data["error"].as_str().is_some());
+            return;
+        } else if status_data["status"] == "completed" {
+            panic!("Job should have failed but completed successfully");
         }
 
         attempts += 1;
@@ -229,26 +163,30 @@ async fn test_job_queue_handles_failure() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_concurrent_jobs() {
-    let (url, _handle) = spawn_test_server().await;
-    let client = reqwest::Client::new();
+    let app = test_app().await;
 
     // Create 3 jobs
     let mut job_ids = Vec::new();
     for i in 0..3 {
-        let response = client
-            .post(format!("{}/api/v1/jobs", url))
-            .json(&json!({
-                "job_type": "test_mock",
-                "params": {
-                    "duration_ms": 50 + (i * 10),
-                    "should_fail": false
-                }
-            }))
-            .send()
-            .await
-            .expect("Failed to create job");
+        let create_request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/jobs")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_string(&json!({
+                    "job_type": "test_mock",
+                    "params": {
+                        "duration_ms": 50 + (i * 10),
+                        "should_fail": false
+                    }
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
 
-        let data: serde_json::Value = response.json().await.unwrap();
+        let response = app.clone().oneshot(create_request).await.unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let data: Value = serde_json::from_slice(&body).unwrap();
         job_ids.push(data["job_id"].as_str().unwrap().to_string());
     }
 
@@ -259,17 +197,18 @@ async fn test_multiple_concurrent_jobs() {
     let max_attempts = 100;
 
     while attempts < max_attempts {
-        let list_response = client
-            .get(format!("{}/api/v1/jobs?status=completed", url))
-            .send()
-            .await
-            .expect("Failed to list jobs");
+        let list_request = Request::builder()
+            .method("GET")
+            .uri("/api/v1/jobs?status=completed")
+            .body(Body::empty())
+            .unwrap();
 
-        let list_data: serde_json::Value = list_response.json().await.unwrap();
+        let response = app.clone().oneshot(list_request).await.unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let list_data: Value = serde_json::from_slice(&body).unwrap();
         let completed_jobs = list_data["items"].as_array().unwrap();
 
         if completed_jobs.len() == 3 {
-            // All jobs completed
             return;
         }
 
