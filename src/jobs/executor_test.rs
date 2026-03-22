@@ -16,8 +16,8 @@ async fn test_executor_spawns_job() {
     queue
         .create(
             job_id.clone(),
-            "analyze_repository".to_string(),
-            json!({"repo_id": "r1", "path": "/test"}),
+            "test_mock".to_string(),
+            json!({"test": "data"}),
         )
         .unwrap();
 
@@ -38,8 +38,8 @@ async fn test_executor_completes_job() {
     queue
         .create(
             job_id.clone(),
-            "analyze_repository".to_string(),
-            json!({"repo_id": "r2", "path": "/test"}),
+            "test_mock".to_string(),
+            json!({"test": "data"}),
         )
         .unwrap();
 
@@ -69,11 +69,7 @@ async fn test_executor_runs_multiple() {
     for i in 0..5 {
         let job_id = format!("job-{}", i);
         queue
-            .create(
-                job_id.clone(),
-                "analyze_repository".to_string(),
-                json!({"repo_id": format!("r{}", i), "path": "/test"}),
-            )
+            .create(job_id.clone(), "test_mock".to_string(), json!({"index": i}))
             .unwrap();
         executor.execute_job(&job_id).await.unwrap();
     }

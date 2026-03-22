@@ -16,6 +16,8 @@ impl JobRegistry {
     pub fn get(&self, job_type: &str) -> Result<JobInstance, JobError> {
         match job_type {
             "analyze_repository" => Ok(JobInstance::AnalyzeRepository(AnalyzeRepositoryJob)),
+            #[cfg(test)]
+            "test_mock" => Ok(JobInstance::TestMock(TestMockJob)),
             _ => Err(JobError::ExecutionFailed(format!(
                 "Unknown job type: {}",
                 job_type
@@ -35,7 +37,8 @@ impl Default for JobRegistry {
 /// This allows returning different job types while maintaining static dispatch
 pub enum JobInstance {
     AnalyzeRepository(AnalyzeRepositoryJob),
-    // Add more variants here
+    #[cfg(test)]
+    TestMock(TestMockJob),
 }
 
 impl JobInstance {
@@ -43,7 +46,27 @@ impl JobInstance {
     pub async fn execute(&self, params: serde_json::Value) -> Result<serde_json::Value, JobError> {
         match self {
             JobInstance::AnalyzeRepository(job) => job.execute(params).await,
+            #[cfg(test)]
+            JobInstance::TestMock(job) => job.execute(params).await,
         }
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub struct TestMockJob;
+
+#[cfg(test)]
+impl Job for TestMockJob {
+    fn job_type() -> &'static str {
+        "test_mock"
+    }
+
+    async fn execute(&self, params: serde_json::Value) -> Result<serde_json::Value, JobError> {
+        Ok(serde_json::json!({
+            "success": true,
+            "params": params
+        }))
     }
 }
 
