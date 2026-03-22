@@ -21,6 +21,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["backend"]
+nanograph-tests = []  # Enable tests that require nanograph CLI
 backend = [
     "dep:axum",
     "dep:chrono",

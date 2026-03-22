@@ -5,6 +5,10 @@ use crate::analysis::types::{ExtractedSymbol, SymbolKind};
 use tempfile::TempDir;
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 async fn test_create_code_graph() {
     let temp = TempDir::new().unwrap();
     let graph = CodeGraph::new(temp.path(), "test-repo").await;
@@ -17,6 +21,10 @@ async fn test_create_code_graph() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 async fn test_insert_file_node() {
     let temp = TempDir::new().unwrap();
     let mut graph = CodeGraph::new(temp.path(), "test-repo").await.unwrap();
@@ -28,6 +36,10 @@ async fn test_insert_file_node() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 async fn test_insert_symbol() {
     let temp = TempDir::new().unwrap();
     let mut graph = CodeGraph::new(temp.path(), "test-repo").await.unwrap();
@@ -49,6 +61,10 @@ async fn test_insert_symbol() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 async fn test_insert_contains_edge() {
     let temp = TempDir::new().unwrap();
     let mut graph = CodeGraph::new(temp.path(), "test-repo").await.unwrap();
