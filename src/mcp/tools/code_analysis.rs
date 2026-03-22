@@ -58,7 +58,7 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         &self.tool_router
     }
 
-    #[tool(description = "Analyze a repository's code and extract symbols into the code graph")]
+    #[tool(description = "Start analyzing a repository's code in the background")]
     pub async fn analyze_code(
         &self,
         params: Parameters<AnalyzeCodeParams>,
@@ -77,26 +77,64 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
                 Some(json!({ "message": "Repository has no local path configured" })),
             )
         })?;
-        let repo_path = PathBuf::from(&repo_path_str);
 
         let graph_path = get_analysis_path(&params.0.repo_id);
 
-        // Use service layer with dependency injection (SOLID!)
-        let extractor = RustExtractor;
-        let result =
-            service::analyze_repository(&repo_path, &params.0.repo_id, &graph_path, &extractor)
-                .await
+        // Check if graph directory exists, if not initialize it
+        let analysis_path = graph_path.join("analysis.nano");
+        if !analysis_path.exists() {
+            std::fs::create_dir_all(&analysis_path).map_err(|e| {
+                McpError::internal_error("fs_error", Some(json!({ "error": e.to_string() })))
+            })?;
+
+            // Write schema
+            let schema_path = analysis_path.join("schema.pg");
+            std::fs::write(&schema_path, include_str!("../../analysis/schema.pg")).map_err(
+                |e| McpError::internal_error("fs_error", Some(json!({ "error": e.to_string() }))),
+            )?;
+
+            // Initialize nanograph
+            let init_output = std::process::Command::new("nanograph")
+                .arg("init")
+                .arg("--db")
+                .arg(&analysis_path)
+                .arg("--schema")
+                .arg(&schema_path)
+                .output()
                 .map_err(|e| {
                     McpError::internal_error(
-                        "analysis_error",
+                        "nanograph_init_error",
                         Some(json!({ "error": e.to_string() })),
                     )
                 })?;
 
+            if !init_output.status.success() {
+                let stderr = String::from_utf8_lossy(&init_output.stderr);
+                return Err(McpError::internal_error(
+                    "nanograph_init_failed",
+                    Some(json!({ "error": stderr })),
+                ));
+            }
+        }
+
+        // Spawn analysis as background process
+        // We spawn a new c5t process that will run the analysis
+        let repo_id = params.0.repo_id.clone();
+        tokio::spawn(async move {
+            let extractor = RustExtractor;
+            let _ = service::analyze_repository(
+                &PathBuf::from(&repo_path_str),
+                &repo_id,
+                &graph_path,
+                &extractor,
+            )
+            .await;
+        });
+
         let response = json!({
-            "files_analyzed": result.files_analyzed,
-            "symbols_extracted": result.symbols_extracted,
-            "relationships_created": result.relationships_created,
+            "status": "started",
+            "message": format!("Analysis started for repository {}. This will run in the background.", params.0.repo_id),
+            "repo_id": params.0.repo_id,
         });
 
         let content = serde_json::to_string_pretty(&response).map_err(|e| {

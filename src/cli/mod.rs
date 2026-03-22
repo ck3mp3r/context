@@ -97,6 +97,16 @@ enum Commands {
         #[command(subcommand)]
         command: SyncCommands,
     },
+    /// Analyze a repository's code and extract symbols into the code graph
+    Analyze {
+        /// Path to repository (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: std::path::PathBuf,
+
+        /// Repository ID (if provided, ignores path and uses this repo)
+        #[arg(long)]
+        repo_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1239,6 +1249,11 @@ pub async fn run() -> Result<()> {
                 println!("{}", output);
             }
         },
+        Some(Commands::Analyze { path, repo_id }) => {
+            // TODO: Implement after job queue is ready
+            let _ = (path, repo_id);
+            println!("Code analysis not yet implemented. Coming soon!");
+        }
         None => {
             // Show help when no command provided
             let _ = Cli::parse_from(["c5t", "--help"]);
