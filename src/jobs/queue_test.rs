@@ -3,6 +3,7 @@
 //! TDD: RED phase - write failing tests first
 
 use super::*;
+use crate::jobs::handler::{JobHandler, JobParams};
 use serde_json::json;
 
 #[test]
@@ -12,13 +13,16 @@ fn test_create_job_with_queued_status() {
     let job = queue
         .create(
             "job-123".to_string(),
-            "test_job".to_string(),
-            json!({"key": "value"}),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repo123".to_string(),
+                path: "/test/path".to_string(),
+            },
         )
         .unwrap();
 
     assert_eq!(job.job_id, "job-123");
-    assert_eq!(job.job_type, "test_job");
+    assert_eq!(job.job_type, JobHandler::AnalyzeRepository);
     assert_eq!(job.status, Status::Queued);
     assert!(job.result.is_none());
     assert!(job.error.is_none());
@@ -30,7 +34,14 @@ fn test_create_job_with_queued_status() {
 fn test_get_job_by_id() {
     let queue = JobQueue::new();
     queue
-        .create("job-456".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-456".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repo456".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
 
     let job = queue.get("job-456").unwrap();
@@ -50,7 +61,14 @@ fn test_get_nonexistent_job_returns_error() {
 fn test_update_status_queued_to_running() {
     let queue = JobQueue::new();
     queue
-        .create("job-789".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-789".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repo789".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
 
     queue.update_status("job-789", Status::Running).unwrap();
@@ -64,7 +82,14 @@ fn test_update_status_queued_to_running() {
 fn test_update_status_running_to_completed() {
     let queue = JobQueue::new();
     queue
-        .create("job-abc".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-abc".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repoabc".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
     queue.update_status("job-abc", Status::Running).unwrap();
 
@@ -79,7 +104,14 @@ fn test_update_status_running_to_completed() {
 fn test_invalid_status_transition_returns_error() {
     let queue = JobQueue::new();
     queue
-        .create("job-bad".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-bad".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repobad".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
 
     // Can't go from queued directly to completed (must go through running)
@@ -95,7 +127,14 @@ fn test_invalid_status_transition_returns_error() {
 fn test_update_progress() {
     let queue = JobQueue::new();
     queue
-        .create("job-prog".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-prog".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repoprog".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
 
     queue.update_progress("job-prog", 50, 100).unwrap();
@@ -108,7 +147,14 @@ fn test_update_progress() {
 fn test_complete_job_with_result() {
     let queue = JobQueue::new();
     queue
-        .create("job-complete".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-complete".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repocomplete".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
     queue
         .update_status("job-complete", Status::Running)
@@ -127,7 +173,14 @@ fn test_complete_job_with_result() {
 fn test_fail_job_with_error() {
     let queue = JobQueue::new();
     queue
-        .create("job-fail".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-fail".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repofail".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
     queue.update_status("job-fail", Status::Running).unwrap();
 
@@ -145,13 +198,34 @@ fn test_fail_job_with_error() {
 fn test_list_jobs_by_status() {
     let queue = JobQueue::new();
     queue
-        .create("job-1".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-1".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repo1".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
     queue
-        .create("job-2".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-2".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repo2".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
     queue
-        .create("job-3".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-3".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repo3".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
 
     queue.update_status("job-2", Status::Running).unwrap();
@@ -170,7 +244,14 @@ fn test_thread_safe_concurrent_access() {
 
     let queue = JobQueue::new();
     queue
-        .create("job-thread".to_string(), "test".to_string(), json!({}))
+        .create(
+            "job-thread".to_string(),
+            JobHandler::AnalyzeRepository,
+            JobParams::AnalyzeRepository {
+                repo_id: "repothread".to_string(),
+                path: "/test".to_string(),
+            },
+        )
         .unwrap();
 
     let queue_clone1 = queue.clone();

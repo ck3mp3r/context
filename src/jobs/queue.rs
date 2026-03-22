@@ -2,6 +2,7 @@
 //!
 //! Manages job lifecycle and state using HashMap + RwLock for thread-safe access.
 
+use super::handler::{JobHandler, JobParams};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,8 +49,8 @@ impl std::fmt::Display for Status {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobStatus {
     pub job_id: String,
-    pub job_type: String,
-    pub params: Value,
+    pub job_type: JobHandler,
+    pub params: JobParams,
     pub status: Status,
     pub progress: Option<(usize, usize)>, // (current, total)
     pub result: Option<Value>,
@@ -77,8 +78,8 @@ impl JobQueue {
     pub fn create(
         &self,
         job_id: String,
-        job_type: String,
-        params: Value,
+        job_type: JobHandler,
+        params: JobParams,
     ) -> Result<JobStatus, QueueError> {
         let mut jobs = self.jobs.write().map_err(|_| QueueError::LockError)?;
 

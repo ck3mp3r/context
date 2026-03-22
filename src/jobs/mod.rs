@@ -6,8 +6,10 @@
 // - JobQueue: in-memory state management (Single Responsibility)
 // - JobExecutor: async task spawning (Single Responsibility)
 
+pub mod executor;
 pub mod handler;
 pub mod queue;
 
+pub use executor::JobExecutor;
 pub use handler::{JobError, JobHandler, JobParams, JobResult};
 pub use queue::{JobQueue, JobStatus, Status};
