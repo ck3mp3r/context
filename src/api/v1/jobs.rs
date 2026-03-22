@@ -143,6 +143,11 @@ pub async fn create_job<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Json(req): Json<CreateJobRequest>,
 ) -> Result<(StatusCode, Json<JobResponse>), (StatusCode, Json<ErrorResponse>)> {
+    tracing::info!(
+        "Creating job: type={}, params={:?}",
+        req.job_type,
+        req.params
+    );
     use crate::db::utils::generate_entity_id;
     let job_id = generate_entity_id();
 
@@ -158,11 +163,14 @@ pub async fn create_job<D: Database, G: GitOps + Send + Sync>(
             )
         })?;
 
+    tracing::info!("Job created with ID: {}", job_id);
+
     state
         .job_executor()
         .execute_job(&job_id)
         .await
         .map_err(|e| {
+            tracing::error!("Failed to execute job {}: {}", job_id, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -170,6 +178,8 @@ pub async fn create_job<D: Database, G: GitOps + Send + Sync>(
                 }),
             )
         })?;
+
+    tracing::info!("Job {} started execution", job_id);
 
     let job = state.job_queue().get(&job_id).map_err(|e| {
         (

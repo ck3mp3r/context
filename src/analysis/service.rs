@@ -122,3 +122,7 @@ fn scan_supported_files(
     visit_dirs(repo_path, registry, &mut supported_files)?;
     Ok(supported_files)
 }
+
+#[cfg(test)]
+#[path = "service_test.rs"]
+mod service_test;
