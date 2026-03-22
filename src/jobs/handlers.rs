@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
+use tracing::{info, debug, error};
 
 /// Analyze repository job
 #[derive(Default)]
@@ -37,24 +38,34 @@ impl Job for AnalyzeRepositoryJob {
         params: Value,
         progress_tx: Option<mpsc::Sender<ProgressUpdate>>,
     ) -> Result<Value, JobError> {
+        info!("Starting analyze_repository job");
         let params: AnalyzeParams = serde_json::from_value(params)?;
+        info!("Job params: repo_id={}, path={}", params.repo_id, params.path);
 
         // Get analysis path (same logic as MCP tool)
         let graph_path = get_analysis_path(&params.repo_id);
+        info!("Analysis path: {:?}", graph_path);
 
         // Ensure analysis directory exists
         let analysis_path = graph_path.join("analysis.nano");
         if !analysis_path.exists() {
+            info!("Initializing nanograph database at {:?}", analysis_path);
             std::fs::create_dir_all(&analysis_path).map_err(|e| {
+                error!("Failed to create analysis directory: {}", e);
                 JobError::AnalysisError(format!("Failed to create analysis directory: {}", e))
             })?;
 
             // Write schema
             let schema_path = analysis_path.join("schema.pg");
+            debug!("Writing schema to {:?}", schema_path);
             std::fs::write(&schema_path, include_str!("../analysis/schema.pg"))
-                .map_err(|e| JobError::AnalysisError(format!("Failed to write schema: {}", e)))?;
+                .map_err(|e| {
+                    error!("Failed to write schema: {}", e);
+                    JobError::AnalysisError(format!("Failed to write schema: {}", e))
+                })?;
 
             // Initialize nanograph
+            info!("Running nanograph init command");
             let init_output = std::process::Command::new("nanograph")
                 .arg("init")
                 .arg("--db")
@@ -63,33 +74,58 @@ impl Job for AnalyzeRepositoryJob {
                 .arg(&schema_path)
                 .output()
                 .map_err(|e| {
+                    error!("Failed to run nanograph init: {}", e);
                     JobError::AnalysisError(format!("Failed to run nanograph init: {}", e))
                 })?;
 
             if !init_output.status.success() {
                 let stderr = String::from_utf8_lossy(&init_output.stderr);
+                error!("nanograph init failed: {}", stderr);
                 return Err(JobError::AnalysisError(format!(
                     "nanograph init failed: {}",
                     stderr
                 )));
             }
+            info!("Nanograph initialization complete");
+        } else {
+            info!("Nanograph database already exists at {:?}", analysis_path);
         }
 
         // Run analysis with progress reporting
+        info!("Starting repository analysis");
         let analysis_result = service::analyze_repository_with_progress(
             &PathBuf::from(&params.path),
             &params.repo_id,
             &graph_path,
             |current, total| {
+                debug!("Progress update: {}/{}", current, total);
                 if let Some(ref tx) = progress_tx {
-                    // Use blocking send to ensure no progress updates are lost
-                    // This will wait if the channel buffer is full
-                    let _ = tx.blocking_send(ProgressUpdate { current, total });
+                    // Use try_send to avoid blocking the async runtime
+                    // If the buffer is full, we skip this update (non-critical)
+                    match tx.try_send(ProgressUpdate { current, total }) {
+                        Ok(_) => debug!("Progress sent successfully: {}/{}", current, total),
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            debug!("Progress channel full, skipping update {}/{}", current, total)
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            error!("Progress channel closed")
+                        }
+                    }
                 }
             },
         )
         .await
-        .map_err(|e| JobError::AnalysisError(e.to_string()))?;
+        .map_err(|e| {
+            error!("Analysis failed: {}", e);
+            JobError::AnalysisError(e.to_string())
+        })?;
+
+        info!(
+            "Analysis complete: {} files, {} symbols, {} relationships",
+            analysis_result.files_analyzed,
+            analysis_result.symbols_extracted,
+            analysis_result.relationships_created
+        );
 
         // Return result
         let result = AnalyzeResult {

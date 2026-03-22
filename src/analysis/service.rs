@@ -69,24 +69,35 @@ pub async fn analyze_repository_with_progress<F>(
 where
     F: Fn(usize, usize) + Send + Sync,
 {
+    tracing::info!("Creating CodeGraph for repo_id: {}", repo_id);
     let mut graph = CodeGraph::new(graph_path, repo_id).await?;
+    tracing::info!("CodeGraph created successfully");
+    
     let registry = LanguageRegistry::new();
 
     // Load metadata to check for incremental analysis
     let metadata_path = graph_path.join("metadata.json");
+    tracing::debug!("Getting current commit for {:?}", repo_path);
     let current_commit = get_current_commit(repo_path)?;
+    tracing::debug!("Current commit: {}", current_commit);
+    
     let last_commit = load_metadata(&metadata_path)?;
+    tracing::debug!("Last commit: {:?}", last_commit);
 
     // Determine which files to analyze
+    tracing::info!("Scanning for files to analyze");
     let files_to_analyze = if let Some(ref last) = last_commit {
         // Incremental: only changed files since last commit
+        tracing::info!("Incremental analysis: finding changed files since {}", last);
         get_changed_files(repo_path, last, &current_commit, &registry)?
     } else {
         // Full scan: all supported files
+        tracing::info!("Full scan: finding all supported files");
         scan_supported_files(repo_path, &registry)?
     };
 
     let total_files = files_to_analyze.len();
+    tracing::info!("Found {} files to analyze", total_files);
     let mut total_symbols = 0;
     let mut total_relationships = 0;
 
@@ -140,47 +151,41 @@ where
     })
 }
 
-/// Scan directory for supported files
+/// Scan directory for supported files (respects .gitignore)
 fn scan_supported_files(
     repo_path: &Path,
     registry: &LanguageRegistry,
 ) -> Result<Vec<PathBuf>, AnalysisError> {
+    tracing::debug!("Starting scan of {:?}", repo_path);
     let mut supported_files = Vec::new();
 
-    fn visit_dirs(
-        dir: &Path,
-        registry: &LanguageRegistry,
-        files: &mut Vec<PathBuf>,
-    ) -> Result<(), AnalysisError> {
-        if !dir.is_dir() {
-            return Ok(());
-        }
+    // Use the ignore crate to respect .gitignore
+    let walker = ignore::WalkBuilder::new(repo_path)
+        .hidden(true) // Skip hidden files/dirs
+        .git_ignore(true) // Respect .gitignore
+        .git_exclude(true) // Respect .git/info/exclude
+        .build();
 
-        // Skip common directories
-        if let Some(name) = dir.file_name() {
-            let name = name.to_string_lossy();
-            if name == "target" || name == ".git" || name == "node_modules" {
-                return Ok(());
+    for entry in walker {
+        match entry {
+            Ok(entry) => {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if registry.supports_extension(ext.to_str().unwrap_or("")) {
+                            tracing::trace!("Found supported file: {:?}", path);
+                            supported_files.push(path.to_path_buf());
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Error walking directory: {}", e);
             }
         }
-
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_dir() {
-                visit_dirs(&path, registry, files)?;
-            } else if let Some(ext) = path.extension()
-                && registry.supports_extension(ext.to_str().unwrap_or(""))
-            {
-                files.push(path);
-            }
-        }
-
-        Ok(())
     }
 
-    visit_dirs(repo_path, registry, &mut supported_files)?;
+    tracing::info!("Scan complete: found {} files", supported_files.len());
     Ok(supported_files)
 }
 
