@@ -164,6 +164,17 @@ impl ExtractorInstance {
             ExtractorInstance::Rust(extractor) => extractor.extract_symbols(code, file_path),
         }
     }
+
+    /// Extract relationships - dispatches to concrete type
+    pub fn extract_relationships(
+        &self,
+        code: &str,
+        file_path: &str,
+    ) -> Vec<crate::analysis::types::ExtractedRelationship> {
+        match self {
+            ExtractorInstance::Rust(extractor) => extractor.extract_relationships(code, file_path),
+        }
+    }
 }
 
 impl Default for LanguageRegistry {

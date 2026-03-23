@@ -22,6 +22,9 @@ pub mod parser;
 pub mod extractor;
 
 #[cfg(feature = "backend")]
+pub mod resolver;
+
+#[cfg(feature = "backend")]
 pub mod languages;
 
 #[cfg(feature = "backend")]

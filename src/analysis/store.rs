@@ -4,7 +4,7 @@
 //! Instead of embedding NanoGraph as a library (which adds 400MB+ to the binary),
 //! we shell out to the standalone `nanograph` CLI tool.
 
-use crate::analysis::types::ExtractedSymbol;
+use crate::analysis::types::{ExtractedRelationship, ExtractedSymbol, RelationType};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -186,6 +186,66 @@ impl CodeGraph {
         writeln!(file, "{}", serde_json::to_string(&data)?)?;
 
         tracing::debug!("Appended edge to batch: {} -> {}", file_id, symbol_id);
+        Ok(())
+    }
+
+    /// Insert a relationship between symbols (Calls, References, Inherits, Contains)
+    pub async fn insert_relationship(
+        &mut self,
+        relationship: &ExtractedRelationship,
+    ) -> Result<(), StoreError> {
+        // Determine edge type and data based on relation type
+        let (edge_type, edge_data) = match &relationship.relation_type {
+            RelationType::Calls { call_site_line } => (
+                "Calls",
+                serde_json::json!({
+                    "confidence": relationship.confidence,
+                    "call_site_line": call_site_line,
+                }),
+            ),
+            RelationType::References { reference_type } => (
+                "References",
+                serde_json::json!({
+                    "confidence": relationship.confidence,
+                    "reference_type": format!("{:?}", reference_type),
+                }),
+            ),
+            RelationType::Inherits { inheritance_type } => (
+                "Inherits",
+                serde_json::json!({
+                    "confidence": relationship.confidence,
+                    "inheritance_type": format!("{:?}", inheritance_type),
+                }),
+            ),
+            RelationType::Contains => (
+                "SymbolContains",
+                serde_json::json!({
+                    "confidence": relationship.confidence,
+                }),
+            ),
+        };
+
+        let data = serde_json::json!({
+            "edge": edge_type,
+            "from": relationship.from_symbol_id,
+            "to": relationship.to_symbol_id,
+            "data": edge_data
+        });
+
+        // Append to batch file
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.batch_file)?;
+        writeln!(file, "{}", serde_json::to_string(&data)?)?;
+
+        tracing::debug!(
+            "Appended {} edge to batch: {} -> {}",
+            edge_type,
+            relationship.from_symbol_id,
+            relationship.to_symbol_id
+        );
         Ok(())
     }
 

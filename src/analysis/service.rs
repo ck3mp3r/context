@@ -101,45 +101,99 @@ where
     let mut total_symbols = 0;
     let mut total_relationships = 0;
 
-    // Process files in batches of 50
-    const BATCH_SIZE: usize = 50;
+    // PASS 1: Extract and insert all symbols, build index
+    tracing::info!("Pass 1: Extracting and inserting symbols...");
+    let mut symbol_index_data = Vec::new();
 
-    for (batch_idx, batch) in files_to_analyze.chunks(BATCH_SIZE).enumerate() {
+    for (batch_idx, batch) in files_to_analyze.chunks(50).enumerate() {
         for file_path in batch {
             let content = std::fs::read_to_string(file_path)?;
-
             let relative_path = file_path
                 .strip_prefix(repo_path)
                 .unwrap_or(file_path)
                 .to_string_lossy()
                 .to_string();
 
-            // Detect language from content using Tree-sitter
             let extractor = registry
                 .get_extractor_for_file(&relative_path, &content)
                 .ok_or_else(|| AnalysisError::UnsupportedFile(relative_path.clone()))?;
 
-            // Extract symbols using the detected language's extractor
             let symbols = extractor.extract_symbols(&content, &relative_path);
             total_symbols += symbols.len();
 
-            // Insert into graph
             let file_id = graph.insert_file(&relative_path, "rust", "hash").await?;
 
             for symbol in &symbols {
                 let symbol_id = graph.insert_symbol(symbol).await?;
                 graph.insert_contains(&file_id, &symbol_id, 1.0).await?;
                 total_relationships += 1;
+
+                // Store for building index
+                symbol_index_data.push((symbol.clone(), symbol_id));
             }
         }
 
-        // Report progress after each batch
-        let processed = ((batch_idx + 1) * BATCH_SIZE).min(total_files);
+        let processed = ((batch_idx + 1) * 50).min(total_files);
         progress_fn(processed, total_files);
-
-        // Yield to runtime to allow other tasks to run
         tokio::task::yield_now().await;
     }
+
+    // Build symbol index for relationship resolution
+    tracing::info!(
+        "Building symbol index from {} symbols...",
+        symbol_index_data.len()
+    );
+    let symbol_index = crate::analysis::resolver::SymbolIndex::build(&symbol_index_data);
+
+    // PASS 2: Extract relationships and resolve symbol IDs
+    tracing::info!("Pass 2: Extracting and resolving relationships...");
+    let mut resolved_count = 0;
+    let mut skipped_count = 0;
+
+    for file_path in &files_to_analyze {
+        let content = std::fs::read_to_string(file_path)?;
+        let relative_path = file_path
+            .strip_prefix(repo_path)
+            .unwrap_or(file_path)
+            .to_string_lossy()
+            .to_string();
+
+        let extractor = registry
+            .get_extractor_for_file(&relative_path, &content)
+            .ok_or_else(|| AnalysisError::UnsupportedFile(relative_path.clone()))?;
+
+        let relationships = extractor.extract_relationships(&content, &relative_path);
+
+        for relationship in relationships {
+            // Parse placeholder IDs: "symbol:file:name:?"
+            let from_name = extract_name_from_placeholder(&relationship.from_symbol_id);
+            let to_name = extract_name_from_placeholder(&relationship.to_symbol_id);
+
+            if let (Some(from), Some(to)) = (from_name, to_name) {
+                // Resolve using index
+                if let (Some(from_id), Some(to_id)) = (
+                    symbol_index.resolve_best(&from, Some(&relative_path)),
+                    symbol_index.resolve_best(&to, Some(&relative_path)),
+                ) {
+                    let mut resolved_rel = relationship.clone();
+                    resolved_rel.from_symbol_id = from_id;
+                    resolved_rel.to_symbol_id = to_id;
+
+                    graph.insert_relationship(&resolved_rel).await?;
+                    total_relationships += 1;
+                    resolved_count += 1;
+                } else {
+                    skipped_count += 1;
+                }
+            }
+        }
+    }
+
+    tracing::info!(
+        "Resolved {} relationships, skipped {} (unresolved symbols)",
+        resolved_count,
+        skipped_count
+    );
 
     // Commit all batched data to nanograph
     tracing::info!("Committing all data to nanograph...");
@@ -310,6 +364,19 @@ fn save_metadata(metadata_path: &Path, commit_sha: &str) -> Result<(), AnalysisE
 
     std::fs::write(metadata_path, content)?;
     Ok(())
+}
+
+/// Extract symbol name from placeholder ID
+/// Format: "symbol:{file_path}:{name}:?" → returns name
+fn extract_name_from_placeholder(placeholder_id: &str) -> Option<String> {
+    let parts: Vec<&str> = placeholder_id.split(':').collect();
+    if parts.len() >= 3 && parts[0] == "symbol" {
+        // Handle "impl Foo" style names
+        let name_parts = &parts[2..parts.len() - 1];
+        Some(name_parts.join(":"))
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

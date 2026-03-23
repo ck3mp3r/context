@@ -133,19 +133,19 @@ async fn test_incremental_first_scan() {
 
     // Initialize git repo
     std::process::Command::new("git")
-        .args(&["init"])
+        .args(["init"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["config", "user.email", "test@example.com"])
+        .args(["config", "user.email", "test@example.com"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["config", "user.name", "Test User"])
+        .args(["config", "user.name", "Test User"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -158,13 +158,13 @@ async fn test_incremental_first_scan() {
 
     // Initial commit
     std::process::Command::new("git")
-        .args(&["add", "."])
+        .args(["add", "."])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
+        .args(["commit", "-m", "Initial commit"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -196,19 +196,19 @@ async fn test_incremental_changed_files() {
 
     // Initialize git repo
     std::process::Command::new("git")
-        .args(&["init"])
+        .args(["init"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["config", "user.email", "test@example.com"])
+        .args(["config", "user.email", "test@example.com"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["config", "user.name", "Test User"])
+        .args(["config", "user.name", "Test User"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -220,13 +220,13 @@ async fn test_incremental_changed_files() {
     }
 
     std::process::Command::new("git")
-        .args(&["add", "."])
+        .args(["add", "."])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
+        .args(["commit", "-m", "Initial commit"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -243,13 +243,13 @@ async fn test_incremental_changed_files() {
     std::fs::write(repo_path.join("file5.rs"), "fn also_modified() {}").unwrap();
 
     std::process::Command::new("git")
-        .args(&["add", "."])
+        .args(["add", "."])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["commit", "-m", "Modify 2 files"])
+        .args(["commit", "-m", "Modify 2 files"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -275,19 +275,19 @@ async fn test_incremental_deleted_files() {
 
     // Initialize git repo
     std::process::Command::new("git")
-        .args(&["init"])
+        .args(["init"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["config", "user.email", "test@example.com"])
+        .args(["config", "user.email", "test@example.com"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["config", "user.name", "Test User"])
+        .args(["config", "user.name", "Test User"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -299,13 +299,13 @@ async fn test_incremental_deleted_files() {
     }
 
     std::process::Command::new("git")
-        .args(&["add", "."])
+        .args(["add", "."])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
+        .args(["commit", "-m", "Initial commit"])
         .current_dir(&repo_path)
         .output()
         .unwrap();
@@ -321,13 +321,13 @@ async fn test_incremental_deleted_files() {
     std::fs::remove_file(repo_path.join("file2.rs")).unwrap();
 
     std::process::Command::new("git")
-        .args(&["add", "."])
+        .args(["add", "."])
         .current_dir(&repo_path)
         .output()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["commit", "-m", "Delete file2.rs"])
+        .args(["commit", "-m", "Delete file2.rs"])
         .current_dir(&repo_path)
         .output()
         .unwrap();

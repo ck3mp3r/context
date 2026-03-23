@@ -1,8 +1,11 @@
 // Language-specific extractors
+//
+// Each language has its own module with:
+// - extractor.rs: Symbol and relationship extraction
+// - queries/*.scm: Tree-sitter query files (optional)
+// - extractor_test.rs: Tests
 
-#[cfg(feature = "backend")]
 pub mod rust;
 
-// Tests
-#[cfg(all(test, feature = "backend"))]
-mod rust_test;
+// Re-export extractors for convenience
+pub use rust::RustExtractor;
