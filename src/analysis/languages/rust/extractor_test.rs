@@ -281,3 +281,59 @@ impl Bar {
         .expect("Should find Bar contains");
     assert!(bar_contains.to_symbol_id.contains("bar_method"));
 }
+
+#[test]
+fn test_extract_scoped_identifier_calls() {
+    use crate::analysis::extractor::SymbolExtractor;
+    use crate::analysis::types::RelationType;
+
+    let code = r#"
+use crate::analysis::service;
+
+fn execute() {
+    service::analyze_repository();
+    crate::db::migrate();
+    super::helper::process();
+}
+"#;
+
+    let extractor = RustExtractor;
+    let relationships = extractor.extract_relationships(code, "test.rs");
+
+    // Filter to Calls relationships
+    let calls: Vec<_> = relationships
+        .iter()
+        .filter(|r| matches!(r.relation_type, RelationType::Calls { .. }))
+        .collect();
+
+    assert_eq!(calls.len(), 3, "Should find 3 scoped calls");
+
+    // Check that callee names have module prefix stripped
+    let analyze_call = calls
+        .iter()
+        .find(|r| r.to_symbol_id.contains("analyze_repository"))
+        .expect("Should find analyze_repository call");
+
+    // The to_symbol_id should NOT contain "service::"
+    assert!(!analyze_call.to_symbol_id.contains("service::"));
+    assert!(analyze_call.to_symbol_id.contains("analyze_repository"));
+    assert_eq!(analyze_call.confidence, 1.0); // scoped_identifier = high confidence
+
+    let migrate_call = calls
+        .iter()
+        .find(|r| r.to_symbol_id.contains("migrate"))
+        .expect("Should find migrate call");
+
+    assert!(!migrate_call.to_symbol_id.contains("crate::"));
+    assert!(!migrate_call.to_symbol_id.contains("db::"));
+    assert!(migrate_call.to_symbol_id.contains("migrate"));
+
+    let helper_call = calls
+        .iter()
+        .find(|r| r.to_symbol_id.contains("process"))
+        .expect("Should find process call");
+
+    assert!(!helper_call.to_symbol_id.contains("super::"));
+    assert!(!helper_call.to_symbol_id.contains("helper::"));
+    assert!(helper_call.to_symbol_id.contains("process"));
+}

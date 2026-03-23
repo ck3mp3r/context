@@ -219,7 +219,8 @@ fn extract_calls_with_query(
             field: (field_identifier) @callee)) @call
             
         (call_expression
-          function: (scoped_identifier) @callee) @call
+          function: (scoped_identifier
+            name: (identifier) @callee)) @call
     "#;
 
     let language = tree_sitter_rust::LANGUAGE.into();
