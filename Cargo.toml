@@ -247,7 +247,7 @@ features = [
 optional = true
 
 [dependencies.pulldown-cmark]
-version = "0.13.1"
+version = "0.13.3"
 optional = true
 
 [dependencies.thaw]
