@@ -8,6 +8,9 @@ pub mod analysis;
 pub mod cli;
 
 #[cfg(feature = "backend")]
+pub mod common;
+
+#[cfg(feature = "backend")]
 pub mod db;
 
 #[cfg(feature = "backend")]

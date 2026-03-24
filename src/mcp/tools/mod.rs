@@ -24,6 +24,9 @@ pub(crate) fn apply_limit(user_limit: Option<usize>) -> usize {
 }
 
 pub mod code_analysis;
+pub mod code_query;
+#[cfg(test)]
+mod code_query_test;
 pub mod notes;
 #[cfg(test)]
 mod notes_test;
@@ -47,6 +50,7 @@ pub mod tasks;
 mod tasks_test;
 
 pub use code_analysis::CodeAnalysisTools;
+pub use code_query::CodeQueryTools;
 pub use notes::NoteTools;
 pub use projects::ProjectTools;
 pub use repos::RepoTools;
