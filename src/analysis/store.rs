@@ -310,13 +310,12 @@ impl CodeGraph {
         file_path: &str,
     ) -> Result<Vec<ExtractedSymbol>, StoreError> {
         // Create a query file with a named query (matching nanograph syntax)
-        let query = format!(
-            r#"query get_symbols($file_path: String) {{
-    match {{
+        let query = r#"query get_symbols($file_path: String) {
+    match {
         $s: Symbol
         $s.file_path = $file_path
-    }}
-    return {{
+    }
+    return {
         $s.symbol_id
         $s.name
         $s.kind
@@ -324,9 +323,8 @@ impl CodeGraph {
         $s.start_line
         $s.end_line
         $s.signature
-    }}
-}}"#
-        );
+    }
+}"#;
 
         let query_file = self.db_path.join("temp_query.gq");
         std::fs::write(&query_file, query)?;

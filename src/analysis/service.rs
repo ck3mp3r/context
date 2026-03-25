@@ -123,7 +123,7 @@ where
         let stats = parser
             .parse_and_analyze(&content, &relative_path, language, &mut graph)
             .await
-            .map_err(|e| AnalysisError::Parse(e))?;
+            .map_err(AnalysisError::Parse)?;
 
         total_symbols += stats.symbols_inserted;
         total_relationships += stats.relationships_inserted;
@@ -302,19 +302,6 @@ fn save_metadata(metadata_path: &Path, commit_sha: &str) -> Result<(), AnalysisE
 
     std::fs::write(metadata_path, content)?;
     Ok(())
-}
-
-/// Extract symbol name from placeholder ID
-/// Format: "symbol:{file_path}:{name}:?" → returns name
-fn extract_name_from_placeholder(placeholder_id: &str) -> Option<String> {
-    let parts: Vec<&str> = placeholder_id.split(':').collect();
-    if parts.len() >= 3 && parts[0] == "symbol" {
-        // Handle "impl Foo" style names
-        let name_parts = &parts[2..parts.len() - 1];
-        Some(name_parts.join(":"))
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]
