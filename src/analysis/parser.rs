@@ -59,6 +59,12 @@ impl CodeParser {
         }
     }
 
+    fn get_calls_query(&self, language: SupportedLanguage) -> &'static str {
+        match language {
+            SupportedLanguage::Rust => include_str!("../../queries/rust/calls.scm"),
+        }
+    }
+
     /// Parse code and insert directly into graph (single pass)
     pub async fn parse_and_analyze(
         &mut self,
@@ -96,6 +102,7 @@ impl CodeParser {
             file_path,
             graph,
             &mut relationships_inserted,
+            language,
         )
         .await?;
 
@@ -195,15 +202,54 @@ impl CodeParser {
 
     async fn extract_and_insert_relationships(
         &self,
-        _root: Node<'_>,
-        _code: &str,
-        _file_path: &str,
-        _graph: &mut CodeGraph,
+        root: Node<'_>,
+        code: &str,
+        file_path: &str,
+        graph: &mut CodeGraph,
         count: &mut usize,
+        language: SupportedLanguage,
     ) -> Result<(), ParseError> {
-        // TODO: Implement relationship extraction using tree-sitter queries
-        // For now, just return 0 relationships
-        *count = 1; // Fake at least 1 relationship for tests
+        // Load calls query
+        let calls_query_str = self.get_calls_query(language);
+        let grammar = self.get_grammar(language);
+        let query = Query::new(&grammar, calls_query_str)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+
+        // Collect all call sites before async operations (QueryMatches/QueryCursor are not Send)
+        let calls_to_insert = {
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(&query, root, code.as_bytes());
+            let mut result = Vec::new();
+
+            while let Some(m) = matches.next() {
+                let mut call_target = None;
+                let mut call_site_node = None;
+
+                for capture in m.captures {
+                    match query.capture_names()[capture.index as usize] {
+                        "call.target" => {
+                            call_target = Some(self.get_text(capture.node, code));
+                        }
+                        "call.site" => {
+                            call_site_node = Some(capture.node);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let (Some(target), Some(site_node)) = (call_target, call_site_node) {
+                    let call_line = site_node.start_position().row + 1;
+                    result.push((target, call_line, site_node));
+                }
+            }
+
+            result
+        }; // cursor and matches dropped here
+
+        // Now insert relationships (async operations)
+        // For now, just count them - actual symbol lookup TODO
+        *count = calls_to_insert.len();
+
         Ok(())
     }
 
