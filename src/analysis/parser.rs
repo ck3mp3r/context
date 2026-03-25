@@ -1,17 +1,22 @@
 // Unified CodeParser - Single pass analysis
 //
 // Parses source code ONCE and inserts directly into graph.
-// No intermediate vectors, no trait indirection, no per-language extractors.
+// Uses tree-sitter queries for language-agnostic extraction.
 
 use crate::analysis::store::CodeGraph;
 use std::path::Path;
 use thiserror::Error;
-use tree_sitter::{Language, Node, Parser as TsParser, Tree};
+use tree_sitter::{
+    Language, Node, Parser as TsParser, Query, QueryCursor, StreamingIterator, Tree,
+};
 
 #[derive(Debug, Error)]
 pub enum ParseError {
     #[error("Tree-sitter error: {0}")]
     TreeSitter(#[from] tree_sitter::LanguageError),
+
+    #[error("Query error: {0}")]
+    QueryError(String),
 
     #[error("Parse failed")]
     ParseFailed,
@@ -121,107 +126,59 @@ impl CodeParser {
         graph: &mut CodeGraph,
         count: &mut usize,
     ) -> Result<(), ParseError> {
-        // Use iterative traversal with stack (no recursion, no boxing)
-        let mut stack = vec![node];
+        // Use tree-sitter queries for language-agnostic extraction
+        let symbol_query = include_str!("../../queries/rust/symbols.scm");
+        let query = Query::new(&self.rust_grammar, symbol_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
 
-        while let Some(current) = stack.pop() {
-            match current.kind() {
-                "function_item" => {
-                    self.insert_function(current, code, file_path, file_id, graph)
-                        .await?;
-                    *count += 1;
-                }
-                "struct_item" => {
-                    self.insert_struct(current, code, file_path, file_id, graph)
-                        .await?;
-                    *count += 1;
-                }
-                "impl_item" => {
-                    // insert_impl handles its own counting AND child traversal
-                    // Don't push children to stack to avoid double-processing methods
-                    self.insert_impl(current, code, file_path, file_id, graph, count)
-                        .await?;
-                }
-                _ => {
-                    // Push children onto stack
-                    let mut cursor = current.walk();
-                    for child in current.children(&mut cursor) {
-                        stack.push(child);
+        // Collect all matches before async operations (QueryMatches/QueryCursor are not Send)
+        let symbols_to_insert = {
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(&query, node, code.as_bytes());
+            let mut result = Vec::new();
+
+            while let Some(m) = matches.next() {
+                let mut symbol_node = None;
+                let mut name_text = None;
+                let mut symbol_kind = None;
+
+                // Extract captures
+                for capture in m.captures {
+                    let capture_name = query.capture_names()[capture.index as usize];
+                    match capture_name {
+                        "symbol.function" => {
+                            symbol_node = Some(capture.node);
+                            symbol_kind = Some("function");
+                        }
+                        "symbol.struct" => {
+                            symbol_node = Some(capture.node);
+                            symbol_kind = Some("struct");
+                        }
+                        "symbol.name" => {
+                            name_text = Some(self.get_text(capture.node, code));
+                        }
+                        _ => {}
                     }
                 }
-            }
-        }
-        Ok(())
-    }
 
-    async fn insert_function(
-        &self,
-        node: Node<'_>,
-        code: &str,
-        file_path: &str,
-        file_id: &str,
-        graph: &mut CodeGraph,
-    ) -> Result<(), ParseError> {
-        let name = self.get_name(node, code);
-        let (start_line, end_line) = self.get_lines(node);
-
-        let symbol_id = graph
-            .insert_symbol_direct(&name, "function", file_path, start_line, end_line, None)
-            .await?;
-        graph.insert_contains(file_id, &symbol_id, 1.0).await?;
-
-        Ok(())
-    }
-
-    async fn insert_struct(
-        &self,
-        node: Node<'_>,
-        code: &str,
-        file_path: &str,
-        file_id: &str,
-        graph: &mut CodeGraph,
-    ) -> Result<(), ParseError> {
-        let name = self.get_name(node, code);
-        let (start_line, end_line) = self.get_lines(node);
-
-        let symbol_id = graph
-            .insert_symbol_direct(&name, "struct", file_path, start_line, end_line, None)
-            .await?;
-        graph.insert_contains(file_id, &symbol_id, 1.0).await?;
-
-        Ok(())
-    }
-
-    async fn insert_impl(
-        &self,
-        node: Node<'_>,
-        code: &str,
-        file_path: &str,
-        file_id: &str,
-        graph: &mut CodeGraph,
-        count: &mut usize,
-    ) -> Result<(), ParseError> {
-        // Insert impl block
-        let target = self.get_impl_target(node, code);
-        let (start_line, end_line) = self.get_lines(node);
-        let impl_name = format!("impl {}", target);
-
-        let impl_id = graph
-            .insert_symbol_direct(&impl_name, "impl", file_path, start_line, end_line, None)
-            .await?;
-        graph.insert_contains(file_id, &impl_id, 1.0).await?;
-        *count += 1;
-
-        // Extract methods from impl body
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut cursor = body.walk();
-            for child in body.children(&mut cursor) {
-                if child.kind() == "function_item" {
-                    self.insert_function(child, code, file_path, file_id, graph)
-                        .await?;
-                    *count += 1;
+                if let (Some(node), Some(name), Some(kind)) = (symbol_node, name_text, symbol_kind)
+                {
+                    result.push((node, name, kind));
                 }
             }
+
+            result
+        }; // cursor and matches dropped here
+
+        // Now insert into graph (async operations)
+        for (node, name, kind) in symbols_to_insert {
+            let (start_line, end_line) = self.get_lines(node);
+
+            let symbol_id = graph
+                .insert_symbol_direct(&name, kind, file_path, start_line, end_line, None)
+                .await?;
+            graph.insert_contains(file_id, &symbol_id, 1.0).await?;
+            *count += 1;
         }
 
         Ok(())
@@ -242,18 +199,6 @@ impl CodeParser {
     }
 
     // Helper methods
-
-    fn get_name(&self, node: Node, code: &str) -> String {
-        node.child_by_field_name("name")
-            .map(|n| self.get_text(n, code))
-            .unwrap_or_else(|| "<anonymous>".to_string())
-    }
-
-    fn get_impl_target(&self, node: Node, code: &str) -> String {
-        node.child_by_field_name("type")
-            .map(|n| self.get_text(n, code))
-            .unwrap_or_else(|| "<unknown>".to_string())
-    }
 
     fn get_text(&self, node: Node, code: &str) -> String {
         code[node.byte_range()].to_string()
