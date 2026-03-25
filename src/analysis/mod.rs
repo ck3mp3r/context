@@ -7,7 +7,7 @@
 // Design:
 // - Simple schema: File + Symbol nodes with kind discriminator
 // - Language-agnostic: Same graph model for all languages
-// - Confidence tracking: Tree-sitter can be uncertain about cross-file refs
+// - Unified CodeParser: parses once, inserts directly into graph
 
 #[cfg(feature = "backend")]
 pub mod store;
@@ -19,20 +19,14 @@ pub mod types;
 pub mod parser;
 
 #[cfg(feature = "backend")]
-pub mod extractor;
-
-#[cfg(feature = "backend")]
-pub mod resolver;
-
-#[cfg(feature = "backend")]
-pub mod languages;
-
-#[cfg(feature = "backend")]
 pub mod service;
 
 // Re-exports for convenience
 #[cfg(feature = "backend")]
 pub use store::CodeGraph;
+
+#[cfg(feature = "backend")]
+pub use parser::{CodeParser, SupportedLanguage};
 
 #[cfg(feature = "backend")]
 pub use types::{ExtractedRelationship, ExtractedSymbol, RelationType, SymbolKind};
@@ -43,9 +37,6 @@ mod types_test;
 
 #[cfg(all(test, feature = "backend"))]
 mod store_test;
-
-#[cfg(all(test, feature = "backend"))]
-mod parser_test;
 
 #[cfg(all(test, feature = "backend"))]
 mod integration_test;

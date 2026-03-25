@@ -1,9 +1,9 @@
 //! Code analysis service
 //!
 //! High-level service for analyzing repositories.
-//! Uses LanguageRegistry to get appropriate extractors per file.
+//! Uses unified CodeParser for all languages.
 
-use crate::analysis::{parser::LanguageRegistry, store::CodeGraph};
+use crate::analysis::{parser::CodeParser, store::CodeGraph};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -15,6 +15,9 @@ pub enum AnalysisError {
 
     #[error("Store error: {0}")]
     Store(#[from] crate::analysis::store::StoreError),
+
+    #[error("Parse error: {0}")]
+    Parse(#[from] crate::analysis::parser::ParseError),
 
     #[error("Repository has no local path")]
     NoLocalPath,
@@ -73,7 +76,7 @@ where
     let mut graph = CodeGraph::new(graph_path, repo_id).await?;
     tracing::info!("CodeGraph created successfully");
 
-    let registry = LanguageRegistry::new();
+    let mut parser = CodeParser::new();
 
     // Load metadata to check for incremental analysis
     let metadata_path = graph_path.join("metadata.json");
@@ -89,11 +92,11 @@ where
     let files_to_analyze = if let Some(ref last) = last_commit {
         // Incremental: only changed files since last commit
         tracing::info!("Incremental analysis: finding changed files since {}", last);
-        get_changed_files(repo_path, last, &current_commit, &registry)?
+        get_changed_files(repo_path, last, &current_commit, &parser)?
     } else {
         // Full scan: all supported files
         tracing::info!("Full scan: finding all supported files");
-        scan_supported_files(repo_path, &registry)?
+        scan_supported_files(repo_path, &parser)?
     };
 
     let total_files = files_to_analyze.len();
@@ -101,56 +104,9 @@ where
     let mut total_symbols = 0;
     let mut total_relationships = 0;
 
-    // PASS 1: Extract and insert all symbols, build index
-    tracing::info!("Pass 1: Extracting and inserting symbols...");
-    let mut symbol_index_data = Vec::new();
-
-    for (batch_idx, batch) in files_to_analyze.chunks(50).enumerate() {
-        for file_path in batch {
-            let content = std::fs::read_to_string(file_path)?;
-            let relative_path = file_path
-                .strip_prefix(repo_path)
-                .unwrap_or(file_path)
-                .to_string_lossy()
-                .to_string();
-
-            let extractor = registry
-                .get_extractor_for_file(&relative_path, &content)
-                .ok_or_else(|| AnalysisError::UnsupportedFile(relative_path.clone()))?;
-
-            let symbols = extractor.extract_symbols(&content, &relative_path);
-            total_symbols += symbols.len();
-
-            let file_id = graph.insert_file(&relative_path, "rust", "hash").await?;
-
-            for symbol in &symbols {
-                let symbol_id = graph.insert_symbol(symbol).await?;
-                graph.insert_contains(&file_id, &symbol_id, 1.0).await?;
-                total_relationships += 1;
-
-                // Store for building index
-                symbol_index_data.push((symbol.clone(), symbol_id));
-            }
-        }
-
-        let processed = ((batch_idx + 1) * 50).min(total_files);
-        progress_fn(processed, total_files);
-        tokio::task::yield_now().await;
-    }
-
-    // Build symbol index for relationship resolution
-    tracing::info!(
-        "Building symbol index from {} symbols...",
-        symbol_index_data.len()
-    );
-    let symbol_index = crate::analysis::resolver::SymbolIndex::build(&symbol_index_data);
-
-    // PASS 2: Extract relationships and resolve symbol IDs
-    tracing::info!("Pass 2: Extracting and resolving relationships...");
-    let mut resolved_count = 0;
-    let mut skipped_count = 0;
-
-    for file_path in &files_to_analyze {
+    // SINGLE PASS: Parse and insert directly into graph
+    tracing::info!("Analyzing files...");
+    for (idx, file_path) in files_to_analyze.iter().enumerate() {
         let content = std::fs::read_to_string(file_path)?;
         let relative_path = file_path
             .strip_prefix(repo_path)
@@ -158,42 +114,24 @@ where
             .to_string_lossy()
             .to_string();
 
-        let extractor = registry
-            .get_extractor_for_file(&relative_path, &content)
+        // Detect language
+        let language = parser
+            .detect_language(&relative_path)
             .ok_or_else(|| AnalysisError::UnsupportedFile(relative_path.clone()))?;
 
-        let relationships = extractor.extract_relationships(&content, &relative_path);
+        // Parse and insert directly into graph
+        let stats = parser
+            .parse_and_analyze(&content, &relative_path, language, &mut graph)
+            .await
+            .map_err(|e| AnalysisError::Parse(e))?;
 
-        for relationship in relationships {
-            // Parse placeholder IDs: "symbol:file:name:?"
-            let from_name = extract_name_from_placeholder(&relationship.from_symbol_id);
-            let to_name = extract_name_from_placeholder(&relationship.to_symbol_id);
+        total_symbols += stats.symbols_inserted;
+        total_relationships += stats.relationships_inserted;
 
-            if let (Some(from), Some(to)) = (from_name, to_name) {
-                // Resolve using index
-                if let (Some(from_id), Some(to_id)) = (
-                    symbol_index.resolve_best(&from, Some(&relative_path)),
-                    symbol_index.resolve_best(&to, Some(&relative_path)),
-                ) {
-                    let mut resolved_rel = relationship.clone();
-                    resolved_rel.from_symbol_id = from_id;
-                    resolved_rel.to_symbol_id = to_id;
-
-                    graph.insert_relationship(&resolved_rel).await?;
-                    total_relationships += 1;
-                    resolved_count += 1;
-                } else {
-                    skipped_count += 1;
-                }
-            }
-        }
+        // Progress reporting
+        progress_fn(idx + 1, total_files);
+        tokio::task::yield_now().await;
     }
-
-    tracing::info!(
-        "Resolved {} relationships, skipped {} (unresolved symbols)",
-        resolved_count,
-        skipped_count
-    );
 
     // Commit all batched data to nanograph
     tracing::info!("Committing all data to nanograph...");
@@ -213,7 +151,7 @@ where
 /// Scan directory for supported files (respects .gitignore)
 fn scan_supported_files(
     repo_path: &Path,
-    registry: &LanguageRegistry,
+    parser: &CodeParser,
 ) -> Result<Vec<PathBuf>, AnalysisError> {
     tracing::debug!("Starting scan of {:?}", repo_path);
     let mut supported_files = Vec::new();
@@ -230,8 +168,8 @@ fn scan_supported_files(
             Ok(entry) => {
                 let path = entry.path();
                 if path.is_file()
-                    && let Some(ext) = path.extension()
-                    && registry.supports_extension(ext.to_str().unwrap_or(""))
+                    && let Some(file_str) = path.to_str()
+                    && parser.detect_language(file_str).is_some()
                 {
                     tracing::trace!("Found supported file: {:?}", path);
                     supported_files.push(path.to_path_buf());
@@ -269,11 +207,11 @@ fn get_changed_files(
     repo_path: &Path,
     from_commit: &str,
     to_commit: &str,
-    registry: &LanguageRegistry,
+    parser: &CodeParser,
 ) -> Result<Vec<PathBuf>, AnalysisError> {
     if to_commit.is_empty() {
         // Not a git repo - do full scan
-        return scan_supported_files(repo_path, registry);
+        return scan_supported_files(repo_path, parser);
     }
 
     let output = std::process::Command::new("git")
@@ -317,10 +255,10 @@ fn get_changed_files(
             continue;
         }
 
-        // Check if file extension is supported
+        // Check if file is supported
         let path = repo_path.join(file_path);
-        if let Some(ext) = path.extension()
-            && registry.supports_extension(ext.to_str().unwrap_or(""))
+        if let Some(file_str) = path.to_str()
+            && parser.detect_language(file_str).is_some()
         {
             changed_files.push(path);
         }

@@ -123,28 +123,27 @@ impl CodeGraph {
         Ok(file_id)
     }
 
-    /// Insert a symbol node into the graph
-    ///
-    /// # Arguments
-    /// * `symbol` - Extracted symbol information
-    ///
-    /// # Returns
-    /// Symbol ID used for creating relationships
-    pub async fn insert_symbol(&mut self, symbol: &ExtractedSymbol) -> Result<String, StoreError> {
-        let symbol_id = format!(
-            "symbol:{}:{}:{}",
-            symbol.file_path, symbol.name, symbol.start_line
-        );
+    /// Insert a symbol node directly (no ExtractedSymbol intermediate)
+    pub async fn insert_symbol_direct(
+        &mut self,
+        name: &str,
+        kind: &str,
+        file_path: &str,
+        start_line: usize,
+        end_line: usize,
+        signature: Option<&str>,
+    ) -> Result<String, StoreError> {
+        let symbol_id = format!("symbol:{}:{}:{}", file_path, name, start_line);
         let data = serde_json::json!({
             "type": "Symbol",
             "data": {
                 "symbol_id": &symbol_id,
-                "name": &symbol.name,
-                "kind": symbol.kind.as_str(),
-                "file_path": &symbol.file_path,
-                "start_line": symbol.start_line,
-                "end_line": symbol.end_line,
-                "signature": symbol.signature.as_deref().unwrap_or(""),
+                "name": name,
+                "kind": kind,
+                "file_path": file_path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "signature": signature.unwrap_or(""),
                 "repo_id": &self.repo_id,
             }
         });
@@ -157,8 +156,27 @@ impl CodeGraph {
             .open(&self.batch_file)?;
         writeln!(file, "{}", serde_json::to_string(&data)?)?;
 
-        tracing::debug!("Appended symbol node to batch: {}", symbol.name);
+        tracing::trace!("Appended symbol to batch: {}", name);
         Ok(symbol_id)
+    }
+
+    /// Insert a symbol node into the graph (legacy API using ExtractedSymbol)
+    ///
+    /// # Arguments
+    /// * `symbol` - Extracted symbol information
+    ///
+    /// # Returns
+    /// Symbol ID used for creating relationships
+    pub async fn insert_symbol(&mut self, symbol: &ExtractedSymbol) -> Result<String, StoreError> {
+        self.insert_symbol_direct(
+            &symbol.name,
+            symbol.kind.as_str(),
+            &symbol.file_path,
+            symbol.start_line,
+            symbol.end_line,
+            symbol.signature.as_deref(),
+        )
+        .await
     }
 
     /// Insert a containment relationship (File contains Symbol)
@@ -291,13 +309,12 @@ impl CodeGraph {
         &self,
         file_path: &str,
     ) -> Result<Vec<ExtractedSymbol>, StoreError> {
-        // Create a query file with a named query
+        // Create a query file with a named query (matching nanograph syntax)
         let query = format!(
-            r#"
-query get_symbols {{
+            r#"query get_symbols($file_path: String) {{
     match {{
         $s: Symbol
-        $s.file_path = "{}"
+        $s.file_path = $file_path
     }}
     return {{
         $s.symbol_id
@@ -308,15 +325,13 @@ query get_symbols {{
         $s.end_line
         $s.signature
     }}
-}}
-"#,
-            file_path
+}}"#
         );
 
         let query_file = self.db_path.join("temp_query.gq");
         std::fs::write(&query_file, query)?;
 
-        // Run query with --name parameter
+        // Run query with --name parameter and --param for the file_path
         let output = Command::new("nanograph")
             .arg("run")
             .arg("--db")
@@ -326,7 +341,9 @@ query get_symbols {{
             .arg("--name")
             .arg("get_symbols")
             .arg("--format")
-            .arg("json")
+            .arg("jsonl")
+            .arg("--param")
+            .arg(format!("file_path=\"{}\"", file_path))
             .output()?;
 
         let _ = std::fs::remove_file(&query_file);
@@ -336,9 +353,16 @@ query get_symbols {{
             return Err(StoreError::CliFailed(stderr.to_string()));
         }
 
-        // Parse JSON output
+        // Parse JSONL output (one JSON object per line)
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let results: Vec<serde_json::Value> = serde_json::from_str(&stdout)?;
+        let mut results = Vec::new();
+        for line in stdout.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let obj: serde_json::Value = serde_json::from_str(line)?;
+            results.push(obj);
+        }
 
         // Convert to ExtractedSymbol
         let mut symbols = Vec::new();
