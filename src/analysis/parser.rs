@@ -40,14 +40,22 @@ pub struct AnalysisStats {
 }
 
 /// Unified code parser - handles all languages
-pub struct CodeParser {
-    rust_grammar: Language,
-}
+pub struct CodeParser;
 
 impl CodeParser {
     pub fn new() -> Self {
-        Self {
-            rust_grammar: tree_sitter_rust::LANGUAGE.into(),
+        Self
+    }
+
+    fn get_grammar(&self, language: SupportedLanguage) -> Language {
+        match language {
+            SupportedLanguage::Rust => tree_sitter_rust::LANGUAGE.into(),
+        }
+    }
+
+    fn get_symbol_query(&self, language: SupportedLanguage) -> &'static str {
+        match language {
+            SupportedLanguage::Rust => include_str!("../../queries/rust/symbols.scm"),
         }
     }
 
@@ -77,6 +85,7 @@ impl CodeParser {
             &file_id,
             graph,
             &mut symbols_inserted,
+            language,
         )
         .await?;
 
@@ -109,10 +118,8 @@ impl CodeParser {
 
     fn parse(&mut self, code: &str, language: SupportedLanguage) -> Result<Tree, ParseError> {
         let mut parser = TsParser::new();
-        let grammar = match language {
-            SupportedLanguage::Rust => &self.rust_grammar,
-        };
-        parser.set_language(grammar)?;
+        let grammar = self.get_grammar(language);
+        parser.set_language(&grammar)?;
 
         parser.parse(code, None).ok_or(ParseError::ParseFailed)
     }
@@ -125,10 +132,12 @@ impl CodeParser {
         file_id: &str,
         graph: &mut CodeGraph,
         count: &mut usize,
+        language: SupportedLanguage,
     ) -> Result<(), ParseError> {
         // Use tree-sitter queries for language-agnostic extraction
-        let symbol_query = include_str!("../../queries/rust/symbols.scm");
-        let query = Query::new(&self.rust_grammar, symbol_query)
+        let symbol_query = self.get_symbol_query(language);
+        let grammar = self.get_grammar(language);
+        let query = Query::new(&grammar, symbol_query)
             .map_err(|e| ParseError::QueryError(e.to_string()))?;
 
         // Collect all matches before async operations (QueryMatches/QueryCursor are not Send)
