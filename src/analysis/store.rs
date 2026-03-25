@@ -267,6 +267,40 @@ impl CodeGraph {
         Ok(())
     }
 
+    /// Insert Calls edge directly (bypasses ExtractedRelationship)
+    pub async fn insert_calls_edge_direct(
+        &mut self,
+        from_symbol_id: &str,
+        to_symbol_id: &str,
+        call_site_line: usize,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "edge": "Calls",
+            "from": from_symbol_id,
+            "to": to_symbol_id,
+            "data": {
+                "confidence": confidence,
+                "call_site_line": call_site_line,
+            }
+        });
+
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.batch_file)?;
+        writeln!(file, "{}", serde_json::to_string(&data)?)?;
+
+        tracing::debug!(
+            "Appended Calls edge to batch: {} -> {} (line {})",
+            from_symbol_id,
+            to_symbol_id,
+            call_site_line
+        );
+        Ok(())
+    }
+
     /// Commit all batched data to nanograph (call this once at the end)
     pub async fn commit(&mut self) -> Result<(), StoreError> {
         if !self.batch_file.exists() {

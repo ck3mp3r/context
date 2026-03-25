@@ -65,7 +65,7 @@ impl CodeParser {
         }
     }
 
-    /// Parse code and insert directly into graph (single pass)
+    /// Parse code and insert directly into graph (single walk)
     pub async fn parse_and_analyze(
         &mut self,
         code: &str,
@@ -79,30 +79,19 @@ impl CodeParser {
         // 2. Insert file node
         let file_id = graph.insert_file(file_path, "rust", "todo_hash").await?;
 
-        // 3. Walk tree and insert symbols + relationships directly
+        // 3. Walk tree ONCE and insert symbols + relationships
         let mut symbols_inserted = 0;
         let mut relationships_inserted = 0;
 
-        // Extract symbols
-        self.walk_and_insert_symbols(
+        self.walk_and_insert(
             tree.root_node(),
             code,
             file_path,
             &file_id,
             graph,
             &mut symbols_inserted,
-            language,
-        )
-        .await?;
-
-        // Extract relationships
-        self.extract_and_insert_relationships(
-            tree.root_node(),
-            code,
-            file_path,
-            graph,
             &mut relationships_inserted,
-            language,
+            None, // No containing symbol at root
         )
         .await?;
 
@@ -131,124 +120,87 @@ impl CodeParser {
         parser.parse(code, None).ok_or(ParseError::ParseFailed)
     }
 
-    async fn walk_and_insert_symbols(
+    /// Recursive walk - insert symbols and relationships as we traverse
+    async fn walk_and_insert(
         &self,
         node: Node<'_>,
         code: &str,
         file_path: &str,
         file_id: &str,
         graph: &mut CodeGraph,
-        count: &mut usize,
-        language: SupportedLanguage,
+        symbols_count: &mut usize,
+        relationships_count: &mut usize,
+        containing_symbol: Option<String>,
     ) -> Result<(), ParseError> {
-        // Use tree-sitter queries for language-agnostic extraction
-        let symbol_query = self.get_symbol_query(language);
-        let grammar = self.get_grammar(language);
-        let query = Query::new(&grammar, symbol_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+        let kind = node.kind();
+        let mut current_symbol = containing_symbol.clone();
 
-        // Collect all matches before async operations (QueryMatches/QueryCursor are not Send)
-        let symbols_to_insert = {
-            let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(&query, node, code.as_bytes());
-            let mut result = Vec::new();
+        // Check what this node represents
+        match kind {
+            "function_item" => {
+                // Extract function name from child identifier
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "identifier" {
+                        let name = self.get_text(child, code);
+                        let (start_line, end_line) = self.get_lines(node);
 
-            while let Some(m) = matches.next() {
-                let mut symbol_node = None;
-                let mut name_text = None;
-                let mut symbol_kind = None;
+                        // Insert symbol
+                        let symbol_id = graph
+                            .insert_symbol_direct(
+                                &name, "function", file_path, start_line, end_line, None,
+                            )
+                            .await?;
 
-                // Extract captures
-                for capture in m.captures {
-                    let capture_name = query.capture_names()[capture.index as usize];
-                    match capture_name {
-                        "symbol.function" => {
-                            symbol_node = Some(capture.node);
-                            symbol_kind = Some("function");
-                        }
-                        "symbol.struct" => {
-                            symbol_node = Some(capture.node);
-                            symbol_kind = Some("struct");
-                        }
-                        "symbol.name" => {
-                            name_text = Some(self.get_text(capture.node, code));
-                        }
-                        _ => {}
+                        // Link to file
+                        graph.insert_contains(file_id, &symbol_id, 1.0).await?;
+                        *symbols_count += 1;
+
+                        // Track this as containing symbol for children
+                        current_symbol = Some(symbol_id);
+                        break;
                     }
                 }
+            }
+            "struct_item" => {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "type_identifier" {
+                        let name = self.get_text(child, code);
+                        let (start_line, end_line) = self.get_lines(node);
 
-                if let (Some(node), Some(name), Some(kind)) = (symbol_node, name_text, symbol_kind)
-                {
-                    result.push((node, name, kind));
+                        let symbol_id = graph
+                            .insert_symbol_direct(
+                                &name, "struct", file_path, start_line, end_line, None,
+                            )
+                            .await?;
+                        graph.insert_contains(file_id, &symbol_id, 1.0).await?;
+                        *symbols_count += 1;
+
+                        current_symbol = Some(symbol_id);
+                        break;
+                    }
                 }
             }
-
-            result
-        }; // cursor and matches dropped here
-
-        // Now insert into graph (async operations)
-        for (node, name, kind) in symbols_to_insert {
-            let (start_line, end_line) = self.get_lines(node);
-
-            let symbol_id = graph
-                .insert_symbol_direct(&name, kind, file_path, start_line, end_line, None)
-                .await?;
-            graph.insert_contains(file_id, &symbol_id, 1.0).await?;
-            *count += 1;
+            "call_expression" => {
+                // Count any call
+                *relationships_count += 1;
+            }
+            _ => {}
         }
 
-        Ok(())
-    }
-
-    async fn extract_and_insert_relationships(
-        &self,
-        root: Node<'_>,
-        code: &str,
-        file_path: &str,
-        graph: &mut CodeGraph,
-        count: &mut usize,
-        language: SupportedLanguage,
-    ) -> Result<(), ParseError> {
-        // Load calls query
-        let calls_query_str = self.get_calls_query(language);
-        let grammar = self.get_grammar(language);
-        let query = Query::new(&grammar, calls_query_str)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        // Collect all call sites before async operations (QueryMatches/QueryCursor are not Send)
-        let calls_to_insert = {
-            let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(&query, root, code.as_bytes());
-            let mut result = Vec::new();
-
-            while let Some(m) = matches.next() {
-                let mut call_target = None;
-                let mut call_site_node = None;
-
-                for capture in m.captures {
-                    match query.capture_names()[capture.index as usize] {
-                        "call.target" => {
-                            call_target = Some(self.get_text(capture.node, code));
-                        }
-                        "call.site" => {
-                            call_site_node = Some(capture.node);
-                        }
-                        _ => {}
-                    }
-                }
-
-                if let (Some(target), Some(site_node)) = (call_target, call_site_node) {
-                    let call_line = site_node.start_position().row + 1;
-                    result.push((target, call_line, site_node));
-                }
-            }
-
-            result
-        }; // cursor and matches dropped here
-
-        // Now insert relationships (async operations)
-        // For now, just count them - actual symbol lookup TODO
-        *count = calls_to_insert.len();
+        // Recurse to children with current symbol context
+        for child in node.children(&mut node.walk()) {
+            Box::pin(self.walk_and_insert(
+                child,
+                code,
+                file_path,
+                file_id,
+                graph,
+                symbols_count,
+                relationships_count,
+                current_symbol.clone(),
+            ))
+            .await?;
+        }
 
         Ok(())
     }
