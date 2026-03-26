@@ -32,7 +32,7 @@ pub struct AnalysisStats {
 /// Language trait - implement for each supported language
 pub trait Language {
     /// Language-specific symbol kind
-    type Kind: AsRef<str> + Clone;
+    type Kind: AsRef<str> + Clone + Into<crate::analysis::types::Kind>;
 
     /// Get tree-sitter grammar for this language
     fn grammar() -> tree_sitter::Language;
@@ -141,18 +141,18 @@ impl<L: Language> Parser<L> {
         if let Some((symbol_kind, name)) = L::parse_symbol(node, ctx.code) {
             let (start_line, end_line) = self.get_lines(node);
 
-            // Insert symbol with language from type parameter L
-            let symbol_id = graph
-                .insert_symbol(crate::analysis::store::InsertSymbol {
-                    name: &name,
-                    kind: symbol_kind.as_ref(),
-                    language: L::name(),
-                    file_path: ctx.file_path,
-                    start_line,
-                    end_line,
-                    signature: None,
-                })
-                .await?;
+            // Create Symbol and insert (use Into to convert lang-specific Kind to generic Kind)
+            let symbol = crate::analysis::types::Symbol::new(
+                name.clone(),
+                symbol_kind.into(),
+                L::name().to_string(),
+                ctx.file_path.to_string(),
+                start_line,
+                end_line,
+                None,
+            );
+
+            let symbol_id = graph.insert_symbol(&symbol).await?;
 
             // Link to file
             graph.insert_contains(ctx.file_id, &symbol_id, 1.0).await?;

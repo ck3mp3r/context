@@ -1,5 +1,7 @@
 // Rust symbol types
 
+use crate::analysis::types::Kind as GenericKind;
+
 /// Rust-specific symbol types
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Kind {
@@ -51,6 +53,24 @@ impl std::str::FromStr for Kind {
             "static" => Ok(Self::Static),
             "type" => Ok(Self::Type),
             _ => Err(format!("Unknown Rust symbol type: {}", s)),
+        }
+    }
+}
+
+impl From<Kind> for GenericKind {
+    fn from(kind: Kind) -> Self {
+        match kind {
+            Kind::Function => GenericKind::Function,
+            Kind::Struct => GenericKind::Struct,
+            Kind::Enum => GenericKind::Enum,
+            Kind::Trait => GenericKind::Trait,
+            Kind::Impl => GenericKind::Impl {
+                target_type: String::new(),
+            },
+            Kind::Mod => GenericKind::Variable, // Map to closest generic type
+            Kind::Const => GenericKind::Constant,
+            Kind::Static => GenericKind::Variable,
+            Kind::Type => GenericKind::Struct, // Type alias maps to struct
         }
     }
 }

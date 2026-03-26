@@ -7,11 +7,36 @@
 pub struct Symbol {
     pub name: String,
     pub kind: Kind,
+    pub language: String, // "rust", "typescript", etc.
     pub file_path: String,
     pub start_line: usize,
     pub end_line: usize,
-    pub content: String,           // Code snippet with context (±2 lines)
+    pub content: String, // Code snippet with context (±2 lines) - empty during insertion
     pub signature: Option<String>, // For functions/methods: "fn foo(a: i32) -> String"
+}
+
+impl Symbol {
+    /// Create a new symbol (content empty, filled during query)
+    pub fn new(
+        name: String,
+        kind: Kind,
+        language: String,
+        file_path: String,
+        start_line: usize,
+        end_line: usize,
+        signature: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            language,
+            file_path,
+            start_line,
+            end_line,
+            content: String::new(),
+            signature,
+        }
+    }
 }
 
 /// Symbol types - language-agnostic categories

@@ -24,17 +24,6 @@ pub enum StoreError {
     JsonParse(#[from] serde_json::Error),
 }
 
-/// Parameters for inserting a symbol - reduces parameter count
-pub struct InsertSymbol<'a> {
-    pub name: &'a str,
-    pub kind: &'a str,
-    pub language: &'a str,
-    pub file_path: &'a str,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub signature: Option<&'a str>,
-}
-
 /// Wrapper around NanoGraph CLI for code analysis
 pub struct CodeGraph {
     db_path: PathBuf,
@@ -135,7 +124,7 @@ impl CodeGraph {
     }
 
     /// Insert a symbol node
-    pub async fn insert_symbol(&mut self, symbol: InsertSymbol<'_>) -> Result<String, StoreError> {
+    pub async fn insert_symbol(&mut self, symbol: &Symbol) -> Result<String, StoreError> {
         let symbol_id = format!(
             "symbol:{}:{}:{}",
             symbol.file_path, symbol.name, symbol.start_line
@@ -144,13 +133,13 @@ impl CodeGraph {
             "type": "Symbol",
             "data": {
                 "symbol_id": &symbol_id,
-                "name": symbol.name,
-                "kind": symbol.kind,
-                "language": symbol.language,
-                "file_path": symbol.file_path,
+                "name": &symbol.name,
+                "kind": symbol.kind.as_str(),
+                "language": &symbol.language,
+                "file_path": &symbol.file_path,
                 "start_line": symbol.start_line,
                 "end_line": symbol.end_line,
-                "signature": symbol.signature.unwrap_or(""),
+                "signature": symbol.signature.as_deref().unwrap_or(""),
                 "repo_id": &self.repo_id,
             }
         });
@@ -331,6 +320,7 @@ impl CodeGraph {
                 kind: kind_str
                     .parse()
                     .unwrap_or(crate::analysis::types::Kind::Function),
+                language: row["language"].as_str().unwrap_or("unknown").to_string(),
                 file_path: row["file_path"].as_str().unwrap_or("").to_string(),
                 start_line: row["start_line"].as_i64().unwrap_or(0) as usize,
                 end_line: row["end_line"].as_i64().unwrap_or(0) as usize,
