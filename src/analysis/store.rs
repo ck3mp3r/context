@@ -4,7 +4,7 @@
 //! Instead of embedding NanoGraph as a library (which adds 400MB+ to the binary),
 //! we shell out to the standalone `nanograph` CLI tool.
 
-use crate::analysis::types::{ExtractedRelationship, ExtractedSymbol, RelationType};
+use crate::analysis::types::Symbol;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -22,6 +22,17 @@ pub enum StoreError {
 
     #[error("Failed to parse JSON: {0}")]
     JsonParse(#[from] serde_json::Error),
+}
+
+/// Parameters for inserting a symbol - reduces parameter count
+pub struct InsertSymbol<'a> {
+    pub name: &'a str,
+    pub kind: &'a str,
+    pub language: &'a str,
+    pub file_path: &'a str,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub signature: Option<&'a str>,
 }
 
 /// Wrapper around NanoGraph CLI for code analysis
@@ -123,27 +134,23 @@ impl CodeGraph {
         Ok(file_id)
     }
 
-    /// Insert a symbol node directly (no ExtractedSymbol intermediate)
-    pub async fn insert_symbol_direct(
-        &mut self,
-        name: &str,
-        kind: &str,
-        file_path: &str,
-        start_line: usize,
-        end_line: usize,
-        signature: Option<&str>,
-    ) -> Result<String, StoreError> {
-        let symbol_id = format!("symbol:{}:{}:{}", file_path, name, start_line);
+    /// Insert a symbol node
+    pub async fn insert_symbol(&mut self, symbol: InsertSymbol<'_>) -> Result<String, StoreError> {
+        let symbol_id = format!(
+            "symbol:{}:{}:{}",
+            symbol.file_path, symbol.name, symbol.start_line
+        );
         let data = serde_json::json!({
             "type": "Symbol",
             "data": {
                 "symbol_id": &symbol_id,
-                "name": name,
-                "kind": kind,
-                "file_path": file_path,
-                "start_line": start_line,
-                "end_line": end_line,
-                "signature": signature.unwrap_or(""),
+                "name": symbol.name,
+                "kind": symbol.kind,
+                "language": symbol.language,
+                "file_path": symbol.file_path,
+                "start_line": symbol.start_line,
+                "end_line": symbol.end_line,
+                "signature": symbol.signature.unwrap_or(""),
                 "repo_id": &self.repo_id,
             }
         });
@@ -156,27 +163,8 @@ impl CodeGraph {
             .open(&self.batch_file)?;
         writeln!(file, "{}", serde_json::to_string(&data)?)?;
 
-        tracing::trace!("Appended symbol to batch: {}", name);
+        tracing::trace!("Appended symbol to batch: {}", symbol.name);
         Ok(symbol_id)
-    }
-
-    /// Insert a symbol node into the graph (legacy API using ExtractedSymbol)
-    ///
-    /// # Arguments
-    /// * `symbol` - Extracted symbol information
-    ///
-    /// # Returns
-    /// Symbol ID used for creating relationships
-    pub async fn insert_symbol(&mut self, symbol: &ExtractedSymbol) -> Result<String, StoreError> {
-        self.insert_symbol_direct(
-            &symbol.name,
-            symbol.kind.as_str(),
-            &symbol.file_path,
-            symbol.start_line,
-            symbol.end_line,
-            symbol.signature.as_deref(),
-        )
-        .await
     }
 
     /// Insert a containment relationship (File contains Symbol)
@@ -208,67 +196,8 @@ impl CodeGraph {
     }
 
     /// Insert a relationship between symbols (Calls, References, Inherits, Contains)
-    pub async fn insert_relationship(
-        &mut self,
-        relationship: &ExtractedRelationship,
-    ) -> Result<(), StoreError> {
-        // Determine edge type and data based on relation type
-        let (edge_type, edge_data) = match &relationship.relation_type {
-            RelationType::Calls { call_site_line } => (
-                "Calls",
-                serde_json::json!({
-                    "confidence": relationship.confidence,
-                    "call_site_line": call_site_line,
-                }),
-            ),
-            RelationType::References { reference_type } => (
-                "References",
-                serde_json::json!({
-                    "confidence": relationship.confidence,
-                    "reference_type": format!("{:?}", reference_type),
-                }),
-            ),
-            RelationType::Inherits { inheritance_type } => (
-                "Inherits",
-                serde_json::json!({
-                    "confidence": relationship.confidence,
-                    "inheritance_type": format!("{:?}", inheritance_type),
-                }),
-            ),
-            RelationType::Contains => (
-                "SymbolContains",
-                serde_json::json!({
-                    "confidence": relationship.confidence,
-                }),
-            ),
-        };
-
-        let data = serde_json::json!({
-            "edge": edge_type,
-            "from": relationship.from_symbol_id,
-            "to": relationship.to_symbol_id,
-            "data": edge_data
-        });
-
-        // Append to batch file
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.batch_file)?;
-        writeln!(file, "{}", serde_json::to_string(&data)?)?;
-
-        tracing::debug!(
-            "Appended {} edge to batch: {} -> {}",
-            edge_type,
-            relationship.from_symbol_id,
-            relationship.to_symbol_id
-        );
-        Ok(())
-    }
-
-    /// Insert Calls edge directly (bypasses ExtractedRelationship)
-    pub async fn insert_calls_edge_direct(
+    /// Insert Calls edge between two symbols
+    pub async fn insert_calls_edge(
         &mut self,
         from_symbol_id: &str,
         to_symbol_id: &str,
@@ -339,10 +268,7 @@ impl CodeGraph {
     }
 
     /// Query symbols in a specific file
-    pub async fn query_symbols_in_file(
-        &self,
-        file_path: &str,
-    ) -> Result<Vec<ExtractedSymbol>, StoreError> {
+    pub async fn query_symbols_in_file(&self, file_path: &str) -> Result<Vec<Symbol>, StoreError> {
         // Create a query file with a named query (matching nanograph syntax)
         let query = r#"query get_symbols($file_path: String) {
     match {
@@ -396,15 +322,15 @@ impl CodeGraph {
             results.push(obj);
         }
 
-        // Convert to ExtractedSymbol
+        // Convert to Symbol
         let mut symbols = Vec::new();
         for row in results {
             let kind_str = row["kind"].as_str().unwrap_or("unknown");
-            symbols.push(ExtractedSymbol {
+            symbols.push(Symbol {
                 name: row["name"].as_str().unwrap_or("").to_string(),
                 kind: kind_str
                     .parse()
-                    .unwrap_or(crate::analysis::types::SymbolKind::Function),
+                    .unwrap_or(crate::analysis::types::Kind::Function),
                 file_path: row["file_path"].as_str().unwrap_or("").to_string(),
                 start_line: row["start_line"].as_i64().unwrap_or(0) as usize,
                 end_line: row["end_line"].as_i64().unwrap_or(0) as usize,

@@ -16,6 +16,9 @@ pub mod store;
 pub mod types;
 
 #[cfg(feature = "backend")]
+pub mod lang;
+
+#[cfg(feature = "backend")]
 pub mod parser;
 
 #[cfg(feature = "backend")]
@@ -26,15 +29,12 @@ pub mod service;
 pub use store::CodeGraph;
 
 #[cfg(feature = "backend")]
-pub use parser::{CodeParser, SupportedLanguage};
+pub use parser::{Language, Parser};
 
 #[cfg(feature = "backend")]
-pub use types::{ExtractedRelationship, ExtractedSymbol, RelationType, SymbolKind};
+pub use lang::rust::Rust;
 
 // Tests
-#[cfg(all(test, feature = "backend"))]
-mod types_test;
-
 #[cfg(all(test, feature = "backend"))]
 mod store_test;
 

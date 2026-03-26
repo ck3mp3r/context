@@ -1,12 +1,58 @@
 //! Code analysis service
 //!
 //! High-level service for analyzing repositories.
-//! Uses unified CodeParser for all languages.
+//! Uses generic Parser with Language trait.
 
-use crate::analysis::{parser::CodeParser, store::CodeGraph};
+use crate::analysis::{Language, Parser, Rust, store::CodeGraph};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+// ============================================================================
+// CENTRAL LANGUAGE REGISTRY - Add new languages here ONLY
+// ============================================================================
+// To add a new language:
+// 1. Create src/analysis/lang/<language>/
+// 2. Implement Language trait
+// 3. Add to for_each_language macro below
+// 4. Import at top of file
+
+macro_rules! languages {
+    ($callback:ident!($file:expr)) => {
+        $callback!($file, Rust)
+        // Add more: || $callback!($file, TypeScript)
+        // Add more: || $callback!($file, Python)
+    };
+
+    ($callback:ident!($files:expr, $repo:expr, $graph:expr, $syms:expr, $rels:expr)) => {
+        $callback!($files, $repo, $graph, $syms, $rels, Rust)?;
+        // Add more: $callback!(..., TypeScript)?;
+        // Add more: $callback!(..., Python)?;
+    };
+}
+
+macro_rules! can_handle {
+    ($file:expr, $Lang:ty) => {
+        Parser::<$Lang>::can_handle($file)
+    };
+}
+
+macro_rules! analyze {
+    ($files:expr, $repo:expr, $graph:expr, $syms:expr, $rels:expr, $Lang:ty) => {{
+        let lang_files: Vec<PathBuf> = $files
+            .iter()
+            .filter(|f| Parser::<$Lang>::can_handle(f.to_str().unwrap_or("")))
+            .cloned()
+            .collect();
+
+        if !lang_files.is_empty() {
+            let (symbols, rels) = analyze_files::<$Lang>(&lang_files, $repo, $graph).await?;
+            $syms += symbols;
+            $rels += rels;
+        }
+        Ok::<(), AnalysisError>(())
+    }};
+}
 
 #[derive(Debug, Error)]
 pub enum AnalysisError {
@@ -42,8 +88,6 @@ pub struct AnalysisResult {
 }
 
 /// Analyze a repository and store results in NanoGraph
-///
-/// Uses LanguageRegistry to get the right extractor for each file type
 pub async fn analyze_repository(
     repo_path: &Path,
     repo_id: &str,
@@ -52,17 +96,36 @@ pub async fn analyze_repository(
     analyze_repository_with_progress(repo_path, repo_id, graph_path, |_, _| {}).await
 }
 
+/// Analyze files with a specific language parser
+async fn analyze_files<L: Language>(
+    files: &[PathBuf],
+    repo_path: &Path,
+    graph: &mut CodeGraph,
+) -> Result<(usize, usize), AnalysisError> {
+    let mut parser = Parser::<L>::new();
+    let mut total_symbols = 0;
+    let mut total_relationships = 0;
+
+    for file_path in files {
+        let content = std::fs::read_to_string(file_path)?;
+        let relative_path = file_path
+            .strip_prefix(repo_path)
+            .unwrap_or(file_path)
+            .to_string_lossy()
+            .to_string();
+
+        let stats = parser
+            .parse_and_analyze(&content, &relative_path, graph)
+            .await?;
+
+        total_symbols += stats.symbols_inserted;
+        total_relationships += stats.relationships_inserted;
+    }
+
+    Ok((total_symbols, total_relationships))
+}
+
 /// Analyze a repository with progress reporting and incremental support
-///
-/// Uses git-based incremental analysis:
-/// - First scan: analyzes all files, stores commit SHA
-/// - Subsequent scans: only analyzes changed files since last commit
-///
-/// # Arguments
-/// * `repo_path` - Path to repository
-/// * `repo_id` - Repository ID for graph
-/// * `graph_path` - Path to store analysis data
-/// * `progress_fn` - Callback for progress updates (processed_count, total_count)
 pub async fn analyze_repository_with_progress<F>(
     repo_path: &Path,
     repo_id: &str,
@@ -76,69 +139,44 @@ where
     let mut graph = CodeGraph::new(graph_path, repo_id).await?;
     tracing::info!("CodeGraph created successfully");
 
-    let mut parser = CodeParser::new();
-
-    // Load metadata to check for incremental analysis
+    // Load metadata
     let metadata_path = graph_path.join("metadata.json");
     tracing::debug!("Getting current commit for {:?}", repo_path);
     let current_commit = get_current_commit(repo_path)?;
-    tracing::debug!("Current commit: {}", current_commit);
-
     let last_commit = load_metadata(&metadata_path)?;
-    tracing::debug!("Last commit: {:?}", last_commit);
 
-    // Determine which files to analyze
+    // Scan for files
     tracing::info!("Scanning for files to analyze");
-    let files_to_analyze = if let Some(ref last) = last_commit {
-        // Incremental: only changed files since last commit
+    let all_files = if let Some(ref last) = last_commit {
         tracing::info!("Incremental analysis: finding changed files since {}", last);
-        get_changed_files(repo_path, last, &current_commit, &parser)?
+        get_changed_files(repo_path, last, &current_commit)?
     } else {
-        // Full scan: all supported files
         tracing::info!("Full scan: finding all supported files");
-        scan_supported_files(repo_path, &parser)?
+        scan_supported_files(repo_path)?
     };
 
-    let total_files = files_to_analyze.len();
+    let total_files = all_files.len();
     tracing::info!("Found {} files to analyze", total_files);
+
+    // Analyze all languages using central registry
     let mut total_symbols = 0;
     let mut total_relationships = 0;
 
-    // SINGLE PASS: Parse and insert directly into graph
-    tracing::info!("Analyzing files...");
-    for (idx, file_path) in files_to_analyze.iter().enumerate() {
-        let content = std::fs::read_to_string(file_path)?;
-        let relative_path = file_path
-            .strip_prefix(repo_path)
-            .unwrap_or(file_path)
-            .to_string_lossy()
-            .to_string();
+    languages!(analyze!(
+        all_files,
+        repo_path,
+        &mut graph,
+        total_symbols,
+        total_relationships
+    ));
 
-        // Detect language
-        let language = parser
-            .detect_language(&relative_path)
-            .ok_or_else(|| AnalysisError::UnsupportedFile(relative_path.clone()))?;
+    progress_fn(total_files, total_files);
 
-        // Parse and insert directly into graph
-        let stats = parser
-            .parse_and_analyze(&content, &relative_path, language, &mut graph)
-            .await
-            .map_err(AnalysisError::Parse)?;
-
-        total_symbols += stats.symbols_inserted;
-        total_relationships += stats.relationships_inserted;
-
-        // Progress reporting
-        progress_fn(idx + 1, total_files);
-        tokio::task::yield_now().await;
-    }
-
-    // Commit all batched data to nanograph
+    // Commit
     tracing::info!("Committing all data to nanograph...");
     graph.commit().await?;
-    tracing::info!("Commit complete");
 
-    // Save metadata with current commit
+    // Save metadata
     save_metadata(&metadata_path, &current_commit)?;
 
     Ok(AnalysisResult {
@@ -148,11 +186,9 @@ where
     })
 }
 
+/// Macro to check if any registered language can handle a file
 /// Scan directory for supported files (respects .gitignore)
-fn scan_supported_files(
-    repo_path: &Path,
-    parser: &CodeParser,
-) -> Result<Vec<PathBuf>, AnalysisError> {
+fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, AnalysisError> {
     tracing::debug!("Starting scan of {:?}", repo_path);
     let mut supported_files = Vec::new();
 
@@ -169,10 +205,12 @@ fn scan_supported_files(
                 let path = entry.path();
                 if path.is_file()
                     && let Some(file_str) = path.to_str()
-                    && parser.detect_language(file_str).is_some()
                 {
-                    tracing::trace!("Found supported file: {:?}", path);
-                    supported_files.push(path.to_path_buf());
+                    // Check if any parser can handle this file
+                    if languages!(can_handle!(file_str)) {
+                        tracing::trace!("Found supported file: {:?}", path);
+                        supported_files.push(path.to_path_buf());
+                    }
                 }
             }
             Err(e) => {
@@ -207,11 +245,10 @@ fn get_changed_files(
     repo_path: &Path,
     from_commit: &str,
     to_commit: &str,
-    parser: &CodeParser,
 ) -> Result<Vec<PathBuf>, AnalysisError> {
     if to_commit.is_empty() {
         // Not a git repo - do full scan
-        return scan_supported_files(repo_path, parser);
+        return scan_supported_files(repo_path);
     }
 
     let output = std::process::Command::new("git")
@@ -258,7 +295,7 @@ fn get_changed_files(
         // Check if file is supported
         let path = repo_path.join(file_path);
         if let Some(file_str) = path.to_str()
-            && parser.detect_language(file_str).is_some()
+            && languages!(can_handle!(file_str))
         {
             changed_files.push(path);
         }

@@ -1,12 +1,12 @@
-// Integration test: Unified CodeParser API
+// Integration test: Generic Parser with Language trait
 //
-// Tests the NEW clean slate architecture where CodeParser:
+// Tests the trait-based parser architecture:
 // 1. Parses code ONCE
 // 2. Inserts directly into graph (no intermediate vectors)
-// 3. Single method call does everything
+// 3. Language-specific symbol types via traits
 
-use crate::analysis::parser::{CodeParser, SupportedLanguage};
 use crate::analysis::store::CodeGraph;
+use crate::analysis::{Parser, Rust};
 use tempfile::TempDir;
 
 const SAMPLE_RUST: &str = r#"
@@ -41,17 +41,12 @@ async fn test_unified_parser_single_pass() {
         .await
         .expect("Failed to create graph");
 
-    // Create parser
-    let mut parser = CodeParser::new();
+    // Create Rust parser
+    let mut parser = Parser::<Rust>::new();
 
     // Parse and analyze in ONE CALL - inserts directly into graph
     let stats = parser
-        .parse_and_analyze(
-            SAMPLE_RUST,
-            "src/calc.rs",
-            SupportedLanguage::Rust,
-            &mut graph,
-        )
+        .parse_and_analyze(SAMPLE_RUST, "src/calc.rs", &mut graph)
         .await
         .expect("Failed to parse and analyze");
 
@@ -99,14 +94,14 @@ async fn test_parser_handles_multiple_files() {
     let mut graph = CodeGraph::new(temp.path(), "multi-repo")
         .await
         .expect("Failed to create graph");
-    let mut parser = CodeParser::new();
+    let mut parser = Parser::<Rust>::new();
 
     let file1 = "pub fn hello() -> String { String::from(\"hello\") }";
     let file2 = "pub fn world() -> String { String::from(\"world\") }";
 
     // Parse file 1
     let stats1 = parser
-        .parse_and_analyze(file1, "src/file1.rs", SupportedLanguage::Rust, &mut graph)
+        .parse_and_analyze(file1, "src/file1.rs", &mut graph)
         .await
         .expect("Failed to parse file1");
 
@@ -114,7 +109,7 @@ async fn test_parser_handles_multiple_files() {
 
     // Parse file 2
     let stats2 = parser
-        .parse_and_analyze(file2, "src/file2.rs", SupportedLanguage::Rust, &mut graph)
+        .parse_and_analyze(file2, "src/file2.rs", &mut graph)
         .await
         .expect("Failed to parse file2");
 
@@ -143,11 +138,11 @@ async fn test_parser_handles_multiple_files() {
     }
 
     assert!(
-        file1_symbols.len() >= 1,
+        !file1_symbols.is_empty(),
         "File1 should have at least 1 symbol"
     );
     assert!(
-        file2_symbols.len() >= 1,
+        !file2_symbols.is_empty(),
         "File2 should have at least 1 symbol"
     );
     assert_eq!(file1_symbols[0].name, "hello");
@@ -156,14 +151,7 @@ async fn test_parser_handles_multiple_files() {
 
 #[test]
 fn test_parser_detects_language_from_extension() {
-    let parser = CodeParser::new();
-
-    assert_eq!(
-        parser.detect_language("src/main.rs"),
-        Some(SupportedLanguage::Rust)
-    );
-
-    // Unsupported extension returns None
-    assert_eq!(parser.detect_language("src/main.py"), None);
-    assert_eq!(parser.detect_language("README.md"), None);
+    assert!(Parser::<Rust>::can_handle("src/main.rs"));
+    assert!(!Parser::<Rust>::can_handle("src/main.py"));
+    assert!(!Parser::<Rust>::can_handle("README.md"));
 }

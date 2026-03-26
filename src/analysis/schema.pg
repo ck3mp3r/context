@@ -23,7 +23,8 @@ node Symbol {
     symbol_id: String @key  // NOT 'id' - conflicts with NanoGraph's internal __ng_id
     repo_id: String @index
     name: String @index
-    kind: String @index  // function, class, interface, struct, trait, enum, constant, variable
+    kind: String @index  // Language-specific: "function", "struct", "class", etc.
+    language: String @index  // "rust", "typescript", "python", etc.
     file_path: String @index
     start_line: I32
     end_line: I32

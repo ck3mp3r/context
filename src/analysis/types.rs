@@ -2,11 +2,11 @@
 //
 // These types represent symbols and relationships extracted from source code.
 
-/// Extracted from Tree-sitter AST, to be inserted into NanoGraph
+/// Symbol from source code
 #[derive(Debug, Clone)]
-pub struct ExtractedSymbol {
+pub struct Symbol {
     pub name: String,
-    pub kind: SymbolKind,
+    pub kind: Kind,
     pub file_path: String,
     pub start_line: usize,
     pub end_line: usize,
@@ -14,9 +14,9 @@ pub struct ExtractedSymbol {
     pub signature: Option<String>, // For functions/methods: "fn foo(a: i32) -> String"
 }
 
-/// Symbol kinds - language-agnostic categories
+/// Symbol types - language-agnostic categories
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub enum SymbolKind {
+pub enum Kind {
     Function,
     Class,
     Interface,
@@ -28,7 +28,7 @@ pub enum SymbolKind {
     Impl { target_type: String },
 }
 
-impl std::str::FromStr for SymbolKind {
+impl std::str::FromStr for Kind {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -49,7 +49,7 @@ impl std::str::FromStr for SymbolKind {
     }
 }
 
-impl SymbolKind {
+impl Kind {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Function => "function",
