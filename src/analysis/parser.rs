@@ -74,7 +74,7 @@ impl<L: Language> Parser<L> {
     }
 
     /// Parse code and insert directly into graph (single walk)
-    pub async fn parse_and_analyze(
+    pub fn parse_and_analyze(
         &mut self,
         code: &str,
         file_path: &str,
@@ -84,12 +84,12 @@ impl<L: Language> Parser<L> {
         let tree = self.parse(code)?;
 
         // 2. Insert file node
-        let file_id = graph.insert_file(file_path, L::name(), "todo_hash").await?;
+        let file_id = graph.insert_file(file_path, L::name(), "todo_hash")?;
 
         // 3. Walk tree ONCE and insert symbols + relationships
         let mut symbols_inserted = 0;
         let mut relationships_inserted = 0;
-        let mut symbol_map = HashMap::new(); // Track symbol_name -> symbol_id
+        let mut symbol_map = HashMap::new();
 
         let mut ctx = WalkContext {
             code,
@@ -100,8 +100,7 @@ impl<L: Language> Parser<L> {
             symbol_map: &mut symbol_map,
         };
 
-        self.walk_and_insert(tree.root_node(), &mut ctx, graph, None)
-            .await?;
+        self.walk_and_insert(tree.root_node(), &mut ctx, graph, None)?;
 
         Ok(AnalysisStats {
             symbols_inserted,
@@ -128,7 +127,7 @@ impl<L: Language> Parser<L> {
     }
 
     /// Recursive walk - insert symbols and relationships as we traverse
-    async fn walk_and_insert(
+    fn walk_and_insert(
         &self,
         node: Node<'_>,
         ctx: &mut WalkContext<'_>,
@@ -152,10 +151,10 @@ impl<L: Language> Parser<L> {
                 None,
             );
 
-            let symbol_id = graph.insert_symbol(&symbol).await?;
+            let symbol_id = graph.insert_symbol(&symbol)?;
 
             // Link to file
-            graph.insert_contains(ctx.file_id, &symbol_id, 1.0).await?;
+            graph.insert_contains(ctx.file_id, &symbol_id, 1.0)?;
             *ctx.symbols_count += 1;
 
             // Track in symbol map for later lookups
@@ -176,9 +175,7 @@ impl<L: Language> Parser<L> {
                 let call_line = node.start_position().row + 1;
 
                 // Insert actual Calls edge
-                graph
-                    .insert_calls_edge(caller_id, callee_id, call_line, 1.0)
-                    .await?;
+                graph.insert_calls_edge(caller_id, callee_id, call_line, 1.0)?;
 
                 *ctx.relationships_count += 1;
             }
@@ -186,7 +183,7 @@ impl<L: Language> Parser<L> {
 
         // Recurse to children with current symbol context
         for child in node.children(&mut node.walk()) {
-            Box::pin(self.walk_and_insert(child, ctx, graph, current_symbol.clone())).await?;
+            self.walk_and_insert(child, ctx, graph, current_symbol.clone())?;
         }
 
         Ok(())

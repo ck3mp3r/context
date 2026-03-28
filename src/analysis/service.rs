@@ -46,7 +46,7 @@ macro_rules! analyze {
             .collect();
 
         if !lang_files.is_empty() {
-            let (symbols, rels) = analyze_files::<$Lang>(&lang_files, $repo, $graph).await?;
+            let (symbols, rels) = analyze_files::<$Lang>(&lang_files, $repo, $graph)?;
             $syms += symbols;
             $rels += rels;
         }
@@ -97,7 +97,7 @@ pub async fn analyze_repository(
 }
 
 /// Analyze files with a specific language parser
-async fn analyze_files<L: Language>(
+fn analyze_files<L: Language>(
     files: &[PathBuf],
     repo_path: &Path,
     graph: &mut CodeGraph,
@@ -114,9 +114,7 @@ async fn analyze_files<L: Language>(
             .to_string_lossy()
             .to_string();
 
-        let stats = parser
-            .parse_and_analyze(&content, &relative_path, graph)
-            .await?;
+        let stats = parser.parse_and_analyze(&content, &relative_path, graph)?;
 
         total_symbols += stats.symbols_inserted;
         total_relationships += stats.relationships_inserted;
@@ -136,7 +134,7 @@ where
     F: Fn(usize, usize) + Send + Sync,
 {
     tracing::info!("Creating CodeGraph for repo_id: {}", repo_id);
-    let mut graph = CodeGraph::new(graph_path, repo_id).await?;
+    let mut graph = CodeGraph::new(graph_path, repo_id)?;
     tracing::info!("CodeGraph created successfully");
 
     // Load metadata
@@ -174,7 +172,7 @@ where
 
     // Commit
     tracing::info!("Committing all data to nanograph...");
-    graph.commit().await?;
+    graph.commit()?;
 
     // Save metadata
     save_metadata(&metadata_path, &current_commit)?;

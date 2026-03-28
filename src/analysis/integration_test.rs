@@ -37,9 +37,7 @@ async fn test_unified_parser_single_pass() {
     let temp = TempDir::new().expect("Failed to create temp dir");
 
     // Create graph
-    let mut graph = CodeGraph::new(temp.path(), "test-repo")
-        .await
-        .expect("Failed to create graph");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
 
     // Create Rust parser
     let mut parser = Parser::<Rust>::new();
@@ -47,7 +45,6 @@ async fn test_unified_parser_single_pass() {
     // Parse and analyze in ONE CALL - inserts directly into graph
     let stats = parser
         .parse_and_analyze(SAMPLE_RUST, "src/calc.rs", &mut graph)
-        .await
         .expect("Failed to parse and analyze");
 
     // Verify stats - expecting: Calculator, impl Calculator, new, add, main
@@ -60,12 +57,11 @@ async fn test_unified_parser_single_pass() {
     );
 
     // Commit to nanograph
-    graph.commit().await.expect("Failed to commit");
+    graph.commit().expect("Failed to commit");
 
     // Query back
     let stored_symbols = graph
         .query_symbols_in_file("src/calc.rs")
-        .await
         .expect("Failed to query symbols");
 
     eprintln!("Query returned {} symbols:", stored_symbols.len());
@@ -91,9 +87,7 @@ async fn test_unified_parser_single_pass() {
 #[ignore = "query returning empty name symbols - needs investigation"]
 async fn test_parser_handles_multiple_files() {
     let temp = TempDir::new().expect("Failed to create temp dir");
-    let mut graph = CodeGraph::new(temp.path(), "multi-repo")
-        .await
-        .expect("Failed to create graph");
+    let mut graph = CodeGraph::new(temp.path(), "multi-repo").expect("Failed to create graph");
     let mut parser = Parser::<Rust>::new();
 
     let file1 = "pub fn hello() -> String { String::from(\"hello\") }";
@@ -102,7 +96,6 @@ async fn test_parser_handles_multiple_files() {
     // Parse file 1
     let stats1 = parser
         .parse_and_analyze(file1, "src/file1.rs", &mut graph)
-        .await
         .expect("Failed to parse file1");
 
     eprintln!("File1 stats: {} symbols", stats1.symbols_inserted);
@@ -110,22 +103,19 @@ async fn test_parser_handles_multiple_files() {
     // Parse file 2
     let stats2 = parser
         .parse_and_analyze(file2, "src/file2.rs", &mut graph)
-        .await
         .expect("Failed to parse file2");
 
     eprintln!("File2 stats: {} symbols", stats2.symbols_inserted);
 
     // Commit
-    graph.commit().await.expect("Failed to commit");
+    graph.commit().expect("Failed to commit");
 
     // Query each file separately
     let file1_symbols = graph
         .query_symbols_in_file("src/file1.rs")
-        .await
         .expect("Failed to query file1");
     let file2_symbols = graph
         .query_symbols_in_file("src/file2.rs")
-        .await
         .expect("Failed to query file2");
 
     eprintln!("File1 query returned: {} symbols", file1_symbols.len());

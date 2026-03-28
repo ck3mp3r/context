@@ -4,7 +4,6 @@
 //! Follows SOLID principles - thin MCP layer delegating to NanoGraph CLI.
 
 use crate::common::command::format_command_error;
-use crate::sync::get_data_dir;
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -145,7 +144,7 @@ pub struct Nanograph;
 
 impl NanographCli for Nanograph {
     fn get_analysis_path(&self, repo_id: &str) -> PathBuf {
-        get_data_dir().join("repos").join(repo_id)
+        crate::analysis::get_analysis_path(repo_id)
     }
 
     fn describe(&self, db_path: &Path) -> Result<Output, std::io::Error> {

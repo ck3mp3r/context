@@ -380,17 +380,6 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        name = "code_query_graph",
-        description = "Query the code graph for symbols in a specific file"
-    )]
-    pub async fn code_query_graph(
-        &self,
-        params: Parameters<super::tools::code_analysis::QueryCodeGraphParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.code_analysis_tools.query_code_graph(params).await
-    }
-
-    #[tool(
         name = "code_describe_schema",
         description = "Get schema information for a repository's code graph (nodes, edges, properties)"
     )]

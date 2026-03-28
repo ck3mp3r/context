@@ -5,6 +5,7 @@
 //! we shell out to the standalone `nanograph` CLI tool.
 
 use crate::analysis::types::Symbol;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -36,7 +37,7 @@ impl CodeGraph {
     ///
     /// This initializes the NanoGraph database at the given path.
     /// If the database doesn't exist, it creates it with our schema.
-    pub async fn new(db_path: &Path, repo_id: &str) -> Result<Self, StoreError> {
+    pub fn new(db_path: &Path, repo_id: &str) -> Result<Self, StoreError> {
         let analysis_path = db_path.join("analysis.nano");
 
         // Check if nanograph CLI is available
@@ -83,6 +84,16 @@ impl CodeGraph {
             .unwrap_or(false)
     }
 
+    /// Append a JSON line to the batch file
+    fn append_batch(&mut self, data: &serde_json::Value) -> Result<(), StoreError> {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.batch_file)?;
+        writeln!(file, "{}", serde_json::to_string(data)?)?;
+        Ok(())
+    }
+
     /// Insert a file node into the graph
     ///
     /// # Arguments
@@ -92,13 +103,12 @@ impl CodeGraph {
     ///
     /// # Returns
     /// File ID used for creating relationships
-    pub async fn insert_file(
+    pub fn insert_file(
         &mut self,
         path: &str,
         language: &str,
         hash: &str,
     ) -> Result<String, StoreError> {
-        // Create JSONL data for the file node
         let file_id = format!("file:{}", path);
         let data = serde_json::json!({
             "type": "File",
@@ -111,20 +121,13 @@ impl CodeGraph {
             }
         });
 
-        // Append to batch file
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.batch_file)?;
-        writeln!(file, "{}", serde_json::to_string(&data)?)?;
-
+        self.append_batch(&data)?;
         tracing::debug!("Appended file node to batch: {}", path);
         Ok(file_id)
     }
 
     /// Insert a symbol node
-    pub async fn insert_symbol(&mut self, symbol: &Symbol) -> Result<String, StoreError> {
+    pub fn insert_symbol(&mut self, symbol: &Symbol) -> Result<String, StoreError> {
         let symbol_id = format!(
             "symbol:{}:{}:{}",
             symbol.file_path, symbol.name, symbol.start_line
@@ -144,20 +147,13 @@ impl CodeGraph {
             }
         });
 
-        // Append to batch file
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.batch_file)?;
-        writeln!(file, "{}", serde_json::to_string(&data)?)?;
-
+        self.append_batch(&data)?;
         tracing::trace!("Appended symbol to batch: {}", symbol.name);
         Ok(symbol_id)
     }
 
     /// Insert a containment relationship (File contains Symbol)
-    pub async fn insert_contains(
+    pub fn insert_contains(
         &mut self,
         file_id: &str,
         symbol_id: &str,
@@ -172,21 +168,13 @@ impl CodeGraph {
             }
         });
 
-        // Append to batch file
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.batch_file)?;
-        writeln!(file, "{}", serde_json::to_string(&data)?)?;
-
+        self.append_batch(&data)?;
         tracing::debug!("Appended edge to batch: {} -> {}", file_id, symbol_id);
         Ok(())
     }
 
-    /// Insert a relationship between symbols (Calls, References, Inherits, Contains)
     /// Insert Calls edge between two symbols
-    pub async fn insert_calls_edge(
+    pub fn insert_calls_edge(
         &mut self,
         from_symbol_id: &str,
         to_symbol_id: &str,
@@ -203,13 +191,7 @@ impl CodeGraph {
             }
         });
 
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.batch_file)?;
-        writeln!(file, "{}", serde_json::to_string(&data)?)?;
-
+        self.append_batch(&data)?;
         tracing::debug!(
             "Appended Calls edge to batch: {} -> {} (line {})",
             from_symbol_id,
@@ -220,7 +202,7 @@ impl CodeGraph {
     }
 
     /// Commit all batched data to nanograph (call this once at the end)
-    pub async fn commit(&mut self) -> Result<(), StoreError> {
+    pub fn commit(&mut self) -> Result<(), StoreError> {
         if !self.batch_file.exists() {
             tracing::warn!("No batch file to commit");
             return Ok(());
@@ -257,8 +239,7 @@ impl CodeGraph {
     }
 
     /// Query symbols in a specific file
-    pub async fn query_symbols_in_file(&self, file_path: &str) -> Result<Vec<Symbol>, StoreError> {
-        // Create a query file with a named query (matching nanograph syntax)
+    pub fn query_symbols_in_file(&self, file_path: &str) -> Result<Vec<Symbol>, StoreError> {
         let query = r#"query get_symbols($file_path: String) {
     match {
         $s: Symbol
@@ -278,7 +259,6 @@ impl CodeGraph {
         let query_file = self.db_path.join("temp_query.gq");
         std::fs::write(&query_file, query)?;
 
-        // Run query with --name parameter and --param for the file_path
         let output = Command::new("nanograph")
             .arg("run")
             .arg("--db")
@@ -324,7 +304,7 @@ impl CodeGraph {
                 file_path: row["file_path"].as_str().unwrap_or("").to_string(),
                 start_line: row["start_line"].as_i64().unwrap_or(0) as usize,
                 end_line: row["end_line"].as_i64().unwrap_or(0) as usize,
-                content: String::new(), // Not stored in graph, would need to re-read file
+                content: String::new(),
                 signature: row["signature"].as_str().and_then(|s| {
                     if s.is_empty() {
                         None

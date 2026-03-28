@@ -1,8 +1,7 @@
 //! Job handlers - concrete implementations
 
 use super::job_trait::{Job, JobError, ProgressUpdate};
-use crate::analysis::service;
-use crate::sync::get_data_dir;
+use crate::analysis::{get_analysis_path, service};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -49,51 +48,8 @@ impl Job for AnalyzeRepositoryJob {
         let graph_path = get_analysis_path(&params.repo_id);
         info!("Analysis path: {:?}", graph_path);
 
-        // Ensure analysis directory exists
-        let analysis_path = graph_path.join("analysis.nano");
-        if !analysis_path.exists() {
-            info!("Initializing nanograph database at {:?}", analysis_path);
-            std::fs::create_dir_all(&analysis_path).map_err(|e| {
-                error!("Failed to create analysis directory: {}", e);
-                JobError::AnalysisError(format!("Failed to create analysis directory: {}", e))
-            })?;
-
-            // Write schema
-            let schema_path = analysis_path.join("schema.pg");
-            debug!("Writing schema to {:?}", schema_path);
-            std::fs::write(&schema_path, include_str!("../analysis/schema.pg")).map_err(|e| {
-                error!("Failed to write schema: {}", e);
-                JobError::AnalysisError(format!("Failed to write schema: {}", e))
-            })?;
-
-            // Initialize nanograph
-            info!("Running nanograph init command");
-            let init_output = std::process::Command::new("nanograph")
-                .arg("init")
-                .arg("--db")
-                .arg(&analysis_path)
-                .arg("--schema")
-                .arg(&schema_path)
-                .output()
-                .map_err(|e| {
-                    error!("Failed to run nanograph init: {}", e);
-                    JobError::AnalysisError(format!("Failed to run nanograph init: {}", e))
-                })?;
-
-            if !init_output.status.success() {
-                let stderr = String::from_utf8_lossy(&init_output.stderr);
-                error!("nanograph init failed: {}", stderr);
-                return Err(JobError::AnalysisError(format!(
-                    "nanograph init failed: {}",
-                    stderr
-                )));
-            }
-            info!("Nanograph initialization complete");
-        } else {
-            info!("Nanograph database already exists at {:?}", analysis_path);
-        }
-
         // Run analysis with progress reporting
+        // CodeGraph::new() handles init if needed
         info!("Starting repository analysis");
         let analysis_result = service::analyze_repository_with_progress(
             &PathBuf::from(&params.path),
@@ -142,13 +98,6 @@ impl Job for AnalyzeRepositoryJob {
 
         Ok(serde_json::to_value(result)?)
     }
-}
-
-/// Get the analysis directory path for a repository
-///
-/// Uses the XDG-compliant data directory from sync::paths
-fn get_analysis_path(repo_id: &str) -> PathBuf {
-    get_data_dir().join("repos").join(repo_id)
 }
 
 #[cfg(test)]

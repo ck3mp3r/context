@@ -34,6 +34,14 @@ pub use parser::{Language, Parser};
 #[cfg(feature = "backend")]
 pub use lang::rust::Rust;
 
+/// Get the analysis directory path for a repository
+///
+/// Uses the XDG-compliant data directory from sync::paths
+#[cfg(feature = "backend")]
+pub fn get_analysis_path(repo_id: &str) -> std::path::PathBuf {
+    crate::sync::get_data_dir().join("repos").join(repo_id)
+}
+
 // Tests
 #[cfg(all(test, feature = "backend"))]
 mod store_test;
