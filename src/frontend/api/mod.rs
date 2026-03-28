@@ -212,6 +212,7 @@ pub mod graph {
         repo_id: &str,
         view: Option<&str>,
         include_tests: bool,
+        language: Option<&str>,
     ) -> Result<Option<String>> {
         let mut url = format!("{}/repos/{}/graph", API_BASE, repo_id);
         let mut params = Vec::new();
@@ -220,6 +221,9 @@ pub mod graph {
         }
         if include_tests {
             params.push("include_tests=true".to_string());
+        }
+        if let Some(lang) = language {
+            params.push(format!("language={}", lang));
         }
         if !params.is_empty() {
             url = format!("{}?{}", url, params.join("&"));

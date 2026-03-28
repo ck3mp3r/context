@@ -29,6 +29,7 @@ pub struct GraphNode {
     pub id: String,
     pub label: String,
     pub kind: String,
+    pub language: String,
     pub file_path: String,
     pub start_line: i64,
     /// Node size computed from edge count
@@ -78,6 +79,8 @@ pub struct GraphQuery {
     /// Include test symbols (default false)
     #[param(example = false)]
     pub include_tests: Option<bool>,
+    /// Filter by language (e.g. "rust", "nushell"). Omit for all languages.
+    pub language: Option<String>,
 }
 
 // =============================================================================
@@ -86,16 +89,18 @@ pub struct GraphQuery {
 
 fn kind_color(kind: &str) -> &'static str {
     match kind {
-        "function" | "method" => "#89b4fa", // blue
-        "struct" => "#a6e3a1",              // green
-        "enum" => "#f9e2af",                // yellow
-        "trait" | "interface" => "#cba6f7", // mauve
-        "module" | "mod" => "#fab387",      // peach
-        "constant" | "const" => "#f2cdcd",  // flamingo
-        "static" => "#f38ba8",              // red
-        "type_alias" | "type" => "#94e2d5", // teal
-        "macro" => "#f5c2e7",               // pink
-        _ => "#a6adc8",                     // subtext0 (fallback)
+        "function" | "method" | "command" => "#89b4fa", // blue
+        "struct" => "#a6e3a1",                          // green
+        "enum" => "#f9e2af",                            // yellow
+        "trait" | "interface" => "#cba6f7",             // mauve
+        "module" | "mod" => "#fab387",                  // peach
+        "constant" | "const" => "#f2cdcd",              // flamingo
+        "static" => "#f38ba8",                          // red
+        "type_alias" | "type" => "#94e2d5",             // teal
+        "macro" => "#f5c2e7",                           // pink
+        "alias" => "#eba0ac",                           // maroon
+        "extern" => "#74c7ec",                          // sapphire
+        _ => "#a6adc8",                                 // subtext0 (fallback)
     }
 }
 
@@ -112,6 +117,7 @@ fn query_full_graph() -> &'static str {
         $s.symbol_id
         $s.name
         $s.kind
+        $s.language
         $s.file_path
         $s.start_line
     }
@@ -266,13 +272,20 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
     let limit = query.limit.unwrap_or(500).min(2000);
     let view = query.view.as_deref().unwrap_or("full");
     let include_tests = query.include_tests.unwrap_or(false);
+    let language_filter = query.language.clone();
 
     // Run queries in a blocking task (shells out to nanograph CLI)
     let db_path_clone = db_path.clone();
     let view_owned = view.to_string();
 
     let result = tokio::task::spawn_blocking(move || {
-        build_graph_data(&db_path_clone, &view_owned, limit, include_tests)
+        build_graph_data(
+            &db_path_clone,
+            &view_owned,
+            limit,
+            include_tests,
+            language_filter.as_deref(),
+        )
     })
     .await
     .map_err(|e| {
@@ -309,20 +322,22 @@ fn build_graph_data(
     view: &str,
     limit: usize,
     include_tests: bool,
+    language_filter: Option<&str>,
 ) -> Result<GraphResponse, String> {
     // Fetch all symbols
     let all_symbols = run_nanograph_query(db_path, query_full_graph(), "full_graph")?;
     let total_symbols = all_symbols.len();
 
     // Filter out test symbols unless include_tests is set
-    let symbols: Vec<serde_json::Value> = if include_tests {
-        all_symbols
-    } else {
-        all_symbols
-            .into_iter()
-            .filter(|s| !is_test_symbol(s))
-            .collect()
-    };
+    let symbols: Vec<serde_json::Value> = all_symbols
+        .into_iter()
+        .filter(|s| include_tests || !is_test_symbol(s))
+        .filter(|s| {
+            language_filter
+                .map(|lang| s["language"].as_str().unwrap_or("") == lang)
+                .unwrap_or(true)
+        })
+        .collect();
 
     // Determine which edge types to fetch based on view
     let edge_queries: Vec<(&str, &str, &str)> = match view {
@@ -380,10 +395,12 @@ fn build_graph_data(
         .filter_map(|s| {
             let id = s["symbol_id"].as_str()?.to_string();
             let kind = s["kind"].as_str().unwrap_or("unknown");
+            let language = s["language"].as_str().unwrap_or("unknown").to_string();
             let degree = *edge_counts.get(&id).unwrap_or(&0);
             Some(GraphNode {
                 label: s["name"].as_str().unwrap_or("?").to_string(),
                 kind: kind.to_string(),
+                language,
                 file_path: s["file_path"].as_str().unwrap_or("").to_string(),
                 start_line: s["start_line"].as_i64().unwrap_or(0),
                 size: 3.0 + (degree as f64).sqrt() * 2.0,

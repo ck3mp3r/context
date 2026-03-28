@@ -37,6 +37,7 @@
           size: node.size || 5,
           color: node.color || "#a6adc8",
           kind: node.kind,
+          language: node.language || "unknown",
           filePath: node.file_path,
           startLine: node.start_line,
           x: node.x || 0,
@@ -138,6 +139,9 @@
       var hoveredNeighbors = new Set();
       var filteredKinds = new Set(); // empty = show all
 
+      // Store instance early so reducers can access filteredLanguage
+      var inst = { graph: graph, renderer: renderer, filteredKinds: filteredKinds, filteredLanguage: null };
+
       renderer.on("enterNode", function(event) {
         hoveredNode = event.node;
         hoveredNeighbors = new Set(graph.neighbors(event.node));
@@ -150,10 +154,17 @@
         renderer.refresh();
       });
 
-      // Node reducer: handles both hover dimming and kind filtering
+      // Node reducer: handles hover dimming, kind filtering, and language filtering
       renderer.setSetting("nodeReducer", function(node, data) {
         var res = Object.assign({}, data);
         var nodeKind = graph.getNodeAttribute(node, "kind");
+        var nodeLang = graph.getNodeAttribute(node, "language");
+
+        // Language filter: hide nodes not matching selected language
+        if (inst.filteredLanguage && nodeLang !== inst.filteredLanguage) {
+          res.hidden = true;
+          return res;
+        }
 
         // Kind filter: hide nodes not in filteredKinds
         if (filteredKinds.size > 0 && !filteredKinds.has(nodeKind)) {
@@ -172,11 +183,21 @@
         return res;
       });
 
-      // Edge reducer: handles both hover dimming and kind filtering
+      // Edge reducer: handles hover dimming, kind filtering, and language filtering
       renderer.setSetting("edgeReducer", function(edge, data) {
         var res = Object.assign({}, data);
         var source = graph.source(edge);
         var target = graph.target(edge);
+
+        // Language filter: hide edges where either endpoint is filtered out
+        if (inst.filteredLanguage) {
+          var sourceLang = graph.getNodeAttribute(source, "language");
+          var targetLang = graph.getNodeAttribute(target, "language");
+          if (sourceLang !== inst.filteredLanguage || targetLang !== inst.filteredLanguage) {
+            res.hidden = true;
+            return res;
+          }
+        }
 
         // Kind filter: hide edges where either endpoint is filtered out
         if (filteredKinds.size > 0) {
@@ -200,7 +221,7 @@
         return res;
       });
 
-      instances[containerId] = { graph: graph, renderer: renderer, filteredKinds: filteredKinds };
+      instances[containerId] = inst;
       return true;
     } catch (e) {
       console.error("Failed to initialize graph:", e);
@@ -280,5 +301,33 @@
       return { kind: k, color: kindMap[k] };
     });
     return JSON.stringify(result);
+  };
+
+  /**
+   * Get unique languages from the current graph.
+   * @param {string} containerId
+   * @returns {string} JSON array of language strings sorted alphabetically, or "[]"
+   */
+  window.graphGetLanguages = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return "[]";
+    var langs = new Set();
+    inst.graph.forEachNode(function(node, attrs) {
+      langs.add(attrs.language || "unknown");
+    });
+    var result = Array.from(langs).sort();
+    return JSON.stringify(result);
+  };
+
+  /**
+   * Filter graph to show only the specified language.
+   * @param {string} containerId
+   * @param {string} language - language name (e.g. "rust", "nushell"), or empty string / null for all
+   */
+  window.graphFilterLanguage = function(containerId, language) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.filteredLanguage = language || null;
+    inst.renderer.refresh();
   };
 })();

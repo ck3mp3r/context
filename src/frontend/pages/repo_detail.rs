@@ -233,6 +233,12 @@ extern "C" {
 
     #[wasm_bindgen(js_name = graphGetKinds)]
     fn get_kinds(container_id: &str) -> String;
+
+    #[wasm_bindgen(js_name = graphGetLanguages)]
+    fn get_languages(container_id: &str) -> String;
+
+    #[wasm_bindgen(js_name = graphFilterLanguage)]
+    fn filter_language(container_id: &str, language: &str);
 }
 
 // =============================================================================
@@ -247,6 +253,8 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     let (include_tests, set_include_tests) = signal(false);
     let (active_kinds, set_active_kinds) = signal(std::collections::HashSet::<String>::new());
     let (legend_kinds, set_legend_kinds) = signal(Vec::<KindInfo>::new());
+    let (available_languages, set_available_languages) = signal(Vec::<String>::new());
+    let (selected_language, set_selected_language) = signal(String::new()); // empty = all
 
     let repo_id_for_fetch = repo_id.clone();
 
@@ -257,7 +265,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let repo_id = repo_id_for_fetch.clone();
 
         spawn_local(async move {
-            match graph::get_repo_graph(&repo_id, Some(&current_view), tests).await {
+            match graph::get_repo_graph(&repo_id, Some(&current_view), tests, None).await {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
@@ -282,6 +290,11 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         let kinds_json = get_kinds(container_id);
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
+                        }
+                        // Extract available languages
+                        let langs_json = get_languages(container_id);
+                        if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
+                            set_available_languages.set(langs);
                         }
                         // Reset active filter on new data
                         set_active_kinds.set(std::collections::HashSet::new());
@@ -308,6 +321,12 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let kinds_vec: Vec<&str> = kinds.iter().map(|s| s.as_str()).collect();
         let json = serde_json::to_string(&kinds_vec).unwrap_or_else(|_| "[]".to_string());
         filter_kinds(container_id, &json);
+    });
+
+    // Push language filter to JS when selected_language changes
+    Effect::new(move || {
+        let lang = selected_language.get();
+        filter_language(container_id, &lang);
     });
 
     let is_visible = move || {
@@ -350,6 +369,28 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         <option value="references">"References"</option>
                         <option value="contains">"Contains"</option>
                     </select>
+                    {move || {
+                        let langs = available_languages.get();
+                        if langs.len() > 1 {
+                            view! {
+                                <select
+                                    class="bg-ctp-base border border-ctp-surface2 text-ctp-text text-sm rounded px-2 py-1"
+                                    on:change=move |ev| {
+                                        set_selected_language.set(event_target_value(&ev));
+                                    }
+                                >
+                                    <option value="" selected=true>"All Languages"</option>
+                                    {langs.iter().map(|lang| {
+                                        let l = lang.clone();
+                                        let display = lang.clone();
+                                        view! { <option value={l}>{display}</option> }
+                                    }).collect::<Vec<_>>()}
+                                </select>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
                     <button
                         class="bg-ctp-base border border-ctp-surface2 text-ctp-subtext0 text-sm rounded px-2 py-1 hover:text-ctp-blue hover:border-ctp-blue transition-colors"
                         on:click=move |_| zoom_to_fit(container_id)
