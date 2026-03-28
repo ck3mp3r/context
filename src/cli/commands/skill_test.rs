@@ -31,11 +31,17 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
     .await
     .expect("Failed to create test project");
 
+    // Create job infrastructure
+    let job_queue = crate::jobs::JobQueue::new();
+    let job_registry = crate::jobs::JobRegistry::new();
+    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        job_queue,
+        job_executor,
     );
     let app = routes::create_router(state, false);
 
@@ -72,11 +78,17 @@ async fn spawn_test_server_with_temp_dir() -> (String, String, tokio::task::Join
     .await
     .expect("Failed to create test project");
 
+    // Create job infrastructure
+    let job_queue = crate::jobs::JobQueue::new();
+    let job_registry = crate::jobs::JobRegistry::new();
+    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        job_queue,
+        job_executor,
     );
     let app = routes::create_router(state, false);
 

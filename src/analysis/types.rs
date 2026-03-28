@@ -1,0 +1,242 @@
+// Type definitions for code analysis
+//
+// These types represent symbols and relationships extracted from source code.
+// Newtype wrappers enforce type safety: you can't mix up a SymbolId with a
+// SymbolName or FileId at the type level.
+
+// ============================================================================
+// Newtype wrappers for type-safe identifiers
+// ============================================================================
+
+/// Opaque identifier for a symbol node in the graph.
+/// Format: "symbol:{file_path}:{name}:{start_line}"
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SymbolId(String);
+
+impl SymbolId {
+    pub fn new(file_path: &str, name: &str, start_line: usize) -> Self {
+        Self(format!("symbol:{}:{}:{}", file_path, name, start_line))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SymbolId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Opaque identifier for a file node in the graph.
+/// Format: "file:{path}"
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FileId(String);
+
+impl FileId {
+    pub fn new(path: &str) -> Self {
+        Self(format!("file:{}", path))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for FileId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A symbol name used for cross-file resolution lookups.
+/// Distinct from SymbolId to prevent mixing names and IDs.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SymbolName(String);
+
+impl SymbolName {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SymbolName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+// ============================================================================
+// Symbol
+// ============================================================================
+
+/// Symbol from source code
+#[derive(Debug, Clone)]
+pub struct Symbol {
+    pub name: String,
+    pub kind: Kind,
+    pub language: String, // "rust", "typescript", etc.
+    pub file_path: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub content: String, // Code snippet with context - empty during insertion
+    pub signature: Option<String>, // For functions/methods: "fn foo(a: i32) -> String"
+}
+
+impl Symbol {
+    /// Create a new symbol (content empty, filled during query)
+    pub fn new(
+        name: String,
+        kind: Kind,
+        language: String,
+        file_path: String,
+        start_line: usize,
+        end_line: usize,
+        signature: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            language,
+            file_path,
+            start_line,
+            end_line,
+            content: String::new(),
+            signature,
+        }
+    }
+}
+
+// ============================================================================
+// Symbol kinds
+// ============================================================================
+
+/// Symbol types - language-agnostic categories.
+/// Every language-specific Kind maps into one of these.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum Kind {
+    Function,
+    Class,     // TypeScript, Python, Java
+    Interface, // TypeScript, Java, Go
+    Struct,    // Rust, Go, C
+    Trait,     // Rust
+    Enum,
+    Constant,
+    Variable,  // TypeScript, Python, Java (top-level)
+    Static,    // Rust, Java
+    Module,    // Rust, TypeScript, Python
+    TypeAlias, // Rust, TypeScript
+}
+
+impl std::str::FromStr for Kind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "function" => Ok(Self::Function),
+            "class" => Ok(Self::Class),
+            "interface" => Ok(Self::Interface),
+            "struct" => Ok(Self::Struct),
+            "trait" => Ok(Self::Trait),
+            "enum" => Ok(Self::Enum),
+            "constant" | "const" => Ok(Self::Constant),
+            "variable" => Ok(Self::Variable),
+            "static" => Ok(Self::Static),
+            "module" | "mod" => Ok(Self::Module),
+            "type" | "type_alias" => Ok(Self::TypeAlias),
+            _ => Err(format!("Unknown symbol kind: {}", s)),
+        }
+    }
+}
+
+impl Kind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Function => "function",
+            Self::Class => "class",
+            Self::Interface => "interface",
+            Self::Struct => "struct",
+            Self::Trait => "trait",
+            Self::Enum => "enum",
+            Self::Constant => "constant",
+            Self::Variable => "variable",
+            Self::Static => "static",
+            Self::Module => "module",
+            Self::TypeAlias => "type_alias",
+        }
+    }
+}
+
+// ============================================================================
+// Relationship enums (used in store methods and DeferredEdge)
+// ============================================================================
+
+/// Types of references between symbols
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReferenceType {
+    Import,
+    TypeAnnotation,
+    FieldType,
+    Usage,
+}
+
+impl ReferenceType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Import => "import",
+            Self::TypeAnnotation => "type_annotation",
+            Self::FieldType => "field_type",
+            Self::Usage => "usage",
+        }
+    }
+}
+
+impl std::str::FromStr for ReferenceType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "import" => Ok(Self::Import),
+            "type_annotation" => Ok(Self::TypeAnnotation),
+            "field_type" => Ok(Self::FieldType),
+            "usage" => Ok(Self::Usage),
+            _ => Err(format!("Unknown reference type: {}", s)),
+        }
+    }
+}
+
+/// Types of inheritance/implementation relationships
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InheritanceType {
+    Extends,    // TypeScript, Java (class extends)
+    Implements, // Rust (impl Trait for Type), Java/TypeScript (implements)
+    TraitBound, // Rust (where T: Trait)
+}
+
+impl InheritanceType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Extends => "extends",
+            Self::Implements => "implements",
+            Self::TraitBound => "trait_bound",
+        }
+    }
+}
+
+impl std::str::FromStr for InheritanceType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "extends" => Ok(Self::Extends),
+            "implements" => Ok(Self::Implements),
+            "trait_bound" => Ok(Self::TraitBound),
+            _ => Err(format!("Unknown inheritance type: {}", s)),
+        }
+    }
+}

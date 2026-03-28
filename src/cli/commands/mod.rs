@@ -1,4 +1,6 @@
+pub mod analyze;
 pub mod api;
+pub mod job;
 pub mod note;
 pub mod project;
 pub mod repo;
@@ -47,3 +49,7 @@ mod sync_test;
 #[cfg(test)]
 #[path = "api_test.rs"]
 mod api_test;
+
+#[cfg(test)]
+#[path = "analyze_test.rs"]
+mod analyze_test;

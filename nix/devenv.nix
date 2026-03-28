@@ -23,6 +23,7 @@
     pkgs.nodejs
     pkgs.tailwindcss_4
     pkgs.act # GitHub Actions local testing
+    pkgs.protobuf # Required for NanoGraph (Lance dependency)
   ];
 
   scripts = {

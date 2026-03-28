@@ -22,6 +22,7 @@ in
       pkgs.wasm-bindgen-cli
       pkgs.nodejs
       pkgs.tailwindcss_4
+      pkgs.protobuf # Required for NanoGraph (Lance dependency)
     ];
 
     shellHook = ''

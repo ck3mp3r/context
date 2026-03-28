@@ -18,8 +18,9 @@ use crate::db::Database;
 use crate::sync::RealGit;
 
 use super::tools::{
-    NoteTools, ProjectTools, RepoTools, SkillTools, SyncTools, TaskListTools, TaskTools, notes::*,
-    projects::*, repos::*, skills::*, sync::*, task_lists::*, tasks::*,
+    CodeAnalysisTools, CodeQueryTools, NoteTools, ProjectTools, RepoTools, SkillTools, SyncTools,
+    TaskListTools, TaskTools, notes::*, projects::*, repos::*, skills::*, sync::*, task_lists::*,
+    tasks::*,
 };
 
 /// Main MCP server coordinator
@@ -41,6 +42,7 @@ use super::tools::{
 /// - TaskTools: Task operations
 /// - NoteTools: Note operations
 /// - SkillTools: Skill operations
+/// - CodeAnalysisTools: Code analysis operations
 pub struct McpServer<D: Database> {
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
@@ -49,6 +51,8 @@ pub struct McpServer<D: Database> {
     note_tools: NoteTools<D>,
     skill_tools: SkillTools<D>,
     sync_tools: SyncTools<D, RealGit>,
+    code_analysis_tools: CodeAnalysisTools<D>,
+    code_query_tools: CodeQueryTools<super::tools::code_query::Nanograph>,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
@@ -74,7 +78,9 @@ impl<D: Database + 'static> McpServer<D> {
             task_tools: TaskTools::new(Arc::clone(&db), notifier.clone()),
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone(), skills_dir),
-            sync_tools: SyncTools::with_real_git(db),
+            sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
+            code_analysis_tools: CodeAnalysisTools::new(Arc::clone(&db)),
+            code_query_tools: CodeQueryTools::new(),
             tool_router: Self::tool_router(),
         }
     }
@@ -356,6 +362,43 @@ impl<D: Database + 'static> McpServer<D> {
     #[tool(description = "Git-based sync: init, export, import, or status")]
     pub async fn sync(&self, params: Parameters<SyncParams>) -> Result<CallToolResult, McpError> {
         self.sync_tools.sync(params).await
+    }
+
+    // =========================================================================
+    // Code Analysis Tools
+    // =========================================================================
+
+    #[tool(
+        name = "code_analyze",
+        description = "Analyze a repository's code and extract symbols into the code graph"
+    )]
+    pub async fn code_analyze(
+        &self,
+        params: Parameters<super::tools::code_analysis::AnalyzeCodeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.code_analysis_tools.analyze_code(params).await
+    }
+
+    #[tool(
+        name = "code_describe_schema",
+        description = "Get schema information for a repository's code graph (nodes, edges, properties)"
+    )]
+    pub async fn code_describe_schema(
+        &self,
+        params: Parameters<super::tools::code_query::DescribeSchemaParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.code_query_tools.describe_schema(params).await
+    }
+
+    #[tool(
+        name = "code_query",
+        description = "Execute custom NanoGraph queries (temporary or saved) against the code graph"
+    )]
+    pub async fn code_query(
+        &self,
+        params: Parameters<super::tools::code_query::QueryCodeGraphParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.code_query_tools.query_graph(params).await
     }
 }
 

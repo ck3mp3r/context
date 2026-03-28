@@ -2,10 +2,19 @@
 pub mod api;
 
 #[cfg(feature = "backend")]
+pub mod analysis;
+
+#[cfg(feature = "backend")]
 pub mod cli;
 
 #[cfg(feature = "backend")]
+pub mod common;
+
+#[cfg(feature = "backend")]
 pub mod db;
+
+#[cfg(feature = "backend")]
+pub mod jobs;
 
 #[cfg(feature = "backend")]
 pub mod mcp;
