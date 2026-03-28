@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_router::components::A;
 use wasm_bindgen::prelude::*;
 
 use crate::components::CopyableId;
@@ -13,12 +14,34 @@ extern "C" {
 }
 
 #[component]
-pub fn RepoCard(repo: Repo) -> impl IntoView {
+pub fn RepoCard(
+    repo: Repo,
+    #[prop(optional)] project_id: Option<String>,
+    #[prop(optional)] current_query: Option<String>,
+    #[prop(optional)] breadcrumb_name: Option<String>,
+) -> impl IntoView {
     let display_name = extract_repo_name(&repo.remote);
     let remote_url = repo.remote.clone();
+    let detail_href = if let Some(ref pid) = project_id {
+        format!("/projects/{}/repos/{}", pid, repo.id)
+    } else {
+        format!("/repos/{}", repo.id)
+    };
+
+    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
 
     view! {
-        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors">
+        <A
+            href=detail_href
+            attr:class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors cursor-pointer"
+            on:click=move |_| {
+                if let (Some(state), Some(query), Some(name)) =
+                    (page_state.as_ref(), &current_query, &breadcrumb_name)
+                {
+                    state.set_query(name, query);
+                }
+            }
+        >
             <div class="flex items-start gap-3">
                 <CopyableId id=repo.id.clone()/>
                 <div class="flex-1 min-w-0">
@@ -105,6 +128,6 @@ pub fn RepoCard(repo: Repo) -> impl IntoView {
                     </div>
                 </div>
             </div>
-        </div>
+        </A>
     }
 }
