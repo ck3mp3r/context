@@ -9,7 +9,9 @@ use thaw::*;
 
 use crate::breadcrumb_state::BreadcrumbPageState;
 use crate::components::ThemeSwitcher;
-use crate::pages::{NoteDetail, Notes, ProjectDetail, Projects, Repos, Skills, TaskListDetail};
+use crate::pages::{
+    NoteDetail, Notes, ProjectDetail, Projects, RepoDetail, Repos, Skills, TaskListDetail,
+};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
@@ -159,9 +161,11 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                     <Route path=path!("/projects/:id/repos") view=ProjectDetail/>
                     <Route path=path!("/projects/:project_id/task-lists/:task_list_id") view=TaskListDetail/>
                     <Route path=path!("/projects/:project_id/notes/:id") view=NoteDetail/>
+                    <Route path=path!("/projects/:project_id/repos/:id") view=RepoDetail/>
                     <Route path=path!("/notes") view=Notes/>
                     <Route path=path!("/notes/:id") view=NoteDetail/>
                     <Route path=path!("/repos") view=Repos/>
+                    <Route path=path!("/repos/:id") view=RepoDetail/>
                     <Route path=path!("/skills") view=Skills/>
                     <Route path=path!("/skills/:id") view=Skills/>
                 </Routes>

@@ -341,7 +341,7 @@ fn test_parse_impl_with_lifetime_generics() {
     ignore = "requires nanograph CLI - disabled in CI"
 )]
 fn test_supertrait_bounds_no_self_inherits() {
-    use crate::analysis::parser::{resolve_deferred_edges, GlobalSymbolMap};
+    use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
     use crate::analysis::store::CodeGraph;
     use tempfile::TempDir;
 

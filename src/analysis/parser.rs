@@ -309,12 +309,7 @@ impl<L: Language> Parser<L> {
             let refs = L::extract_type_references(node, ctx.code);
             for (ref_type_name, ref_kind) in refs {
                 if let Some(ref_symbol_id) = ctx.global.map.get(&ref_type_name) {
-                    graph.insert_references_edge(
-                        &symbol_id,
-                        ref_symbol_id,
-                        &ref_kind,
-                        1.0,
-                    )?;
+                    graph.insert_references_edge(&symbol_id, ref_symbol_id, &ref_kind, 1.0)?;
                     *ctx.relationships_count += 1;
                 } else {
                     ctx.global.deferred.push(DeferredEdge::Reference {

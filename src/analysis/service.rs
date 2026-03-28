@@ -164,8 +164,7 @@ where
     ));
 
     // Resolve cross-file relationships
-    let resolved =
-        resolve_deferred_edges(&global, &mut graph).map_err(AnalysisError::Parse)?;
+    let resolved = resolve_deferred_edges(&global, &mut graph).map_err(AnalysisError::Parse)?;
     total_relationships += resolved;
 
     tracing::info!(
@@ -205,11 +204,10 @@ fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, AnalysisError>
                 let path = entry.path();
                 if path.is_file()
                     && let Some(file_str) = path.to_str()
+                    && languages!(can_handle!(file_str))
                 {
-                    if languages!(can_handle!(file_str)) {
-                        tracing::trace!("Found supported file: {:?}", path);
-                        supported_files.push(path.to_path_buf());
-                    }
+                    tracing::trace!("Found supported file: {:?}", path);
+                    supported_files.push(path.to_path_buf());
                 }
             }
             Err(e) => {
