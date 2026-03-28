@@ -3,7 +3,7 @@ pre-commit:
     trailing-whitespace:
       run: >
         git diff --cached --name-only --diff-filter=ACM |
-        xargs -I {} sh -c 'sed -i "" "s/[[:space:]]*$//" "$1" && git add "$1"' _ {}
+        while IFS= read -r f; do sed -i 's/[[:space:]]*$//' "$f" && git add "$f"; done
       glob: "*.{rs,nix,toml,yml,yaml,md,json,js,css,html}"
     rustfmt:
       run: cargo fmt -- --check

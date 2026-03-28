@@ -428,9 +428,7 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
             (Some(name), None) => {
                 // Execute existing saved query from queries/{sanitized_name}.gq
                 let sanitized = sanitize(name);
-                let query_file = db_path
-                    .join("queries")
-                    .join(format!("{}.gq", sanitized));
+                let query_file = db_path.join("queries").join(format!("{}.gq", sanitized));
 
                 if !query_file.exists() {
                     return Err(McpError::invalid_params(

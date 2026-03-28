@@ -20,7 +20,7 @@ impl Calculator {
     pub fn new() -> Self {
         Self { value: 0 }
     }
-    
+
     pub fn add(&mut self, n: i32) -> i32 {
         self.value += n;
         self.value
@@ -206,8 +206,14 @@ impl Drawable for Circle {
     );
 
     // Both symbols should be in the global map
-    assert!(global.map.contains_key(&SymbolName::new("Drawable")), "Drawable should be in global map");
-    assert!(global.map.contains_key(&SymbolName::new("Circle")), "Circle should be in global map");
+    assert!(
+        global.map.contains_key(&SymbolName::new("Drawable")),
+        "Drawable should be in global map"
+    );
+    assert!(
+        global.map.contains_key(&SymbolName::new("Circle")),
+        "Circle should be in global map"
+    );
 }
 
 /// Trait defined AFTER the impl file is processed.
@@ -252,11 +258,18 @@ pub trait Drawable {
     let has_deferred_inherits = global.deferred.iter().any(|e| {
         matches!(e, crate::analysis::parser::DeferredEdge::Inherits { trait_name, .. } if trait_name.as_str() == "Drawable")
     });
-    assert!(has_deferred_inherits, "Should have deferred Inherits edge for Drawable");
+    assert!(
+        has_deferred_inherits,
+        "Should have deferred Inherits edge for Drawable"
+    );
 
     // Resolve
     let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
-    assert!(resolved >= 1, "Should resolve the deferred Inherits edge, got {}", resolved);
+    assert!(
+        resolved >= 1,
+        "Should resolve the deferred Inherits edge, got {}",
+        resolved
+    );
 }
 
 /// Function in file1 calls function defined in file2.
@@ -457,11 +470,19 @@ pub struct Server {
     let deferred_count = global.deferred.iter().filter(|e| {
         matches!(e, crate::analysis::parser::DeferredEdge::SymbolContains { parent_type_name, .. } if parent_type_name.as_str() == "Server")
     }).count();
-    assert!(deferred_count >= 2, "Should have deferred SymbolContains for new + start, got {}", deferred_count);
+    assert!(
+        deferred_count >= 2,
+        "Should have deferred SymbolContains for new + start, got {}",
+        deferred_count
+    );
 
     // Resolve
     let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
-    assert!(resolved >= 2, "Should resolve SymbolContains edges, got {}", resolved);
+    assert!(
+        resolved >= 2,
+        "Should resolve SymbolContains edges, got {}",
+        resolved
+    );
 }
 
 /// Same-file relationships should still work immediately (no regression).
