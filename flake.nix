@@ -28,14 +28,19 @@
       perSystem = {system, ...}: let
         overlays = [
           inputs.fenix.overlays.default
-           (final: prev: {
-             wasm-bindgen-cli = (prev.callPackage ./nix/wasm-bindgen-cli.nix {});
-           })
+          (final: prev: {
+            wasm-bindgen-cli = prev.callPackage ./nix/wasm-bindgen-cli.nix {};
+          })
         ];
         pkgs = import inputs.nixpkgs {inherit system overlays;};
 
         cargoToml = fromTOML (builtins.readFile ./Cargo.toml);
-        cargoLock = {lockFile = ./Cargo.lock;};
+        cargoLock = {
+          lockFile = ./Cargo.lock;
+          outputHashes = {
+            "tree-sitter-nu-0.0.1" = "sha256-G+XuQSqvJ9xRNq4fYiyHK9+AmCNofayPOC6JrFXpcjU=";
+          };
+        };
 
         # Import packaging logic
         packaging = import ./nix/packaging.nix {
