@@ -93,7 +93,7 @@ fn kind_color(kind: &str) -> &'static str {
         "module" | "mod" => "#fab387",      // peach
         "constant" | "const" => "#f2cdcd",  // flamingo
         "static" => "#f38ba8",              // red
-        "type_alias" => "#94e2d5",          // teal
+        "type_alias" | "type" => "#94e2d5", // teal
         "macro" => "#f5c2e7",               // pink
         _ => "#a6adc8",                     // subtext0 (fallback)
     }

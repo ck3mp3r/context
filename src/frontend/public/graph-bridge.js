@@ -253,13 +253,32 @@
     if (!inst) return;
     try {
       var kinds = JSON.parse(kindsJson);
-      // Update the filteredKinds set captured in the closure
-      // We need to access it via a shared reference on the instance
       inst.filteredKinds.clear();
       kinds.forEach(function(k) { inst.filteredKinds.add(k); });
       inst.renderer.refresh();
     } catch (e) {
       console.error("graphFilterKinds error:", e);
     }
+  };
+
+  /**
+   * Get unique kinds and their colors from the current graph.
+   * @param {string} containerId
+   * @returns {string} JSON array of {kind, color} objects sorted by kind, or "[]"
+   */
+  window.graphGetKinds = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return "[]";
+    var kindMap = {};
+    inst.graph.forEachNode(function(node, attrs) {
+      var kind = attrs.kind || "unknown";
+      if (!kindMap[kind]) {
+        kindMap[kind] = attrs.color || "#a6adc8";
+      }
+    });
+    var result = Object.keys(kindMap).sort().map(function(k) {
+      return { kind: k, color: kindMap[k] };
+    });
+    return JSON.stringify(result);
   };
 })();

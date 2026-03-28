@@ -230,6 +230,9 @@ extern "C" {
 
     #[wasm_bindgen(js_name = graphFilterKinds)]
     fn filter_kinds(container_id: &str, kinds_json: &str);
+
+    #[wasm_bindgen(js_name = graphGetKinds)]
+    fn get_kinds(container_id: &str) -> String;
 }
 
 // =============================================================================
@@ -243,6 +246,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     let (view, set_view) = signal("full".to_string());
     let (include_tests, set_include_tests) = signal(false);
     let (active_kinds, set_active_kinds) = signal(std::collections::HashSet::<String>::new());
+    let (legend_kinds, set_legend_kinds) = signal(Vec::<KindInfo>::new());
 
     let repo_id_for_fetch = repo_id.clone();
 
@@ -274,6 +278,13 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
             set_timeout(
                 move || {
                     if init_graph(container_id, &data) {
+                        // Extract kinds from the graph for the dynamic legend
+                        let kinds_json = get_kinds(container_id);
+                        if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
+                            set_legend_kinds.set(kinds);
+                        }
+                        // Reset active filter on new data
+                        set_active_kinds.set(std::collections::HashSet::new());
                         set_graph_state.set(GraphState::Loaded);
                     } else {
                         set_graph_state.set(GraphState::Error(
@@ -372,17 +383,54 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 }}
             </div>
 
-            // Legend
+            // Legend (dynamic from graph data)
             <div class="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-ctp-subtext0">
-                <LegendItem color="#89b4fa" label="function" kind="function" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#a6e3a1" label="struct" kind="struct" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#f9e2af" label="enum" kind="enum" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#cba6f7" label="trait" kind="trait" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#fab387" label="module" kind="mod" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#f2cdcd" label="const" kind="constant" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#f38ba8" label="static" kind="static" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#94e2d5" label="type alias" kind="type_alias" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
-                <LegendItem color="#f5c2e7" label="macro" kind="macro" active_kinds=active_kinds set_active_kinds=set_active_kinds/>
+                {move || {
+                    let kinds = legend_kinds.get();
+                    let total = kinds.len();
+                    kinds
+                        .into_iter()
+                        .map(|ki| {
+                            let kind = ki.kind.clone();
+                            let color = ki.color.clone();
+                            let kind_for_check = kind.clone();
+                            let kind_for_click = kind.clone();
+
+                            let is_active = {
+                                let kind_check = kind_for_check.clone();
+                                move || {
+                                    let active = active_kinds.get();
+                                    active.is_empty() || active.contains(&kind_check)
+                                }
+                            };
+
+                            view! {
+                                <button
+                                    class="flex items-center gap-1.5 cursor-pointer transition-opacity"
+                                    style:opacity=move || if is_active() { "1" } else { "0.3" }
+                                    on:click=move |_| {
+                                        let mut kinds = active_kinds.get();
+                                        if kinds.contains(&kind_for_click) {
+                                            kinds.remove(&kind_for_click);
+                                        } else {
+                                            kinds.insert(kind_for_click.clone());
+                                        }
+                                        if kinds.len() == total {
+                                            kinds.clear();
+                                        }
+                                        set_active_kinds.set(kinds);
+                                    }
+                                >
+                                    <span
+                                        class="inline-block w-2.5 h-2.5 rounded-full"
+                                        style:background-color=color
+                                    />
+                                    {kind}
+                                </button>
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                }}
             </div>
         </div>
     }
@@ -397,45 +445,8 @@ enum GraphState {
     Error(String),
 }
 
-#[component]
-fn LegendItem(
-    color: &'static str,
-    label: &'static str,
-    kind: &'static str,
-    active_kinds: ReadSignal<std::collections::HashSet<String>>,
-    set_active_kinds: WriteSignal<std::collections::HashSet<String>>,
-) -> impl IntoView {
-    let kind_str = kind.to_string();
-    let kind_for_check = kind_str.clone();
-
-    let is_active = move || {
-        let kinds = active_kinds.get();
-        kinds.is_empty() || kinds.contains(&kind_for_check)
-    };
-
-    view! {
-        <button
-            class="flex items-center gap-1.5 cursor-pointer transition-opacity"
-            style:opacity=move || if is_active() { "1" } else { "0.3" }
-            on:click=move |_| {
-                let mut kinds = active_kinds.get();
-                if kinds.contains(&kind_str) {
-                    kinds.remove(&kind_str);
-                } else {
-                    kinds.insert(kind_str.clone());
-                }
-                // If all are selected, clear to mean "show all"
-                if kinds.len() == 9 {
-                    kinds.clear();
-                }
-                set_active_kinds.set(kinds);
-            }
-        >
-            <span
-                class="inline-block w-2.5 h-2.5 rounded-full"
-                style:background-color=color
-            />
-            {label}
-        </button>
-    }
+#[derive(Clone, serde::Deserialize)]
+struct KindInfo {
+    kind: String,
+    color: String,
 }
