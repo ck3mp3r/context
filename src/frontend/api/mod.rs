@@ -202,6 +202,53 @@ async fn handle_response<T: DeserializeOwned>(
     }
 }
 
+/// Graph API
+pub mod graph {
+    use super::*;
+
+    /// Fetch graph data as raw JSON string (passed directly to JS bridge).
+    /// Returns None if the repo has no analysis (204 No Content).
+    pub async fn get_repo_graph(
+        repo_id: &str,
+        view: Option<&str>,
+        include_tests: bool,
+    ) -> Result<Option<String>> {
+        let mut url = format!("{}/repos/{}/graph", API_BASE, repo_id);
+        let mut params = Vec::new();
+        if let Some(v) = view {
+            params.push(format!("view={}", v));
+        }
+        if include_tests {
+            params.push("include_tests=true".to_string());
+        }
+        if !params.is_empty() {
+            url = format!("{}?{}", url, params.join("&"));
+        }
+        let response = Request::get(&url)
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        if response.status() == 204 {
+            return Ok(None);
+        }
+
+        if response.status() >= 200 && response.status() < 300 {
+            response
+                .text()
+                .await
+                .map(Some)
+                .map_err(|e| ApiClientError::Deserialization(e.to_string()))
+        } else {
+            let error = response
+                .json::<ApiError>()
+                .await
+                .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+            Err(ApiClientError::Server(error))
+        }
+    }
+}
+
 /// Projects API
 pub mod projects {
     use super::*;

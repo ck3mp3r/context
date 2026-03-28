@@ -7,6 +7,11 @@
   <link data-trunk rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <link data-trunk rel="rust" href="../../../Cargo.toml" data-bin="c5t-frontend" data-cargo-no-default-features data-cargo-features="frontend" data-wasm-opt="0"/>
   <link data-trunk rel="css" href="style.css"/>
+  <!-- Graph visualization: Sigma.js + Graphology -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/graphology/0.25.4/graphology.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sigma.js/3.0.2/sigma.min.js"></script>
+  <link data-trunk rel="copy-file" href="graph-bridge.js"/>
+  <script data-trunk src="graph-bridge.js"></script>
 </head>
 <body>
   <noscript>You need to enable JavaScript to run this app.</noscript>

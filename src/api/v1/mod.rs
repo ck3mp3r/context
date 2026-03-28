@@ -1,5 +1,6 @@
 //! V1 API handlers.
 
+mod graph;
 mod jobs;
 mod notes;
 mod projects;
@@ -22,6 +23,7 @@ mod task_lists_test;
 #[cfg(test)]
 mod tasks_test;
 
+pub use graph::*;
 pub use jobs::*;
 pub use notes::*;
 pub use projects::*;
