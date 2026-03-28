@@ -35,6 +35,10 @@ pub fn main() {
 "#;
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 async fn test_unified_parser_single_pass() {
     let temp = TempDir::new().expect("Failed to create temp dir");
 
@@ -155,6 +159,10 @@ fn test_parser_detects_language_from_extension() {
 /// Trait defined in file1, struct + impl in file2.
 /// Inherits edge should be created - either immediately or during resolve phase.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_cross_file_inherits() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -205,6 +213,10 @@ impl Drawable for Circle {
 /// Trait defined AFTER the impl file is processed.
 /// This exercises the deferred resolution path.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_cross_file_inherits_deferred_order() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -250,6 +262,10 @@ pub trait Drawable {
 /// Function in file1 calls function defined in file2.
 /// Calls edge should be created during resolve phase.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_cross_file_calls() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -294,6 +310,10 @@ pub fn helper() {
 /// Function references a type defined in another file.
 /// References edge should be created during resolve phase.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_cross_file_references() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -341,6 +361,10 @@ pub enum Status {
 /// Struct defined in file1, impl block with methods in file2.
 /// SymbolContains edges should be created - either immediately or during resolve.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_cross_file_symbol_contains() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -394,6 +418,10 @@ impl Server {
 
 /// Struct defined AFTER impl block - exercises deferred SymbolContains.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_cross_file_symbol_contains_deferred_order() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -438,6 +466,10 @@ pub struct Server {
 
 /// Same-file relationships should still work immediately (no regression).
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_same_file_still_works_with_global_map() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
@@ -478,6 +510,10 @@ pub fn main() {
 
 /// parse_and_analyze (backward compat) should still work for single-file use.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_parse_and_analyze_backward_compat() {
     let temp = TempDir::new().expect("Failed to create temp dir");
     let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");

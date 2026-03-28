@@ -336,6 +336,10 @@ fn test_parse_impl_with_lifetime_generics() {
 /// Bug: `trait Database { type Projects<'a>: ProjectRepository }` was producing
 /// `ProjectRepository -> ProjectRepository` Inherits edges.
 #[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
 fn test_supertrait_bounds_no_self_inherits() {
     use crate::analysis::parser::{resolve_deferred_edges, GlobalSymbolMap};
     use crate::analysis::store::CodeGraph;
