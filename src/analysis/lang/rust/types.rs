@@ -1,7 +1,5 @@
 // Rust symbol types
 
-use crate::analysis::types::Kind as GenericKind;
-
 /// Rust-specific symbol types.
 /// Only kinds that actually get inserted as symbol nodes.
 /// Impl blocks are NOT symbols - they produce edges (SymbolContains, Inherits)
@@ -53,21 +51,6 @@ impl std::str::FromStr for Kind {
             "static" => Ok(Self::Static),
             "type" => Ok(Self::Type),
             _ => Err(format!("Unknown Rust symbol type: {}", s)),
-        }
-    }
-}
-
-impl From<Kind> for GenericKind {
-    fn from(kind: Kind) -> Self {
-        match kind {
-            Kind::Function => GenericKind::Function,
-            Kind::Struct => GenericKind::Struct,
-            Kind::Enum => GenericKind::Enum,
-            Kind::Trait => GenericKind::Trait,
-            Kind::Mod => GenericKind::Module,
-            Kind::Const => GenericKind::Constant,
-            Kind::Static => GenericKind::Static,
-            Kind::Type => GenericKind::TypeAlias,
         }
     }
 }

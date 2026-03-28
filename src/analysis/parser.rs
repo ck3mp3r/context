@@ -94,7 +94,7 @@ pub struct ImplInfo {
 /// Language trait - implement for each supported language
 pub trait Language {
     /// Language-specific symbol kind
-    type Kind: AsRef<str> + Clone + Into<crate::analysis::types::Kind>;
+    type Kind: AsRef<str> + Clone + std::fmt::Debug;
 
     /// Get tree-sitter grammar for this language
     fn grammar() -> tree_sitter::Language;
@@ -280,7 +280,7 @@ impl<L: Language> Parser<L> {
 
             let symbol = crate::analysis::types::Symbol::new(
                 name.clone(),
-                symbol_kind.into(),
+                symbol_kind,
                 L::name().to_string(),
                 ctx.file_path.to_string(),
                 start_line,

@@ -1,7 +1,5 @@
 // Nushell symbol types
 
-use crate::analysis::types::Kind as GenericKind;
-
 /// Nushell-specific symbol types.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Kind {
@@ -46,18 +44,6 @@ impl std::str::FromStr for Kind {
             "extern" => Ok(Self::Extern),
             "const" => Ok(Self::Const),
             _ => Err(format!("Unknown Nushell symbol type: {}", s)),
-        }
-    }
-}
-
-impl From<Kind> for GenericKind {
-    fn from(kind: Kind) -> Self {
-        match kind {
-            Kind::Command => GenericKind::Function,
-            Kind::Module => GenericKind::Module,
-            Kind::Alias => GenericKind::Function,
-            Kind::Extern => GenericKind::Function,
-            Kind::Const => GenericKind::Constant,
         }
     }
 }
