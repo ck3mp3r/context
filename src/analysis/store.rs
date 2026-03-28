@@ -201,6 +201,87 @@ impl CodeGraph {
         Ok(())
     }
 
+    /// Insert SymbolContains edge (e.g. struct -> method via impl block)
+    pub fn insert_symbol_contains_edge(
+        &mut self,
+        parent_symbol_id: &str,
+        child_symbol_id: &str,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "edge": "SymbolContains",
+            "from": parent_symbol_id,
+            "to": child_symbol_id,
+            "data": {
+                "confidence": confidence,
+            }
+        });
+
+        self.append_batch(&data)?;
+        tracing::debug!(
+            "Appended SymbolContains edge to batch: {} -> {}",
+            parent_symbol_id,
+            child_symbol_id,
+        );
+        Ok(())
+    }
+
+    /// Insert References edge (e.g. function references a type in its signature)
+    pub fn insert_references_edge(
+        &mut self,
+        from_symbol_id: &str,
+        to_symbol_id: &str,
+        reference_type: &str,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "edge": "References",
+            "from": from_symbol_id,
+            "to": to_symbol_id,
+            "data": {
+                "confidence": confidence,
+                "reference_type": reference_type,
+            }
+        });
+
+        self.append_batch(&data)?;
+        tracing::debug!(
+            "Appended References edge to batch: {} -> {} ({})",
+            from_symbol_id,
+            to_symbol_id,
+            reference_type
+        );
+        Ok(())
+    }
+
+    /// Insert Inherits edge (e.g. struct implements trait)
+    pub fn insert_inherits_edge(
+        &mut self,
+        from_symbol_id: &str,
+        to_symbol_id: &str,
+        inheritance_type: &str,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "edge": "Inherits",
+            "from": from_symbol_id,
+            "to": to_symbol_id,
+            "data": {
+                "confidence": confidence,
+                "inheritance_type": inheritance_type,
+            }
+        });
+
+        self.append_batch(&data)?;
+        tracing::debug!(
+            "Appended Inherits edge to batch: {} -> {} ({})",
+            from_symbol_id,
+            to_symbol_id,
+            inheritance_type
+        );
+        Ok(())
+    }
+
     /// Commit all batched data to nanograph (call this once at the end)
     pub fn commit(&mut self) -> Result<(), StoreError> {
         if !self.batch_file.exists() {

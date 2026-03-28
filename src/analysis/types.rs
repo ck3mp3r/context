@@ -50,6 +50,9 @@ pub enum Kind {
     Enum,
     Constant,
     Variable,
+    Static,
+    Module,
+    TypeAlias,
     Impl { target_type: String },
 }
 
@@ -64,8 +67,11 @@ impl std::str::FromStr for Kind {
             "struct" => Ok(Self::Struct),
             "trait" => Ok(Self::Trait),
             "enum" => Ok(Self::Enum),
-            "constant" => Ok(Self::Constant),
+            "constant" | "const" => Ok(Self::Constant),
             "variable" => Ok(Self::Variable),
+            "static" => Ok(Self::Static),
+            "module" | "mod" => Ok(Self::Module),
+            "type" | "type_alias" => Ok(Self::TypeAlias),
             "impl" => Ok(Self::Impl {
                 target_type: String::new(),
             }),
@@ -85,6 +91,9 @@ impl Kind {
             Self::Enum => "enum",
             Self::Constant => "constant",
             Self::Variable => "variable",
+            Self::Static => "static",
+            Self::Module => "module",
+            Self::TypeAlias => "type_alias",
             Self::Impl { .. } => "impl",
         }
     }

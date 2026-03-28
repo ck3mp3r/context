@@ -67,10 +67,10 @@ impl From<Kind> for GenericKind {
             Kind::Impl => GenericKind::Impl {
                 target_type: String::new(),
             },
-            Kind::Mod => GenericKind::Variable, // Map to closest generic type
+            Kind::Mod => GenericKind::Module,
             Kind::Const => GenericKind::Constant,
-            Kind::Static => GenericKind::Variable,
-            Kind::Type => GenericKind::Struct, // Type alias maps to struct
+            Kind::Static => GenericKind::Static,
+            Kind::Type => GenericKind::TypeAlias,
         }
     }
 }

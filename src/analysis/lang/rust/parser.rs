@@ -1,7 +1,7 @@
 // Rust language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::Language;
+use crate::analysis::parser::{ImplInfo, Language};
 use tree_sitter::Node;
 
 /// Rust language implementation
@@ -16,26 +16,14 @@ impl Language for Rust {
 
     fn parse_symbol(node: Node, code: &str) -> Option<(Self::Kind, String)> {
         match node.kind() {
-            "function_item" => {
-                // Extract function name
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "identifier" {
-                        let name = code[child.byte_range()].to_string();
-                        return Some((Kind::Function, name));
-                    }
-                }
-                None
-            }
-            "struct_item" => {
-                // Extract struct name
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "type_identifier" {
-                        let name = code[child.byte_range()].to_string();
-                        return Some((Kind::Struct, name));
-                    }
-                }
-                None
-            }
+            "function_item" => extract_name(node, code, "identifier", Kind::Function),
+            "struct_item" => extract_name(node, code, "type_identifier", Kind::Struct),
+            "enum_item" => extract_name(node, code, "type_identifier", Kind::Enum),
+            "trait_item" => extract_name(node, code, "type_identifier", Kind::Trait),
+            "const_item" => extract_name(node, code, "identifier", Kind::Const),
+            "static_item" => extract_name(node, code, "identifier", Kind::Static),
+            "type_item" => extract_name(node, code, "type_identifier", Kind::Type),
+            "mod_item" => extract_name(node, code, "identifier", Kind::Mod),
             _ => None,
         }
     }
@@ -47,18 +35,18 @@ impl Language for Rust {
                 "identifier" => {
                     return Some(code[child.byte_range()].to_string());
                 }
-                // Scoped call: Foo::bar()
+                // Scoped call: Foo::bar() - we want the last segment (bar)
                 "scoped_identifier" => {
-                    // Get the last identifier (the function name)
+                    let mut last_ident = None;
                     for subchild in child.children(&mut child.walk()) {
                         if subchild.kind() == "identifier" {
-                            return Some(code[subchild.byte_range()].to_string());
+                            last_ident = Some(code[subchild.byte_range()].to_string());
                         }
                     }
+                    return last_ident;
                 }
                 // Method call: obj.method()
                 "field_expression" => {
-                    // Get the field name (method name)
                     for subchild in child.children(&mut child.walk()) {
                         if subchild.kind() == "field_identifier" {
                             return Some(code[subchild.byte_range()].to_string());
@@ -71,11 +59,162 @@ impl Language for Rust {
         None
     }
 
+    fn parse_impl(node: Node, code: &str) -> Option<ImplInfo> {
+        if node.kind() != "impl_item" {
+            return None;
+        }
+
+        let mut target_type = None;
+        let mut trait_name = None;
+        let mut has_for = false;
+
+        for child in node.children(&mut node.walk()) {
+            match child.kind() {
+                "for" => {
+                    has_for = true;
+                }
+                "type_identifier" => {
+                    if has_for {
+                        // `impl Trait for Type` - this is the target type
+                        target_type = Some(code[child.byte_range()].to_string());
+                    } else if trait_name.is_none() && target_type.is_none() {
+                        // First type_identifier - could be trait or target
+                        target_type = Some(code[child.byte_range()].to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If we saw `for`, the first type_identifier was the trait
+        if has_for {
+            if let Some(ref target) = target_type {
+                // Walk again to get trait name (first type_identifier before `for`)
+                let mut found_for = false;
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "for" {
+                        found_for = true;
+                    } else if child.kind() == "type_identifier" && !found_for {
+                        trait_name = Some(code[child.byte_range()].to_string());
+                        break;
+                    }
+                }
+                let _ = target; // already set
+            }
+        }
+
+        target_type.map(|t| ImplInfo {
+            target_type: t,
+            trait_name,
+        })
+    }
+
+    fn extract_type_references(node: Node, code: &str) -> Vec<(String, String)> {
+        let mut refs = Vec::new();
+
+        // Only extract from function/method signatures and struct fields
+        match node.kind() {
+            "function_item" => {
+                // Look at parameters and return type for type_identifier
+                collect_type_refs(node, code, &mut refs, "type_annotation");
+            }
+            "struct_item" => {
+                // Look at field types
+                collect_type_refs(node, code, &mut refs, "field_type");
+            }
+            _ => {}
+        }
+
+        refs
+    }
+
+    fn extract_signature(node: Node, code: &str) -> Option<String> {
+        match node.kind() {
+            "function_item" => {
+                // Signature = everything before the body block
+                // Find the block (function body) and take everything before it
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "block" {
+                        let sig_end = child.start_byte();
+                        let sig = code[node.start_byte()..sig_end].trim();
+                        return Some(sig.to_string());
+                    }
+                }
+                // No body (shouldn't happen for function_item, but safety)
+                Some(code[node.byte_range()].to_string())
+            }
+            "struct_item" => {
+                // For structs, include the whole declaration
+                let text = &code[node.byte_range()];
+                // Truncate very long struct definitions
+                if text.len() > 200 {
+                    Some(format!("{}...", &text[..200]))
+                } else {
+                    Some(text.to_string())
+                }
+            }
+            "enum_item" => {
+                let text = &code[node.byte_range()];
+                if text.len() > 200 {
+                    Some(format!("{}...", &text[..200]))
+                } else {
+                    Some(text.to_string())
+                }
+            }
+            "trait_item" => {
+                // Just the trait header, not the body
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "declaration_list" {
+                        let sig_end = child.start_byte();
+                        let sig = code[node.start_byte()..sig_end].trim();
+                        return Some(sig.to_string());
+                    }
+                }
+                Some(code[node.byte_range()].to_string())
+            }
+            "type_item" => Some(code[node.byte_range()].trim().to_string()),
+            "const_item" => Some(code[node.byte_range()].trim().to_string()),
+            "static_item" => Some(code[node.byte_range()].trim().to_string()),
+            _ => None,
+        }
+    }
+
     fn name() -> &'static str {
         "rust"
     }
 
     fn extensions() -> &'static [&'static str] {
         &["rs"]
+    }
+}
+
+/// Helper: extract the first child node of `child_kind` as the symbol name
+fn extract_name(node: Node, code: &str, child_kind: &str, kind: Kind) -> Option<(Kind, String)> {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == child_kind {
+            let name = code[child.byte_range()].to_string();
+            return Some((kind, name));
+        }
+    }
+    None
+}
+
+/// Built-in types that should not generate References edges
+const BUILTIN_TYPES: &[&str] = &[
+    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "f32",
+    "f64", "bool", "char", "str", "String", "Self", "Vec", "Option", "Result", "Box", "Rc", "Arc",
+    "HashMap", "HashSet", "BTreeMap", "BTreeSet", "Cow", "Pin", "Fn", "FnMut", "FnOnce",
+];
+
+/// Recursively collect type_identifier nodes from a subtree, skipping builtins
+fn collect_type_refs(node: Node, code: &str, refs: &mut Vec<(String, String)>, ref_kind: &str) {
+    if node.kind() == "type_identifier" {
+        let name = code[node.byte_range()].to_string();
+        if !BUILTIN_TYPES.contains(&name.as_str()) {
+            refs.push((name, ref_kind.to_string()));
+        }
+    }
+    for child in node.children(&mut node.walk()) {
+        collect_type_refs(child, code, refs, ref_kind);
     }
 }

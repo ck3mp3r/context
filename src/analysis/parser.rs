@@ -29,6 +29,14 @@ pub struct AnalysisStats {
     pub relationships_inserted: usize,
 }
 
+/// Info about an impl block extracted by the language parser
+pub struct ImplInfo {
+    /// The type being implemented (e.g. "Calculator")
+    pub target_type: String,
+    /// The trait being implemented, if any (e.g. "Display" in `impl Display for Calculator`)
+    pub trait_name: Option<String>,
+}
+
 /// Language trait - implement for each supported language
 pub trait Language {
     /// Language-specific symbol kind
@@ -44,11 +52,21 @@ pub trait Language {
     /// Extract callee name from call_expression node
     fn extract_callee(node: Node, code: &str) -> Option<String>;
 
+    /// Extract impl block info (target type and optional trait)
+    fn parse_impl(node: Node, code: &str) -> Option<ImplInfo>;
+
+    /// Extract type references from a node (e.g. type_identifier in signatures)
+    /// Returns list of (referenced_type_name, reference_kind) pairs
+    fn extract_type_references(node: Node, code: &str) -> Vec<(String, String)>;
+
     /// Language name for file metadata
     fn name() -> &'static str;
 
     /// File extensions for this language
     fn extensions() -> &'static [&'static str];
+
+    /// Extract the signature text for a symbol node (e.g. "fn foo(a: i32) -> String")
+    fn extract_signature(node: Node, code: &str) -> Option<String>;
 }
 
 /// Generic parser that works for any Language
@@ -63,6 +81,7 @@ struct WalkContext<'a> {
     file_id: &'a str,
     symbols_count: &'a mut usize,
     relationships_count: &'a mut usize,
+    /// Maps symbol name -> symbol_id for relationship resolution
     symbol_map: &'a mut HashMap<String, String>,
 }
 
@@ -100,7 +119,7 @@ impl<L: Language> Parser<L> {
             symbol_map: &mut symbol_map,
         };
 
-        self.walk_and_insert(tree.root_node(), &mut ctx, graph, None)?;
+        self.walk_and_insert(tree.root_node(), &mut ctx, graph, None, None)?;
 
         Ok(AnalysisStats {
             symbols_inserted,
@@ -127,20 +146,43 @@ impl<L: Language> Parser<L> {
     }
 
     /// Recursive walk - insert symbols and relationships as we traverse
+    ///
+    /// `containing_symbol` - the symbol_id of the enclosing function/method (for Calls edges)
+    /// `impl_context` - the (target_type_name, trait_name) if we're inside an impl block
     fn walk_and_insert(
         &self,
         node: Node<'_>,
         ctx: &mut WalkContext<'_>,
         graph: &mut CodeGraph,
         containing_symbol: Option<String>,
+        impl_context: Option<&ImplInfo>,
     ) -> Result<(), ParseError> {
         let mut current_symbol = containing_symbol.clone();
+        let mut current_impl_context = impl_context;
+        let mut owned_impl_info: Option<ImplInfo> = None;
+
+        // Check for impl block
+        if let Some(impl_info) = L::parse_impl(node, ctx.code) {
+            // If this is an `impl Trait for Type`, create an Inherits edge
+            if let Some(ref trait_name) = impl_info.trait_name {
+                if let (Some(type_id), Some(trait_id)) = (
+                    ctx.symbol_map.get(&impl_info.target_type),
+                    ctx.symbol_map.get(trait_name),
+                ) {
+                    graph.insert_inherits_edge(type_id, trait_id, "implements", 1.0)?;
+                    *ctx.relationships_count += 1;
+                }
+            }
+            owned_impl_info = Some(impl_info);
+            current_impl_context = owned_impl_info.as_ref();
+        }
 
         // Try to parse as symbol
         if let Some((symbol_kind, name)) = L::parse_symbol(node, ctx.code) {
             let (start_line, end_line) = self.get_lines(node);
 
-            // Create Symbol and insert (use Into to convert lang-specific Kind to generic Kind)
+            let signature = L::extract_signature(node, ctx.code);
+
             let symbol = crate::analysis::types::Symbol::new(
                 name.clone(),
                 symbol_kind.into(),
@@ -148,7 +190,7 @@ impl<L: Language> Parser<L> {
                 ctx.file_path.to_string(),
                 start_line,
                 end_line,
-                None,
+                signature,
             );
 
             let symbol_id = graph.insert_symbol(&symbol)?;
@@ -157,8 +199,25 @@ impl<L: Language> Parser<L> {
             graph.insert_contains(ctx.file_id, &symbol_id, 1.0)?;
             *ctx.symbols_count += 1;
 
+            // If inside an impl block, create SymbolContains edge from target type -> this method
+            if let Some(impl_info) = current_impl_context {
+                if let Some(type_symbol_id) = ctx.symbol_map.get(&impl_info.target_type) {
+                    graph.insert_symbol_contains_edge(type_symbol_id, &symbol_id, 1.0)?;
+                    *ctx.relationships_count += 1;
+                }
+            }
+
             // Track in symbol map for later lookups
             ctx.symbol_map.insert(name.clone(), symbol_id.clone());
+
+            // Extract type references from this symbol's node
+            let refs = L::extract_type_references(node, ctx.code);
+            for (ref_type_name, ref_kind) in refs {
+                if let Some(ref_symbol_id) = ctx.symbol_map.get(&ref_type_name) {
+                    graph.insert_references_edge(&symbol_id, ref_symbol_id, &ref_kind, 1.0)?;
+                    *ctx.relationships_count += 1;
+                }
+            }
 
             // Track this as containing symbol for children
             current_symbol = Some(symbol_id);
@@ -168,28 +227,28 @@ impl<L: Language> Parser<L> {
         if node.kind() == "call_expression"
             && let Some(callee_name) = L::extract_callee(node, ctx.code)
         {
-            // Look up caller and callee in symbol map
             if let (Some(caller_id), Some(callee_id)) =
                 (containing_symbol.as_ref(), ctx.symbol_map.get(&callee_name))
             {
                 let call_line = node.start_position().row + 1;
-
-                // Insert actual Calls edge
                 graph.insert_calls_edge(caller_id, callee_id, call_line, 1.0)?;
-
                 *ctx.relationships_count += 1;
             }
         }
 
-        // Recurse to children with current symbol context
+        // Recurse to children
         for child in node.children(&mut node.walk()) {
-            self.walk_and_insert(child, ctx, graph, current_symbol.clone())?;
+            self.walk_and_insert(
+                child,
+                ctx,
+                graph,
+                current_symbol.clone(),
+                current_impl_context,
+            )?;
         }
 
         Ok(())
     }
-
-    // Helper methods
 
     fn get_lines(&self, node: Node) -> (usize, usize) {
         let start = node.start_position().row + 1;
