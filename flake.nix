@@ -7,10 +7,6 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
-    devenv = {
-      url = "github:cachix/devenv";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -56,14 +52,10 @@
         inherit (packaging) apps packages;
 
         devShells = {
-          default = inputs.devenv.lib.mkShell {
-            inherit inputs pkgs;
-            modules = [
-              ./nix/devenv.nix
-            ];
+          default = import ./nix/dev.nix {
+            inherit pkgs inputs system;
           };
 
-          # Classic shell for CI - just toolchains, no devenv
           ci = import ./nix/ci.nix {
             inherit pkgs inputs system;
           };
