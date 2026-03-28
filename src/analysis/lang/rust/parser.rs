@@ -87,19 +87,16 @@ impl Language for Rust {
         }
 
         // If we saw `for`, the first type_identifier was the trait
-        if has_for {
-            if let Some(ref target) = target_type {
-                // Walk again to get trait name (first type_identifier before `for`)
-                let mut found_for = false;
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "for" {
-                        found_for = true;
-                    } else if child.kind() == "type_identifier" && !found_for {
-                        trait_name = Some(code[child.byte_range()].to_string());
-                        break;
-                    }
+        if has_for && target_type.is_some() {
+            // Walk again to get trait name (first type_identifier before `for`)
+            let mut found_for = false;
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "for" {
+                    found_for = true;
+                } else if child.kind() == "type_identifier" && !found_for {
+                    trait_name = Some(code[child.byte_range()].to_string());
+                    break;
                 }
-                let _ = target; // already set
             }
         }
 

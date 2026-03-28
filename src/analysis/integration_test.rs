@@ -5,6 +5,7 @@
 // 2. Inserts directly into graph (no intermediate vectors)
 // 3. Language-specific symbol types via traits
 
+use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
 use crate::analysis::store::CodeGraph;
 use crate::analysis::{Parser, Rust};
 use tempfile::TempDir;
@@ -144,4 +145,357 @@ fn test_parser_detects_language_from_extension() {
     assert!(Parser::<Rust>::can_handle("src/main.rs"));
     assert!(!Parser::<Rust>::can_handle("src/main.py"));
     assert!(!Parser::<Rust>::can_handle("README.md"));
+}
+
+// ============================================================================
+// Cross-file resolution tests
+// ============================================================================
+
+/// Trait defined in file1, struct + impl in file2.
+/// Inherits edge should be created - either immediately or during resolve phase.
+#[test]
+fn test_cross_file_inherits() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1: defines the trait
+    let file1 = r#"
+pub trait Drawable {
+    fn draw(&self);
+}
+"#;
+
+    // File 2: defines a struct and implements the trait
+    let file2 = r#"
+pub struct Circle {
+    radius: f64,
+}
+
+impl Drawable for Circle {
+    fn draw(&self) {}
+}
+"#;
+
+    // Parse both files, collecting deferred edges
+    let stats1 = parser
+        .parse_and_collect(file1, "src/traits.rs", &mut graph, &mut global)
+        .expect("Failed to parse file1");
+    let stats2 = parser
+        .parse_and_collect(file2, "src/circle.rs", &mut graph, &mut global)
+        .expect("Failed to parse file2");
+
+    // Resolve any deferred edges
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
+
+    // Total relationships should include the Inherits edge
+    let total_rels = stats1.relationships_inserted + stats2.relationships_inserted + resolved;
+    assert!(
+        total_rels > 0,
+        "Should have created relationships including Inherits edge"
+    );
+
+    // Both symbols should be in the global map
+    assert!(global.map.contains_key("Drawable"), "Drawable should be in global map");
+    assert!(global.map.contains_key("Circle"), "Circle should be in global map");
+}
+
+/// Trait defined AFTER the impl file is processed.
+/// This exercises the deferred resolution path.
+#[test]
+fn test_cross_file_inherits_deferred_order() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1 (processed first): struct + impl referencing trait NOT YET SEEN
+    let file1 = r#"
+pub struct Circle {
+    radius: f64,
+}
+
+impl Drawable for Circle {
+    fn draw(&self) {}
+}
+"#;
+
+    // File 2 (processed second): defines the trait
+    let file2 = r#"
+pub trait Drawable {
+    fn draw(&self);
+}
+"#;
+
+    parser
+        .parse_and_collect(file1, "src/circle.rs", &mut graph, &mut global)
+        .expect("Failed to parse file1");
+    parser
+        .parse_and_collect(file2, "src/traits.rs", &mut graph, &mut global)
+        .expect("Failed to parse file2");
+
+    // Drawable wasn't known when file1 was processed, so Inherits should be deferred
+    let has_deferred_inherits = global.deferred.iter().any(|e| {
+        matches!(e, crate::analysis::parser::DeferredEdge::Inherits { trait_name, .. } if trait_name == "Drawable")
+    });
+    assert!(has_deferred_inherits, "Should have deferred Inherits edge for Drawable");
+
+    // Resolve
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
+    assert!(resolved >= 1, "Should resolve the deferred Inherits edge, got {}", resolved);
+}
+
+/// Function in file1 calls function defined in file2.
+/// Calls edge should be created during resolve phase.
+#[test]
+fn test_cross_file_calls() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1: calls helper() which doesn't exist in this file
+    let file1 = r#"
+fn main() {
+    helper();
+}
+"#;
+
+    // File 2: defines helper()
+    let file2 = r#"
+pub fn helper() {
+    println!("helping");
+}
+"#;
+
+    // Parse file1 first - helper() call will be deferred
+    parser
+        .parse_and_collect(file1, "src/main.rs", &mut graph, &mut global)
+        .expect("Failed to parse file1");
+
+    // Parse file2 - defines helper
+    parser
+        .parse_and_collect(file2, "src/helpers.rs", &mut graph, &mut global)
+        .expect("Failed to parse file2");
+
+    // Should have a deferred Call edge
+    let has_deferred_call = global.deferred.iter().any(|e| {
+        matches!(e, crate::analysis::parser::DeferredEdge::Call { callee_name, .. } if callee_name == "helper")
+    });
+    assert!(has_deferred_call, "Should have deferred call to helper()");
+
+    // Resolve
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
+    assert!(resolved > 0, "Should resolve the cross-file call");
+}
+
+/// Function references a type defined in another file.
+/// References edge should be created during resolve phase.
+#[test]
+fn test_cross_file_references() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1: function that takes Config as parameter
+    let file1 = r#"
+fn process(config: Config) -> Status {
+    todo!()
+}
+"#;
+
+    // File 2: defines Config and Status
+    let file2 = r#"
+pub struct Config {
+    name: String,
+}
+
+pub enum Status {
+    Ok,
+    Error,
+}
+"#;
+
+    // Parse file1 first - Config/Status references will be deferred
+    parser
+        .parse_and_collect(file1, "src/processor.rs", &mut graph, &mut global)
+        .expect("Failed to parse file1");
+
+    // Parse file2 - defines the types
+    parser
+        .parse_and_collect(file2, "src/types.rs", &mut graph, &mut global)
+        .expect("Failed to parse file2");
+
+    // Resolve
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
+    assert!(
+        resolved >= 2,
+        "Should resolve at least 2 reference edges (Config + Status), got {}",
+        resolved
+    );
+}
+
+/// Struct defined in file1, impl block with methods in file2.
+/// SymbolContains edges should be created - either immediately or during resolve.
+#[test]
+fn test_cross_file_symbol_contains() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1: defines the struct
+    let file1 = r#"
+pub struct Server {
+    port: u16,
+}
+"#;
+
+    // File 2: impl block with methods
+    let file2 = r#"
+impl Server {
+    pub fn new(port: u16) -> Self {
+        Self { port }
+    }
+
+    pub fn start(&self) {}
+}
+"#;
+
+    // Parse file1 - defines Server
+    let stats1 = parser
+        .parse_and_collect(file1, "src/server.rs", &mut graph, &mut global)
+        .expect("Failed to parse file1");
+
+    // Parse file2 - impl block references Server from file1
+    let stats2 = parser
+        .parse_and_collect(file2, "src/server_impl.rs", &mut graph, &mut global)
+        .expect("Failed to parse file2");
+
+    // Resolve any deferred edges
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
+
+    // Total relationships should include SymbolContains: Server -> new, Server -> start
+    let total_rels = stats1.relationships_inserted + stats2.relationships_inserted + resolved;
+    assert!(
+        total_rels >= 2,
+        "Should have at least 2 SymbolContains edges (new + start), got {}",
+        total_rels
+    );
+
+    // All symbols should be in the global map
+    assert!(global.map.contains_key("Server"));
+    assert!(global.map.contains_key("new"));
+    assert!(global.map.contains_key("start"));
+}
+
+/// Struct defined AFTER impl block - exercises deferred SymbolContains.
+#[test]
+fn test_cross_file_symbol_contains_deferred_order() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1 (processed first): impl block for struct NOT YET SEEN
+    let file1 = r#"
+impl Server {
+    pub fn new(port: u16) -> Self {
+        Self { port }
+    }
+
+    pub fn start(&self) {}
+}
+"#;
+
+    // File 2 (processed second): defines the struct
+    let file2 = r#"
+pub struct Server {
+    port: u16,
+}
+"#;
+
+    parser
+        .parse_and_collect(file1, "src/server_impl.rs", &mut graph, &mut global)
+        .expect("Failed to parse file1");
+    parser
+        .parse_and_collect(file2, "src/server.rs", &mut graph, &mut global)
+        .expect("Failed to parse file2");
+
+    // Server wasn't known when file1 was processed, so SymbolContains should be deferred
+    let deferred_count = global.deferred.iter().filter(|e| {
+        matches!(e, crate::analysis::parser::DeferredEdge::SymbolContains { parent_type_name, .. } if parent_type_name == "Server")
+    }).count();
+    assert!(deferred_count >= 2, "Should have deferred SymbolContains for new + start, got {}", deferred_count);
+
+    // Resolve
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve");
+    assert!(resolved >= 2, "Should resolve SymbolContains edges, got {}", resolved);
+}
+
+/// Same-file relationships should still work immediately (no regression).
+#[test]
+fn test_same_file_still_works_with_global_map() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    let code = r#"
+pub struct Calculator {
+    value: i32,
+}
+
+impl Calculator {
+    pub fn new() -> Self {
+        Self { value: 0 }
+    }
+}
+
+pub fn main() {
+    let calc = Calculator::new();
+}
+"#;
+
+    let stats = parser
+        .parse_and_collect(code, "src/calc.rs", &mut graph, &mut global)
+        .expect("Failed to parse");
+
+    // Same-file relationships should be resolved immediately, not deferred
+    assert!(
+        stats.relationships_inserted > 0,
+        "Same-file relationships should still be inserted immediately"
+    );
+
+    // Calculator, new, main should all be in global map
+    assert!(global.map.contains_key("Calculator"));
+    assert!(global.map.contains_key("new"));
+    assert!(global.map.contains_key("main"));
+}
+
+/// parse_and_analyze (backward compat) should still work for single-file use.
+#[test]
+fn test_parse_and_analyze_backward_compat() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut parser = Parser::<Rust>::new();
+
+    let code = r#"
+pub struct Foo;
+impl Foo {
+    pub fn bar() {}
+}
+"#;
+
+    let stats = parser
+        .parse_and_analyze(code, "src/foo.rs", &mut graph)
+        .expect("Failed to parse");
+
+    assert!(stats.symbols_inserted >= 2, "Should insert Foo and bar");
+    assert!(
+        stats.relationships_inserted > 0,
+        "Should insert relationships"
+    );
 }

@@ -3,6 +3,7 @@
 //! High-level service for analyzing repositories.
 //! Uses generic Parser with Language trait.
 
+use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
 use crate::analysis::{Language, Parser, Rust, store::CodeGraph};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -24,8 +25,8 @@ macro_rules! languages {
         // Add more: || $callback!($file, Python)
     };
 
-    ($callback:ident!($files:expr, $repo:expr, $graph:expr, $syms:expr, $rels:expr)) => {
-        $callback!($files, $repo, $graph, $syms, $rels, Rust)?;
+    ($callback:ident!($files:expr, $repo:expr, $graph:expr, $global:expr, $syms:expr, $rels:expr)) => {
+        $callback!($files, $repo, $graph, $global, $syms, $rels, Rust)?;
         // Add more: $callback!(..., TypeScript)?;
         // Add more: $callback!(..., Python)?;
     };
@@ -38,7 +39,7 @@ macro_rules! can_handle {
 }
 
 macro_rules! analyze {
-    ($files:expr, $repo:expr, $graph:expr, $syms:expr, $rels:expr, $Lang:ty) => {{
+    ($files:expr, $repo:expr, $graph:expr, $global:expr, $syms:expr, $rels:expr, $Lang:ty) => {{
         let lang_files: Vec<PathBuf> = $files
             .iter()
             .filter(|f| Parser::<$Lang>::can_handle(f.to_str().unwrap_or("")))
@@ -46,7 +47,7 @@ macro_rules! analyze {
             .collect();
 
         if !lang_files.is_empty() {
-            let (symbols, rels) = analyze_files::<$Lang>(&lang_files, $repo, $graph)?;
+            let (symbols, rels) = analyze_files::<$Lang>(&lang_files, $repo, $graph, $global)?;
             $syms += symbols;
             $rels += rels;
         }
@@ -96,11 +97,12 @@ pub async fn analyze_repository(
     analyze_repository_with_progress(repo_path, repo_id, graph_path, |_, _| {}).await
 }
 
-/// Analyze files with a specific language parser
+/// Analyze files with a specific language parser, collecting deferred edges
 fn analyze_files<L: Language>(
     files: &[PathBuf],
     repo_path: &Path,
     graph: &mut CodeGraph,
+    global: &mut GlobalSymbolMap,
 ) -> Result<(usize, usize), AnalysisError> {
     let mut parser = Parser::<L>::new();
     let mut total_symbols = 0;
@@ -114,7 +116,7 @@ fn analyze_files<L: Language>(
             .to_string_lossy()
             .to_string();
 
-        let stats = parser.parse_and_analyze(&content, &relative_path, graph)?;
+        let stats = parser.parse_and_collect(&content, &relative_path, graph, global)?;
 
         total_symbols += stats.symbols_inserted;
         total_relationships += stats.relationships_inserted;
@@ -156,17 +158,30 @@ where
     let total_files = all_files.len();
     tracing::info!("Found {} files to analyze", total_files);
 
-    // Analyze all languages using central registry
+    // Analyze all languages using central registry, sharing a global symbol map
     let mut total_symbols = 0;
     let mut total_relationships = 0;
+    let mut global = GlobalSymbolMap::new();
 
     languages!(analyze!(
         all_files,
         repo_path,
         &mut graph,
+        &mut global,
         total_symbols,
         total_relationships
     ));
+
+    // Resolve cross-file relationships
+    let resolved = resolve_deferred_edges(&global, &mut graph)
+        .map_err(AnalysisError::Parse)?;
+    total_relationships += resolved;
+
+    tracing::info!(
+        "Cross-file resolution: {} edges resolved, {} deferred total",
+        resolved,
+        global.deferred.len()
+    );
 
     progress_fn(total_files, total_files);
 
