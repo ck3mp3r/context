@@ -127,14 +127,17 @@ impl CodeGraph {
     }
 
     /// Insert a symbol node
-    pub fn insert_symbol(&mut self, symbol: &Symbol) -> Result<SymbolId, StoreError> {
+    pub fn insert_symbol<K: AsRef<str> + std::fmt::Debug>(
+        &mut self,
+        symbol: &Symbol<K>,
+    ) -> Result<SymbolId, StoreError> {
         let symbol_id = SymbolId::new(&symbol.file_path, &symbol.name, symbol.start_line);
         let data = serde_json::json!({
             "type": "Symbol",
             "data": {
                 "symbol_id": symbol_id.as_str(),
                 "name": &symbol.name,
-                "kind": symbol.kind.as_str(),
+                "kind": symbol.kind.as_ref(),
                 "language": &symbol.language,
                 "file_path": &symbol.file_path,
                 "start_line": symbol.start_line,
@@ -316,8 +319,12 @@ impl CodeGraph {
         Ok(())
     }
 
-    /// Query symbols in a specific file
-    pub fn query_symbols_in_file(&self, file_path: &str) -> Result<Vec<Symbol>, StoreError> {
+    /// Query symbols in a specific file.
+    /// Returns `Symbol<String>` since the kind comes back as a plain string from nanograph.
+    pub fn query_symbols_in_file(
+        &self,
+        file_path: &str,
+    ) -> Result<Vec<Symbol<String>>, StoreError> {
         let query = r#"query get_symbols($file_path: String) {
     match {
         $s: Symbol
@@ -375,9 +382,7 @@ impl CodeGraph {
             let kind_str = row["kind"].as_str().unwrap_or("unknown");
             symbols.push(Symbol {
                 name: row["name"].as_str().unwrap_or("").to_string(),
-                kind: kind_str
-                    .parse()
-                    .unwrap_or(crate::analysis::types::Kind::Function),
+                kind: kind_str.to_string(),
                 language: row["language"].as_str().unwrap_or("unknown").to_string(),
                 file_path: row["file_path"].as_str().unwrap_or("").to_string(),
                 start_line: row["start_line"].as_i64().unwrap_or(0) as usize,

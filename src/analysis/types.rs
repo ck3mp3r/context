@@ -75,12 +75,16 @@ impl std::fmt::Display for SymbolName {
 // Symbol
 // ============================================================================
 
-/// Symbol from source code
+/// Symbol from source code, generic over the kind type.
+///
+/// Each language defines its own `Kind` enum (e.g. `rust::Kind`, `nushell::Kind`).
+/// The `K: AsRef<str>` bound ensures the kind can always be serialized to its
+/// language-specific string (e.g. `"command"`, `"struct"`, `"alias"`).
 #[derive(Debug, Clone)]
-pub struct Symbol {
+pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
     pub name: String,
-    pub kind: Kind,
-    pub language: String, // "rust", "typescript", etc.
+    pub kind: K,
+    pub language: String, // "rust", "nushell", etc.
     pub file_path: String,
     pub start_line: usize,
     pub end_line: usize,
@@ -88,11 +92,11 @@ pub struct Symbol {
     pub signature: Option<String>, // For functions/methods: "fn foo(a: i32) -> String"
 }
 
-impl Symbol {
+impl<K: AsRef<str> + std::fmt::Debug> Symbol<K> {
     /// Create a new symbol (content empty, filled during query)
     pub fn new(
         name: String,
-        kind: Kind,
+        kind: K,
         language: String,
         file_path: String,
         start_line: usize,
@@ -108,66 +112,6 @@ impl Symbol {
             end_line,
             content: String::new(),
             signature,
-        }
-    }
-}
-
-// ============================================================================
-// Symbol kinds
-// ============================================================================
-
-/// Symbol types - language-agnostic categories.
-/// Every language-specific Kind maps into one of these.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub enum Kind {
-    Function,
-    Class,     // TypeScript, Python, Java
-    Interface, // TypeScript, Java, Go
-    Struct,    // Rust, Go, C
-    Trait,     // Rust
-    Enum,
-    Constant,
-    Variable,  // TypeScript, Python, Java (top-level)
-    Static,    // Rust, Java
-    Module,    // Rust, TypeScript, Python
-    TypeAlias, // Rust, TypeScript
-}
-
-impl std::str::FromStr for Kind {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "function" => Ok(Self::Function),
-            "class" => Ok(Self::Class),
-            "interface" => Ok(Self::Interface),
-            "struct" => Ok(Self::Struct),
-            "trait" => Ok(Self::Trait),
-            "enum" => Ok(Self::Enum),
-            "constant" | "const" => Ok(Self::Constant),
-            "variable" => Ok(Self::Variable),
-            "static" => Ok(Self::Static),
-            "module" | "mod" => Ok(Self::Module),
-            "type" | "type_alias" => Ok(Self::TypeAlias),
-            _ => Err(format!("Unknown symbol kind: {}", s)),
-        }
-    }
-}
-
-impl Kind {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Function => "function",
-            Self::Class => "class",
-            Self::Interface => "interface",
-            Self::Struct => "struct",
-            Self::Trait => "trait",
-            Self::Enum => "enum",
-            Self::Constant => "constant",
-            Self::Variable => "variable",
-            Self::Static => "static",
-            Self::Module => "module",
-            Self::TypeAlias => "type_alias",
         }
     }
 }
