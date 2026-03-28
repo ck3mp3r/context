@@ -252,8 +252,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let tests = include_tests.get();
         let repo_id = repo_id_for_fetch.clone();
 
-        set_graph_state.set(GraphState::Loading);
-
         spawn_local(async move {
             match graph::get_repo_graph(&repo_id, Some(&current_view), tests).await {
                 Ok(Some(json_data)) => {
