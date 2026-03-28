@@ -313,3 +313,78 @@ fn test_type_refs_skip_builtins() {
         refs
     );
 }
+
+// ============================================================================
+// Supertrait edge bug regression test
+// ============================================================================
+
+/// `impl<'a> Trait for GenericType<'a>` should extract correct target type name.
+/// Bug: parse_impl was extracting wrong names for generic impl blocks.
+#[test]
+fn test_parse_impl_with_lifetime_generics() {
+    let code = "impl<'a> ProjectRepository for SqliteProjectRepository<'a> { fn get(&self) {} }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let impl_node = parse_and_find(code, &tree, "impl_item").unwrap();
+    let info = Rust::parse_impl(impl_node, code).unwrap();
+    assert_eq!(info.trait_name, Some("ProjectRepository".to_string()));
+    assert_eq!(
+        info.target_type, "SqliteProjectRepository",
+        "Should extract SqliteProjectRepository, not just the first type_identifier"
+    );
+}
+
+/// Trait with associated type bounds should NOT produce self-referencing Inherits edges.
+/// Bug: `trait Database { type Projects<'a>: ProjectRepository }` was producing
+/// `ProjectRepository -> ProjectRepository` Inherits edges.
+#[test]
+fn test_supertrait_bounds_no_self_inherits() {
+    use crate::analysis::parser::{resolve_deferred_edges, GlobalSymbolMap};
+    use crate::analysis::store::CodeGraph;
+    use tempfile::TempDir;
+
+    let temp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").unwrap();
+    let mut parser = crate::analysis::parser::Parser::<crate::analysis::lang::rust::Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    let code = r#"
+pub trait ProjectRepository {
+    fn get_project(&self) -> String;
+}
+
+pub trait RepoRepository {
+    fn get_repo(&self) -> String;
+}
+
+pub trait Database: Send + Sync {
+    type Projects<'a>: ProjectRepository where Self: 'a;
+    type Repos<'a>: RepoRepository where Self: 'a;
+
+    fn projects(&self) -> Self::Projects<'_>;
+    fn repos(&self) -> Self::Repos<'_>;
+}
+"#;
+
+    parser
+        .parse_and_collect(code, "src/db/repository.rs", &mut graph, &mut global)
+        .unwrap();
+    resolve_deferred_edges(&global, &mut graph).unwrap();
+
+    // Should NOT have any self-referencing Inherits edges
+    let self_ref_inherits: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| {
+            matches!(e, crate::analysis::parser::DeferredEdge::Inherits { type_name, trait_name }
+                if type_name == trait_name)
+        })
+        .collect();
+    assert!(
+        self_ref_inherits.is_empty(),
+        "Should not have self-referencing Inherits edges, got: {:?}",
+        self_ref_inherits
+    );
+}

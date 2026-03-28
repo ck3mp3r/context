@@ -73,13 +73,12 @@ impl Language for Rust {
                 "for" => {
                     has_for = true;
                 }
-                "type_identifier" => {
-                    if has_for {
-                        // `impl Trait for Type` - this is the target type
-                        target_type = Some(code[child.byte_range()].to_string());
-                    } else if trait_name.is_none() && target_type.is_none() {
-                        // First type_identifier - could be trait or target
-                        target_type = Some(code[child.byte_range()].to_string());
+                "type_identifier" if has_for || (trait_name.is_none() && target_type.is_none()) => {
+                    target_type = Some(code[child.byte_range()].to_string());
+                }
+                "generic_type" if has_for || (trait_name.is_none() && target_type.is_none()) => {
+                    if let Some(name) = extract_type_name_from_generic(child, code) {
+                        target_type = Some(name);
                     }
                 }
                 _ => {}
@@ -88,14 +87,25 @@ impl Language for Rust {
 
         // If we saw `for`, the first type_identifier was the trait
         if has_for && target_type.is_some() {
-            // Walk again to get trait name (first type_identifier before `for`)
+            // Walk again to get trait name (first type_identifier or generic_type before `for`)
             let mut found_for = false;
             for child in node.children(&mut node.walk()) {
                 if child.kind() == "for" {
                     found_for = true;
-                } else if child.kind() == "type_identifier" && !found_for {
-                    trait_name = Some(code[child.byte_range()].to_string());
-                    break;
+                } else if !found_for {
+                    match child.kind() {
+                        "type_identifier" => {
+                            trait_name = Some(code[child.byte_range()].to_string());
+                            break;
+                        }
+                        "generic_type" => {
+                            if let Some(name) = extract_type_name_from_generic(child, code) {
+                                trait_name = Some(name);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -191,6 +201,17 @@ fn extract_name(node: Node, code: &str, child_kind: &str, kind: Kind) -> Option<
         if child.kind() == child_kind {
             let name = code[child.byte_range()].to_string();
             return Some((kind, name));
+        }
+    }
+    None
+}
+
+/// Extract the base type_identifier from a generic_type node.
+/// e.g. `SqliteProjectRepository<'a>` -> "SqliteProjectRepository"
+fn extract_type_name_from_generic(node: Node, code: &str) -> Option<String> {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "type_identifier" {
+            return Some(code[child.byte_range()].to_string());
         }
     }
     None
