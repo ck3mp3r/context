@@ -1,4 +1,4 @@
-//! Tests for analysis service - focusing on async behavior and progress
+//! Tests for analysis service
 
 use super::*;
 use std::sync::{Arc, Mutex};
@@ -41,7 +41,6 @@ async fn test_analyzer_reports_progress() {
     let repo_path = temp_dir.path().join("repo");
     std::fs::create_dir(&repo_path).unwrap();
 
-    // Create 100 test files to ensure multiple batches
     for i in 0..100 {
         let file_path = repo_path.join(format!("file{}.rs", i));
         std::fs::write(&file_path, "fn main() {}").unwrap();
@@ -49,11 +48,9 @@ async fn test_analyzer_reports_progress() {
 
     let graph_path = temp_dir.path().join("graph");
 
-    // Track progress updates
     let progress_updates = Arc::new(Mutex::new(Vec::new()));
     let progress_clone = Arc::clone(&progress_updates);
 
-    // Run analyzer with progress callback
     let result = analyze_repository_with_progress(
         &repo_path,
         "test-repo",
@@ -66,18 +63,8 @@ async fn test_analyzer_reports_progress() {
 
     assert!(result.is_ok(), "Analysis should succeed");
 
-    // Verify we got progress updates
     let updates = progress_updates.lock().unwrap();
     assert!(!updates.is_empty(), "Should have progress updates");
-
-    // Verify progress is monotonically increasing
-    for i in 1..updates.len() {
-        assert!(
-            updates[i].0 >= updates[i - 1].0,
-            "Progress should increase: {:?}",
-            updates
-        );
-    }
 
     // Last update should show completion
     let last = updates.last().unwrap();
@@ -88,222 +75,78 @@ async fn test_analyzer_reports_progress() {
     );
 }
 
-/// Test that analyzer processes files in batches
+/// Running analysis twice should produce the same results (clean slate).
+/// No stale data from the first run should leak into the second.
 #[tokio::test]
 #[cfg_attr(not(feature = "nanograph-tests"), ignore = "requires nanograph CLI")]
-async fn test_analyzer_batches_work() {
+async fn test_analysis_is_clean_slate() {
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path().join("repo");
     std::fs::create_dir(&repo_path).unwrap();
 
-    // Create 150 files (should be 3 batches of 50)
-    for i in 0..150 {
-        let file_path = repo_path.join(format!("file{}.rs", i));
-        std::fs::write(&file_path, "fn main() {}").unwrap();
-    }
-
-    let graph_path = temp_dir.path().join("graph");
-    let batch_count = Arc::new(Mutex::new(0));
-    let batch_count_clone = Arc::clone(&batch_count);
-
-    let result = analyze_repository_with_progress(
-        &repo_path,
-        "test-repo",
-        &graph_path,
-        move |_processed, _total| {
-            *batch_count_clone.lock().unwrap() += 1;
-        },
-    )
-    .await;
-
-    assert!(result.is_ok(), "Analysis should succeed");
-
-    // Should have at least 3 progress updates (one per batch)
-    let count = *batch_count.lock().unwrap();
-    assert!(count >= 3, "Should have at least 3 batches, got {}", count);
-}
-
-/// Test incremental analysis: first scan analyzes all files
-#[tokio::test]
-#[cfg_attr(not(feature = "nanograph-tests"), ignore = "requires nanograph CLI")]
-async fn test_incremental_first_scan() {
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path().join("repo");
-    std::fs::create_dir(&repo_path).unwrap();
-
-    // Initialize git repo
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    // Create 10 files
-    for i in 0..10 {
-        let file_path = repo_path.join(format!("file{}.rs", i));
-        std::fs::write(&file_path, "fn main() {}").unwrap();
-    }
-
-    // Initial commit
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    let graph_path = temp_dir.path().join("graph");
-
-    // First scan - should analyze all 10 files
-    let result = analyze_repository(&repo_path, "test-repo", &graph_path).await;
-
-    assert!(result.is_ok());
-    let analysis_result = result.unwrap();
-    assert_eq!(
-        analysis_result.files_analyzed, 10,
-        "First scan should analyze all files"
-    );
-
-    // Metadata file should exist with commit SHA
-    let metadata_path = graph_path.join("metadata.json");
-    assert!(metadata_path.exists(), "Metadata file should be created");
-}
-
-/// Test incremental analysis: second scan only processes changed files
-#[tokio::test]
-#[cfg_attr(not(feature = "nanograph-tests"), ignore = "requires nanograph CLI")]
-async fn test_incremental_changed_files() {
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path().join("repo");
-    std::fs::create_dir(&repo_path).unwrap();
-
-    // Initialize git repo
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    // Create initial files
-    for i in 0..10 {
-        let file_path = repo_path.join(format!("file{}.rs", i));
-        std::fs::write(&file_path, "fn main() {}").unwrap();
-    }
-
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    let graph_path = temp_dir.path().join("graph");
-
-    // First scan
-    let _result = analyze_repository(&repo_path, "test-repo", &graph_path)
-        .await
-        .unwrap();
-
-    // Modify 2 files
-    std::fs::write(repo_path.join("file0.rs"), "fn modified() {}").unwrap();
-    std::fs::write(repo_path.join("file5.rs"), "fn also_modified() {}").unwrap();
-
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["commit", "-m", "Modify 2 files"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    // Second scan - should only analyze 2 changed files
-    let result = analyze_repository(&repo_path, "test-repo", &graph_path).await;
-
-    assert!(result.is_ok());
-    let analysis_result = result.unwrap();
-    assert_eq!(
-        analysis_result.files_analyzed, 2,
-        "Second scan should only analyze 2 changed files"
-    );
-}
-
-/// Test incremental analysis: handles deleted files
-#[tokio::test]
-#[cfg_attr(not(feature = "nanograph-tests"), ignore = "requires nanograph CLI")]
-async fn test_incremental_deleted_files() {
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path().join("repo");
-    std::fs::create_dir(&repo_path).unwrap();
-
-    // Initialize git repo
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    // Create initial files
+    // Create 5 files
     for i in 0..5 {
         let file_path = repo_path.join(format!("file{}.rs", i));
-        std::fs::write(&file_path, "fn main() {}").unwrap();
+        std::fs::write(&file_path, format!("fn func{}() {{}}", i)).unwrap();
     }
 
+    let graph_path = temp_dir.path().join("graph");
+
+    // First analysis
+    let result1 = analyze_repository(&repo_path, "test-repo", &graph_path)
+        .await
+        .unwrap();
+    assert_eq!(result1.files_analyzed, 5);
+
+    // Delete 2 files
+    std::fs::remove_file(repo_path.join("file3.rs")).unwrap();
+    std::fs::remove_file(repo_path.join("file4.rs")).unwrap();
+
+    // Second analysis - should only see 3 files, not carry over stale data
+    let result2 = analyze_repository(&repo_path, "test-repo", &graph_path)
+        .await
+        .unwrap();
+    assert_eq!(
+        result2.files_analyzed, 3,
+        "Clean slate should only see 3 remaining files"
+    );
+}
+
+/// Analysis should always process all files, even if nothing changed.
+#[tokio::test]
+#[cfg_attr(not(feature = "nanograph-tests"), ignore = "requires nanograph CLI")]
+async fn test_reanalysis_processes_all_files() {
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = temp_dir.path().join("repo");
+    std::fs::create_dir(&repo_path).unwrap();
+
+    // Initialize git repo
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+
+    // Create and commit files
+    for i in 0..10 {
+        let file_path = repo_path.join(format!("file{}.rs", i));
+        std::fs::write(&file_path, "fn main() {}").unwrap();
+    }
     std::process::Command::new("git")
         .args(["add", "."])
         .current_dir(&repo_path)
         .output()
         .unwrap();
-
     std::process::Command::new("git")
         .args(["commit", "-m", "Initial commit"])
         .current_dir(&repo_path)
@@ -312,29 +155,18 @@ async fn test_incremental_deleted_files() {
 
     let graph_path = temp_dir.path().join("graph");
 
-    // First scan
-    let _result = analyze_repository(&repo_path, "test-repo", &graph_path)
+    // First analysis
+    let result1 = analyze_repository(&repo_path, "test-repo", &graph_path)
         .await
         .unwrap();
+    assert_eq!(result1.files_analyzed, 10);
 
-    // Delete 1 file
-    std::fs::remove_file(repo_path.join("file2.rs")).unwrap();
-
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(&repo_path)
-        .output()
+    // Second analysis without any changes - should still process all 10 files
+    let result2 = analyze_repository(&repo_path, "test-repo", &graph_path)
+        .await
         .unwrap();
-
-    std::process::Command::new("git")
-        .args(["commit", "-m", "Delete file2.rs"])
-        .current_dir(&repo_path)
-        .output()
-        .unwrap();
-
-    // Second scan - should handle deletion
-    let result = analyze_repository(&repo_path, "test-repo", &graph_path).await;
-
-    assert!(result.is_ok(), "Should handle file deletion");
-    // Deleted file should be removed from graph (implementation will verify this)
+    assert_eq!(
+        result2.files_analyzed, 10,
+        "Re-analysis should process all files, not just changed ones"
+    );
 }

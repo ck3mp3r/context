@@ -1,11 +1,15 @@
 //! Code analysis service
 //!
 //! High-level service for analyzing repositories.
-//! Uses generic Parser with Language trait.
+//! Always performs clean-slate analysis: deletes existing graph,
+//! re-scans all files, rebuilds from scratch. This ensures no
+//! stale data accumulates over time.
+//!
+//! Saved queries live at `{graph_path}/queries/` (adjacent to, not
+//! inside `analysis.nano`), so deleting the graph is safe.
 
 use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
 use crate::analysis::{Language, Parser, Rust, store::CodeGraph};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -71,15 +75,6 @@ pub enum AnalysisError {
 
     #[error("Unsupported file: {0}")]
     UnsupportedFile(String),
-
-    #[error("Git error: {0}")]
-    GitError(String),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct AnalysisMetadata {
-    last_analyzed_commit: Option<String>,
-    analyzed_at: String,
 }
 
 pub struct AnalysisResult {
@@ -125,7 +120,9 @@ fn analyze_files<L: Language>(
     Ok((total_symbols, total_relationships))
 }
 
-/// Analyze a repository with progress reporting and incremental support
+/// Analyze a repository with progress reporting.
+/// Always performs a clean-slate analysis: removes any existing graph
+/// data before re-scanning all files.
 pub async fn analyze_repository_with_progress<F>(
     repo_path: &Path,
     repo_id: &str,
@@ -135,30 +132,24 @@ pub async fn analyze_repository_with_progress<F>(
 where
     F: Fn(usize, usize) + Send + Sync,
 {
+    // Clean slate: delete existing graph data
+    let analysis_path = graph_path.join("analysis.nano");
+    if analysis_path.exists() {
+        tracing::info!("Removing existing graph at {:?}", analysis_path);
+        std::fs::remove_dir_all(&analysis_path)?;
+    }
+
     tracing::info!("Creating CodeGraph for repo_id: {}", repo_id);
     let mut graph = CodeGraph::new(graph_path, repo_id)?;
-    tracing::info!("CodeGraph created successfully");
 
-    // Load metadata
-    let metadata_path = graph_path.join("metadata.json");
-    tracing::debug!("Getting current commit for {:?}", repo_path);
-    let current_commit = get_current_commit(repo_path)?;
-    let last_commit = load_metadata(&metadata_path)?;
-
-    // Scan for files
+    // Full scan - always process all files
     tracing::info!("Scanning for files to analyze");
-    let all_files = if let Some(ref last) = last_commit {
-        tracing::info!("Incremental analysis: finding changed files since {}", last);
-        get_changed_files(repo_path, last, &current_commit)?
-    } else {
-        tracing::info!("Full scan: finding all supported files");
-        scan_supported_files(repo_path)?
-    };
+    let all_files = scan_supported_files(repo_path)?;
 
     let total_files = all_files.len();
     tracing::info!("Found {} files to analyze", total_files);
 
-    // Analyze all languages using central registry, sharing a global symbol map
+    // Analyze all languages, sharing a global symbol map
     let mut total_symbols = 0;
     let mut total_relationships = 0;
     let mut global = GlobalSymbolMap::new();
@@ -173,8 +164,8 @@ where
     ));
 
     // Resolve cross-file relationships
-    let resolved = resolve_deferred_edges(&global, &mut graph)
-        .map_err(AnalysisError::Parse)?;
+    let resolved =
+        resolve_deferred_edges(&global, &mut graph).map_err(AnalysisError::Parse)?;
     total_relationships += resolved;
 
     tracing::info!(
@@ -189,9 +180,6 @@ where
     tracing::info!("Committing all data to nanograph...");
     graph.commit()?;
 
-    // Save metadata
-    save_metadata(&metadata_path, &current_commit)?;
-
     Ok(AnalysisResult {
         files_analyzed: total_files,
         symbols_extracted: total_symbols,
@@ -199,7 +187,6 @@ where
     })
 }
 
-/// Macro to check if any registered language can handle a file
 /// Scan directory for supported files (respects .gitignore)
 fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, AnalysisError> {
     tracing::debug!("Starting scan of {:?}", repo_path);
@@ -219,7 +206,6 @@ fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, AnalysisError>
                 if path.is_file()
                     && let Some(file_str) = path.to_str()
                 {
-                    // Check if any parser can handle this file
                     if languages!(can_handle!(file_str)) {
                         tracing::trace!("Found supported file: {:?}", path);
                         supported_files.push(path.to_path_buf());
@@ -234,124 +220,6 @@ fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, AnalysisError>
 
     tracing::info!("Scan complete: found {} files", supported_files.len());
     Ok(supported_files)
-}
-
-/// Get current git commit SHA (short)
-fn get_current_commit(repo_path: &Path) -> Result<String, AnalysisError> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| AnalysisError::GitError(format!("Failed to run git: {}", e)))?;
-
-    if !output.status.success() {
-        // Not a git repo or no commits yet - return empty string
-        return Ok(String::new());
-    }
-
-    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(commit)
-}
-
-/// Get list of changed files between two commits
-fn get_changed_files(
-    repo_path: &Path,
-    from_commit: &str,
-    to_commit: &str,
-) -> Result<Vec<PathBuf>, AnalysisError> {
-    if to_commit.is_empty() {
-        // Not a git repo - do full scan
-        return scan_supported_files(repo_path);
-    }
-
-    let output = std::process::Command::new("git")
-        .args([
-            "diff",
-            "--name-status",
-            &format!("{}..{}", from_commit, to_commit),
-        ])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| AnalysisError::GitError(format!("Failed to run git diff: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AnalysisError::GitError(format!(
-            "git diff failed: {}",
-            stderr
-        )));
-    }
-
-    let diff_output = String::from_utf8_lossy(&output.stdout);
-    let mut changed_files = Vec::new();
-
-    for line in diff_output.lines() {
-        if line.is_empty() {
-            continue;
-        }
-
-        // Parse git diff --name-status output: "M\tfile.rs" or "A\tfile.rs" or "D\tfile.rs"
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 2 {
-            continue;
-        }
-
-        let status = parts[0];
-        let file_path = parts[1];
-
-        // Skip deleted files - we'll handle them separately
-        if status == "D" {
-            // TODO: Remove from graph
-            continue;
-        }
-
-        // Check if file is supported
-        let path = repo_path.join(file_path);
-        if let Some(file_str) = path.to_str()
-            && languages!(can_handle!(file_str))
-        {
-            changed_files.push(path);
-        }
-    }
-
-    Ok(changed_files)
-}
-
-/// Load metadata from file
-fn load_metadata(metadata_path: &Path) -> Result<Option<String>, AnalysisError> {
-    if !metadata_path.exists() {
-        return Ok(None);
-    }
-
-    let content = std::fs::read_to_string(metadata_path)?;
-    let metadata: AnalysisMetadata = serde_json::from_str(&content)
-        .map_err(|e| AnalysisError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-
-    Ok(metadata.last_analyzed_commit)
-}
-
-/// Save metadata to file
-fn save_metadata(metadata_path: &Path, commit_sha: &str) -> Result<(), AnalysisError> {
-    if commit_sha.is_empty() {
-        // Not a git repo - don't save metadata
-        return Ok(());
-    }
-
-    let metadata = AnalysisMetadata {
-        last_analyzed_commit: Some(commit_sha.to_string()),
-        analyzed_at: chrono::Utc::now().to_rfc3339(),
-    };
-
-    let content = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| AnalysisError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-
-    // Ensure directory exists
-    if let Some(parent) = metadata_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    std::fs::write(metadata_path, content)?;
-    Ok(())
 }
 
 #[cfg(test)]

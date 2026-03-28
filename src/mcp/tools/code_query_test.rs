@@ -18,8 +18,8 @@ fn setup_temp_analysis(mock_cli: &mut MockNanographCli) -> tempfile::TempDir {
     let analysis_path = temp_dir.path().join("analysis.nano");
     std::fs::create_dir_all(&analysis_path).unwrap();
 
-    // Also create queries directory for saved query tests
-    let queries_dir = analysis_path.join("queries");
+    // Create queries directory adjacent to analysis.nano (not inside it)
+    let queries_dir = temp_dir.path().join("queries");
     std::fs::create_dir_all(&queries_dir).unwrap();
 
     let temp_path = temp_dir.path().to_path_buf();
@@ -30,9 +30,9 @@ fn setup_temp_analysis(mock_cli: &mut MockNanographCli) -> tempfile::TempDir {
     temp_dir
 }
 
-// Helper to create a saved query file in the temp analysis directory
+// Helper to create a saved query file in the temp queries directory
 fn create_saved_query(temp_dir: &tempfile::TempDir, query_name: &str, query_content: &str) {
-    let queries_dir = temp_dir.path().join("analysis.nano").join("queries");
+    let queries_dir = temp_dir.path().join("queries");
     // Use sanitized query name as filename
     let sanitized = sanitize_filename::sanitize(query_name);
     let query_file = queries_dir.join(format!("{}.gq", sanitized));

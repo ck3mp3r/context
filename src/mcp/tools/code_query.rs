@@ -428,7 +428,7 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
             (Some(name), None) => {
                 // Execute existing saved query from queries/{sanitized_name}.gq
                 let sanitized = sanitize(name);
-                let query_file = analysis_path
+                let query_file = db_path
                     .join("queries")
                     .join(format!("{}.gq", sanitized));
 
@@ -469,7 +469,7 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
             }
             (Some(name), Some(definition)) => {
                 // Save query to queries/{sanitized_name}.gq THEN execute
-                let queries_dir = analysis_path.join("queries");
+                let queries_dir = db_path.join("queries");
                 std::fs::create_dir_all(&queries_dir).map_err(|e| {
                     McpError::internal_error(
                         "fs_error",

@@ -5,11 +5,7 @@ use crate::analysis::parser::Language;
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
-fn parse_and_find<'a>(
-    code: &str,
-    tree: &'a tree_sitter::Tree,
-    node_kind: &str,
-) -> Option<Node<'a>> {
+fn parse_and_find<'a>(tree: &'a tree_sitter::Tree, node_kind: &str) -> Option<Node<'a>> {
     fn find_node<'b>(node: Node<'b>, kind: &str) -> Option<Node<'b>> {
         if node.kind() == kind {
             return Some(node);
@@ -178,7 +174,7 @@ fn test_extract_simple_call() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let call_node = parse_and_find(code, &tree, "call_expression").unwrap();
+    let call_node = parse_and_find(&tree, "call_expression").unwrap();
     let callee = Rust::extract_callee(call_node, code);
     assert_eq!(callee, Some("bar".to_string()));
 }
@@ -190,7 +186,7 @@ fn test_extract_scoped_call() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let call_node = parse_and_find(code, &tree, "call_expression").unwrap();
+    let call_node = parse_and_find(&tree, "call_expression").unwrap();
     let callee = Rust::extract_callee(call_node, code);
     assert_eq!(callee, Some("new".to_string()));
 }
@@ -202,7 +198,7 @@ fn test_extract_method_call() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let call_node = parse_and_find(code, &tree, "call_expression").unwrap();
+    let call_node = parse_and_find(&tree, "call_expression").unwrap();
     // method calls are field_expression, not call_expression in tree-sitter
     // The callee extraction should still work if found
     let callee = Rust::extract_callee(call_node, code);
@@ -220,7 +216,7 @@ fn test_parse_impl_simple() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let impl_node = parse_and_find(code, &tree, "impl_item").unwrap();
+    let impl_node = parse_and_find(&tree, "impl_item").unwrap();
     let info = Rust::parse_impl(impl_node, code).unwrap();
     assert_eq!(info.target_type, "Foo");
     assert_eq!(info.trait_name, None);
@@ -233,7 +229,7 @@ fn test_parse_impl_trait_for_type() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let impl_node = parse_and_find(code, &tree, "impl_item").unwrap();
+    let impl_node = parse_and_find(&tree, "impl_item").unwrap();
     let info = Rust::parse_impl(impl_node, code).unwrap();
     assert_eq!(info.target_type, "Foo");
     assert_eq!(info.trait_name, Some("Display".to_string()));
@@ -250,7 +246,7 @@ fn test_extract_function_signature() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let fn_node = parse_and_find(code, &tree, "function_item").unwrap();
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
     let sig = Rust::extract_signature(fn_node, code);
     assert_eq!(sig, Some("fn add(a: i32, b: i32) -> i32".to_string()));
 }
@@ -262,7 +258,7 @@ fn test_extract_pub_function_signature() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let fn_node = parse_and_find(code, &tree, "function_item").unwrap();
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
     let sig = Rust::extract_signature(fn_node, code);
     assert_eq!(sig, Some("pub fn hello(name: &str) -> String".to_string()));
 }
@@ -274,7 +270,7 @@ fn test_extract_trait_signature() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let trait_node = parse_and_find(code, &tree, "trait_item").unwrap();
+    let trait_node = parse_and_find(&tree, "trait_item").unwrap();
     let sig = Rust::extract_signature(trait_node, code);
     assert_eq!(sig, Some("trait Drawable".to_string()));
 }
@@ -290,7 +286,7 @@ fn test_extract_type_refs_from_function() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let fn_node = parse_and_find(code, &tree, "function_item").unwrap();
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
     let refs = Rust::extract_type_references(fn_node, code);
     let names: Vec<_> = refs.iter().map(|(name, _)| name.as_str()).collect();
     assert!(names.contains(&"Config"), "Should reference Config");
@@ -304,7 +300,7 @@ fn test_type_refs_skip_builtins() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let fn_node = parse_and_find(code, &tree, "function_item").unwrap();
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
     let refs = Rust::extract_type_references(fn_node, code);
     // i32, String, bool are all builtins - should be empty
     assert!(
@@ -327,7 +323,7 @@ fn test_parse_impl_with_lifetime_generics() {
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let impl_node = parse_and_find(code, &tree, "impl_item").unwrap();
+    let impl_node = parse_and_find(&tree, "impl_item").unwrap();
     let info = Rust::parse_impl(impl_node, code).unwrap();
     assert_eq!(info.trait_name, Some("ProjectRepository".to_string()));
     assert_eq!(
