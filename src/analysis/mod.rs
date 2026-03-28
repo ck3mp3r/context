@@ -34,6 +34,9 @@ pub use parser::{Language, Parser};
 #[cfg(feature = "backend")]
 pub use lang::rust::Rust;
 
+#[cfg(feature = "backend")]
+pub use lang::nushell::Nushell;
+
 /// Get the analysis directory path for a repository
 ///
 /// Uses the XDG-compliant data directory from sync::paths

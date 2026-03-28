@@ -121,6 +121,13 @@ pub trait Language {
 
     /// Extract the signature text for a symbol node (e.g. "fn foo(a: i32) -> String")
     fn extract_signature(node: Node, code: &str) -> Option<String>;
+
+    /// Node kinds that represent call expressions.
+    /// Defaults to `["call_expression"]` (Rust, TypeScript, etc.).
+    /// Override for languages with different call node names (e.g. Nushell uses `"command"`).
+    fn call_node_kinds() -> &'static [&'static str] {
+        &["call_expression"]
+    }
 }
 
 /// Generic parser that works for any Language
@@ -324,7 +331,7 @@ impl<L: Language> Parser<L> {
         }
 
         // Check for call expressions
-        if node.kind() == "call_expression"
+        if L::call_node_kinds().contains(&node.kind())
             && let Some(callee_name) = L::extract_callee(node, ctx.code)
         {
             let call_line = node.start_position().row + 1;
