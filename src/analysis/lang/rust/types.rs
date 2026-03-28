@@ -2,14 +2,16 @@
 
 use crate::analysis::types::Kind as GenericKind;
 
-/// Rust-specific symbol types
+/// Rust-specific symbol types.
+/// Only kinds that actually get inserted as symbol nodes.
+/// Impl blocks are NOT symbols - they produce edges (SymbolContains, Inherits)
+/// and are handled via ImplInfo + parse_impl().
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Kind {
     Function,
     Struct,
     Enum,
     Trait,
-    Impl,
     Mod,
     Const,
     Static,
@@ -29,7 +31,6 @@ impl Kind {
             Self::Struct => "struct",
             Self::Enum => "enum",
             Self::Trait => "trait",
-            Self::Impl => "impl",
             Self::Mod => "mod",
             Self::Const => "const",
             Self::Static => "static",
@@ -47,7 +48,6 @@ impl std::str::FromStr for Kind {
             "struct" => Ok(Self::Struct),
             "enum" => Ok(Self::Enum),
             "trait" => Ok(Self::Trait),
-            "impl" => Ok(Self::Impl),
             "mod" => Ok(Self::Mod),
             "const" => Ok(Self::Const),
             "static" => Ok(Self::Static),
@@ -64,9 +64,6 @@ impl From<Kind> for GenericKind {
             Kind::Struct => GenericKind::Struct,
             Kind::Enum => GenericKind::Enum,
             Kind::Trait => GenericKind::Trait,
-            Kind::Impl => GenericKind::Impl {
-                target_type: String::new(),
-            },
             Kind::Mod => GenericKind::Module,
             Kind::Const => GenericKind::Constant,
             Kind::Static => GenericKind::Static,

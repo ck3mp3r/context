@@ -4,7 +4,7 @@
 //! Instead of embedding NanoGraph as a library (which adds 400MB+ to the binary),
 //! we shell out to the standalone `nanograph` CLI tool.
 
-use crate::analysis::types::Symbol;
+use crate::analysis::types::{FileId, InheritanceType, ReferenceType, Symbol, SymbolId};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -108,12 +108,12 @@ impl CodeGraph {
         path: &str,
         language: &str,
         hash: &str,
-    ) -> Result<String, StoreError> {
-        let file_id = format!("file:{}", path);
+    ) -> Result<FileId, StoreError> {
+        let file_id = FileId::new(path);
         let data = serde_json::json!({
             "type": "File",
             "data": {
-                "file_id": &file_id,
+                "file_id": file_id.as_str(),
                 "path": path,
                 "language": language,
                 "hash": hash,
@@ -127,15 +127,12 @@ impl CodeGraph {
     }
 
     /// Insert a symbol node
-    pub fn insert_symbol(&mut self, symbol: &Symbol) -> Result<String, StoreError> {
-        let symbol_id = format!(
-            "symbol:{}:{}:{}",
-            symbol.file_path, symbol.name, symbol.start_line
-        );
+    pub fn insert_symbol(&mut self, symbol: &Symbol) -> Result<SymbolId, StoreError> {
+        let symbol_id = SymbolId::new(&symbol.file_path, &symbol.name, symbol.start_line);
         let data = serde_json::json!({
             "type": "Symbol",
             "data": {
-                "symbol_id": &symbol_id,
+                "symbol_id": symbol_id.as_str(),
                 "name": &symbol.name,
                 "kind": symbol.kind.as_str(),
                 "language": &symbol.language,
@@ -155,14 +152,14 @@ impl CodeGraph {
     /// Insert a containment relationship (File contains Symbol)
     pub fn insert_contains(
         &mut self,
-        file_id: &str,
-        symbol_id: &str,
+        file_id: &FileId,
+        symbol_id: &SymbolId,
         confidence: f32,
     ) -> Result<(), StoreError> {
         let data = serde_json::json!({
             "edge": "FileContains",
-            "from": file_id,
-            "to": symbol_id,
+            "from": file_id.as_str(),
+            "to": symbol_id.as_str(),
             "data": {
                 "confidence": confidence,
             }
@@ -176,15 +173,15 @@ impl CodeGraph {
     /// Insert Calls edge between two symbols
     pub fn insert_calls_edge(
         &mut self,
-        from_symbol_id: &str,
-        to_symbol_id: &str,
+        from: &SymbolId,
+        to: &SymbolId,
         call_site_line: usize,
         confidence: f64,
     ) -> Result<(), StoreError> {
         let data = serde_json::json!({
             "edge": "Calls",
-            "from": from_symbol_id,
-            "to": to_symbol_id,
+            "from": from.as_str(),
+            "to": to.as_str(),
             "data": {
                 "confidence": confidence,
                 "call_site_line": call_site_line,
@@ -194,8 +191,8 @@ impl CodeGraph {
         self.append_batch(&data)?;
         tracing::debug!(
             "Appended Calls edge to batch: {} -> {} (line {})",
-            from_symbol_id,
-            to_symbol_id,
+            from,
+            to,
             call_site_line
         );
         Ok(())
@@ -204,14 +201,14 @@ impl CodeGraph {
     /// Insert SymbolContains edge (e.g. struct -> method via impl block)
     pub fn insert_symbol_contains_edge(
         &mut self,
-        parent_symbol_id: &str,
-        child_symbol_id: &str,
+        parent: &SymbolId,
+        child: &SymbolId,
         confidence: f64,
     ) -> Result<(), StoreError> {
         let data = serde_json::json!({
             "edge": "SymbolContains",
-            "from": parent_symbol_id,
-            "to": child_symbol_id,
+            "from": parent.as_str(),
+            "to": child.as_str(),
             "data": {
                 "confidence": confidence,
             }
@@ -220,8 +217,8 @@ impl CodeGraph {
         self.append_batch(&data)?;
         tracing::debug!(
             "Appended SymbolContains edge to batch: {} -> {}",
-            parent_symbol_id,
-            child_symbol_id,
+            parent,
+            child,
         );
         Ok(())
     }
@@ -229,27 +226,27 @@ impl CodeGraph {
     /// Insert References edge (e.g. function references a type in its signature)
     pub fn insert_references_edge(
         &mut self,
-        from_symbol_id: &str,
-        to_symbol_id: &str,
-        reference_type: &str,
+        from: &SymbolId,
+        to: &SymbolId,
+        reference_type: &ReferenceType,
         confidence: f64,
     ) -> Result<(), StoreError> {
         let data = serde_json::json!({
             "edge": "References",
-            "from": from_symbol_id,
-            "to": to_symbol_id,
+            "from": from.as_str(),
+            "to": to.as_str(),
             "data": {
                 "confidence": confidence,
-                "reference_type": reference_type,
+                "reference_type": reference_type.as_str(),
             }
         });
 
         self.append_batch(&data)?;
         tracing::debug!(
             "Appended References edge to batch: {} -> {} ({})",
-            from_symbol_id,
-            to_symbol_id,
-            reference_type
+            from,
+            to,
+            reference_type.as_str()
         );
         Ok(())
     }
@@ -257,27 +254,27 @@ impl CodeGraph {
     /// Insert Inherits edge (e.g. struct implements trait)
     pub fn insert_inherits_edge(
         &mut self,
-        from_symbol_id: &str,
-        to_symbol_id: &str,
-        inheritance_type: &str,
+        from: &SymbolId,
+        to: &SymbolId,
+        inheritance_type: &InheritanceType,
         confidence: f64,
     ) -> Result<(), StoreError> {
         let data = serde_json::json!({
             "edge": "Inherits",
-            "from": from_symbol_id,
-            "to": to_symbol_id,
+            "from": from.as_str(),
+            "to": to.as_str(),
             "data": {
                 "confidence": confidence,
-                "inheritance_type": inheritance_type,
+                "inheritance_type": inheritance_type.as_str(),
             }
         });
 
         self.append_batch(&data)?;
         tracing::debug!(
             "Appended Inherits edge to batch: {} -> {} ({})",
-            from_symbol_id,
-            to_symbol_id,
-            inheritance_type
+            from,
+            to,
+            inheritance_type.as_str()
         );
         Ok(())
     }

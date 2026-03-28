@@ -32,7 +32,7 @@ fn test_insert_file_node() {
     let file_id = graph.insert_file("src/main.rs", "rust", "abc123hash");
 
     assert!(file_id.is_ok());
-    assert!(!file_id.unwrap().is_empty());
+    assert!(!file_id.unwrap().as_str().is_empty());
 }
 
 #[test]

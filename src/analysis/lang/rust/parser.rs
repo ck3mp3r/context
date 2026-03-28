@@ -2,6 +2,7 @@
 
 use super::types::Kind;
 use crate::analysis::parser::{ImplInfo, Language};
+use crate::analysis::types::{ReferenceType, SymbolName};
 use tree_sitter::Node;
 
 /// Rust language implementation
@@ -116,18 +117,18 @@ impl Language for Rust {
         })
     }
 
-    fn extract_type_references(node: Node, code: &str) -> Vec<(String, String)> {
+    fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
         let mut refs = Vec::new();
 
         // Only extract from function/method signatures and struct fields
         match node.kind() {
             "function_item" => {
                 // Look at parameters and return type for type_identifier
-                collect_type_refs(node, code, &mut refs, "type_annotation");
+                collect_type_refs(node, code, &mut refs, ReferenceType::TypeAnnotation);
             }
             "struct_item" => {
                 // Look at field types
-                collect_type_refs(node, code, &mut refs, "field_type");
+                collect_type_refs(node, code, &mut refs, ReferenceType::FieldType);
             }
             _ => {}
         }
@@ -225,14 +226,19 @@ const BUILTIN_TYPES: &[&str] = &[
 ];
 
 /// Recursively collect type_identifier nodes from a subtree, skipping builtins
-fn collect_type_refs(node: Node, code: &str, refs: &mut Vec<(String, String)>, ref_kind: &str) {
+fn collect_type_refs(
+    node: Node,
+    code: &str,
+    refs: &mut Vec<(SymbolName, ReferenceType)>,
+    ref_kind: ReferenceType,
+) {
     if node.kind() == "type_identifier" {
         let name = code[node.byte_range()].to_string();
         if !BUILTIN_TYPES.contains(&name.as_str()) {
-            refs.push((name, ref_kind.to_string()));
+            refs.push((SymbolName::new(name), ref_kind.clone()));
         }
     }
     for child in node.children(&mut node.walk()) {
-        collect_type_refs(child, code, refs, ref_kind);
+        collect_type_refs(child, code, refs, ref_kind.clone());
     }
 }

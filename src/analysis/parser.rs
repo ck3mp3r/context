@@ -1,6 +1,7 @@
 // Generic language-agnostic parser with trait-based language support
 
 use crate::analysis::store::CodeGraph;
+use crate::analysis::types::{FileId, InheritanceType, ReferenceType, SymbolId, SymbolName};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -36,25 +37,25 @@ pub struct AnalysisStats {
 pub enum DeferredEdge {
     /// function/method calls another function by name
     Call {
-        caller_id: String,
-        callee_name: String,
+        caller_id: SymbolId,
+        callee_name: SymbolName,
         call_site_line: usize,
     },
     /// symbol references a type (in signature, field, etc.)
     Reference {
-        from_symbol_id: String,
-        type_name: String,
-        ref_kind: String,
+        from_symbol_id: SymbolId,
+        type_name: SymbolName,
+        ref_kind: ReferenceType,
     },
     /// `impl Trait for Type` - type implements trait
     Inherits {
-        type_name: String,
-        trait_name: String,
+        type_name: SymbolName,
+        trait_name: SymbolName,
     },
     /// impl block methods belong to a type (SymbolContains)
     SymbolContains {
-        parent_type_name: String,
-        child_symbol_id: String,
+        parent_type_name: SymbolName,
+        child_symbol_id: SymbolId,
     },
 }
 
@@ -62,7 +63,7 @@ pub enum DeferredEdge {
 /// Built up file-by-file, then used to resolve cross-file relationships.
 pub struct GlobalSymbolMap {
     /// Maps symbol name -> symbol_id across ALL files
-    pub map: HashMap<String, String>,
+    pub map: HashMap<SymbolName, SymbolId>,
     /// Relationships that couldn't be resolved within a single file
     pub deferred: Vec<DeferredEdge>,
 }
@@ -110,7 +111,7 @@ pub trait Language {
 
     /// Extract type references from a node (e.g. type_identifier in signatures)
     /// Returns list of (referenced_type_name, reference_kind) pairs
-    fn extract_type_references(node: Node, code: &str) -> Vec<(String, String)>;
+    fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)>;
 
     /// Language name for file metadata
     fn name() -> &'static str;
@@ -131,7 +132,7 @@ pub struct Parser<L: Language> {
 struct WalkContext<'a> {
     code: &'a str,
     file_path: &'a str,
-    file_id: &'a str,
+    file_id: &'a FileId,
     symbols_count: &'a mut usize,
     relationships_count: &'a mut usize,
     /// Global symbol map shared across all files
@@ -225,7 +226,7 @@ impl<L: Language> Parser<L> {
         node: Node<'_>,
         ctx: &mut WalkContext<'_>,
         graph: &mut CodeGraph,
-        containing_symbol: Option<String>,
+        containing_symbol: Option<SymbolId>,
         impl_context: Option<&ImplInfo>,
     ) -> Result<(), ParseError> {
         let mut current_symbol = containing_symbol.clone();
@@ -234,18 +235,25 @@ impl<L: Language> Parser<L> {
         // Check for impl block
         let owned_impl_info = if let Some(impl_info) = L::parse_impl(node, ctx.code) {
             if let Some(ref trait_name) = impl_info.trait_name {
+                let target_name = SymbolName::new(&impl_info.target_type);
+                let trait_sym_name = SymbolName::new(trait_name.as_str());
                 match (
-                    ctx.global.map.get(&impl_info.target_type),
-                    ctx.global.map.get(trait_name),
+                    ctx.global.map.get(&target_name),
+                    ctx.global.map.get(&trait_sym_name),
                 ) {
                     (Some(type_id), Some(trait_id)) => {
-                        graph.insert_inherits_edge(type_id, trait_id, "implements", 1.0)?;
+                        graph.insert_inherits_edge(
+                            type_id,
+                            trait_id,
+                            &InheritanceType::Implements,
+                            1.0,
+                        )?;
                         *ctx.relationships_count += 1;
                     }
                     _ => {
                         ctx.global.deferred.push(DeferredEdge::Inherits {
-                            type_name: impl_info.target_type.clone(),
-                            trait_name: trait_name.clone(),
+                            type_name: target_name,
+                            trait_name: trait_sym_name,
                         });
                     }
                 }
@@ -281,25 +289,32 @@ impl<L: Language> Parser<L> {
 
             // If inside an impl block, create or defer SymbolContains edge
             if let Some(impl_info) = current_impl_context {
-                if let Some(type_symbol_id) = ctx.global.map.get(&impl_info.target_type) {
+                let parent_name = SymbolName::new(&impl_info.target_type);
+                if let Some(type_symbol_id) = ctx.global.map.get(&parent_name) {
                     graph.insert_symbol_contains_edge(type_symbol_id, &symbol_id, 1.0)?;
                     *ctx.relationships_count += 1;
                 } else {
                     ctx.global.deferred.push(DeferredEdge::SymbolContains {
-                        parent_type_name: impl_info.target_type.clone(),
+                        parent_type_name: parent_name,
                         child_symbol_id: symbol_id.clone(),
                     });
                 }
             }
 
             // Track in global symbol map
-            ctx.global.map.insert(name.clone(), symbol_id.clone());
+            let sym_name = SymbolName::new(&name);
+            ctx.global.map.insert(sym_name, symbol_id.clone());
 
             // Extract type references
             let refs = L::extract_type_references(node, ctx.code);
             for (ref_type_name, ref_kind) in refs {
                 if let Some(ref_symbol_id) = ctx.global.map.get(&ref_type_name) {
-                    graph.insert_references_edge(&symbol_id, ref_symbol_id, &ref_kind, 1.0)?;
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        ref_symbol_id,
+                        &ref_kind,
+                        1.0,
+                    )?;
                     *ctx.relationships_count += 1;
                 } else {
                     ctx.global.deferred.push(DeferredEdge::Reference {
@@ -319,13 +334,14 @@ impl<L: Language> Parser<L> {
         {
             let call_line = node.start_position().row + 1;
             if let Some(caller_id) = containing_symbol.as_ref() {
-                if let Some(callee_id) = ctx.global.map.get(&callee_name) {
+                let callee_sym_name = SymbolName::new(&callee_name);
+                if let Some(callee_id) = ctx.global.map.get(&callee_sym_name) {
                     graph.insert_calls_edge(caller_id, callee_id, call_line, 1.0)?;
                     *ctx.relationships_count += 1;
                 } else {
                     ctx.global.deferred.push(DeferredEdge::Call {
                         caller_id: caller_id.clone(),
-                        callee_name,
+                        callee_name: callee_sym_name,
                         call_site_line: call_line,
                     });
                 }
@@ -397,7 +413,12 @@ pub fn resolve_deferred_edges(
                 if let (Some(type_id), Some(trait_id)) =
                     (global.map.get(type_name), global.map.get(trait_name))
                 {
-                    graph.insert_inherits_edge(type_id, trait_id, "implements", 1.0)?;
+                    graph.insert_inherits_edge(
+                        type_id,
+                        trait_id,
+                        &InheritanceType::Implements,
+                        1.0,
+                    )?;
                     resolved += 1;
                 }
             }

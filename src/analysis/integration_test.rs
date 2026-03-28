@@ -7,6 +7,7 @@
 
 use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
 use crate::analysis::store::CodeGraph;
+use crate::analysis::types::SymbolName;
 use crate::analysis::{Parser, Rust};
 use tempfile::TempDir;
 
@@ -197,8 +198,8 @@ impl Drawable for Circle {
     );
 
     // Both symbols should be in the global map
-    assert!(global.map.contains_key("Drawable"), "Drawable should be in global map");
-    assert!(global.map.contains_key("Circle"), "Circle should be in global map");
+    assert!(global.map.contains_key(&SymbolName::new("Drawable")), "Drawable should be in global map");
+    assert!(global.map.contains_key(&SymbolName::new("Circle")), "Circle should be in global map");
 }
 
 /// Trait defined AFTER the impl file is processed.
@@ -237,7 +238,7 @@ pub trait Drawable {
 
     // Drawable wasn't known when file1 was processed, so Inherits should be deferred
     let has_deferred_inherits = global.deferred.iter().any(|e| {
-        matches!(e, crate::analysis::parser::DeferredEdge::Inherits { trait_name, .. } if trait_name == "Drawable")
+        matches!(e, crate::analysis::parser::DeferredEdge::Inherits { trait_name, .. } if trait_name.as_str() == "Drawable")
     });
     assert!(has_deferred_inherits, "Should have deferred Inherits edge for Drawable");
 
@@ -281,7 +282,7 @@ pub fn helper() {
 
     // Should have a deferred Call edge
     let has_deferred_call = global.deferred.iter().any(|e| {
-        matches!(e, crate::analysis::parser::DeferredEdge::Call { callee_name, .. } if callee_name == "helper")
+        matches!(e, crate::analysis::parser::DeferredEdge::Call { callee_name, .. } if callee_name.as_str() == "helper")
     });
     assert!(has_deferred_call, "Should have deferred call to helper()");
 
@@ -386,9 +387,9 @@ impl Server {
     );
 
     // All symbols should be in the global map
-    assert!(global.map.contains_key("Server"));
-    assert!(global.map.contains_key("new"));
-    assert!(global.map.contains_key("start"));
+    assert!(global.map.contains_key(&SymbolName::new("Server")));
+    assert!(global.map.contains_key(&SymbolName::new("new")));
+    assert!(global.map.contains_key(&SymbolName::new("start")));
 }
 
 /// Struct defined AFTER impl block - exercises deferred SymbolContains.
@@ -426,7 +427,7 @@ pub struct Server {
 
     // Server wasn't known when file1 was processed, so SymbolContains should be deferred
     let deferred_count = global.deferred.iter().filter(|e| {
-        matches!(e, crate::analysis::parser::DeferredEdge::SymbolContains { parent_type_name, .. } if parent_type_name == "Server")
+        matches!(e, crate::analysis::parser::DeferredEdge::SymbolContains { parent_type_name, .. } if parent_type_name.as_str() == "Server")
     }).count();
     assert!(deferred_count >= 2, "Should have deferred SymbolContains for new + start, got {}", deferred_count);
 
@@ -470,9 +471,9 @@ pub fn main() {
     );
 
     // Calculator, new, main should all be in global map
-    assert!(global.map.contains_key("Calculator"));
-    assert!(global.map.contains_key("new"));
-    assert!(global.map.contains_key("main"));
+    assert!(global.map.contains_key(&SymbolName::new("Calculator")));
+    assert!(global.map.contains_key(&SymbolName::new("new")));
+    assert!(global.map.contains_key(&SymbolName::new("main")));
 }
 
 /// parse_and_analyze (backward compat) should still work for single-file use.
