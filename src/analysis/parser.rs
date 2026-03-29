@@ -85,6 +85,23 @@ pub struct GlobalSymbolMap {
     pub type_methods: HashMap<SymbolName, Vec<String>>,
     /// File path -> top-level symbol IDs (for resolving external module containment)
     pub file_symbols: HashMap<String, Vec<SymbolId>>,
+    /// Per-file import tables: file_path -> ImportTable
+    /// Built from import/use statements during walk_and_insert.
+    pub import_tables: HashMap<String, ImportTable>,
+}
+
+/// Per-file import table mapping bare names to their qualified module paths.
+/// Built from import/use statements (Rust `use`, Go `import`, Nushell `use`).
+///
+/// Used during symbol resolution to disambiguate bare names when multiple
+/// symbols share the same name across different modules.
+#[derive(Debug, Default)]
+pub struct ImportTable {
+    /// bare_name -> module_path from import statement
+    /// e.g., "HashMap" -> "std::collections" (from `use std::collections::HashMap`)
+    pub name_to_module: HashMap<String, String>,
+    /// Glob-imported module paths (all symbols from these modules are visible)
+    pub glob_modules: Vec<String>,
 }
 
 impl GlobalSymbolMap {
@@ -96,6 +113,7 @@ impl GlobalSymbolMap {
             interface_methods: HashMap::new(),
             type_methods: HashMap::new(),
             file_symbols: HashMap::new(),
+            import_tables: HashMap::new(),
         }
     }
 
@@ -177,6 +195,59 @@ impl GlobalSymbolMap {
     /// Useful for tests.
     pub fn contains_bare_name(&self, name: &str) -> bool {
         self.bare_to_qualified.contains_key(&SymbolName::new(name))
+    }
+
+    /// Resolve a bare name using the file's import table for disambiguation.
+    ///
+    /// Resolution order:
+    /// 1. Same module: try `caller_module::bare_name`
+    /// 2. Import table: check if the file imported this name from a specific module
+    /// 3. Glob imports: check modules imported with `*`
+    /// 4. Unique bare name: if only one qualified name matches, use it
+    /// 5. Ambiguous: fall back to first candidate (best-effort)
+    pub fn resolve_with_imports(
+        &self,
+        bare_name: &SymbolName,
+        caller_module: &str,
+        file_path: &str,
+    ) -> Option<&SymbolId> {
+        // 1. Try same-module
+        let same_module_qn = QualifiedName::new(caller_module, bare_name.as_str());
+        if let Some(id) = self.qualified_map.get(&same_module_qn) {
+            return Some(id);
+        }
+
+        // 2. Check file's import table
+        if let Some(import_table) = self.import_tables.get(file_path) {
+            // Direct import: bare name maps to a specific module
+            if let Some(module_path) = import_table.name_to_module.get(bare_name.as_str()) {
+                let qn = QualifiedName::new(module_path, bare_name.as_str());
+                if let Some(id) = self.qualified_map.get(&qn) {
+                    return Some(id);
+                }
+            }
+
+            // 3. Glob imports: check each glob-imported module
+            for glob_module in &import_table.glob_modules {
+                let qn = QualifiedName::new(glob_module, bare_name.as_str());
+                if let Some(id) = self.qualified_map.get(&qn) {
+                    return Some(id);
+                }
+            }
+        }
+
+        // 4. Check reverse index for candidates
+        if let Some(candidates) = self.bare_to_qualified.get(bare_name) {
+            if candidates.len() == 1 {
+                return self.qualified_map.get(&candidates[0]);
+            }
+            // 5. Multiple candidates: return first (best-effort)
+            if let Some(first) = candidates.first() {
+                return self.qualified_map.get(first);
+            }
+        }
+
+        None
     }
 }
 
@@ -361,6 +432,42 @@ impl<L: Language> Parser<L> {
     ) -> Result<AnalysisStats, ParseError> {
         let tree = self.parse(code)?;
         let file_id = graph.insert_file(file_path, L::name(), "todo_hash")?;
+
+        // First pass: collect imports from top-level nodes to build ImportTable
+        let mut import_table = ImportTable::default();
+        let root = tree.root_node();
+        for child in root.children(&mut root.walk()) {
+            if let Some(entries) = L::extract_import(child, code) {
+                for entry in entries {
+                    if entry.is_glob {
+                        import_table.glob_modules.push(entry.module_path);
+                    } else {
+                        for name in &entry.imported_names {
+                            import_table
+                                .name_to_module
+                                .insert(name.clone(), entry.module_path.clone());
+                        }
+                        // If no specific names, the module itself is imported
+                        // (e.g., Go `import "fmt"` or Nushell `use std`)
+                        // In this case, the module_path's last segment is the usable name
+                        if entry.imported_names.is_empty() {
+                            let last_segment = entry
+                                .module_path
+                                .rsplit("::")
+                                .next()
+                                .or_else(|| entry.module_path.rsplit('/').next())
+                                .unwrap_or(&entry.module_path);
+                            import_table
+                                .name_to_module
+                                .insert(last_segment.to_string(), entry.module_path);
+                        }
+                    }
+                }
+            }
+        }
+        global
+            .import_tables
+            .insert(file_path.to_string(), import_table);
 
         let mut symbols_inserted = 0;
         let mut relationships_inserted = 0;
@@ -741,8 +848,9 @@ pub fn resolve_deferred_edges(
                 call_site_line,
             } => {
                 let caller_module = module_path_from_symbol_id(caller_id);
+                let caller_file = caller_id.file_path().unwrap_or("");
                 if let Some(callee_id) =
-                    global.get_by_bare_name_with_hint(callee_name, &caller_module)
+                    global.resolve_with_imports(callee_name, &caller_module, caller_file)
                 {
                     graph.insert_calls_edge(caller_id, callee_id, *call_site_line, 1.0)?;
                     resolved += 1;
@@ -754,8 +862,9 @@ pub fn resolve_deferred_edges(
                 ref_kind,
             } => {
                 let caller_module = module_path_from_symbol_id(from_symbol_id);
+                let caller_file = from_symbol_id.file_path().unwrap_or("");
                 if let Some(to_symbol_id) =
-                    global.get_by_bare_name_with_hint(type_name, &caller_module)
+                    global.resolve_with_imports(type_name, &caller_module, caller_file)
                 {
                     graph.insert_references_edge(from_symbol_id, to_symbol_id, ref_kind, 1.0)?;
                     resolved += 1;
@@ -784,8 +893,9 @@ pub fn resolve_deferred_edges(
                 child_symbol_id,
             } => {
                 let child_module = module_path_from_symbol_id(child_symbol_id);
+                let child_file = child_symbol_id.file_path().unwrap_or("");
                 if let Some(parent_id) =
-                    global.get_by_bare_name_with_hint(parent_type_name, &child_module)
+                    global.resolve_with_imports(parent_type_name, &child_module, child_file)
                 {
                     graph.insert_symbol_contains_edge(parent_id, child_symbol_id, 1.0)?;
                     resolved += 1;

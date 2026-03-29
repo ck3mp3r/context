@@ -7,7 +7,7 @@
 
 use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
 use crate::analysis::store::CodeGraph;
-use crate::analysis::types::SymbolName;
+use crate::analysis::types::{QualifiedName, SymbolName};
 use crate::analysis::{Parser, Rust};
 use tempfile::TempDir;
 
@@ -1056,5 +1056,134 @@ func Set(key string, value string) {}
         total_rels >= 2,
         "Should create SymbolContains edges from both files' symbols to shared package, got: {}",
         total_rels
+    );
+}
+
+// ============================================================================
+// Import table integration tests
+// ============================================================================
+
+#[test]
+fn test_import_table_built_from_use_statements() {
+    let tmp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(tmp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    let code = r#"
+use std::collections::HashMap;
+use crate::analysis::types::{SymbolId, SymbolName};
+use crate::api::*;
+
+pub fn process() {}
+"#;
+
+    parser
+        .parse_and_collect(code, "src/main.rs", &mut graph, &mut global)
+        .unwrap();
+
+    let table = global.import_tables.get("src/main.rs");
+    assert!(
+        table.is_some(),
+        "Import table should be created for src/main.rs"
+    );
+    let table = table.unwrap();
+
+    assert_eq!(
+        table.name_to_module.get("HashMap"),
+        Some(&"std::collections".to_string()),
+        "HashMap should map to std::collections"
+    );
+    assert_eq!(
+        table.name_to_module.get("SymbolId"),
+        Some(&"crate::analysis::types".to_string()),
+        "SymbolId should map to crate::analysis::types"
+    );
+    assert_eq!(
+        table.name_to_module.get("SymbolName"),
+        Some(&"crate::analysis::types".to_string()),
+        "SymbolName should map to crate::analysis::types"
+    );
+    assert!(
+        table.glob_modules.contains(&"crate::api".to_string()),
+        "Glob imports should be tracked, got: {:?}",
+        table.glob_modules
+    );
+}
+
+#[test]
+fn test_import_table_resolves_ambiguous_names() {
+    let tmp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(tmp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // Module A defines Config
+    let mod_a = r#"
+pub struct Config {
+    pub name: String,
+}
+"#;
+
+    // Module B also defines Config
+    let mod_b = r#"
+pub struct Config {
+    pub value: i32,
+}
+"#;
+
+    // Module C imports Config from module A and uses it
+    let mod_c = r#"
+use crate::module_a::Config;
+
+pub fn process(c: Config) {}
+"#;
+
+    parser
+        .parse_and_collect(mod_a, "src/module_a.rs", &mut graph, &mut global)
+        .unwrap();
+    parser
+        .parse_and_collect(mod_b, "src/module_b.rs", &mut graph, &mut global)
+        .unwrap();
+    parser
+        .parse_and_collect(mod_c, "src/module_c.rs", &mut graph, &mut global)
+        .unwrap();
+
+    // Both Configs should be in the global map
+    let config_name = SymbolName::new("Config");
+    let candidates = global.bare_to_qualified.get(&config_name);
+    assert!(
+        candidates.is_some(),
+        "Config should be in bare_to_qualified"
+    );
+    assert_eq!(
+        candidates.unwrap().len(),
+        2,
+        "Should have 2 Configs, got: {:?}",
+        candidates
+    );
+
+    // Module C's import table should map Config to module_a
+    let table_c = global.import_tables.get("src/module_c.rs").unwrap();
+    assert_eq!(
+        table_c.name_to_module.get("Config"),
+        Some(&"crate::module_a".to_string()),
+        "Config in module_c should resolve to module_a"
+    );
+
+    // Resolve with imports should pick module_a::Config for module_c
+    let resolved = global.resolve_with_imports(&config_name, "module_c", "src/module_c.rs");
+    assert!(
+        resolved.is_some(),
+        "Should resolve Config in module_c context"
+    );
+
+    // Verify it's the module_a Config, not module_b
+    let qn_a = QualifiedName::new("module_a", "Config");
+    let expected_id = global.qualified_map.get(&qn_a).unwrap();
+    assert_eq!(
+        resolved.unwrap(),
+        expected_id,
+        "Should resolve to module_a::Config, not module_b::Config"
     );
 }
