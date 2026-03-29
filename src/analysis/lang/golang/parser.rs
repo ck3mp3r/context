@@ -73,6 +73,38 @@ impl Language for Go {
             _ => None,
         }
     }
+
+    fn extract_usages(node: Node, code: &str) -> Vec<(SymbolName, usize)> {
+        // Only extract usages from function/method bodies
+        let body = match node.kind() {
+            "function_declaration" | "method_declaration" => node.child_by_field_name("body"),
+            _ => None,
+        };
+        let Some(body) = body else {
+            return Vec::new();
+        };
+
+        // Collect local declarations to exclude them from usages
+        let mut locals = std::collections::HashSet::new();
+
+        // Collect parameter names
+        if let Some(params) = node.child_by_field_name("parameters") {
+            collect_param_names(params, code, &mut locals);
+        }
+        // Collect receiver name for methods
+        if let Some(receiver) = node.child_by_field_name("receiver") {
+            collect_param_names(receiver, code, &mut locals);
+        }
+
+        // Collect local variable declarations from the body
+        collect_local_declarations(body, code, &mut locals);
+
+        // Scan the body for identifier usages, excluding locals and builtins
+        let mut usages = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        collect_identifier_usages(body, code, &locals, &mut usages, &mut seen);
+        usages
+    }
 }
 
 /// Extract text from a node
@@ -200,4 +232,176 @@ fn is_builtin_type(name: &str) -> bool {
             | "any"
             | "comparable"
     )
+}
+
+/// Check if an identifier is a Go built-in function or value
+fn is_builtin_identifier(name: &str) -> bool {
+    matches!(
+        name,
+        "append"
+            | "cap"
+            | "clear"
+            | "close"
+            | "complex"
+            | "copy"
+            | "delete"
+            | "imag"
+            | "len"
+            | "make"
+            | "max"
+            | "min"
+            | "new"
+            | "panic"
+            | "print"
+            | "println"
+            | "real"
+            | "recover"
+            | "true"
+            | "false"
+            | "nil"
+            | "iota"
+    )
+}
+
+/// Collect parameter names from a parameter_list node
+fn collect_param_names(
+    param_list: Node,
+    code: &str,
+    locals: &mut std::collections::HashSet<String>,
+) {
+    for child in param_list.children(&mut param_list.walk()) {
+        if child.kind() == "parameter_declaration" {
+            for param_child in child.children(&mut child.walk()) {
+                if param_child.kind() == "identifier" {
+                    locals.insert(node_text(param_child, code));
+                }
+            }
+        }
+    }
+}
+
+/// Recursively collect local variable/constant declarations from a block
+fn collect_local_declarations(
+    node: Node,
+    code: &str,
+    locals: &mut std::collections::HashSet<String>,
+) {
+    match node.kind() {
+        // short_var_declaration: `x, y := expr`
+        "short_var_declaration" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                for child in left.children(&mut left.walk()) {
+                    if child.kind() == "identifier" {
+                        locals.insert(node_text(child, code));
+                    }
+                }
+            }
+            return;
+        }
+        // var_spec inside a function: `var x int = 5`
+        "var_spec" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                locals.insert(node_text(name, code));
+            }
+            return;
+        }
+        // range clause: `for k, v := range items`
+        "range_clause" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                for child in left.children(&mut left.walk()) {
+                    if child.kind() == "identifier" {
+                        locals.insert(node_text(child, code));
+                    }
+                }
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    for child in node.children(&mut node.walk()) {
+        if child.kind() != "func_literal" {
+            collect_local_declarations(child, code, locals);
+        }
+    }
+}
+
+/// Collect identifier usages from a function body, excluding locals and builtins.
+/// Only collects `identifier` nodes (not `type_identifier` — those are types).
+/// Deduplicates by name (one usage edge per referenced symbol, not per occurrence).
+fn collect_identifier_usages(
+    node: Node,
+    code: &str,
+    locals: &std::collections::HashSet<String>,
+    usages: &mut Vec<(SymbolName, usize)>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    if node.kind() == "identifier" {
+        let name = node_text(node, code);
+        if !locals.contains(&name)
+            && !is_builtin_identifier(&name)
+            && !is_builtin_type(&name)
+            && !seen.contains(&name)
+            && name.len() > 1
+            && !is_definition_position(node)
+        {
+            seen.insert(name.clone());
+            let line = node.start_position().row + 1;
+            usages.push((SymbolName::new(name), line));
+        }
+        return;
+    }
+
+    // Don't recurse into nested function literals
+    if node.kind() == "func_literal" {
+        return;
+    }
+
+    for child in node.children(&mut node.walk()) {
+        collect_identifier_usages(child, code, locals, usages, seen);
+    }
+}
+
+/// Check if an identifier is in a definition/assignment position
+fn is_definition_position(node: Node) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    match parent.kind() {
+        "assignment_statement" => {
+            if let Some(left) = parent.child_by_field_name("left") {
+                is_ancestor_of(left, node)
+            } else {
+                false
+            }
+        }
+        "selector_expression" => {
+            if let Some(field) = parent.child_by_field_name("field") {
+                node.id() == field.id()
+            } else {
+                false
+            }
+        }
+        "labeled_statement" => {
+            if let Some(label) = parent.child_by_field_name("label") {
+                node.id() == label.id()
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Check if `ancestor` is an ancestor of (or is) `node`
+fn is_ancestor_of(ancestor: Node, node: Node) -> bool {
+    if ancestor.id() == node.id() {
+        return true;
+    }
+    for child in ancestor.children(&mut ancestor.walk()) {
+        if is_ancestor_of(child, node) {
+            return true;
+        }
+    }
+    false
 }

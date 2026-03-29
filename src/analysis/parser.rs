@@ -128,6 +128,16 @@ pub trait Language {
     fn call_node_kinds() -> &'static [&'static str] {
         &["call_expression"]
     }
+
+    /// Extract value-level identifier usages from a symbol's body.
+    /// Returns (identifier_name, usage_line) pairs for references to
+    /// package-level / module-level variables and constants.
+    /// Must filter out: local variable declarations, parameter names,
+    /// type references (already covered by extract_type_references).
+    /// Default: no usage extraction (for languages where it doesn't apply).
+    fn extract_usages(_node: Node, _code: &str) -> Vec<(SymbolName, usize)> {
+        Vec::new()
+    }
 }
 
 /// Generic parser that works for any Language
@@ -323,6 +333,26 @@ impl<L: Language> Parser<L> {
                         from_symbol_id: symbol_id.clone(),
                         type_name: ref_type_name,
                         ref_kind,
+                    });
+                }
+            }
+
+            // Extract value-level usages (references to vars/consts)
+            let usages = L::extract_usages(node, ctx.code);
+            for (usage_name, _usage_line) in usages {
+                if let Some(usage_symbol_id) = ctx.global.map.get(&usage_name) {
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        usage_symbol_id,
+                        &ReferenceType::Usage,
+                        1.0,
+                    )?;
+                    *ctx.relationships_count += 1;
+                } else {
+                    ctx.global.deferred.push(DeferredEdge::Reference {
+                        from_symbol_id: symbol_id.clone(),
+                        type_name: usage_name,
+                        ref_kind: ReferenceType::Usage,
                     });
                 }
             }

@@ -366,3 +366,270 @@ var validVar = "hello"
         names
     );
 }
+
+// ============================================================================
+// Usage extraction tests
+// ============================================================================
+
+/// Helper: parse Go code as a function_declaration and extract usages
+fn extract_usages_from_func(code: &str) -> Vec<(String, usize)> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node =
+        parse_and_find(&tree, "function_declaration").expect("should find function_declaration");
+    Go::extract_usages(fn_node, code)
+        .into_iter()
+        .map(|(name, line)| (name.as_str().to_string(), line))
+        .collect()
+}
+
+/// Helper: parse Go code as a method_declaration and extract usages
+fn extract_usages_from_method(code: &str) -> Vec<(String, usize)> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node =
+        parse_and_find(&tree, "method_declaration").expect("should find method_declaration");
+    Go::extract_usages(fn_node, code)
+        .into_iter()
+        .map(|(name, line)| (name.as_str().to_string(), line))
+        .collect()
+}
+
+#[test]
+fn test_extract_usages_simple_var_reference() {
+    let code = r#"
+package main
+
+func doWork() {
+    fmt.Println(MaxRetries)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"MaxRetries"),
+        "Should detect usage of MaxRetries, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"fmt"),
+        "Should detect usage of fmt, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_local_vars() {
+    let code = r#"
+package main
+
+func doWork() {
+    localVar := 42
+    fmt.Println(localVar)
+    fmt.Println(GlobalVar)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"localVar"),
+        "Should NOT include local var, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GlobalVar"),
+        "Should include package-level var, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_parameters() {
+    let code = r#"
+package main
+
+func doWork(config Config, count int) {
+    fmt.Println(config)
+    fmt.Println(GlobalVar)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"config"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"count"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GlobalVar"),
+        "Should include package-level var, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_builtins() {
+    let code = r#"
+package main
+
+func doWork() {
+    x := make([]int, len(items))
+    copy(x, items)
+    println(x)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"make"),
+        "Should NOT include builtin make, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"len"),
+        "Should NOT include builtin len, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"copy"),
+        "Should NOT include builtin copy, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"items"),
+        "Should include non-local identifier items, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_method_excludes_receiver() {
+    let code = r#"
+package main
+
+func (s *Server) handleRequest() {
+    fmt.Println(DefaultTimeout)
+}
+"#;
+    let usages = extract_usages_from_method(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"s"),
+        "Should NOT include receiver, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"DefaultTimeout"),
+        "Should include package-level var, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_deduplicates() {
+    let code = r#"
+package main
+
+func doWork() {
+    fmt.Println(MaxRetries)
+    fmt.Println(MaxRetries)
+    fmt.Println(MaxRetries)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let max_count = usages.iter().filter(|(n, _)| n == "MaxRetries").count();
+    assert_eq!(
+        max_count, 1,
+        "Should deduplicate — one usage edge per symbol, got {} occurrences",
+        max_count
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_short_var_decl_lhs() {
+    let code = r#"
+package main
+
+func doWork() {
+    result, err := SomeFunction()
+    fmt.Println(result, err)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"result"),
+        "Should NOT include short var decl LHS, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"err"),
+        "Should NOT include short var decl LHS, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"SomeFunction"),
+        "Should include the called function name if it appears as identifier, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_non_symbol_nodes_return_empty() {
+    let code = r#"
+package main
+
+var MaxRetries = 3
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // Try extracting from a var_spec — should return empty
+    let var_node = parse_and_find(&tree, "var_spec").expect("should find var_spec");
+    let usages = Go::extract_usages(var_node, code);
+    assert!(
+        usages.is_empty(),
+        "Should return empty for non-function nodes, got: {:?}",
+        usages
+    );
+}
+
+#[test]
+fn test_extract_usages_range_loop_vars_excluded() {
+    let code = r#"
+package main
+
+func doWork() {
+    for key, value := range GlobalMap {
+        fmt.Println(key, value)
+    }
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"key"),
+        "Should NOT include range variable, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"value"),
+        "Should NOT include range variable, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GlobalMap"),
+        "Should include the iterated collection, got: {:?}",
+        names
+    );
+}
