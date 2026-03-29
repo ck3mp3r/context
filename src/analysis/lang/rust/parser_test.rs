@@ -388,3 +388,169 @@ pub trait Database: Send + Sync {
         self_ref_inherits
     );
 }
+
+// ============================================================================
+// Usage extraction tests
+// ============================================================================
+
+/// Helper: parse Rust code as a function_item and extract usages
+fn extract_usages_from_func(code: &str) -> Vec<(String, usize)> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").expect("should find function_item");
+    Rust::extract_usages(fn_node, code)
+        .into_iter()
+        .map(|(name, line)| (name.as_str().to_string(), line))
+        .collect()
+}
+
+#[test]
+fn test_extract_usages_simple_const_reference() {
+    let code = r#"
+fn do_work() {
+    println!("{}", MAX_RETRIES);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"MAX_RETRIES"),
+        "Should detect usage of MAX_RETRIES, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_local_let_bindings() {
+    let code = r#"
+fn do_work() {
+    let local_var = 42;
+    println!("{}", local_var);
+    println!("{}", GLOBAL_VAR);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"local_var"),
+        "Should NOT include let binding, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GLOBAL_VAR"),
+        "Should include module-level reference, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_parameters() {
+    let code = r#"
+fn do_work(config: Config, count: usize) {
+    println!("{}", config);
+    println!("{}", GLOBAL_VAR);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"config"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"count"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GLOBAL_VAR"),
+        "Should include module-level reference, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_deduplicates() {
+    let code = r#"
+fn do_work() {
+    println!("{}", MAX_RETRIES);
+    println!("{}", MAX_RETRIES);
+    println!("{}", MAX_RETRIES);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let max_count = usages.iter().filter(|(n, _)| n == "MAX_RETRIES").count();
+    assert_eq!(
+        max_count, 1,
+        "Should deduplicate — one usage per symbol, got {} occurrences",
+        max_count
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_for_loop_bindings() {
+    let code = r#"
+fn do_work() {
+    for item in global_items.iter() {
+        println!("{}", item);
+    }
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"item"),
+        "Should NOT include for-loop binding, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"global_items"),
+        "Should include the iterated collection, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_non_function_returns_empty() {
+    let code = r#"
+const MAX_RETRIES: u32 = 3;
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let const_node = parse_and_find(&tree, "const_item").expect("should find const_item");
+    let usages = Rust::extract_usages(const_node, code);
+    assert!(
+        usages.is_empty(),
+        "Should return empty for non-function nodes, got: {:?}",
+        usages
+    );
+}
+
+#[test]
+fn test_extract_usages_if_let_binding_excluded() {
+    let code = r#"
+fn do_work() {
+    if let Some(value) = get_config() {
+        println!("{}", value);
+        println!("{}", DEFAULT_VALUE);
+    }
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"value"),
+        "Should NOT include if-let binding, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"DEFAULT_VALUE"),
+        "Should include module-level reference, got: {:?}",
+        names
+    );
+}
