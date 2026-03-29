@@ -1,7 +1,7 @@
 // Nushell language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language};
+use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
 use crate::analysis::types::{ReferenceType, SymbolName};
 use tree_sitter::Node;
 
@@ -108,6 +108,30 @@ impl Language for Nushell {
 
     fn call_node_kinds() -> &'static [&'static str] {
         &["command"]
+    }
+
+    fn module_info(node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
+        if node.kind() != "decl_module" {
+            return None;
+        }
+        // Check if the module has an inline body (block child)
+        let has_body = node.children(&mut node.walk()).any(|c| c.kind() == "block");
+
+        if has_body {
+            Some(ModuleInfo {
+                has_body: true,
+                candidate_paths: Vec::new(),
+            })
+        } else {
+            // Nushell file-based modules (use foo.nu) are resolved by
+            // `use` statements, not by the module declaration itself.
+            // A `decl_module` without a block body shouldn't occur in
+            // practice, but handle gracefully.
+            Some(ModuleInfo {
+                has_body: false,
+                candidate_paths: Vec::new(),
+            })
+        }
     }
 }
 

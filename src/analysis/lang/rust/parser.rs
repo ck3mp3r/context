@@ -1,7 +1,7 @@
 // Rust language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language};
+use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
 use crate::analysis::types::{ReferenceType, SymbolName};
 use tree_sitter::Node;
 
@@ -267,6 +267,37 @@ impl Language for Rust {
         }
         types
     }
+
+    fn module_info(node: Node, code: &str, file_path: &str) -> Option<ModuleInfo> {
+        if node.kind() != "mod_item" {
+            return None;
+        }
+
+        // Extract the module name
+        let name = node
+            .children(&mut node.walk())
+            .find(|c| c.kind() == "identifier")
+            .map(|c| code[c.byte_range()].to_string())?;
+
+        // Check for inline body (declaration_list)
+        let has_body = node
+            .children(&mut node.walk())
+            .any(|c| c.kind() == "declaration_list");
+
+        if has_body {
+            Some(ModuleInfo {
+                has_body: true,
+                candidate_paths: Vec::new(),
+            })
+        } else {
+            // External mod: resolve candidate file paths
+            let candidate_paths = resolve_module_file(&name, file_path);
+            Some(ModuleInfo {
+                has_body: false,
+                candidate_paths,
+            })
+        }
+    }
 }
 
 /// Helper: extract the first child node of `child_kind` as the symbol name
@@ -278,6 +309,36 @@ fn extract_name(node: Node, code: &str, child_kind: &str, kind: Kind) -> Option<
         }
     }
     None
+}
+
+/// Given a module name and the file path where `mod name;` appears,
+/// return the candidate file paths for the module's contents.
+/// Returns [direct_path, mod_path] — e.g., for `mod parser;` in
+/// `src/analysis/mod.rs`, returns `["src/analysis/parser.rs", "src/analysis/parser/mod.rs"]`.
+/// For `mod types;` in `src/analysis.rs`, returns
+/// `["src/analysis/types.rs", "src/analysis/types/mod.rs"]`.
+fn resolve_module_file(mod_name: &str, declaring_file: &str) -> Vec<String> {
+    let path = std::path::Path::new(declaring_file);
+    let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+
+    let parent_dir = if file_name == "mod.rs" || file_name == "lib.rs" || file_name == "main.rs" {
+        // mod.rs, lib.rs, main.rs: sibling modules are in the same directory
+        path.parent().unwrap_or(std::path::Path::new(""))
+    } else {
+        // src/analysis.rs: child modules are in src/analysis/
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let parent = path.parent().unwrap_or(std::path::Path::new(""));
+        let base = parent.join(stem);
+        return vec![
+            format!("{}/{}.rs", base.display(), mod_name),
+            format!("{}/{}/mod.rs", base.display(), mod_name),
+        ];
+    };
+
+    vec![
+        format!("{}/{}.rs", parent_dir.display(), mod_name),
+        format!("{}/{}/mod.rs", parent_dir.display(), mod_name),
+    ]
 }
 
 /// Extract the base type_identifier from a generic_type node.

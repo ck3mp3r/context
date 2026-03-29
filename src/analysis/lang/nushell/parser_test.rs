@@ -200,3 +200,62 @@ def main [] {
     assert!(callee.is_some(), "Should extract callee");
     assert_eq!(callee.unwrap(), "greet");
 }
+
+// ============================================================================
+// Module containment tests
+// ============================================================================
+
+#[test]
+fn test_module_info_inline_module() {
+    use crate::analysis::parser::ModuleInfo;
+
+    let code = r#"
+module utils {
+    export def helper [] { "help" }
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Nushell::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "decl_module").unwrap();
+    let info = Nushell::module_info(mod_node, code, "main.nu");
+    assert!(info.is_some(), "Inline module should return ModuleInfo");
+    let info = info.unwrap();
+    assert!(info.has_body, "Inline module should have a body");
+    assert!(
+        info.candidate_paths.is_empty(),
+        "Inline module should have no candidate paths"
+    );
+}
+
+#[test]
+fn test_module_info_file_based_use() {
+    // `use utils.nu` is not a module declaration — module_info should
+    // only fire on `decl_module` nodes, not `use` statements.
+    // File-based modules are handled by the file that IS the module.
+    // So module_info returns None for non-module nodes.
+    let code = "use utils.nu";
+    let mut parser = Parser::new();
+    parser.set_language(&Nushell::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // There should be no decl_module node
+    let mod_node = parse_and_find(&tree, "decl_module");
+    assert!(
+        mod_node.is_none(),
+        "use statement is not a module declaration"
+    );
+}
+
+#[test]
+fn test_module_info_non_module_node() {
+    let code = "def greet [] { 'hello' }";
+    let mut parser = Parser::new();
+    parser.set_language(&Nushell::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let def_node = parse_and_find(&tree, "decl_def").unwrap();
+    let info = Nushell::module_info(def_node, code, "main.nu");
+    assert!(info.is_none(), "Non-module node should return None");
+}

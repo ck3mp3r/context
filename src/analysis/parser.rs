@@ -57,6 +57,15 @@ pub enum DeferredEdge {
         parent_type_name: SymbolName,
         child_symbol_id: SymbolId,
     },
+    /// External module declaration: `mod foo;` — symbols in the module's
+    /// file(s) should get SymbolContains edges from the mod symbol.
+    /// Resolved by matching file paths.
+    ModuleContains {
+        mod_symbol_id: SymbolId,
+        /// Candidate file paths where the module's symbols live
+        /// (e.g., ["src/analysis/parser.rs", "src/analysis/parser/mod.rs"])
+        candidate_paths: Vec<String>,
+    },
 }
 
 /// Global state shared across all files during analysis.
@@ -70,6 +79,8 @@ pub struct GlobalSymbolMap {
     pub interface_methods: HashMap<SymbolName, Vec<String>>,
     /// Type name -> method names (for implicit interface matching in Go)
     pub type_methods: HashMap<SymbolName, Vec<String>>,
+    /// File path -> top-level symbol IDs (for resolving external module containment)
+    pub file_symbols: HashMap<String, Vec<SymbolId>>,
 }
 
 impl GlobalSymbolMap {
@@ -79,6 +90,7 @@ impl GlobalSymbolMap {
             deferred: Vec::new(),
             interface_methods: HashMap::new(),
             type_methods: HashMap::new(),
+            file_symbols: HashMap::new(),
         }
     }
 }
@@ -95,6 +107,21 @@ pub struct ImplInfo {
     pub target_type: String,
     /// The trait being implemented, if any (e.g. "Display" in `impl Display for Calculator`)
     pub trait_name: Option<String>,
+}
+
+/// Info about a module/package declaration extracted by the language parser.
+/// Returned by `Language::module_info()`.
+pub struct ModuleInfo {
+    /// Whether the module has an inline body (children in the same file/AST).
+    /// - Rust `mod foo { ... }` → true
+    /// - Rust `mod foo;` → false
+    /// - Go `package foo` → true (rest of file is the body)
+    /// - Nushell `module foo { ... }` → true
+    pub has_body: bool,
+    /// For external modules (has_body=false), candidate file paths where
+    /// the module's source lives. Empty if has_body is true.
+    /// - Rust `mod parser;` in `src/analysis/mod.rs` → `["src/analysis/parser.rs", "src/analysis/parser/mod.rs"]`
+    pub candidate_paths: Vec<String>,
 }
 
 /// Language trait - implement for each supported language
@@ -170,6 +197,19 @@ pub trait Language {
     fn extract_interface_methods(_node: Node, _code: &str) -> Option<(String, Vec<String>)> {
         None
     }
+
+    /// Extract module/package info from a node.
+    /// Returns `Some(ModuleInfo)` if the node represents a module or package declaration.
+    /// Used to create SymbolContains edges from module/package symbols to their children.
+    ///
+    /// - `node`: The AST node to inspect (already identified as a symbol by `parse_symbol`)
+    /// - `code`: The source code
+    /// - `file_path`: The relative file path of the current file (for resolving external modules)
+    ///
+    /// Default: None (no module support).
+    fn module_info(_node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
+        None
+    }
 }
 
 /// Generic parser that works for any Language
@@ -237,7 +277,7 @@ impl<L: Language> Parser<L> {
             global,
         };
 
-        self.walk_and_insert(tree.root_node(), &mut ctx, graph, None, None)?;
+        self.walk_and_insert(tree.root_node(), &mut ctx, graph, None, None, None)?;
 
         Ok(AnalysisStats {
             symbols_inserted,
@@ -267,6 +307,7 @@ impl<L: Language> Parser<L> {
     ///
     /// `containing_symbol` - the symbol_id of the enclosing function/method (for Calls edges)
     /// `impl_context` - the (target_type_name, trait_name) if we're inside an impl block
+    /// `module_context` - the symbol_id of the enclosing module/package (for SymbolContains edges)
     ///
     /// Same-file relationships resolve immediately via the global map.
     /// Cross-file relationships are deferred for resolution after all files are processed.
@@ -277,9 +318,11 @@ impl<L: Language> Parser<L> {
         graph: &mut CodeGraph,
         containing_symbol: Option<SymbolId>,
         impl_context: Option<&ImplInfo>,
+        module_context: Option<SymbolId>,
     ) -> Result<(), ParseError> {
         let mut current_symbol = containing_symbol.clone();
         let mut current_impl_context = impl_context;
+        let mut current_module_context = module_context;
 
         // Check for impl block
         let owned_impl_info = if let Some(impl_info) = L::parse_impl(node, ctx.code) {
@@ -336,6 +379,19 @@ impl<L: Language> Parser<L> {
             graph.insert_contains(ctx.file_id, &symbol_id, 1.0)?;
             *ctx.symbols_count += 1;
 
+            // If inside a module context, create SymbolContains edge from module to this symbol
+            if let Some(ref mod_id) = current_module_context {
+                graph.insert_symbol_contains_edge(mod_id, &symbol_id, 1.0)?;
+                *ctx.relationships_count += 1;
+            } else {
+                // Top-level symbol (no module context) — track for external module resolution
+                ctx.global
+                    .file_symbols
+                    .entry(ctx.file_path.to_string())
+                    .or_default()
+                    .push(symbol_id.clone());
+            }
+
             // If inside an impl block, create or defer SymbolContains edge
             if let Some(impl_info) = current_impl_context {
                 let parent_name = SymbolName::new(&impl_info.target_type);
@@ -365,6 +421,20 @@ impl<L: Language> Parser<L> {
                 ctx.global
                     .interface_methods
                     .insert(SymbolName::new(&iface_name), methods);
+            }
+
+            // Check if this symbol is a module/package declaration
+            if let Some(mod_info) = L::module_info(node, ctx.code, ctx.file_path) {
+                if mod_info.has_body {
+                    // Inline module: children inside this node get SymbolContains edges
+                    current_module_context = Some(symbol_id.clone());
+                } else if !mod_info.candidate_paths.is_empty() {
+                    // External module: defer until we know which files have been processed
+                    ctx.global.deferred.push(DeferredEdge::ModuleContains {
+                        mod_symbol_id: symbol_id.clone(),
+                        candidate_paths: mod_info.candidate_paths,
+                    });
+                }
             }
 
             // Extract type references
@@ -465,7 +535,10 @@ impl<L: Language> Parser<L> {
             }
         }
 
-        // Recurse to children
+        // Recurse to children.
+        // Track module context across siblings so that e.g. Go `package foo`
+        // (a sibling of function declarations) propagates to subsequent siblings.
+        let mut child_module_context = current_module_context;
         for child in node.children(&mut node.walk()) {
             self.walk_and_insert(
                 child,
@@ -473,7 +546,22 @@ impl<L: Language> Parser<L> {
                 graph,
                 current_symbol.clone(),
                 current_impl_context,
+                child_module_context.clone(),
             )?;
+
+            // After processing the child, check if it established a module context
+            // that should propagate to subsequent siblings. This handles the Go case
+            // where package_clause is a sibling of function/type declarations.
+            if child_module_context.is_none()
+                && let Some((_kind, ref name)) = L::parse_symbol(child, ctx.code)
+                && let Some(mod_info) = L::module_info(child, ctx.code, ctx.file_path)
+                && mod_info.has_body
+            {
+                let sym_name = SymbolName::new(name);
+                if let Some(mod_id) = ctx.global.map.get(&sym_name) {
+                    child_module_context = Some(mod_id.clone());
+                }
+            }
         }
 
         Ok(())
@@ -548,10 +636,25 @@ pub fn resolve_deferred_edges(
                     resolved += 1;
                 }
             }
+            DeferredEdge::ModuleContains {
+                mod_symbol_id,
+                candidate_paths,
+            } => {
+                // Find the first candidate path that has symbols in file_symbols
+                for path in candidate_paths {
+                    if let Some(symbols) = global.file_symbols.get(path) {
+                        for child_id in symbols {
+                            graph.insert_symbol_contains_edge(mod_symbol_id, child_id, 1.0)?;
+                            resolved += 1;
+                        }
+                        break; // Only one candidate path can match
+                    }
+                }
+            }
         }
     }
 
-    let unresolved = global.deferred.len() - resolved;
+    let unresolved = global.deferred.len().saturating_sub(resolved);
     if unresolved > 0 {
         tracing::debug!(
             "Deferred edge resolution: {} resolved, {} unresolved (external dependencies)",

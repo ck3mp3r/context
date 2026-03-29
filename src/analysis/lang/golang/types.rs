@@ -15,6 +15,8 @@ pub enum Kind {
     Const,
     /// `var` declaration
     Var,
+    /// `package` declaration
+    Package,
 }
 
 impl AsRef<str> for Kind {
@@ -33,6 +35,7 @@ impl Kind {
             Self::TypeAlias => "type_alias",
             Self::Const => "const",
             Self::Var => "var",
+            Self::Package => "package",
         }
     }
 }
@@ -49,6 +52,7 @@ impl std::str::FromStr for Kind {
             "type_alias" => Ok(Self::TypeAlias),
             "const" => Ok(Self::Const),
             "var" => Ok(Self::Var),
+            "package" => Ok(Self::Package),
             _ => Err(format!("Unknown Go symbol type: {}", s)),
         }
     }

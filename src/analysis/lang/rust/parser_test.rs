@@ -836,3 +836,121 @@ trait Handler {
         names
     );
 }
+
+// ============================================================================
+// Module containment tests
+// ============================================================================
+
+#[test]
+fn test_inline_mod_symbols_extracted() {
+    // Inline mod should extract the mod AND its children as symbols
+    let code = r#"
+mod utils {
+    pub fn helper() {}
+    pub struct Config {}
+}
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<_> = symbols.iter().map(|s| (&s.0, s.1.as_str())).collect();
+    assert!(
+        names.contains(&(&Kind::Mod, "utils")),
+        "Should extract mod symbol, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&(&Kind::Function, "helper")),
+        "Should extract function inside mod, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&(&Kind::Struct, "Config")),
+        "Should extract struct inside mod, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_module_info_inline_mod() {
+    use crate::analysis::parser::ModuleInfo;
+
+    let code = "mod utils { pub fn helper() {} }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/lib.rs");
+    assert!(info.is_some(), "Inline mod should return ModuleInfo");
+    let info = info.unwrap();
+    assert!(info.has_body, "Inline mod should have a body");
+    assert!(
+        info.candidate_paths.is_empty(),
+        "Inline mod should have no candidate paths"
+    );
+}
+
+#[test]
+fn test_module_info_external_mod_from_lib() {
+    let code = "mod utils;";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/lib.rs");
+    assert!(info.is_some(), "External mod should return ModuleInfo");
+    let info = info.unwrap();
+    assert!(!info.has_body, "External mod should NOT have a body");
+    assert_eq!(
+        info.candidate_paths,
+        vec!["src/utils.rs", "src/utils/mod.rs"],
+    );
+}
+
+#[test]
+fn test_module_info_external_mod_from_mod_rs() {
+    let code = "mod parser;";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/analysis/mod.rs");
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert!(!info.has_body);
+    assert_eq!(
+        info.candidate_paths,
+        vec!["src/analysis/parser.rs", "src/analysis/parser/mod.rs"],
+    );
+}
+
+#[test]
+fn test_module_info_external_mod_from_named_file() {
+    let code = "mod types;";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/analysis.rs");
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert!(!info.has_body);
+    assert_eq!(
+        info.candidate_paths,
+        vec!["src/analysis/types.rs", "src/analysis/types/mod.rs"],
+    );
+}
+
+#[test]
+fn test_module_info_non_mod_node() {
+    let code = "fn main() {}";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
+    let info = Rust::module_info(fn_node, code, "src/main.rs");
+    assert!(info.is_none(), "Non-mod node should return None");
+}

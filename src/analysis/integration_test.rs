@@ -848,3 +848,213 @@ func (b *BufferedWriter) Write(data []byte) (int, error) {
         resolved
     );
 }
+
+// ============================================================================
+// Module / package containment tests
+// ============================================================================
+
+/// Rust inline module: `mod utils { fn helper() {} }` should create
+/// SymbolContains edge from the mod symbol to child symbols.
+#[test]
+fn test_rust_inline_mod_creates_symbol_contains() {
+    let temp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    let code = r#"
+mod utils {
+    pub fn helper() {}
+    pub struct Config {}
+}
+
+fn main() {}
+"#;
+
+    let stats = parser
+        .parse_and_collect(code, "src/lib.rs", &mut graph, &mut global)
+        .unwrap();
+
+    // Should have SymbolContains edges: utils -> helper, utils -> Config
+    // Plus FileContains edges for all symbols
+    // main should NOT be contained by utils
+    let deferred_symbol_contains: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                crate::analysis::parser::DeferredEdge::SymbolContains { .. }
+            )
+        })
+        .collect();
+
+    // utils, helper, Config, main = 4 symbols
+    assert!(
+        stats.symbols_inserted >= 4,
+        "Should insert at least 4 symbols (utils, helper, Config, main), got: {}",
+        stats.symbols_inserted
+    );
+
+    // The module containment edges (utils -> helper, utils -> Config) should be
+    // created either immediately or deferred. Since utils is parsed before its
+    // children, it should be in the global map, so edges are created immediately.
+    assert!(
+        stats.relationships_inserted >= 2,
+        "Should create at least 2 SymbolContains edges (utils->helper, utils->Config), got: {}",
+        stats.relationships_inserted
+    );
+}
+
+/// Rust external module: `mod parser;` in src/analysis/mod.rs should create
+/// SymbolContains edges from the mod symbol to symbols in src/analysis/parser.rs
+#[test]
+fn test_rust_external_mod_creates_symbol_contains() {
+    let temp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File 1: declares external module
+    let parent_file = r#"
+mod parser;
+pub fn analyze() {}
+"#;
+
+    // File 2: the module's contents
+    let child_file = r#"
+pub fn parse() {}
+pub struct ParseResult {}
+"#;
+
+    parser
+        .parse_and_collect(parent_file, "src/analysis/mod.rs", &mut graph, &mut global)
+        .unwrap();
+    parser
+        .parse_and_collect(
+            child_file,
+            "src/analysis/parser.rs",
+            &mut graph,
+            &mut global,
+        )
+        .unwrap();
+
+    let resolved = resolve_deferred_edges(&global, &mut graph).unwrap();
+
+    // The mod symbol "parser" from mod.rs should contain "parse" and "ParseResult"
+    // from parser.rs via SymbolContains edges.
+    // analyze() should NOT be contained by parser module.
+
+    // Check that deferred ModuleContains edges were created and resolved
+    let deferred_mod_contains: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                crate::analysis::parser::DeferredEdge::ModuleContains { .. }
+            )
+        })
+        .collect();
+
+    assert!(
+        !deferred_mod_contains.is_empty(),
+        "Should have deferred ModuleContains edges for symbols in parser.rs"
+    );
+
+    // At least the 2 symbols in parser.rs should be connected to the parser module
+    assert!(
+        resolved >= 2,
+        "Should resolve at least 2 ModuleContains edges (parser->parse, parser->ParseResult), got: {}",
+        resolved
+    );
+}
+
+/// Go package: all top-level symbols in a file get SymbolContains from their package.
+#[test]
+fn test_go_package_creates_symbol_contains() {
+    use crate::analysis::Go;
+
+    let temp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Go>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    let code = r#"
+package cache
+
+func Get(key string) string {
+    return ""
+}
+
+type Cache struct {
+    data map[string]string
+}
+
+const MaxSize = 100
+"#;
+
+    let stats = parser
+        .parse_and_collect(code, "pkg/cache/cache.go", &mut graph, &mut global)
+        .unwrap();
+
+    // Should have: Package("cache"), Function("Get"), Struct("Cache"), Const("MaxSize")
+    assert!(
+        stats.symbols_inserted >= 4,
+        "Should insert at least 4 symbols, got: {}",
+        stats.symbols_inserted
+    );
+
+    // SymbolContains: cache -> Get, cache -> Cache, cache -> MaxSize (3 edges)
+    // These should be created immediately since package is parsed first
+    assert!(
+        stats.relationships_inserted >= 3,
+        "Should create at least 3 SymbolContains edges (package->symbols), got: {}",
+        stats.relationships_inserted
+    );
+}
+
+/// Go package: multiple files in same package share one Package symbol.
+/// SymbolContains edges from both files point to the same package.
+#[test]
+fn test_go_package_shared_across_files() {
+    use crate::analysis::Go;
+
+    let temp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Go>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    let file1 = r#"
+package cache
+
+func Get(key string) string { return "" }
+"#;
+
+    let file2 = r#"
+package cache
+
+func Set(key string, value string) {}
+"#;
+
+    let stats1 = parser
+        .parse_and_collect(file1, "pkg/cache/get.go", &mut graph, &mut global)
+        .unwrap();
+    let stats2 = parser
+        .parse_and_collect(file2, "pkg/cache/set.go", &mut graph, &mut global)
+        .unwrap();
+
+    // Package "cache" should appear only once in the global map
+    assert!(
+        global.map.contains_key(&SymbolName::new("cache")),
+        "Package 'cache' should be in global map"
+    );
+
+    // Both files' symbols should get SymbolContains edges from the package
+    let total_rels = stats1.relationships_inserted + stats2.relationships_inserted;
+    assert!(
+        total_rels >= 2,
+        "Should create SymbolContains edges from both files' symbols to shared package, got: {}",
+        total_rels
+    );
+}

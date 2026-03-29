@@ -54,8 +54,12 @@ func hello(name string) string {
 }
 "#;
     let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Function, "hello".to_string()));
+    let funcs: Vec<_> = symbols
+        .iter()
+        .filter(|(k, _)| *k == Kind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].1, "hello");
 }
 
 #[test]
@@ -94,8 +98,9 @@ type User struct {
 }
 "#;
     let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Struct, "User".to_string()));
+    let structs: Vec<_> = symbols.iter().filter(|(k, _)| *k == Kind::Struct).collect();
+    assert_eq!(structs.len(), 1);
+    assert_eq!(structs[0].1, "User");
 }
 
 #[test]
@@ -108,8 +113,12 @@ type Reader interface {
 }
 "#;
     let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Interface, "Reader".to_string()));
+    let ifaces: Vec<_> = symbols
+        .iter()
+        .filter(|(k, _)| *k == Kind::Interface)
+        .collect();
+    assert_eq!(ifaces.len(), 1);
+    assert_eq!(ifaces[0].1, "Reader");
 }
 
 #[test]
@@ -121,9 +130,13 @@ type StringSlice []string
 type MyInt int
 "#;
     let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 2);
-    assert_eq!(symbols[0], (Kind::TypeAlias, "StringSlice".to_string()));
-    assert_eq!(symbols[1], (Kind::TypeAlias, "MyInt".to_string()));
+    let aliases: Vec<_> = symbols
+        .iter()
+        .filter(|(k, _)| *k == Kind::TypeAlias)
+        .collect();
+    assert_eq!(aliases.len(), 2);
+    assert_eq!(aliases[0].1, "StringSlice");
+    assert_eq!(aliases[1].1, "MyInt");
 }
 
 #[test]
@@ -1233,4 +1246,85 @@ func (s *Server) Start() error {
         info.trait_name.is_none(),
         "Method declarations have no trait"
     );
+}
+
+// ============================================================================
+// Package symbol extraction tests
+// ============================================================================
+
+#[test]
+fn test_parse_package_clause() {
+    let code = r#"
+package cache
+
+func Get() {}
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<_> = symbols.iter().map(|s| (&s.0, s.1.as_str())).collect();
+    assert!(
+        names.contains(&(&Kind::Package, "cache")),
+        "Should extract package as Package symbol, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&(&Kind::Function, "Get")),
+        "Should still extract function, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_parse_package_main() {
+    let code = r#"
+package main
+
+func main() {}
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<_> = symbols.iter().map(|s| (&s.0, s.1.as_str())).collect();
+    assert!(
+        names.contains(&(&Kind::Package, "main")),
+        "Should extract 'main' package, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_module_info_package_clause() {
+    use crate::analysis::parser::ModuleInfo;
+
+    let code = r#"
+package cache
+
+func Get() {}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let pkg_node = parse_and_find(&tree, "package_clause").unwrap();
+    let info = Go::module_info(pkg_node, code, "pkg/cache/cache.go");
+    assert!(info.is_some(), "package_clause should return ModuleInfo");
+    let info = info.unwrap();
+    assert!(info.has_body, "Go package always has body (rest of file)");
+    assert!(
+        info.candidate_paths.is_empty(),
+        "Go package has no candidate paths (children are in same file)"
+    );
+}
+
+#[test]
+fn test_module_info_non_package_node() {
+    let code = r#"
+package main
+
+func Get() {}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
+    let info = Go::module_info(fn_node, code, "main.go");
+    assert!(info.is_none(), "Non-package node should return None");
 }

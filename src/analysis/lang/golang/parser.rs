@@ -1,7 +1,7 @@
 // Go language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language};
+use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
 use crate::analysis::types::{ReferenceType, SymbolName};
 use tree_sitter::Node;
 
@@ -37,6 +37,15 @@ impl Language for Go {
                 }
                 let name = node.child_by_field_name("name")?;
                 Some((Kind::Var, node_text(name, code)))
+            }
+            "package_clause" => {
+                // Extract package name from `package foo`
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "package_identifier" {
+                        return Some((Kind::Package, node_text(child, code)));
+                    }
+                }
+                None
             }
             _ => None,
         };
@@ -225,6 +234,19 @@ impl Language for Go {
             return Some((iface_name, methods));
         }
         None
+    }
+
+    fn module_info(node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
+        if node.kind() != "package_clause" {
+            return None;
+        }
+        // Go packages always have a "body" — the rest of the file's
+        // top-level declarations belong to the package. The package_clause
+        // is a sibling of those declarations in the source_file AST.
+        Some(ModuleInfo {
+            has_body: true,
+            candidate_paths: Vec::new(),
+        })
     }
 }
 
