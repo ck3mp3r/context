@@ -343,3 +343,26 @@ func process(r *Reader, w Writer) error {
         type_names
     );
 }
+
+#[test]
+fn test_blank_identifier_filtered() {
+    let code = r#"
+package cache
+
+var _ ICache = (*FileBasedCache)(nil)
+
+var validVar = "hello"
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<&str> = symbols.iter().map(|(_, n)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"_"),
+        "Blank identifier should be filtered out, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"validVar"),
+        "Regular vars should still be parsed, got: {:?}",
+        names
+    );
+}

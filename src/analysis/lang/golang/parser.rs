@@ -16,7 +16,7 @@ impl Language for Go {
     }
 
     fn parse_symbol(node: Node, code: &str) -> Option<(Self::Kind, String)> {
-        match node.kind() {
+        let result = match node.kind() {
             "function_declaration" => {
                 let name = node.child_by_field_name("name")?;
                 Some((Kind::Function, node_text(name, code)))
@@ -35,7 +35,10 @@ impl Language for Go {
                 Some((Kind::Var, node_text(name, code)))
             }
             _ => None,
-        }
+        };
+
+        // Filter out Go's blank identifier `_` (used for interface conformance checks, etc.)
+        result.filter(|(_, name)| name != "_")
     }
 
     fn extract_callee(node: Node, code: &str) -> Option<String> {
