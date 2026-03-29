@@ -1,8 +1,8 @@
 // Go language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language};
-use crate::analysis::types::{ReferenceType, SymbolName};
+use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
+use crate::analysis::types::{ImportEntry, ReferenceType, SymbolId, SymbolName};
 use tree_sitter::Node;
 
 /// Go language implementation
@@ -37,6 +37,15 @@ impl Language for Go {
                 }
                 let name = node.child_by_field_name("name")?;
                 Some((Kind::Var, node_text(name, code)))
+            }
+            "package_clause" => {
+                // Extract package name from `package foo`
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "package_identifier" {
+                        return Some((Kind::Package, node_text(child, code)));
+                    }
+                }
+                None
             }
             _ => None,
         };
@@ -226,6 +235,124 @@ impl Language for Go {
         }
         None
     }
+
+    fn module_info(node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
+        if node.kind() != "package_clause" {
+            return None;
+        }
+        // Go packages always have a "body" — the rest of the file's
+        // top-level declarations belong to the package. The package_clause
+        // is a sibling of those declarations in the source_file AST.
+        Some(ModuleInfo {
+            has_body: true,
+            candidate_paths: Vec::new(),
+        })
+    }
+
+    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
+        if node.kind() != "import_declaration" {
+            return None;
+        }
+
+        let mut entries = Vec::new();
+
+        // Go import can be single: `import "fmt"` or grouped: `import (...)`
+        for child in node.children(&mut node.walk()) {
+            match child.kind() {
+                "import_spec" => {
+                    if let Some(entry) = parse_import_spec(child, code) {
+                        entries.push(entry);
+                    }
+                }
+                "import_spec_list" => {
+                    for spec in child.children(&mut child.walk()) {
+                        if spec.kind() == "import_spec"
+                            && let Some(entry) = parse_import_spec(spec, code)
+                        {
+                            entries.push(entry);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if entries.is_empty() {
+            None
+        } else {
+            Some(entries)
+        }
+    }
+
+    fn resolve_import(
+        global: &GlobalSymbolMap,
+        file_path: &str,
+        _module_path: &str,
+        imported_name: &str,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        let bare = SymbolName::new(imported_name);
+        let candidates = match global.bare_to_qualified.get(&bare) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let target_id = match candidates.iter().find_map(|qn| {
+            let id = global.qualified_map.get(qn)?;
+            let kind = global.symbol_kinds.get(id)?;
+            if kind == "package" {
+                Some(id.clone())
+            } else {
+                None
+            }
+        }) {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+
+        match global.file_module_symbol.get(file_path) {
+            Some(source_id) => vec![(source_id.clone(), target_id)],
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Parse a single Go import_spec into an ImportEntry.
+/// import_spec has optional `name` field (alias) and required `path` field (string literal).
+fn parse_import_spec(node: Node, code: &str) -> Option<ImportEntry> {
+    // Extract the path (required) — it's an interpreted_string_literal
+    let path_node = node.child_by_field_name("path")?;
+    let raw_path = node_text(path_node, code);
+    // Strip surrounding quotes
+    let module_path = raw_path.trim_matches('"').to_string();
+    if module_path.is_empty() {
+        return None;
+    }
+
+    // Extract optional alias (package_identifier, dot, or blank_identifier)
+    let alias = node.child_by_field_name("name").map(|n| {
+        let text = node_text(n, code);
+        text.trim().to_string()
+    });
+
+    // Go convention: the usable package name is the last segment of the import path.
+    // `import "myapp/cache"` makes `cache` available as the package name.
+    // If aliased (`import foo "myapp/cache"`), the alias overrides.
+    let package_name = if let Some(ref a) = alias {
+        if a == "." || a == "_" {
+            // dot import or blank import — no single usable name
+            None
+        } else {
+            Some(a.clone())
+        }
+    } else {
+        module_path.rsplit('/').next().map(|s| s.to_string())
+    };
+
+    Some(ImportEntry {
+        module_path,
+        imported_names: package_name.into_iter().collect(),
+        alias,
+        is_glob: false,
+    })
 }
 
 /// Extract text from a node

@@ -28,6 +28,7 @@ in
       pkgs.act
       pkgs.protobuf
       pkgs.lefthook
+      pkgs.tree-sitter
     ];
 
     shellHook = ''

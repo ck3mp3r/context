@@ -1,8 +1,8 @@
 // Nushell language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language};
-use crate::analysis::types::{ReferenceType, SymbolName};
+use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
+use crate::analysis::types::{ImportEntry, QualifiedName, ReferenceType, SymbolId, SymbolName};
 use tree_sitter::Node;
 
 /// Nushell language implementation
@@ -108,6 +108,107 @@ impl Language for Nushell {
 
     fn call_node_kinds() -> &'static [&'static str] {
         &["command"]
+    }
+
+    fn module_info(node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
+        if node.kind() != "decl_module" {
+            return None;
+        }
+        // Check if the module has an inline body (block child)
+        let has_body = node.children(&mut node.walk()).any(|c| c.kind() == "block");
+
+        if has_body {
+            Some(ModuleInfo {
+                has_body: true,
+                candidate_paths: Vec::new(),
+            })
+        } else {
+            // Nushell file-based modules (use foo.nu) are resolved by
+            // `use` statements, not by the module declaration itself.
+            // A `decl_module` without a block body shouldn't occur in
+            // practice, but handle gracefully.
+            Some(ModuleInfo {
+                has_body: false,
+                candidate_paths: Vec::new(),
+            })
+        }
+    }
+
+    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
+        if node.kind() != "decl_use" {
+            return None;
+        }
+
+        // `use <module>` or `use <module> [items]` or `use <module> *`
+        let module_node = node.child_by_field_name("module")?;
+        let module_path = code[module_node.byte_range()].trim().to_string();
+        if module_path.is_empty() {
+            return None;
+        }
+
+        // Check for import_pattern (contains scope_pattern with command_list or glob)
+        if let Some(import_pattern) = node.child_by_field_name("import_pattern") {
+            // Look for glob (*) or command list [items]
+            let mut is_glob = false;
+            let mut names = Vec::new();
+
+            fn walk_import_pattern(
+                n: Node,
+                code: &str,
+                names: &mut Vec<String>,
+                is_glob: &mut bool,
+            ) {
+                match n.kind() {
+                    "wild_card" => *is_glob = true,
+                    "cmd_identifier" => {
+                        let name = code[n.byte_range()].trim().to_string();
+                        if !name.is_empty() {
+                            names.push(name);
+                        }
+                    }
+                    _ => {
+                        for child in n.children(&mut n.walk()) {
+                            walk_import_pattern(child, code, names, is_glob);
+                        }
+                    }
+                }
+            }
+
+            walk_import_pattern(import_pattern, code, &mut names, &mut is_glob);
+
+            if is_glob {
+                return Some(vec![ImportEntry::glob_import(module_path)]);
+            }
+            if !names.is_empty() {
+                return Some(vec![ImportEntry::named_import(module_path, names)]);
+            }
+        }
+
+        // Simple module import: `use std` — the module name itself is the usable name
+        Some(vec![ImportEntry::named_import(
+            module_path.clone(),
+            vec![module_path],
+        )])
+    }
+
+    fn resolve_import(
+        global: &GlobalSymbolMap,
+        file_path: &str,
+        module_path: &str,
+        imported_name: &str,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        let target_id = match global
+            .qualified_map
+            .get(&QualifiedName::new(module_path, imported_name))
+        {
+            Some(id) => id.clone(),
+            None => return Vec::new(),
+        };
+
+        match global.file_module_symbol.get(file_path) {
+            Some(mod_id) => vec![(mod_id.clone(), target_id)],
+            None => Vec::new(),
+        }
     }
 }
 

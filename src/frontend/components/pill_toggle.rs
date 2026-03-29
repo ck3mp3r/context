@@ -11,6 +11,7 @@ pub enum PillColor {
     Teal,
     Pink,
     Peach,
+    Sapphire,
 }
 
 impl PillColor {
@@ -24,6 +25,7 @@ impl PillColor {
             PillColor::Teal => ("bg-ctp-teal", "border-ctp-teal", "text-ctp-base"),
             PillColor::Pink => ("bg-ctp-pink", "border-ctp-pink", "text-ctp-base"),
             PillColor::Peach => ("bg-ctp-peach", "border-ctp-peach", "text-ctp-base"),
+            PillColor::Sapphire => ("bg-ctp-sapphire", "border-ctp-sapphire", "text-ctp-base"),
         }
     }
 
@@ -36,6 +38,7 @@ impl PillColor {
             PillColor::Teal => ("hover:text-ctp-teal", "hover:border-ctp-teal"),
             PillColor::Pink => ("hover:text-ctp-pink", "hover:border-ctp-pink"),
             PillColor::Peach => ("hover:text-ctp-peach", "hover:border-ctp-peach"),
+            PillColor::Sapphire => ("hover:text-ctp-sapphire", "hover:border-ctp-sapphire"),
         }
     }
 }

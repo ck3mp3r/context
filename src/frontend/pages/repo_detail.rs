@@ -452,6 +452,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         ("FieldType", "Field", PillColor::Pink, "Struct/type field type relationships"),
                         ("TypeAnnotation", "Type", PillColor::Peach, "Type annotation references (e.g. interface methods)"),
                         ("Inherits", "Inh", PillColor::Mauve, "Trait/interface implementation relationships"),
+                        ("Import", "Imp", PillColor::Sapphire, "Import/use dependencies between modules"),
                         ("Contains", "Cont", PillColor::Blue, "Parent-child containment (e.g. struct contains method)"),
                     ].into_iter().map(|(value, label, color, tooltip)| {
                         let value = value.to_string();

@@ -2,7 +2,7 @@
 
 use crate::analysis::lang::rust::{Kind, Rust};
 use crate::analysis::parser::Language;
-use crate::analysis::types::ReferenceType;
+use crate::analysis::types::{ImportEntry, ReferenceType};
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
@@ -834,5 +834,250 @@ trait Handler {
         !names.contains(&"bool"),
         "Should NOT contain builtin 'bool', got: {:?}",
         names
+    );
+}
+
+// ============================================================================
+// Module containment tests
+// ============================================================================
+
+#[test]
+fn test_inline_mod_symbols_extracted() {
+    // Inline mod should extract the mod AND its children as symbols
+    let code = r#"
+mod utils {
+    pub fn helper() {}
+    pub struct Config {}
+}
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<_> = symbols.iter().map(|s| (&s.0, s.1.as_str())).collect();
+    assert!(
+        names.contains(&(&Kind::Mod, "utils")),
+        "Should extract mod symbol, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&(&Kind::Function, "helper")),
+        "Should extract function inside mod, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&(&Kind::Struct, "Config")),
+        "Should extract struct inside mod, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_module_info_inline_mod() {
+    let code = "mod utils { pub fn helper() {} }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/lib.rs");
+    assert!(info.is_some(), "Inline mod should return ModuleInfo");
+    let info = info.unwrap();
+    assert!(info.has_body, "Inline mod should have a body");
+    assert!(
+        info.candidate_paths.is_empty(),
+        "Inline mod should have no candidate paths"
+    );
+}
+
+#[test]
+fn test_module_info_external_mod_from_lib() {
+    let code = "mod utils;";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/lib.rs");
+    assert!(info.is_some(), "External mod should return ModuleInfo");
+    let info = info.unwrap();
+    assert!(!info.has_body, "External mod should NOT have a body");
+    assert_eq!(
+        info.candidate_paths,
+        vec!["src/utils.rs", "src/utils/mod.rs"],
+    );
+}
+
+#[test]
+fn test_module_info_external_mod_from_mod_rs() {
+    let code = "mod parser;";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/analysis/mod.rs");
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert!(!info.has_body);
+    assert_eq!(
+        info.candidate_paths,
+        vec!["src/analysis/parser.rs", "src/analysis/parser/mod.rs"],
+    );
+}
+
+#[test]
+fn test_module_info_external_mod_from_named_file() {
+    let code = "mod types;";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mod_node = parse_and_find(&tree, "mod_item").unwrap();
+    let info = Rust::module_info(mod_node, code, "src/analysis.rs");
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert!(!info.has_body);
+    assert_eq!(
+        info.candidate_paths,
+        vec!["src/analysis/types.rs", "src/analysis/types/mod.rs"],
+    );
+}
+
+#[test]
+fn test_module_info_non_mod_node() {
+    let code = "fn main() {}";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
+    let info = Rust::module_info(fn_node, code, "src/main.rs");
+    assert!(info.is_none(), "Non-mod node should return None");
+}
+
+// ============================================================================
+// Import extraction tests
+// ============================================================================
+
+/// Helper: parse code and collect all imports from top-level nodes
+fn extract_all_imports(code: &str) -> Vec<ImportEntry> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mut imports = Vec::new();
+    let root = tree.root_node();
+    for child in root.children(&mut root.walk()) {
+        if let Some(entries) = Rust::extract_import(child, code) {
+            imports.extend(entries);
+        }
+    }
+    imports
+}
+
+#[test]
+fn test_extract_import_simple_use() {
+    // `use std::collections::HashMap;` → single named import
+    let code = "use std::collections::HashMap;";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std::collections");
+    assert_eq!(imports[0].imported_names, vec!["HashMap"]);
+    assert!(!imports[0].is_glob);
+}
+
+#[test]
+fn test_extract_import_nested_path() {
+    // `use crate::analysis::types::SymbolId;`
+    let code = "use crate::analysis::types::SymbolId;";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "crate::analysis::types");
+    assert_eq!(imports[0].imported_names, vec!["SymbolId"]);
+}
+
+#[test]
+fn test_extract_import_use_list() {
+    // `use std::collections::{HashMap, HashSet};`
+    let code = "use std::collections::{HashMap, HashSet};";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std::collections");
+    let mut names = imports[0].imported_names.clone();
+    names.sort();
+    assert_eq!(names, vec!["HashMap", "HashSet"]);
+    assert!(!imports[0].is_glob);
+}
+
+#[test]
+fn test_extract_import_glob() {
+    // `use std::collections::*;`
+    let code = "use std::collections::*;";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std::collections");
+    assert!(imports[0].is_glob);
+    assert!(imports[0].imported_names.is_empty());
+}
+
+#[test]
+fn test_extract_import_self() {
+    // `use std::collections::{self, HashMap};`
+    let code = "use std::collections::{self, HashMap};";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std::collections");
+    // `self` imports the module itself; HashMap is the named import
+    assert!(
+        imports[0].imported_names.contains(&"HashMap".to_string()),
+        "Should contain HashMap, got: {:?}",
+        imports[0].imported_names
+    );
+}
+
+#[test]
+fn test_extract_import_module_only() {
+    // `use std::io;` — imports the module itself
+    let code = "use std::io;";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    // This could be interpreted as importing the `io` name from `std`
+    assert_eq!(imports[0].module_path, "std");
+    assert_eq!(imports[0].imported_names, vec!["io"]);
+}
+
+#[test]
+fn test_extract_import_crate_super() {
+    // `use super::types::SymbolId;`
+    let code = "use super::types::SymbolId;";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "super::types");
+    assert_eq!(imports[0].imported_names, vec!["SymbolId"]);
+}
+
+#[test]
+fn test_extract_import_multiple_statements() {
+    let code = r#"
+use std::collections::HashMap;
+use std::io::Read;
+use crate::types::{SymbolId, SymbolName};
+"#;
+    let imports = extract_all_imports(code);
+    assert_eq!(
+        imports.len(),
+        3,
+        "Should find 3 imports, got: {:?}",
+        imports
+    );
+}
+
+#[test]
+fn test_extract_import_non_use_node() {
+    // Functions, structs, etc. should not produce imports
+    let code = "fn main() {}";
+    let imports = extract_all_imports(code);
+    assert!(
+        imports.is_empty(),
+        "Non-use node should not produce imports, got: {:?}",
+        imports
     );
 }
