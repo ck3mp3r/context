@@ -66,6 +66,10 @@ pub struct GlobalSymbolMap {
     pub map: HashMap<SymbolName, SymbolId>,
     /// Relationships that couldn't be resolved within a single file
     pub deferred: Vec<DeferredEdge>,
+    /// Interface name -> method names (for implicit interface matching in Go)
+    pub interface_methods: HashMap<SymbolName, Vec<String>>,
+    /// Type name -> method names (for implicit interface matching in Go)
+    pub type_methods: HashMap<SymbolName, Vec<String>>,
 }
 
 impl GlobalSymbolMap {
@@ -73,6 +77,8 @@ impl GlobalSymbolMap {
         Self {
             map: HashMap::new(),
             deferred: Vec::new(),
+            interface_methods: HashMap::new(),
+            type_methods: HashMap::new(),
         }
     }
 }
@@ -127,6 +133,42 @@ pub trait Language {
     /// Override for languages with different call node names (e.g. Nushell uses `"command"`).
     fn call_node_kinds() -> &'static [&'static str] {
         &["call_expression"]
+    }
+
+    /// Extract value-level identifier usages from a symbol's body.
+    /// Returns (identifier_name, usage_line) pairs for references to
+    /// package-level / module-level variables and constants.
+    /// Must filter out: local variable declarations, parameter names,
+    /// type references (already covered by extract_type_references).
+    /// Default: no usage extraction (for languages where it doesn't apply).
+    fn extract_usages(_node: Node, _code: &str) -> Vec<(SymbolName, usize)> {
+        Vec::new()
+    }
+
+    /// Extract return type names from a function/method node.
+    /// Returns a list of type names found in the return type position.
+    /// Must unwrap wrapper types (Option, Result, Box, etc. for Rust;
+    /// pointer types for Go) and skip primitive/builtin types.
+    /// Default: no return type extraction.
+    fn extract_return_types(_node: Node, _code: &str) -> Vec<SymbolName> {
+        Vec::new()
+    }
+
+    /// Extract parameter type names from a function/method node.
+    /// Returns a list of type names found in the parameter positions.
+    /// Must unwrap wrapper types (&T, &mut T, Option<T>, etc. for Rust;
+    /// *T for Go) and skip primitive/builtin types.
+    /// Default: no parameter type extraction.
+    fn extract_param_types(_node: Node, _code: &str) -> Vec<SymbolName> {
+        Vec::new()
+    }
+
+    /// Extract interface/trait method names from a type declaration.
+    /// Returns (interface_name, [method_names]) if the node declares an interface.
+    /// Used for implicit interface implementation matching (Go).
+    /// Default: none (languages with explicit implements don't need this).
+    fn extract_interface_methods(_node: Node, _code: &str) -> Option<(String, Vec<String>)> {
+        None
     }
 }
 
@@ -302,15 +344,28 @@ impl<L: Language> Parser<L> {
                     *ctx.relationships_count += 1;
                 } else {
                     ctx.global.deferred.push(DeferredEdge::SymbolContains {
-                        parent_type_name: parent_name,
+                        parent_type_name: parent_name.clone(),
                         child_symbol_id: symbol_id.clone(),
                     });
                 }
+                // Track method name for implicit interface matching
+                ctx.global
+                    .type_methods
+                    .entry(parent_name)
+                    .or_default()
+                    .push(name.clone());
             }
 
             // Track in global symbol map
             let sym_name = SymbolName::new(&name);
             ctx.global.map.insert(sym_name, symbol_id.clone());
+
+            // Extract interface method names (for implicit interface matching)
+            if let Some((iface_name, methods)) = L::extract_interface_methods(node, ctx.code) {
+                ctx.global
+                    .interface_methods
+                    .insert(SymbolName::new(&iface_name), methods);
+            }
 
             // Extract type references
             let refs = L::extract_type_references(node, ctx.code);
@@ -323,6 +378,66 @@ impl<L: Language> Parser<L> {
                         from_symbol_id: symbol_id.clone(),
                         type_name: ref_type_name,
                         ref_kind,
+                    });
+                }
+            }
+
+            // Extract value-level usages (references to vars/consts)
+            let usages = L::extract_usages(node, ctx.code);
+            for (usage_name, _usage_line) in usages {
+                if let Some(usage_symbol_id) = ctx.global.map.get(&usage_name) {
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        usage_symbol_id,
+                        &ReferenceType::Usage,
+                        1.0,
+                    )?;
+                    *ctx.relationships_count += 1;
+                } else {
+                    ctx.global.deferred.push(DeferredEdge::Reference {
+                        from_symbol_id: symbol_id.clone(),
+                        type_name: usage_name,
+                        ref_kind: ReferenceType::Usage,
+                    });
+                }
+            }
+
+            // Extract return type references
+            let return_types = L::extract_return_types(node, ctx.code);
+            for return_type_name in return_types {
+                if let Some(return_type_id) = ctx.global.map.get(&return_type_name) {
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        return_type_id,
+                        &ReferenceType::ReturnType,
+                        1.0,
+                    )?;
+                    *ctx.relationships_count += 1;
+                } else {
+                    ctx.global.deferred.push(DeferredEdge::Reference {
+                        from_symbol_id: symbol_id.clone(),
+                        type_name: return_type_name,
+                        ref_kind: ReferenceType::ReturnType,
+                    });
+                }
+            }
+
+            // Extract parameter type references
+            let param_types = L::extract_param_types(node, ctx.code);
+            for param_type_name in param_types {
+                if let Some(param_type_id) = ctx.global.map.get(&param_type_name) {
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        param_type_id,
+                        &ReferenceType::ParamType,
+                        1.0,
+                    )?;
+                    *ctx.relationships_count += 1;
+                } else {
+                    ctx.global.deferred.push(DeferredEdge::Reference {
+                        from_symbol_id: symbol_id.clone(),
+                        type_name: param_type_name,
+                        ref_kind: ReferenceType::ParamType,
                     });
                 }
             }
@@ -445,5 +560,45 @@ pub fn resolve_deferred_edges(
         );
     }
 
-    Ok(resolved)
+    // Implicit interface matching: for each type, check if its method set
+    // is a superset of any interface's method set. If so, emit Inherits edge.
+    let mut implicit_matches = 0;
+    for (iface_name, iface_methods) in &global.interface_methods {
+        if iface_methods.is_empty() {
+            continue;
+        }
+        for (type_name, type_method_list) in &global.type_methods {
+            // Skip self-matching (interface shouldn't implement itself)
+            if type_name == iface_name {
+                continue;
+            }
+            // Check if type has all interface methods
+            let has_all = iface_methods.iter().all(|m| type_method_list.contains(m));
+            if has_all
+                && let (Some(type_id), Some(iface_id)) =
+                    (global.map.get(type_name), global.map.get(iface_name))
+            {
+                graph.insert_inherits_edge(
+                    type_id,
+                    iface_id,
+                    &InheritanceType::Implements,
+                    0.8, // lower confidence for inferred matches
+                )?;
+                implicit_matches += 1;
+                tracing::debug!(
+                    "Implicit interface match: {} implements {}",
+                    type_name.as_str(),
+                    iface_name.as_str()
+                );
+            }
+        }
+    }
+    if implicit_matches > 0 {
+        tracing::info!(
+            "Implicit interface matching: {} implementations detected",
+            implicit_matches
+        );
+    }
+
+    Ok(resolved + implicit_matches)
 }

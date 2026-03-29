@@ -120,22 +120,27 @@ impl<K: AsRef<str> + std::fmt::Debug> Symbol<K> {
 // Relationship enums (used in store methods and DeferredEdge)
 // ============================================================================
 
-/// Types of references between symbols
+/// Types of references between symbols — each maps to a distinct edge type in the graph
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReferenceType {
     Import,
     TypeAnnotation,
     FieldType,
     Usage,
+    ReturnType,
+    ParamType,
 }
 
 impl ReferenceType {
-    pub fn as_str(&self) -> &str {
+    /// PascalCase edge name for the graph schema
+    pub fn edge_name(&self) -> &str {
         match self {
-            Self::Import => "import",
-            Self::TypeAnnotation => "type_annotation",
-            Self::FieldType => "field_type",
-            Self::Usage => "usage",
+            Self::Import => "Import",
+            Self::TypeAnnotation => "TypeAnnotation",
+            Self::FieldType => "FieldType",
+            Self::Usage => "Uses",
+            Self::ReturnType => "Returns",
+            Self::ParamType => "Accepts",
         }
     }
 }
@@ -145,10 +150,12 @@ impl std::str::FromStr for ReferenceType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "import" => Ok(Self::Import),
-            "type_annotation" => Ok(Self::TypeAnnotation),
-            "field_type" => Ok(Self::FieldType),
-            "usage" => Ok(Self::Usage),
+            "Import" => Ok(Self::Import),
+            "TypeAnnotation" => Ok(Self::TypeAnnotation),
+            "FieldType" => Ok(Self::FieldType),
+            "Uses" => Ok(Self::Usage),
+            "Returns" => Ok(Self::ReturnType),
+            "Accepts" => Ok(Self::ParamType),
             _ => Err(format!("Unknown reference type: {}", s)),
         }
     }

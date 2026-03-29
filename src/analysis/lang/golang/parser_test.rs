@@ -2,6 +2,7 @@
 
 use crate::analysis::lang::golang::{Go, Kind};
 use crate::analysis::parser::Language;
+use crate::analysis::types::ReferenceType;
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
@@ -164,6 +165,55 @@ var (
 }
 
 #[test]
+fn test_parse_var_excludes_local_vars() {
+    let code = r#"
+package main
+
+var GlobalVar = "hello"
+
+func doWork() {
+    var localVar int = 42
+    localVar2 := "local"
+    _ = localVar
+    _ = localVar2
+}
+
+func anotherFunc() {
+    var wg sync.WaitGroup
+    var mutex sync.Mutex
+    _ = wg
+    _ = mutex
+}
+"#;
+    let symbols = extract_all_symbols(code);
+    let var_names: Vec<&str> = symbols
+        .iter()
+        .filter(|(k, _)| *k == Kind::Var)
+        .map(|(_, n)| n.as_str())
+        .collect();
+    assert!(
+        var_names.contains(&"GlobalVar"),
+        "Should include package-level var, got: {:?}",
+        var_names
+    );
+    assert!(
+        !var_names.contains(&"localVar"),
+        "Should NOT include local var inside function, got: {:?}",
+        var_names
+    );
+    assert!(
+        !var_names.contains(&"wg"),
+        "Should NOT include local var inside function, got: {:?}",
+        var_names
+    );
+    assert!(
+        !var_names.contains(&"mutex"),
+        "Should NOT include local var inside function, got: {:?}",
+        var_names
+    );
+}
+
+#[test]
 fn test_parse_mixed_file() {
     let code = r#"
 package main
@@ -317,7 +367,9 @@ func (s *Server) Listen(addr string) error {
 // ============================================================================
 
 #[test]
-fn test_extract_type_references_from_function() {
+fn test_extract_type_references_from_function_is_empty() {
+    // Function type refs are now handled by extract_return_types and extract_param_types.
+    // extract_type_references should return empty for function nodes.
     let code = r#"
 package main
 
@@ -331,16 +383,10 @@ func process(r *Reader, w Writer) error {
 
     let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
     let refs = Go::extract_type_references(fn_node, code);
-    let type_names: Vec<_> = refs.iter().map(|(name, _)| name.as_str()).collect();
     assert!(
-        type_names.contains(&"Reader"),
-        "Should reference Reader, got: {:?}",
-        type_names
-    );
-    assert!(
-        type_names.contains(&"Writer"),
-        "Should reference Writer, got: {:?}",
-        type_names
+        refs.is_empty(),
+        "Function type refs should be empty, got: {:?}",
+        refs
     );
 }
 
@@ -364,5 +410,827 @@ var validVar = "hello"
         names.contains(&"validVar"),
         "Regular vars should still be parsed, got: {:?}",
         names
+    );
+}
+
+// ============================================================================
+// Usage extraction tests
+// ============================================================================
+
+/// Helper: parse Go code as a function_declaration and extract usages
+fn extract_usages_from_func(code: &str) -> Vec<(String, usize)> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node =
+        parse_and_find(&tree, "function_declaration").expect("should find function_declaration");
+    Go::extract_usages(fn_node, code)
+        .into_iter()
+        .map(|(name, line)| (name.as_str().to_string(), line))
+        .collect()
+}
+
+/// Helper: parse Go code as a method_declaration and extract usages
+fn extract_usages_from_method(code: &str) -> Vec<(String, usize)> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node =
+        parse_and_find(&tree, "method_declaration").expect("should find method_declaration");
+    Go::extract_usages(fn_node, code)
+        .into_iter()
+        .map(|(name, line)| (name.as_str().to_string(), line))
+        .collect()
+}
+
+#[test]
+fn test_extract_usages_simple_var_reference() {
+    let code = r#"
+package main
+
+func doWork() {
+    fmt.Println(MaxRetries)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"MaxRetries"),
+        "Should detect usage of MaxRetries, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"fmt"),
+        "Should detect usage of fmt, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_local_vars() {
+    let code = r#"
+package main
+
+func doWork() {
+    localVar := 42
+    fmt.Println(localVar)
+    fmt.Println(GlobalVar)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"localVar"),
+        "Should NOT include local var, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GlobalVar"),
+        "Should include package-level var, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_parameters() {
+    let code = r#"
+package main
+
+func doWork(config Config, count int) {
+    fmt.Println(config)
+    fmt.Println(GlobalVar)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"config"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"count"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GlobalVar"),
+        "Should include package-level var, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_builtins() {
+    let code = r#"
+package main
+
+func doWork() {
+    x := make([]int, len(items))
+    copy(x, items)
+    println(x)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"make"),
+        "Should NOT include builtin make, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"len"),
+        "Should NOT include builtin len, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"copy"),
+        "Should NOT include builtin copy, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"items"),
+        "Should include non-local identifier items, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_method_excludes_receiver() {
+    let code = r#"
+package main
+
+func (s *Server) handleRequest() {
+    fmt.Println(DefaultTimeout)
+}
+"#;
+    let usages = extract_usages_from_method(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"s"),
+        "Should NOT include receiver, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"DefaultTimeout"),
+        "Should include package-level var, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_deduplicates() {
+    let code = r#"
+package main
+
+func doWork() {
+    fmt.Println(MaxRetries)
+    fmt.Println(MaxRetries)
+    fmt.Println(MaxRetries)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let max_count = usages.iter().filter(|(n, _)| n == "MaxRetries").count();
+    assert_eq!(
+        max_count, 1,
+        "Should deduplicate — one usage edge per symbol, got {} occurrences",
+        max_count
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_short_var_decl_lhs() {
+    let code = r#"
+package main
+
+func doWork() {
+    result, err := SomeFunction()
+    fmt.Println(result, err)
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"result"),
+        "Should NOT include short var decl LHS, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"err"),
+        "Should NOT include short var decl LHS, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"SomeFunction"),
+        "Should include the called function name if it appears as identifier, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_non_symbol_nodes_return_empty() {
+    let code = r#"
+package main
+
+var MaxRetries = 3
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // Try extracting from a var_spec — should return empty
+    let var_node = parse_and_find(&tree, "var_spec").expect("should find var_spec");
+    let usages = Go::extract_usages(var_node, code);
+    assert!(
+        usages.is_empty(),
+        "Should return empty for non-function nodes, got: {:?}",
+        usages
+    );
+}
+
+#[test]
+fn test_extract_usages_range_loop_vars_excluded() {
+    let code = r#"
+package main
+
+func doWork() {
+    for key, value := range GlobalMap {
+        fmt.Println(key, value)
+    }
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"key"),
+        "Should NOT include range variable, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"value"),
+        "Should NOT include range variable, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GlobalMap"),
+        "Should include the iterated collection, got: {:?}",
+        names
+    );
+}
+
+// ============================================================================
+// Implements edge tests (interface conformance checks)
+// ============================================================================
+
+#[test]
+fn test_parse_impl_conformance_check() {
+    // Go pattern: var _ ICache = (*FileBasedCache)(nil)
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+var _ ICache = (*FileBasedCache)(nil)
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // Find the var_spec for the conformance check
+    let var_node = parse_and_find(&tree, "var_spec");
+    assert!(var_node.is_some(), "Should find the var_spec");
+    let var_node = var_node.unwrap();
+
+    let info = Go::parse_impl(var_node, code);
+    assert!(
+        info.is_some(),
+        "Should extract ImplInfo from conformance check"
+    );
+
+    let info = info.unwrap();
+    assert_eq!(info.target_type, "FileBasedCache");
+    assert_eq!(info.trait_name, Some("ICache".to_string()));
+}
+
+#[test]
+fn test_parse_impl_conformance_check_ampersand() {
+    // Alternative pattern: var _ ICache = &FileBasedCache{}
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+var _ ICache = &FileBasedCache{}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let var_node = parse_and_find(&tree, "var_spec");
+    assert!(var_node.is_some(), "Should find the var_spec");
+
+    let info = Go::parse_impl(var_node.unwrap(), code);
+    assert!(
+        info.is_some(),
+        "Should extract ImplInfo from &Type conformance check"
+    );
+
+    let info = info.unwrap();
+    assert_eq!(info.target_type, "FileBasedCache");
+    assert_eq!(info.trait_name, Some("ICache".to_string()));
+}
+
+#[test]
+fn test_parse_impl_not_conformance_regular_var() {
+    // Regular var declarations should NOT return ImplInfo
+    let code = r#"
+package main
+
+var myCache ICache = NewCache()
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let var_node = parse_and_find(&tree, "var_spec");
+    assert!(var_node.is_some());
+
+    let info = Go::parse_impl(var_node.unwrap(), code);
+    assert!(
+        info.is_none(),
+        "Regular var declarations should not be conformance checks"
+    );
+}
+
+#[test]
+fn test_parse_impl_blank_var_still_filtered_from_symbols() {
+    // The `_` var should still be filtered from symbols
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+var _ ICache = (*FileBasedCache)(nil)
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<&str> = symbols.iter().map(|(_, n)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"_"),
+        "Blank identifier should be filtered from symbols, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"ICache"),
+        "Interface should still be a symbol, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"FileBasedCache"),
+        "Struct should still be a symbol, got: {:?}",
+        names
+    );
+}
+
+// ============================================================================
+// Return type extraction tests
+// ============================================================================
+
+/// Helper: extract return types from the first function/method in code
+fn extract_return_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // Try function_declaration first, then method_declaration
+    let fn_node = parse_and_find(&tree, "function_declaration")
+        .or_else(|| parse_and_find(&tree, "method_declaration"))
+        .expect("should find function or method declaration");
+    Go::extract_return_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_return_type_simple() {
+    let code = r#"
+package main
+
+func NewConfig() Config {
+    return Config{}
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_return_type_pointer() {
+    let code = r#"
+package main
+
+func NewConfig() *Config {
+    return &Config{}
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert_eq!(types, vec!["Config"], "Should unwrap pointer to get Config");
+}
+
+#[test]
+fn test_extract_return_type_multiple() {
+    let code = r#"
+package main
+
+func Open() (*Connection, error) {
+    return nil, nil
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Connection".to_string()),
+        "Should extract Connection, got: {:?}",
+        types
+    );
+    assert!(
+        !types.contains(&"error".to_string()),
+        "Should skip builtin error, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_named_returns() {
+    let code = r#"
+package main
+
+func Parse() (result Config, err error) {
+    return
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should extract Config from named return, got: {:?}",
+        types
+    );
+    assert!(
+        !types.contains(&"error".to_string()),
+        "Should skip builtin error, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_builtin_only() {
+    let code = r#"
+package main
+
+func Count() int {
+    return 0
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin return types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_no_return() {
+    let code = r#"
+package main
+
+func DoWork() {
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no return type should return empty, got: {:?}",
+        types
+    );
+}
+
+// ============================================================================
+// Parameter type extraction tests
+// ============================================================================
+
+/// Helper: extract param types from the first function/method in code
+fn extract_param_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_declaration")
+        .or_else(|| parse_and_find(&tree, "method_declaration"))
+        .expect("should find function or method declaration");
+    Go::extract_param_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_param_type_simple() {
+    let code = r#"
+package main
+
+func Process(config Config) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_param_type_pointer() {
+    let code = r#"
+package main
+
+func Process(config *Config) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should unwrap pointer to get Config, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_multiple() {
+    let code = r#"
+package main
+
+func Process(config Config, conn *Connection) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(types.contains(&"Config".to_string()), "got: {:?}", types);
+    assert!(
+        types.contains(&"Connection".to_string()),
+        "got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_builtin_only() {
+    let code = r#"
+package main
+
+func Process(name string, count int) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin param types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_no_params() {
+    let code = r#"
+package main
+
+func DoWork() {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no params should return empty, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_method_skips_receiver() {
+    let code = r#"
+package main
+
+type Server struct{}
+
+func (s *Server) Handle(req Request) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert_eq!(
+        types,
+        vec!["Request"],
+        "Should extract Request but not receiver type, got: {:?}",
+        types
+    );
+}
+
+// ============================================================================
+// Type reference edge kind tests (FieldType vs TypeAnnotation)
+// ============================================================================
+
+#[test]
+fn test_struct_field_types_produce_field_type_edges() {
+    let code = r#"
+package main
+
+type Server struct {
+    config Config
+    logger *Logger
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let refs = Go::extract_type_references(type_decl, code);
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::FieldType,
+            "Struct field type '{}' should produce FieldType edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Config"),
+        "Should contain Config, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Logger"),
+        "Should contain Logger, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_interface_method_types_produce_type_annotation_edges() {
+    let code = r#"
+package main
+
+type Repository interface {
+    Get(id string) (*Entity, error)
+    Save(entity *Entity) error
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let refs = Go::extract_type_references(type_decl, code);
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::TypeAnnotation,
+            "Interface method type '{}' should produce TypeAnnotation edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Entity"),
+        "Should contain Entity, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_function_type_refs_excluded_from_extract_type_references() {
+    // extract_type_references on function/method nodes should return empty
+    // because extract_return_types and extract_param_types handle those separately
+    let code = r#"
+package main
+
+func process(r *Reader, w Writer) Status {
+    return Status{}
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
+    let refs = Go::extract_type_references(fn_node, code);
+    assert!(
+        refs.is_empty(),
+        "Function type refs should be empty (handled by extract_return_types/extract_param_types), got: {:?}",
+        refs
+    );
+}
+
+// ============================================================================
+// Interface method extraction tests
+// ============================================================================
+
+#[test]
+fn test_extract_interface_methods() {
+    let code = r#"
+package main
+
+type Reader interface {
+    Read(data []byte) (int, error)
+    Close() error
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let result = Go::extract_interface_methods(type_decl, code);
+    assert!(result.is_some(), "Should extract interface methods");
+    let (name, methods) = result.unwrap();
+    assert_eq!(name, "Reader");
+    assert_eq!(methods, vec!["Read", "Close"]);
+}
+
+#[test]
+fn test_extract_interface_methods_empty_interface() {
+    let code = r#"
+package main
+
+type Empty interface {}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let result = Go::extract_interface_methods(type_decl, code);
+    assert!(result.is_some(), "Should return Some for empty interface");
+    let (name, methods) = result.unwrap();
+    assert_eq!(name, "Empty");
+    assert!(methods.is_empty(), "Empty interface should have no methods");
+}
+
+#[test]
+fn test_extract_interface_methods_struct_returns_none() {
+    let code = r#"
+package main
+
+type Server struct {
+    port int
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let result = Go::extract_interface_methods(type_decl, code);
+    assert!(
+        result.is_none(),
+        "Struct should not return interface methods"
+    );
+}
+
+#[test]
+fn test_parse_impl_method_declaration() {
+    let code = r#"
+package main
+
+func (s *Server) Start() error {
+    return nil
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let method = parse_and_find(&tree, "method_declaration").unwrap();
+    let result = Go::parse_impl(method, code);
+    assert!(
+        result.is_some(),
+        "Should extract impl info from method_declaration"
+    );
+    let info = result.unwrap();
+    assert_eq!(info.target_type, "Server");
+    assert!(
+        info.trait_name.is_none(),
+        "Method declarations have no trait"
     );
 }

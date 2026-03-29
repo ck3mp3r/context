@@ -34,6 +34,23 @@
     return kindColors[kind] || defaultColor;
   }
 
+  // Edge type-to-color mapping (Catppuccin Mocha palette)
+  var edgeColors = {
+    "Calls":          "#89b4fa",  // blue
+    "Uses":           "#f9e2af",  // yellow
+    "Returns":        "#a6e3a1",  // green
+    "Accepts":        "#94e2d5",  // teal
+    "FieldType":      "#f5c2e7",  // pink
+    "TypeAnnotation": "#fab387",  // peach
+    "Inherits":       "#cba6f7",  // mauve
+    "Contains":       "#585b70",  // surface2 (subtle)
+  };
+  var defaultEdgeColor = "#585b70"; // surface2
+
+  function edgeColor(edgeType) {
+    return edgeColors[edgeType] || defaultEdgeColor;
+  }
+
   /**
    * Initialize a graph in a container element.
    * @param {string} containerId - DOM element ID for the graph canvas
@@ -72,13 +89,13 @@
         });
       });
 
-      // Add edges
+      // Add edges with type-specific colors
       (data.edges || []).forEach(function(edge) {
         try {
           graph.addEdge(edge.source, edge.target, {
             label: edge.label,
             edgeType: edge.type,
-            color: "#585b70",
+            color: edgeColor(edge.type),
             size: 1,
           });
         } catch (e) {
@@ -312,7 +329,6 @@
             res.hidden = true;
             return res;
           } else {
-            res.color = "#89b4fa";
             res.size = 2;
           }
         }
@@ -322,7 +338,6 @@
           if (source !== hoveredNode && target !== hoveredNode) {
             res.hidden = true;
           } else {
-            res.color = "#89b4fa";
             res.size = 2;
           }
         }
@@ -495,6 +510,27 @@
     if (!inst) return;
     inst.filteredLanguage = language || null;
     inst.renderer.refresh();
+  };
+
+  /**
+   * Get unique edge types and their colors from the current graph.
+   * @param {string} containerId
+   * @returns {string} JSON array of {kind, color} objects sorted by kind, or "[]"
+   */
+  window.graphGetEdgeTypes = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return "[]";
+    var typeMap = {};
+    inst.graph.forEachEdge(function(edge, attrs) {
+      var et = attrs.edgeType || "unknown";
+      if (!typeMap[et]) {
+        typeMap[et] = edgeColor(et);
+      }
+    });
+    var result = Object.keys(typeMap).sort().map(function(t) {
+      return { kind: t, color: typeMap[t] };
+    });
+    return JSON.stringify(result);
   };
 
   /**

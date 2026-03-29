@@ -2,6 +2,7 @@
 
 use crate::analysis::lang::rust::{Kind, Rust};
 use crate::analysis::parser::Language;
+use crate::analysis::types::ReferenceType;
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
@@ -280,7 +281,9 @@ fn test_extract_trait_signature() {
 // ============================================================================
 
 #[test]
-fn test_extract_type_refs_from_function() {
+fn test_extract_type_refs_from_function_is_empty() {
+    // Function type refs are now handled by extract_return_types and extract_param_types.
+    // extract_type_references should return empty for function_item nodes.
     let code = "fn process(config: Config) -> Status { todo!() }";
     let mut parser = Parser::new();
     parser.set_language(&Rust::grammar()).unwrap();
@@ -288,20 +291,28 @@ fn test_extract_type_refs_from_function() {
 
     let fn_node = parse_and_find(&tree, "function_item").unwrap();
     let refs = Rust::extract_type_references(fn_node, code);
-    let names: Vec<_> = refs.iter().map(|(name, _)| name.as_str()).collect();
-    assert!(names.contains(&"Config"), "Should reference Config");
-    assert!(names.contains(&"Status"), "Should reference Status");
+    assert!(
+        refs.is_empty(),
+        "Function type refs should be empty, got: {:?}",
+        refs
+    );
 }
 
 #[test]
 fn test_type_refs_skip_builtins() {
-    let code = "fn process(x: i32, name: String) -> bool { true }";
+    let code = r#"
+struct Data {
+    count: i32,
+    name: String,
+    flag: bool,
+}
+"#;
     let mut parser = Parser::new();
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let fn_node = parse_and_find(&tree, "function_item").unwrap();
-    let refs = Rust::extract_type_references(fn_node, code);
+    let struct_node = parse_and_find(&tree, "struct_item").unwrap();
+    let refs = Rust::extract_type_references(struct_node, code);
     // i32, String, bool are all builtins - should be empty
     assert!(
         refs.is_empty(),
@@ -386,5 +397,442 @@ pub trait Database: Send + Sync {
         self_ref_inherits.is_empty(),
         "Should not have self-referencing Inherits edges, got: {:?}",
         self_ref_inherits
+    );
+}
+
+// ============================================================================
+// Usage extraction tests
+// ============================================================================
+
+/// Helper: parse Rust code as a function_item and extract usages
+fn extract_usages_from_func(code: &str) -> Vec<(String, usize)> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").expect("should find function_item");
+    Rust::extract_usages(fn_node, code)
+        .into_iter()
+        .map(|(name, line)| (name.as_str().to_string(), line))
+        .collect()
+}
+
+#[test]
+fn test_extract_usages_simple_const_reference() {
+    let code = r#"
+fn do_work() {
+    println!("{}", MAX_RETRIES);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"MAX_RETRIES"),
+        "Should detect usage of MAX_RETRIES, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_local_let_bindings() {
+    let code = r#"
+fn do_work() {
+    let local_var = 42;
+    println!("{}", local_var);
+    println!("{}", GLOBAL_VAR);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"local_var"),
+        "Should NOT include let binding, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GLOBAL_VAR"),
+        "Should include module-level reference, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_parameters() {
+    let code = r#"
+fn do_work(config: Config, count: usize) {
+    println!("{}", config);
+    println!("{}", GLOBAL_VAR);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"config"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"count"),
+        "Should NOT include parameter, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"GLOBAL_VAR"),
+        "Should include module-level reference, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_deduplicates() {
+    let code = r#"
+fn do_work() {
+    println!("{}", MAX_RETRIES);
+    println!("{}", MAX_RETRIES);
+    println!("{}", MAX_RETRIES);
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let max_count = usages.iter().filter(|(n, _)| n == "MAX_RETRIES").count();
+    assert_eq!(
+        max_count, 1,
+        "Should deduplicate — one usage per symbol, got {} occurrences",
+        max_count
+    );
+}
+
+#[test]
+fn test_extract_usages_excludes_for_loop_bindings() {
+    let code = r#"
+fn do_work() {
+    for item in global_items.iter() {
+        println!("{}", item);
+    }
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"item"),
+        "Should NOT include for-loop binding, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"global_items"),
+        "Should include the iterated collection, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_extract_usages_non_function_returns_empty() {
+    let code = r#"
+const MAX_RETRIES: u32 = 3;
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let const_node = parse_and_find(&tree, "const_item").expect("should find const_item");
+    let usages = Rust::extract_usages(const_node, code);
+    assert!(
+        usages.is_empty(),
+        "Should return empty for non-function nodes, got: {:?}",
+        usages
+    );
+}
+
+#[test]
+fn test_extract_usages_if_let_binding_excluded() {
+    let code = r#"
+fn do_work() {
+    if let Some(value) = get_config() {
+        println!("{}", value);
+        println!("{}", DEFAULT_VALUE);
+    }
+}
+"#;
+    let usages = extract_usages_from_func(code);
+    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"value"),
+        "Should NOT include if-let binding, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"DEFAULT_VALUE"),
+        "Should include module-level reference, got: {:?}",
+        names
+    );
+}
+
+// ============================================================================
+// Return type extraction tests
+// ============================================================================
+
+/// Helper: extract return types from the first function in code
+fn extract_return_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").expect("should find function_item");
+    Rust::extract_return_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_return_type_simple() {
+    let code = "fn create() -> Config { todo!() }";
+    let types = extract_return_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_return_type_option() {
+    let code = "fn find() -> Option<Config> { todo!() }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should unwrap Option to find Config, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_result() {
+    let code = "fn load() -> Result<Config, AppError> { todo!() }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should extract Config from Result, got: {:?}",
+        types
+    );
+    assert!(
+        types.contains(&"AppError".to_string()),
+        "Should extract AppError from Result, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_builtin_only() {
+    let code = "fn count() -> usize { 0 }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin return types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_no_return() {
+    let code = "fn do_work() { }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no return type should return empty, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_non_function() {
+    let code = "struct Config { name: String }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let struct_node = parse_and_find(&tree, "struct_item").expect("should find struct_item");
+    let types = Rust::extract_return_types(struct_node, code);
+    assert!(
+        types.is_empty(),
+        "Non-function nodes should return empty, got: {:?}",
+        types
+    );
+}
+
+// ============================================================================
+// Parameter type extraction tests
+// ============================================================================
+
+/// Helper: extract param types from the first function in code
+fn extract_param_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").expect("should find function_item");
+    Rust::extract_param_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_param_type_simple() {
+    let code = "fn process(config: Config) { }";
+    let types = extract_param_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_param_type_reference() {
+    let code = "fn process(config: &Config) { }";
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should unwrap & to find Config, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_multiple() {
+    let code = "fn process(a: TypeA, b: TypeB) { }";
+    let types = extract_param_types_from_func(code);
+    assert!(types.contains(&"TypeA".to_string()), "got: {:?}", types);
+    assert!(types.contains(&"TypeB".to_string()), "got: {:?}", types);
+}
+
+#[test]
+fn test_extract_param_type_builtin_only() {
+    let code = "fn process(x: i32, name: String) { }";
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin param types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_no_params() {
+    let code = "fn do_work() { }";
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no params should return empty, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_skips_self() {
+    // &self is not a user-defined type
+    let code = "fn method(&self, config: Config) { }";
+    let types = extract_param_types_from_func(code);
+    assert_eq!(types, vec!["Config"], "Should skip self, got: {:?}", types);
+}
+
+// ============================================================================
+// Type reference edge kind tests (FieldType vs TypeAnnotation cleanup)
+// ============================================================================
+
+#[test]
+fn test_function_type_refs_excluded_from_extract_type_references() {
+    // extract_type_references on function_item should return empty
+    // because extract_return_types and extract_param_types handle those separately
+    let code = "fn process(config: Config) -> Status { todo!() }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
+    let refs = Rust::extract_type_references(fn_node, code);
+    assert!(
+        refs.is_empty(),
+        "Function type refs should be empty (handled by extract_return_types/extract_param_types), got: {:?}",
+        refs
+    );
+}
+
+#[test]
+fn test_struct_field_types_produce_field_type_edges() {
+    let code = r#"
+struct Server {
+    config: Config,
+    logger: Logger,
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let struct_node = parse_and_find(&tree, "struct_item").unwrap();
+    let refs = Rust::extract_type_references(struct_node, code);
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::FieldType,
+            "Struct field type '{}' should produce FieldType edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Config"),
+        "Should contain Config, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Logger"),
+        "Should contain Logger, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_trait_method_types_produce_type_annotation_edges() {
+    let code = r#"
+trait Handler {
+    fn handle(&self, req: Request) -> Response;
+    fn configure(&mut self, config: Config);
+    fn status(&self) -> bool;
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let trait_node = parse_and_find(&tree, "trait_item").unwrap();
+    let refs = Rust::extract_type_references(trait_node, code);
+
+    // All should be TypeAnnotation (not Returns/Accepts — those are for the methods themselves)
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::TypeAnnotation,
+            "Trait method type '{}' should produce TypeAnnotation edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Request"),
+        "Should contain Request, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Response"),
+        "Should contain Response, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Config"),
+        "Should contain Config, got: {:?}",
+        names
+    );
+    // bool is a builtin — should not appear
+    assert!(
+        !names.contains(&"bool"),
+        "Should NOT contain builtin 'bool', got: {:?}",
+        names
     );
 }

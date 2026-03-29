@@ -68,9 +68,11 @@ pub struct GraphResponse {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct GraphQuery {
-    /// Graph view: file-deps, calls, inherits, contains, full
-    #[param(example = "full")]
-    pub view: Option<String>,
+    /// Comma-separated edge types to include (e.g. "calls,uses,returns").
+    /// Available: calls, uses, returns, accepts, field_type, type_annotation, inherits, contains.
+    /// Omit for all edge types.
+    #[param(example = "calls,uses,returns")]
+    pub edges: Option<String>,
     /// Max nodes to return (default 500, max 2000)
     #[param(example = 500)]
     pub limit: Option<usize>,
@@ -89,22 +91,6 @@ pub struct GraphQuery {
 // NanoGraph query execution
 // =============================================================================
 
-fn query_full_graph() -> &'static str {
-    r#"query full_graph() {
-    match {
-        $s: Symbol
-    }
-    return {
-        $s.symbol_id
-        $s.name
-        $s.kind
-        $s.language
-        $s.file_path
-        $s.start_line
-    }
-}"#
-}
-
 fn query_calls_edges() -> &'static str {
     r#"query calls_edges() {
     match {
@@ -113,22 +99,138 @@ fn query_calls_edges() -> &'static str {
         $from calls $to
     }
     return {
-        $from.symbol_id as source
-        $to.symbol_id as target
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
     }
 }"#
 }
 
-fn query_references_edges() -> &'static str {
-    r#"query references_edges() {
+fn query_uses_edges() -> &'static str {
+    r#"query uses_edges() {
     match {
         $from: Symbol
         $to: Symbol
-        $from references $to
+        $from uses $to
     }
     return {
-        $from.symbol_id as source
-        $to.symbol_id as target
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
+    }
+}"#
+}
+
+fn query_returns_edges() -> &'static str {
+    r#"query returns_edges() {
+    match {
+        $from: Symbol
+        $to: Symbol
+        $from returns $to
+    }
+    return {
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
+    }
+}"#
+}
+
+fn query_accepts_edges() -> &'static str {
+    r#"query accepts_edges() {
+    match {
+        $from: Symbol
+        $to: Symbol
+        $from accepts $to
+    }
+    return {
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
+    }
+}"#
+}
+
+fn query_field_type_edges() -> &'static str {
+    r#"query field_type_edges() {
+    match {
+        $from: Symbol
+        $to: Symbol
+        $from fieldType $to
+    }
+    return {
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
+    }
+}"#
+}
+
+fn query_type_annotation_edges() -> &'static str {
+    r#"query type_annotation_edges() {
+    match {
+        $from: Symbol
+        $to: Symbol
+        $from typeAnnotation $to
+    }
+    return {
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
     }
 }"#
 }
@@ -141,8 +243,18 @@ fn query_inherits_edges() -> &'static str {
         $from inherits $to
     }
     return {
-        $from.symbol_id as source
-        $to.symbol_id as target
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
     }
 }"#
 }
@@ -155,8 +267,18 @@ fn query_contains_edges() -> &'static str {
         $parent symbolContains $child
     }
     return {
-        $parent.symbol_id as source
-        $child.symbol_id as target
+        $parent.symbol_id as src_id
+        $parent.name as src_name
+        $parent.kind as src_kind
+        $parent.language as src_language
+        $parent.file_path as src_file_path
+        $parent.start_line as src_start_line
+        $child.symbol_id as dst_id
+        $child.name as dst_name
+        $child.kind as dst_kind
+        $child.language as dst_language
+        $child.file_path as dst_file_path
+        $child.start_line as dst_start_line
     }
 }"#
 }
@@ -251,18 +373,17 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
     }
 
     let limit = query.limit.unwrap_or(500).min(2000);
-    let view = query.view.as_deref().unwrap_or("full");
     let include_tests = query.include_tests.unwrap_or(false);
     let language_filter = query.language.clone();
+    let edge_filter = query.edges.clone();
 
     // Run queries in a blocking task (shells out to nanograph CLI)
     let db_path_clone = db_path.clone();
-    let view_owned = view.to_string();
 
     let result = tokio::task::spawn_blocking(move || {
         build_graph_data(
             &db_path_clone,
-            &view_owned,
+            edge_filter.as_deref(),
             limit,
             include_tests,
             language_filter.as_deref(),
@@ -300,18 +421,86 @@ fn is_test_symbol(s: &serde_json::Value) -> bool {
 
 fn build_graph_data(
     db_path: &std::path::Path,
-    view: &str,
+    edge_filter: Option<&str>,
     limit: usize,
     include_tests: bool,
     language_filter: Option<&str>,
 ) -> Result<GraphResponse, String> {
-    // Fetch all symbols
-    let all_symbols = run_nanograph_query(db_path, query_full_graph(), "full_graph")?;
-    let total_symbols = all_symbols.len();
+    // All available edge type queries: (query_name, edge_label, query_string)
+    let all_edge_types: Vec<(&str, &str, &str)> = vec![
+        ("calls_edges", "Calls", query_calls_edges()),
+        ("uses_edges", "Uses", query_uses_edges()),
+        ("returns_edges", "Returns", query_returns_edges()),
+        ("accepts_edges", "Accepts", query_accepts_edges()),
+        ("field_type_edges", "FieldType", query_field_type_edges()),
+        (
+            "type_annotation_edges",
+            "TypeAnnotation",
+            query_type_annotation_edges(),
+        ),
+        ("inherits_edges", "Inherits", query_inherits_edges()),
+        ("contains_edges", "Contains", query_contains_edges()),
+    ];
 
-    // Filter out test symbols unless include_tests is set
-    let symbols: Vec<serde_json::Value> = all_symbols
-        .into_iter()
+    // Filter to requested edge types, or use all if none specified
+    let edge_queries: Vec<(&str, &str, &str)> = if let Some(filter) = edge_filter {
+        let requested: std::collections::HashSet<String> =
+            filter.split(',').map(|s| s.trim().to_lowercase()).collect();
+        all_edge_types
+            .into_iter()
+            .filter(|(_, label, _)| requested.contains(&label.to_lowercase()))
+            .collect()
+    } else {
+        all_edge_types
+    };
+
+    // Fetch edges and extract nodes from results
+    // Each edge row contains full metadata for both source and target symbols
+    let mut all_edges: Vec<(String, String, String)> = Vec::new();
+    let mut symbol_map: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+
+    for (query_name, edge_type, query_content) in &edge_queries {
+        let rows = run_nanograph_query(db_path, query_content, query_name)?;
+        for row in rows {
+            let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+            let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+            if src_id.is_empty() || dst_id.is_empty() {
+                continue;
+            }
+
+            // Collect source symbol
+            symbol_map.entry(src_id.clone()).or_insert_with(|| {
+                serde_json::json!({
+                    "symbol_id": row["src_id"],
+                    "name": row["src_name"],
+                    "kind": row["src_kind"],
+                    "language": row["src_language"],
+                    "file_path": row["src_file_path"],
+                    "start_line": row["src_start_line"],
+                })
+            });
+
+            // Collect target symbol
+            symbol_map.entry(dst_id.clone()).or_insert_with(|| {
+                serde_json::json!({
+                    "symbol_id": row["dst_id"],
+                    "name": row["dst_name"],
+                    "kind": row["dst_kind"],
+                    "language": row["dst_language"],
+                    "file_path": row["dst_file_path"],
+                    "start_line": row["dst_start_line"],
+                })
+            });
+
+            all_edges.push((src_id, dst_id, edge_type.to_string()));
+        }
+    }
+    let total_edges = all_edges.len();
+
+    // Apply filters
+    let symbols: Vec<serde_json::Value> = symbol_map
+        .into_values()
         .filter(|s| include_tests || !is_test_symbol(s))
         .filter(|s| {
             language_filter
@@ -319,36 +508,9 @@ fn build_graph_data(
                 .unwrap_or(true)
         })
         .collect();
+    let total_symbols = symbols.len();
 
-    // Determine which edge types to fetch based on view
-    let edge_queries: Vec<(&str, &str, &str)> = match view {
-        "calls" => vec![("calls_edges", "Calls", query_calls_edges())],
-        "inherits" => vec![("inherits_edges", "Inherits", query_inherits_edges())],
-        "contains" => vec![("contains_edges", "Contains", query_contains_edges())],
-        "references" => vec![("references_edges", "References", query_references_edges())],
-        _ => vec![
-            ("calls_edges", "Calls", query_calls_edges()),
-            ("references_edges", "References", query_references_edges()),
-            ("inherits_edges", "Inherits", query_inherits_edges()),
-            ("contains_edges", "Contains", query_contains_edges()),
-        ],
-    };
-
-    // Fetch edges
-    let mut all_edges: Vec<(String, String, String)> = Vec::new();
-    for (query_name, edge_type, query_content) in &edge_queries {
-        let edges = run_nanograph_query(db_path, query_content, query_name)?;
-        for edge in edges {
-            let source = edge["source"].as_str().unwrap_or("").to_string();
-            let target = edge["target"].as_str().unwrap_or("").to_string();
-            if !source.is_empty() && !target.is_empty() {
-                all_edges.push((source, target, edge_type.to_string()));
-            }
-        }
-    }
-    let total_edges = all_edges.len();
-
-    // Build node set (truncate to limit)
+    // Truncate to limit
     let truncated = symbols.len() > limit;
     let symbols_limited: Vec<_> = symbols.into_iter().take(limit).collect();
 
