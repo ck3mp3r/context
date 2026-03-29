@@ -139,8 +139,17 @@
       var hoveredNeighbors = new Set();
       var filteredKinds = new Set(); // empty = show all
 
-      // Store instance early so reducers can access filteredLanguage
-      var inst = { graph: graph, renderer: renderer, filteredKinds: filteredKinds, filteredLanguage: null };
+      // Store instance early so reducers can access shared state
+      var inst = {
+        graph: graph,
+        renderer: renderer,
+        filteredKinds: filteredKinds,
+        filteredLanguage: null,
+        focusedNode: null,        // double-click focus
+        focusedNeighbors: null,   // Set of neighbor IDs when focused
+        savedCameraState: null,   // camera state before focus
+        searchMatches: null,      // Set of matched node IDs from search, null = no active search
+      };
 
       renderer.on("enterNode", function(event) {
         hoveredNode = event.node;
@@ -154,11 +163,47 @@
         renderer.refresh();
       });
 
-      // Node reducer: handles hover dimming, kind filtering, and language filtering
+      // Double-click: focus on node and its neighbors
+      renderer.on("doubleClickNode", function(event) {
+        var node = event.node;
+        var neighbors = new Set(graph.neighbors(node));
+        neighbors.add(node);
+
+        // Save camera state before focusing
+        var camera = renderer.getCamera();
+        inst.savedCameraState = camera.getState();
+        inst.focusedNode = node;
+        inst.focusedNeighbors = neighbors;
+
+        renderer.refresh();
+
+        // Zoom to fit focused subgraph
+        window.graphZoomToFit(containerId);
+      });
+
+      // Click on empty canvas: restore previous zoom if focused
+      renderer.on("clickStage", function() {
+        if (inst.focusedNode && inst.savedCameraState) {
+          inst.focusedNode = null;
+          inst.focusedNeighbors = null;
+          renderer.refresh();
+          var camera = renderer.getCamera();
+          camera.animate(inst.savedCameraState, { duration: 300 });
+          inst.savedCameraState = null;
+        }
+      });
+
+      // Node reducer: handles focus, hover dimming, kind filtering, and language filtering
       renderer.setSetting("nodeReducer", function(node, data) {
         var res = Object.assign({}, data);
         var nodeKind = graph.getNodeAttribute(node, "kind");
         var nodeLang = graph.getNodeAttribute(node, "language");
+
+        // Focus filter: hide nodes not in focused subgraph
+        if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) {
+          res.hidden = true;
+          return res;
+        }
 
         // Language filter: hide nodes not matching selected language
         if (inst.filteredLanguage && nodeLang !== inst.filteredLanguage) {
@@ -172,8 +217,23 @@
           return res;
         }
 
-        // Hover dimming
-        if (hoveredNode && hoveredNode !== node && !hoveredNeighbors.has(node)) {
+        // Highlight focused node
+        if (inst.focusedNode === node) {
+          res.highlighted = true;
+        }
+
+        // Search highlighting: dim non-matching nodes
+        if (inst.searchMatches && !inst.searchMatches.has(node)) {
+          res.color = "#313244";
+          res.label = "";
+          return res;
+        }
+        if (inst.searchMatches && inst.searchMatches.has(node)) {
+          res.highlighted = true;
+        }
+
+        // Hover dimming (only when not in focus mode and no active search)
+        if (!inst.focusedNode && hoveredNode && hoveredNode !== node && !hoveredNeighbors.has(node)) {
           res.color = "#313244";
           res.label = "";
         }
@@ -183,11 +243,19 @@
         return res;
       });
 
-      // Edge reducer: handles hover dimming, kind filtering, and language filtering
+      // Edge reducer: handles focus, hover dimming, kind filtering, and language filtering
       renderer.setSetting("edgeReducer", function(edge, data) {
         var res = Object.assign({}, data);
         var source = graph.source(edge);
         var target = graph.target(edge);
+
+        // Focus filter: hide edges not in focused subgraph
+        if (inst.focusedNode && inst.focusedNeighbors) {
+          if (!inst.focusedNeighbors.has(source) || !inst.focusedNeighbors.has(target)) {
+            res.hidden = true;
+            return res;
+          }
+        }
 
         // Language filter: hide edges where either endpoint is filtered out
         if (inst.filteredLanguage) {
@@ -209,8 +277,19 @@
           }
         }
 
-        // Hover dimming
-        if (hoveredNode) {
+        // Search dimming: hide edges not connecting matched nodes
+        if (inst.searchMatches) {
+          if (!inst.searchMatches.has(source) || !inst.searchMatches.has(target)) {
+            res.hidden = true;
+            return res;
+          } else {
+            res.color = "#89b4fa";
+            res.size = 2;
+          }
+        }
+
+        // Hover dimming (only when not in focus mode)
+        if (!inst.focusedNode && !inst.searchMatches && hoveredNode) {
           if (source !== hoveredNode && target !== hoveredNode) {
             res.hidden = true;
           } else {
@@ -241,14 +320,72 @@
   };
 
   /**
-   * Zoom to fit all nodes in view.
+   * Zoom to fit visible nodes in view.
+   * Accounts for focus, language, and kind filters.
    * @param {string} containerId
    */
   window.graphZoomToFit = function(containerId) {
-    if (instances[containerId]) {
-      var camera = instances[containerId].renderer.getCamera();
+    var inst = instances[containerId];
+    if (!inst) return;
+
+    var camera = inst.renderer.getCamera();
+
+    // Collect visible node IDs
+    var visibleNodes = [];
+    inst.graph.forEachNode(function(node, attrs) {
+      if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) return;
+      if (inst.filteredLanguage && attrs.language !== inst.filteredLanguage) return;
+      if (inst.filteredKinds.size > 0 && !inst.filteredKinds.has(attrs.kind)) return;
+      visibleNodes.push(node);
+    });
+
+    if (visibleNodes.length === 0) {
       camera.animatedReset({ duration: 300 });
+      return;
     }
+
+    // Get ALL node positions to find the full bounding box (Sigma's normalization base)
+    var allXs = [], allYs = [];
+    inst.graph.forEachNode(function(n, a) { allXs.push(a.x); allYs.push(a.y); });
+    var fullMinX = Math.min.apply(null, allXs), fullMaxX = Math.max.apply(null, allXs);
+    var fullMinY = Math.min.apply(null, allYs), fullMaxY = Math.max.apply(null, allYs);
+    var fullRangeX = fullMaxX - fullMinX || 1;
+    var fullRangeY = fullMaxY - fullMinY || 1;
+    var fullRange = Math.max(fullRangeX, fullRangeY);
+
+    // Get visible node positions in graph coordinates
+    var visXs = [], visYs = [];
+    visibleNodes.forEach(function(node) {
+      var attrs = inst.graph.getNodeAttributes(node);
+      visXs.push(attrs.x);
+      visYs.push(attrs.y);
+    });
+
+    // Single node — center on it
+    if (visibleNodes.length === 1) {
+      // Normalize to Sigma's [0, 1] space
+      var nx = (visXs[0] - fullMinX) / fullRange;
+      var ny = (visYs[0] - fullMinY) / fullRange;
+      camera.animate({ x: nx, y: ny, ratio: 0.1 }, { duration: 300 });
+      return;
+    }
+
+    // Bounding box of visible nodes in graph coordinates
+    var visMinX = Math.min.apply(null, visXs), visMaxX = Math.max.apply(null, visXs);
+    var visMinY = Math.min.apply(null, visYs), visMaxY = Math.max.apply(null, visYs);
+
+    // Convert center to normalized coordinates
+    var cx = ((visMinX + visMaxX) / 2 - fullMinX) / fullRange;
+    var cy = ((visMinY + visMaxY) / 2 - fullMinY) / fullRange;
+
+    // Ratio: proportion of full graph that the subset spans, with padding
+    var subRangeX = visMaxX - visMinX;
+    var subRangeY = visMaxY - visMinY;
+    var subRange = Math.max(subRangeX, subRangeY);
+    var padding = 1.4;
+    var ratio = Math.max(0.05, (subRange / fullRange) * padding);
+
+    camera.animate({ x: cx, y: cy, ratio: ratio }, { duration: 300 });
   };
 
   /**
@@ -329,5 +466,37 @@
     if (!inst) return;
     inst.filteredLanguage = language || null;
     inst.renderer.refresh();
+  };
+
+  /**
+   * Search nodes by label substring (case-insensitive).
+   * Highlights matching nodes and dims everything else.
+   * Empty query clears the search.
+   * @param {string} containerId
+   * @param {string} query - search string, empty to clear
+   * @returns {number} number of matches
+   */
+  window.graphSearchNodes = function(containerId, query) {
+    var inst = instances[containerId];
+    if (!inst) return 0;
+
+    if (!query || query.trim() === "") {
+      inst.searchMatches = null;
+      inst.renderer.refresh();
+      return 0;
+    }
+
+    var q = query.toLowerCase();
+    var matches = new Set();
+    inst.graph.forEachNode(function(node, attrs) {
+      var label = (attrs.label || "").toLowerCase();
+      if (label.indexOf(q) !== -1) {
+        matches.add(node);
+      }
+    });
+
+    inst.searchMatches = matches.size > 0 ? matches : null;
+    inst.renderer.refresh();
+    return matches.size;
   };
 })();

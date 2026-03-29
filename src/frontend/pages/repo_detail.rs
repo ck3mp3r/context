@@ -239,6 +239,9 @@ extern "C" {
 
     #[wasm_bindgen(js_name = graphFilterLanguage)]
     fn filter_language(container_id: &str, language: &str);
+
+    #[wasm_bindgen(js_name = graphSearchNodes)]
+    fn search_nodes(container_id: &str, query: &str) -> u32;
 }
 
 // =============================================================================
@@ -255,6 +258,9 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     let (legend_kinds, set_legend_kinds) = signal(Vec::<KindInfo>::new());
     let (available_languages, set_available_languages) = signal(Vec::<String>::new());
     let (selected_language, set_selected_language) = signal(String::new()); // empty = all
+    let (is_fetching, set_is_fetching) = signal(false);
+    let (search_query, set_search_query) = signal(String::new());
+    let (search_count, set_search_count) = signal(0u32);
 
     let repo_id_for_fetch = repo_id.clone();
 
@@ -264,6 +270,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let tests = include_tests.get();
         let repo_id = repo_id_for_fetch.clone();
 
+        set_is_fetching.set(true);
         spawn_local(async move {
             match graph::get_repo_graph(&repo_id, Some(&current_view), tests, None).await {
                 Ok(Some(json_data)) => {
@@ -298,11 +305,14 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         }
                         // Reset active filter on new data
                         set_active_kinds.set(std::collections::HashSet::new());
+                        set_search_query.set(String::new());
                         set_graph_state.set(GraphState::Loaded);
+                        set_is_fetching.set(false);
                     } else {
                         set_graph_state.set(GraphState::Error(
                             "Failed to initialize graph renderer".to_string(),
                         ));
+                        set_is_fetching.set(false);
                     }
                 },
                 std::time::Duration::ZERO,
@@ -321,12 +331,21 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let kinds_vec: Vec<&str> = kinds.iter().map(|s| s.as_str()).collect();
         let json = serde_json::to_string(&kinds_vec).unwrap_or_else(|_| "[]".to_string());
         filter_kinds(container_id, &json);
+        zoom_to_fit(container_id);
     });
 
     // Push language filter to JS when selected_language changes
     Effect::new(move || {
         let lang = selected_language.get();
         filter_language(container_id, &lang);
+        zoom_to_fit(container_id);
+    });
+
+    // Push search query to JS when it changes
+    Effect::new(move || {
+        let query = search_query.get();
+        let count = search_nodes(container_id, &query);
+        set_search_count.set(count);
     });
 
     let is_visible = move || {
@@ -341,58 +360,142 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
             class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6"
             style:display=move || if is_visible() { "" } else { "none" }
         >
+            // Controls row
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
                 <div class="flex items-center gap-3">
-                    <label class="flex items-center gap-1.5 text-ctp-subtext0 text-sm cursor-pointer">
+                    <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
+                    // Search input
+                    <div class="relative">
                         <input
-                            type="checkbox"
-                            class="accent-ctp-blue"
-                            prop:checked=move || include_tests.get()
-                            on:change=move |ev| {
-                                let checked = event_target::<web_sys::HtmlInputElement>(&ev)
-                                    .checked();
-                                set_include_tests.set(checked);
+                            type="text"
+                            placeholder="Search nodes..."
+                            class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-40"
+                            on:input=move |ev| {
+                                let value = event_target_value(&ev);
+                                set_search_query.set(value);
                             }
+                            prop:value=move || search_query.get()
                         />
-                        "Tests"
-                    </label>
-                    <select
-                        class="bg-ctp-base border border-ctp-surface2 text-ctp-text text-sm rounded px-2 py-1"
-                        on:change=move |ev| {
-                            set_view.set(event_target_value(&ev));
+                        // Search icon
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                        >
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+                        </svg>
+                        // Match count badge
+                        {move || {
+                            let q = search_query.get();
+                            let count = search_count.get();
+                            if !q.is_empty() {
+                                view! {
+                                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ctp-overlay0">
+                                        {count.to_string()}
+                                    </span>
+                                }.into_any()
+                            } else {
+                                view! { <span></span> }.into_any()
+                            }
+                        }}
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    // View pills
+                    {["full", "calls", "inherits", "references", "contains"].into_iter().map(|v| {
+                        let value = v.to_string();
+                        let label = match v {
+                            "full" => "Full",
+                            "calls" => "Calls",
+                            "inherits" => "Inherits",
+                            "references" => "Refs",
+                            "contains" => "Contains",
+                            _ => v,
+                        };
+                        let value_for_click = value.clone();
+                        let is_active = Memo::new({
+                            let v = value.clone();
+                            move |_| view.get() == v
+                        });
+                        view! {
+                            <button
+                                class="text-xs px-2.5 py-1 rounded-full border transition-colors"
+                                class=("bg-ctp-blue", move || is_active.get())
+                                class=("text-ctp-base", move || is_active.get())
+                                class=("border-ctp-blue", move || is_active.get())
+                                class=("bg-ctp-base", move || !is_active.get())
+                                class=("text-ctp-subtext0", move || !is_active.get())
+                                class=("border-ctp-surface2", move || !is_active.get())
+                                class=("hover:text-ctp-blue", move || !is_active.get())
+                                class=("hover:border-ctp-blue", move || !is_active.get())
+                                on:click=move |_| set_view.set(value_for_click.clone())
+                            >
+                                {label}
+                            </button>
                         }
+                    }).collect::<Vec<_>>()}
+
+                    // Separator
+                    <span class="w-px h-5 bg-ctp-surface2"></span>
+
+                    // Tests toggle pill
+                    <button
+                        class="text-xs px-2.5 py-1 rounded-full border transition-colors"
+                        class=("bg-ctp-mauve", move || include_tests.get())
+                        class=("text-ctp-base", move || include_tests.get())
+                        class=("border-ctp-mauve", move || include_tests.get())
+                        class=("bg-ctp-base", move || !include_tests.get())
+                        class=("text-ctp-subtext0", move || !include_tests.get())
+                        class=("border-ctp-surface2", move || !include_tests.get())
+                        class=("hover:text-ctp-mauve", move || !include_tests.get())
+                        class=("hover:border-ctp-mauve", move || !include_tests.get())
+                        on:click=move |_| set_include_tests.set(!include_tests.get_untracked())
                     >
-                        <option value="full" selected=true>"Full"</option>
-                        <option value="calls">"Calls"</option>
-                        <option value="inherits">"Inherits"</option>
-                        <option value="references">"References"</option>
-                        <option value="contains">"Contains"</option>
-                    </select>
+                        "Tests"
+                    </button>
+
+                    // Language pills (only if multiple languages)
                     {move || {
                         let langs = available_languages.get();
                         if langs.len() > 1 {
+                            let mut items = vec![("".to_string(), "All".to_string())];
+                            items.extend(langs.into_iter().map(|l| (l.clone(), l)));
                             view! {
-                                <select
-                                    class="bg-ctp-base border border-ctp-surface2 text-ctp-text text-sm rounded px-2 py-1"
-                                    on:change=move |ev| {
-                                        set_selected_language.set(event_target_value(&ev));
+                                <span class="w-px h-5 bg-ctp-surface2"></span>
+                                {items.into_iter().map(|(value, label)| {
+                                    let value_for_click = value.clone();
+                                    let is_active = Memo::new({
+                                        let v = value.clone();
+                                        move |_| selected_language.get() == v
+                                    });
+                                    view! {
+                                        <button
+                                            class="text-xs px-2.5 py-1 rounded-full border transition-colors"
+                                            class=("bg-ctp-green", move || is_active.get())
+                                            class=("text-ctp-base", move || is_active.get())
+                                            class=("border-ctp-green", move || is_active.get())
+                                            class=("bg-ctp-base", move || !is_active.get())
+                                            class=("text-ctp-subtext0", move || !is_active.get())
+                                            class=("border-ctp-surface2", move || !is_active.get())
+                                            class=("hover:text-ctp-green", move || !is_active.get())
+                                            class=("hover:border-ctp-green", move || !is_active.get())
+                                            on:click=move |_| set_selected_language.set(value_for_click.clone())
+                                        >
+                                            {label}
+                                        </button>
                                     }
-                                >
-                                    <option value="" selected=true>"All Languages"</option>
-                                    {langs.iter().map(|lang| {
-                                        let l = lang.clone();
-                                        let display = lang.clone();
-                                        view! { <option value={l}>{display}</option> }
-                                    }).collect::<Vec<_>>()}
-                                </select>
+                                }).collect::<Vec<_>>()}
                             }.into_any()
                         } else {
                             view! { <span></span> }.into_any()
                         }
                     }}
+
+                    // Separator + Fit button
+                    <span class="w-px h-5 bg-ctp-surface2"></span>
                     <button
-                        class="bg-ctp-base border border-ctp-surface2 text-ctp-subtext0 text-sm rounded px-2 py-1 hover:text-ctp-blue hover:border-ctp-blue transition-colors"
+                        class="text-xs px-2.5 py-1 rounded-full border bg-ctp-base border-ctp-surface2 text-ctp-subtext0 hover:text-ctp-blue hover:border-ctp-blue transition-colors"
                         on:click=move |_| zoom_to_fit(container_id)
                         title="Fit to screen"
                     >
@@ -407,6 +510,15 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 class="w-full bg-ctp-mantle rounded-lg relative"
                 style="height: 500px;"
             >
+                // Activity indicator
+                <div
+                    class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
+                    style:opacity=move || if is_fetching.get() { "1" } else { "0" }
+                    style:pointer-events="none"
+                >
+                    <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
+                    "Loading..."
+                </div>
                 {move || match graph_state.get() {
                     GraphState::Error(ref msg) => {
                         view! {
