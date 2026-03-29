@@ -445,15 +445,15 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                     // Edge type toggle pills
                     <span class="text-xs text-ctp-overlay0">"Edges:"</span>
                     {[
-                        ("Calls", "Calls"),
-                        ("Uses", "Uses"),
-                        ("Returns", "Ret"),
-                        ("Accepts", "Acc"),
-                        ("FieldType", "Field"),
-                        ("TypeAnnotation", "Type"),
-                        ("Inherits", "Inh"),
-                        ("Contains", "Cont"),
-                    ].into_iter().map(|(value, label)| {
+                        ("Calls", "Calls", PillColor::Blue, "Function/method call relationships"),
+                        ("Uses", "Uses", PillColor::Yellow, "Symbol usage references (e.g. constants, types)"),
+                        ("Returns", "Ret", PillColor::Green, "Function return type relationships"),
+                        ("Accepts", "Acc", PillColor::Teal, "Function parameter type relationships"),
+                        ("FieldType", "Field", PillColor::Pink, "Struct/type field type relationships"),
+                        ("TypeAnnotation", "Type", PillColor::Peach, "Type annotation references (e.g. interface methods)"),
+                        ("Inherits", "Inh", PillColor::Mauve, "Trait/interface implementation relationships"),
+                        ("Contains", "Cont", PillColor::Blue, "Parent-child containment (e.g. struct contains method)"),
+                    ].into_iter().map(|(value, label, color, tooltip)| {
                         let value = value.to_string();
                         let value_for_click = value.clone();
                         let is_active = Signal::derive({
@@ -467,7 +467,8 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             <PillToggle
                                 label=label
                                 active=is_active
-                                color=PillColor::Blue
+                                color=color
+                                tooltip=tooltip.to_string()
                                 on_click=move |_| {
                                     let mut edges = active_edges.get();
                                     if edges.is_empty() {
