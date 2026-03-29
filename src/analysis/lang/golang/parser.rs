@@ -31,6 +31,10 @@ impl Language for Go {
                 Some((Kind::Const, node_text(name, code)))
             }
             "var_spec" => {
+                // Skip local variables inside function/method bodies
+                if is_inside_function(node) {
+                    return None;
+                }
                 let name = node.child_by_field_name("name")?;
                 Some((Kind::Var, node_text(name, code)))
             }
@@ -630,6 +634,18 @@ fn is_ancestor_of(ancestor: Node, node: Node) -> bool {
     for child in ancestor.children(&mut ancestor.walk()) {
         if is_ancestor_of(child, node) {
             return true;
+        }
+    }
+    false
+}
+
+/// Returns true if the given node is inside a function or method body.
+fn is_inside_function(node: Node) -> bool {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        match parent.kind() {
+            "function_declaration" | "method_declaration" | "func_literal" => return true,
+            _ => current = parent,
         }
     }
     false

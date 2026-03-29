@@ -165,6 +165,55 @@ var (
 }
 
 #[test]
+fn test_parse_var_excludes_local_vars() {
+    let code = r#"
+package main
+
+var GlobalVar = "hello"
+
+func doWork() {
+    var localVar int = 42
+    localVar2 := "local"
+    _ = localVar
+    _ = localVar2
+}
+
+func anotherFunc() {
+    var wg sync.WaitGroup
+    var mutex sync.Mutex
+    _ = wg
+    _ = mutex
+}
+"#;
+    let symbols = extract_all_symbols(code);
+    let var_names: Vec<&str> = symbols
+        .iter()
+        .filter(|(k, _)| *k == Kind::Var)
+        .map(|(_, n)| n.as_str())
+        .collect();
+    assert!(
+        var_names.contains(&"GlobalVar"),
+        "Should include package-level var, got: {:?}",
+        var_names
+    );
+    assert!(
+        !var_names.contains(&"localVar"),
+        "Should NOT include local var inside function, got: {:?}",
+        var_names
+    );
+    assert!(
+        !var_names.contains(&"wg"),
+        "Should NOT include local var inside function, got: {:?}",
+        var_names
+    );
+    assert!(
+        !var_names.contains(&"mutex"),
+        "Should NOT include local var inside function, got: {:?}",
+        var_names
+    );
+}
+
+#[test]
 fn test_parse_mixed_file() {
     let code = r#"
 package main
