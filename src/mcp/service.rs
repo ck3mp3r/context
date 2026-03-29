@@ -50,7 +50,7 @@ pub fn create_mcp_service<D: Database + 'static>(
     notifier: crate::api::notifier::ChangeNotifier,
     skills_dir: std::path::PathBuf,
     cancellation_token: CancellationToken,
-) -> StreamableHttpService<McpServer<D>> {
+) -> StreamableHttpService<McpServer<D>, LocalSessionManager> {
     let db = db.into();
 
     // Service factory: creates new McpServer instance per session
@@ -61,13 +61,11 @@ pub fn create_mcp_service<D: Database + 'static>(
     };
 
     // Configure Streamable HTTP server
-    let config = StreamableHttpServerConfig {
-        sse_keep_alive: None, // Use default (15s)
-        sse_retry: None,      // Use default retry behavior
-        stateful_mode: true,  // Enable session management
-        cancellation_token,
-        ..Default::default()
-    };
+    let config = StreamableHttpServerConfig::default()
+        .with_sse_keep_alive(None)
+        .with_sse_retry(None)
+        .with_stateful_mode(true)
+        .with_cancellation_token(cancellation_token);
 
     // Create service with local session manager
     StreamableHttpService::new(

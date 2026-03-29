@@ -9,7 +9,7 @@
 //! inside `analysis.nano`), so deleting the graph is safe.
 
 use crate::analysis::parser::{GlobalSymbolMap, resolve_deferred_edges};
-use crate::analysis::{Language, Nushell, Parser, Rust, store::CodeGraph};
+use crate::analysis::{Go, Language, Nushell, Parser, Rust, store::CodeGraph};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -24,12 +24,13 @@ use thiserror::Error;
 
 macro_rules! languages {
     ($callback:ident!($file:expr)) => {
-        $callback!($file, Rust) || $callback!($file, Nushell)
+        $callback!($file, Rust) || $callback!($file, Nushell) || $callback!($file, Go)
     };
 
     ($callback:ident!($files:expr, $repo:expr, $graph:expr, $global:expr, $syms:expr, $rels:expr)) => {
         $callback!($files, $repo, $graph, $global, $syms, $rels, Rust)?;
         $callback!($files, $repo, $graph, $global, $syms, $rels, Nushell)?;
+        $callback!($files, $repo, $graph, $global, $syms, $rels, Go)?;
     };
 }
 
