@@ -4,7 +4,7 @@ use leptos_router::hooks::use_params_map;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{ApiClientError, graph, projects, repos};
-use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId};
+use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId, PillColor, PillToggle};
 use crate::models::{Project, Repo, UpdateMessage};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
@@ -434,43 +434,27 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             _ => v,
                         };
                         let value_for_click = value.clone();
-                        let is_active = Memo::new({
+                        let is_active = Signal::derive({
                             let v = value.clone();
-                            move |_| view.get() == v
+                            move || view.get() == v
                         });
                         view! {
-                            <button
-                                class="text-xs px-2.5 py-1 rounded-full border transition-colors"
-                                class=("bg-ctp-blue", move || is_active.get())
-                                class=("text-ctp-base", move || is_active.get())
-                                class=("border-ctp-blue", move || is_active.get())
-                                class=("bg-ctp-base", move || !is_active.get())
-                                class=("text-ctp-subtext0", move || !is_active.get())
-                                class=("border-ctp-surface2", move || !is_active.get())
-                                class=("hover:text-ctp-blue", move || !is_active.get())
-                                class=("hover:border-ctp-blue", move || !is_active.get())
-                                on:click=move |_| set_view.set(value_for_click.clone())
-                            >
-                                {label}
-                            </button>
+                            <PillToggle
+                                label=label
+                                active=is_active
+                                color=PillColor::Blue
+                                on_click=move |_| set_view.set(value_for_click.clone())
+                            />
                         }
                     }).collect::<Vec<_>>()}
 
                     // Tests toggle pill
-                    <button
-                        class="text-xs px-2.5 py-1 rounded-full border transition-colors"
-                        class=("bg-ctp-mauve", move || include_tests.get())
-                        class=("text-ctp-base", move || include_tests.get())
-                        class=("border-ctp-mauve", move || include_tests.get())
-                        class=("bg-ctp-base", move || !include_tests.get())
-                        class=("text-ctp-subtext0", move || !include_tests.get())
-                        class=("border-ctp-surface2", move || !include_tests.get())
-                        class=("hover:text-ctp-mauve", move || !include_tests.get())
-                        class=("hover:border-ctp-mauve", move || !include_tests.get())
-                        on:click=move |_| set_include_tests.set(!include_tests.get_untracked())
-                    >
-                        "Tests"
-                    </button>
+                    <PillToggle
+                        label="Tests"
+                        active=Signal::derive(move || include_tests.get())
+                        color=PillColor::Mauve
+                        on_click=move |_| set_include_tests.set(!include_tests.get_untracked())
+                    />
 
                     // Language pills (only if multiple languages)
                     {move || {
@@ -482,25 +466,17 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                                 <span class="text-xs text-ctp-overlay0 ml-1">"Lang:"</span>
                                 {items.into_iter().map(|(value, label)| {
                                     let value_for_click = value.clone();
-                                    let is_active = Memo::new({
+                                    let is_active = Signal::derive({
                                         let v = value.clone();
-                                        move |_| selected_language.get() == v
+                                        move || selected_language.get() == v
                                     });
                                     view! {
-                                        <button
-                                            class="text-xs px-2.5 py-1 rounded-full border transition-colors"
-                                            class=("bg-ctp-green", move || is_active.get())
-                                            class=("text-ctp-base", move || is_active.get())
-                                            class=("border-ctp-green", move || is_active.get())
-                                            class=("bg-ctp-base", move || !is_active.get())
-                                            class=("text-ctp-subtext0", move || !is_active.get())
-                                            class=("border-ctp-surface2", move || !is_active.get())
-                                            class=("hover:text-ctp-green", move || !is_active.get())
-                                            class=("hover:border-ctp-green", move || !is_active.get())
-                                            on:click=move |_| set_selected_language.set(value_for_click.clone())
-                                        >
-                                            {label}
-                                        </button>
+                                        <PillToggle
+                                            label=label
+                                            active=is_active
+                                            color=PillColor::Green
+                                            on_click=move |_| set_selected_language.set(value_for_click.clone())
+                                        />
                                     }
                                 }).collect::<Vec<_>>()}
                             }.into_any()
