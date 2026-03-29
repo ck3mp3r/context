@@ -785,3 +785,54 @@ struct Server {
         names
     );
 }
+
+#[test]
+fn test_trait_method_types_produce_type_annotation_edges() {
+    let code = r#"
+trait Handler {
+    fn handle(&self, req: Request) -> Response;
+    fn configure(&mut self, config: Config);
+    fn status(&self) -> bool;
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let trait_node = parse_and_find(&tree, "trait_item").unwrap();
+    let refs = Rust::extract_type_references(trait_node, code);
+
+    // All should be TypeAnnotation (not Returns/Accepts — those are for the methods themselves)
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::TypeAnnotation,
+            "Trait method type '{}' should produce TypeAnnotation edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Request"),
+        "Should contain Request, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Response"),
+        "Should contain Response, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Config"),
+        "Should contain Config, got: {:?}",
+        names
+    );
+    // bool is a builtin — should not appear
+    assert!(
+        !names.contains(&"bool"),
+        "Should NOT contain builtin 'bool', got: {:?}",
+        names
+    );
+}

@@ -120,15 +120,25 @@ impl Language for Rust {
     fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
         let mut refs = Vec::new();
 
-        // Only extract from struct fields — function param/return types
-        // are handled by extract_return_types and extract_param_types
-        if node.kind() == "struct_item" {
-            // Only look at field_declaration_list, skip struct name
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "field_declaration_list" {
-                    collect_type_refs(child, code, &mut refs, ReferenceType::FieldType);
+        match node.kind() {
+            // Struct fields → FieldType edges
+            "struct_item" => {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "field_declaration_list" {
+                        collect_type_refs(child, code, &mut refs, ReferenceType::FieldType);
+                    }
                 }
             }
+            // Trait method signatures → TypeAnnotation edges
+            // (consistent with Go interface method types)
+            "trait_item" => {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "declaration_list" {
+                        collect_type_refs(child, code, &mut refs, ReferenceType::TypeAnnotation);
+                    }
+                }
+            }
+            _ => {}
         }
 
         refs
