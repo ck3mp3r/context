@@ -1,805 +1,476 @@
-// Rust language parser implementation
+use crate::analysis::types::ParsedFile;
+use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
-use super::types::Kind;
-use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ImportEntry, QualifiedName, ReferenceType, SymbolId, SymbolName};
-use tree_sitter::Node;
-
-/// Rust language implementation
 pub struct Rust;
 
-impl Language for Rust {
-    type Kind = Kind;
+const QUERIES: &str = r#"
+;;; function_item
+(function_item
+    name: (identifier) @fn_name
+    parameters: (parameters) @fn_params
+    return_type: (_)? @fn_ret) @fn_def
 
-    fn grammar() -> tree_sitter::Language {
-        tree_sitter_rust::LANGUAGE.into()
-    }
+;;; struct_item
+(struct_item
+    name: (type_identifier) @struct_name) @struct_def
 
-    fn parse_symbol(node: Node, code: &str) -> Option<(Self::Kind, String)> {
-        match node.kind() {
-            "function_item" => extract_name(node, code, "identifier", Kind::Function),
-            "struct_item" => extract_name(node, code, "type_identifier", Kind::Struct),
-            "enum_item" => extract_name(node, code, "type_identifier", Kind::Enum),
-            "trait_item" => extract_name(node, code, "type_identifier", Kind::Trait),
-            "const_item" => extract_name(node, code, "identifier", Kind::Const),
-            "static_item" => extract_name(node, code, "identifier", Kind::Static),
-            "type_item" => extract_name(node, code, "type_identifier", Kind::Type),
-            "mod_item" => extract_name(node, code, "identifier", Kind::Mod),
-            _ => None,
-        }
-    }
+;;; enum_item
+(enum_item
+    name: (type_identifier) @enum_name) @enum_def
 
-    fn extract_callee(node: Node, code: &str) -> Option<String> {
-        for child in node.children(&mut node.walk()) {
-            match child.kind() {
-                // Simple function call: foo()
-                "identifier" => {
-                    return Some(code[child.byte_range()].to_string());
-                }
-                // Scoped call: Foo::bar() - we want the last segment (bar)
-                "scoped_identifier" => {
-                    let mut last_ident = None;
-                    for subchild in child.children(&mut child.walk()) {
-                        if subchild.kind() == "identifier" {
-                            last_ident = Some(code[subchild.byte_range()].to_string());
-                        }
-                    }
-                    return last_ident;
-                }
-                // Method call: obj.method()
-                "field_expression" => {
-                    for subchild in child.children(&mut child.walk()) {
-                        if subchild.kind() == "field_identifier" {
-                            return Some(code[subchild.byte_range()].to_string());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
+;;; trait_item
+(trait_item
+    name: (type_identifier) @trait_name) @trait_def
 
-    fn parse_impl(node: Node, code: &str) -> Option<ImplInfo> {
-        if node.kind() != "impl_item" {
-            return None;
-        }
+;;; mod_item
+(mod_item
+    name: (identifier) @mod_name) @mod_def
 
-        let mut target_type = None;
-        let mut trait_name = None;
-        let mut has_for = false;
+;;; const_item
+(const_item
+    name: (identifier) @const_name) @const_def
 
-        for child in node.children(&mut node.walk()) {
-            match child.kind() {
-                "for" => {
-                    has_for = true;
-                }
-                "type_identifier" if has_for || (trait_name.is_none() && target_type.is_none()) => {
-                    target_type = Some(code[child.byte_range()].to_string());
-                }
-                "generic_type" if has_for || (trait_name.is_none() && target_type.is_none()) => {
-                    if let Some(name) = extract_type_name_from_generic(child, code) {
-                        target_type = Some(name);
-                    }
-                }
-                _ => {}
-            }
-        }
+;;; static_item
+(static_item
+    name: (identifier) @static_name) @static_def
 
-        // If we saw `for`, the first type_identifier was the trait
-        if has_for && target_type.is_some() {
-            // Walk again to get trait name (first type_identifier or generic_type before `for`)
-            let mut found_for = false;
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "for" {
-                    found_for = true;
-                } else if !found_for {
-                    match child.kind() {
-                        "type_identifier" => {
-                            trait_name = Some(code[child.byte_range()].to_string());
-                            break;
-                        }
-                        "generic_type" => {
-                            if let Some(name) = extract_type_name_from_generic(child, code) {
-                                trait_name = Some(name);
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+;;; type_item (type alias)
+(type_item
+    name: (type_identifier) @type_alias_name) @type_alias_def
 
-        target_type.map(|t| ImplInfo {
-            target_type: t,
-            trait_name,
-        })
-    }
+;;; impl_item — trait impl
+(impl_item
+    trait: (type_identifier) @impl_trait
+    type: (type_identifier) @impl_type) @impl_trait_def
 
-    fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
-        let mut refs = Vec::new();
+;;; impl_item — inherent impl (no trait)
+(impl_item
+    !trait
+    type: (type_identifier) @inherent_impl_type) @impl_inherent_def
 
-        match node.kind() {
-            // Struct fields → FieldType edges
-            "struct_item" => {
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "field_declaration_list" {
-                        collect_type_refs(child, code, &mut refs, ReferenceType::FieldType);
-                    }
-                }
-            }
-            // Trait method signatures → TypeAnnotation edges
-            // (consistent with Go interface method types)
-            "trait_item" => {
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "declaration_list" {
-                        collect_type_refs(child, code, &mut refs, ReferenceType::TypeAnnotation);
-                    }
-                }
-            }
-            _ => {}
-        }
+;;; method inside impl
+(declaration_list
+    (function_item
+        name: (identifier) @method_name
+        parameters: (parameters) @method_params
+        return_type: (_)? @method_ret) @method_def)
 
-        refs
-    }
+;;; call_expression — plain function
+(call_expression
+    function: (identifier) @call_free_name) @call_free
 
-    fn extract_signature(node: Node, code: &str) -> Option<String> {
-        match node.kind() {
-            "function_item" => {
-                // Signature = everything before the body block
-                // Find the block (function body) and take everything before it
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "block" {
-                        let sig_end = child.start_byte();
-                        let sig = code[node.start_byte()..sig_end].trim();
-                        return Some(sig.to_string());
-                    }
-                }
-                // No body (shouldn't happen for function_item, but safety)
-                Some(code[node.byte_range()].to_string())
-            }
-            "struct_item" => {
-                // For structs, include the whole declaration
-                let text = &code[node.byte_range()];
-                // Truncate very long struct definitions
-                if text.len() > 200 {
-                    Some(format!("{}...", &text[..200]))
-                } else {
-                    Some(text.to_string())
-                }
-            }
-            "enum_item" => {
-                let text = &code[node.byte_range()];
-                if text.len() > 200 {
-                    Some(format!("{}...", &text[..200]))
-                } else {
-                    Some(text.to_string())
-                }
-            }
-            "trait_item" => {
-                // Just the trait header, not the body
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "declaration_list" {
-                        let sig_end = child.start_byte();
-                        let sig = code[node.start_byte()..sig_end].trim();
-                        return Some(sig.to_string());
-                    }
-                }
-                Some(code[node.byte_range()].to_string())
-            }
-            "type_item" => Some(code[node.byte_range()].trim().to_string()),
-            "const_item" => Some(code[node.byte_range()].trim().to_string()),
-            "static_item" => Some(code[node.byte_range()].trim().to_string()),
-            _ => None,
-        }
-    }
+;;; call_expression — method call (obj.method())
+(call_expression
+    function: (field_expression
+        value: (_) @call_method_receiver
+        field: (field_identifier) @call_method_name)) @call_method
 
-    fn name() -> &'static str {
+;;; call_expression — scoped call (Foo::bar())
+(call_expression
+    function: (scoped_identifier
+        path: (_) @call_scoped_path
+        name: (identifier) @call_scoped_name)) @call_scoped
+
+;;; use_declaration
+(use_declaration
+    argument: (_) @use_path) @use_decl
+"#;
+
+impl Rust {
+    pub fn name() -> &'static str {
         "rust"
     }
 
-    fn extensions() -> &'static [&'static str] {
+    pub fn extensions() -> &'static [&'static str] {
         &["rs"]
     }
 
-    fn extract_usages(node: Node, code: &str) -> Vec<(SymbolName, usize)> {
-        // Only extract usages from function bodies
-        if node.kind() != "function_item" {
-            return Vec::new();
-        }
-        let Some(body) = node
-            .children(&mut node.walk())
-            .find(|c| c.kind() == "block")
-        else {
-            return Vec::new();
+    pub fn grammar() -> tree_sitter::Language {
+        tree_sitter_rust::LANGUAGE.into()
+    }
+
+    pub fn queries() -> &'static str {
+        QUERIES
+    }
+
+    pub fn extract(code: &str, file_path: &str) -> ParsedFile {
+        let mut parsed = ParsedFile::new(file_path, "rust");
+        let language = Self::grammar();
+
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&language).expect("grammar error");
+        let tree = match parser.parse(code, None) {
+            Some(t) => t,
+            None => return parsed,
         };
 
-        let mut locals = std::collections::HashSet::new();
-
-        // Collect parameter names
-        if let Some(params) = node.child_by_field_name("parameters") {
-            collect_rust_param_names(params, code, &mut locals);
-        }
-
-        // Collect local bindings from the body
-        collect_rust_local_declarations(body, code, &mut locals);
-
-        // Scan the body for identifier usages
-        let mut usages = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        collect_rust_identifier_usages(body, code, &locals, &mut usages, &mut seen);
-        usages
-    }
-
-    fn extract_return_types(node: Node, code: &str) -> Vec<SymbolName> {
-        if node.kind() != "function_item" {
-            return Vec::new();
-        }
-
-        // Find the return type node — it's the `type` field after `->`
-        let Some(return_type) = node.child_by_field_name("return_type") else {
-            return Vec::new();
+        let query = match Query::new(&language, QUERIES) {
+            Ok(q) => q,
+            Err(_) => return parsed,
         };
 
-        let mut types = Vec::new();
-        collect_return_type_names(return_type, code, &mut types);
-        types
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+        while let Some(m) = matches.next() {
+            Self::process_match(&query, m, code, file_path, &mut parsed);
+        }
+
+        parsed
     }
 
-    fn extract_param_types(node: Node, code: &str) -> Vec<SymbolName> {
-        if node.kind() != "function_item" {
-            return Vec::new();
-        }
-
-        let Some(params) = node.child_by_field_name("parameters") else {
-            return Vec::new();
-        };
-
-        let mut types = Vec::new();
-        for child in params.children(&mut params.walk()) {
-            if child.kind() == "parameter" {
-                // Extract type from the "type" field, skipping self parameters
-                if let Some(type_node) = child.child_by_field_name("type") {
-                    collect_return_type_names(type_node, code, &mut types);
-                }
-            }
-        }
-        types
-    }
-
-    fn module_info(node: Node, code: &str, file_path: &str) -> Option<ModuleInfo> {
-        if node.kind() != "mod_item" {
-            return None;
-        }
-
-        // Extract the module name
-        let name = node
-            .children(&mut node.walk())
-            .find(|c| c.kind() == "identifier")
-            .map(|c| code[c.byte_range()].to_string())?;
-
-        // Check for inline body (declaration_list)
-        let has_body = node
-            .children(&mut node.walk())
-            .any(|c| c.kind() == "declaration_list");
-
-        if has_body {
-            Some(ModuleInfo {
-                has_body: true,
-                candidate_paths: Vec::new(),
-            })
-        } else {
-            // External mod: resolve candidate file paths
-            let candidate_paths = resolve_module_file(&name, file_path);
-            Some(ModuleInfo {
-                has_body: false,
-                candidate_paths,
-            })
-        }
-    }
-
-    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
-        if node.kind() != "use_declaration" {
-            return None;
-        }
-
-        let argument = node.child_by_field_name("argument")?;
-        let mut entries = Vec::new();
-        extract_use_clause(argument, code, &[], &mut entries);
-        Some(entries)
-    }
-
-    fn resolve_import(
-        global: &GlobalSymbolMap,
+    fn process_match(
+        query: &Query,
+        m: &tree_sitter::QueryMatch,
+        code: &str,
         file_path: &str,
-        module_path: &str,
-        imported_name: &str,
-    ) -> Vec<(SymbolId, SymbolId)> {
-        let normalized = module_path
-            .strip_prefix("crate::")
-            .or_else(|| module_path.strip_prefix("super::"))
-            .unwrap_or(module_path);
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::analysis::types::*;
 
-        let target_id = match global
-            .qualified_map
-            .get(&QualifiedName::new(normalized, imported_name))
+        let capture_name = |idx: u32| -> &str { query.capture_names()[idx as usize] };
+
+        let mut captures: std::collections::HashMap<&str, tree_sitter::Node> =
+            std::collections::HashMap::new();
+        for cap in m.captures {
+            captures.insert(capture_name(cap.index), cap.node);
+        }
+
+        let text = |node: tree_sitter::Node| -> &str { &code[node.byte_range()] };
+
+        // Symbol definitions
+        if let Some(&node) = captures.get("fn_def")
+            && let Some(&name_node) = captures.get("fn_name")
         {
-            Some(id) => id.clone(),
-            None => return Vec::new(),
-        };
+            let sig = build_rust_fn_signature(&captures, code);
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "function".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: Some(sig),
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("struct_def")
+            && let Some(&name_node) = captures.get("struct_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "struct".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("enum_def")
+            && let Some(&name_node) = captures.get("enum_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "enum".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("trait_def")
+            && let Some(&name_node) = captures.get("trait_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "trait".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("mod_def")
+            && let Some(&name_node) = captures.get("mod_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "module".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("const_def")
+            && let Some(&name_node) = captures.get("const_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "const".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("static_def")
+            && let Some(&name_node) = captures.get("static_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "static".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        } else if let Some(&node) = captures.get("type_alias_def")
+            && let Some(&name_node) = captures.get("type_alias_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "type".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        }
 
-        match global.file_module_symbol.get(file_path) {
-            Some(mod_id) => vec![(mod_id.clone(), target_id)],
-            None => Vec::new(),
+        // Heritage (impl blocks)
+        if captures.contains_key("impl_trait_def")
+            && let (Some(&trait_node), Some(&type_node)) =
+                (captures.get("impl_trait"), captures.get("impl_type"))
+        {
+            parsed.heritage.push(RawHeritage {
+                file_path: file_path.to_string(),
+                type_name: text(type_node).to_string(),
+                parent_name: text(trait_node).to_string(),
+                kind: InheritanceType::Implements,
+            });
+        }
+
+        // Methods inside impl blocks — containment
+        if let Some(&node) = captures.get("method_def")
+            && let Some(&name_node) = captures.get("method_name")
+        {
+            let sig = build_rust_method_signature(&captures, code);
+            let idx = parsed.symbols.len();
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "function".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: Some(sig),
+                language: "rust".to_string(),
+            });
+
+            // Find the impl type this method belongs to
+            if let Some(impl_node) = find_ancestor(node, "impl_item")
+                && let Some(type_node) = impl_node.child_by_field_name("type")
+            {
+                parsed.containments.push(RawContainment {
+                    file_path: file_path.to_string(),
+                    parent_name: code[type_node.byte_range()].to_string(),
+                    child_symbol_idx: idx,
+                });
+            }
+        }
+
+        // Calls
+        if captures.contains_key("call_free") {
+            if let Some(&name_node) = captures.get("call_free_name") {
+                let call_node = captures.get("call_free").unwrap();
+                parsed.calls.push(RawCall {
+                    file_path: file_path.to_string(),
+                    call_site_line: call_node.start_position().row + 1,
+                    callee_name: text(name_node).to_string(),
+                    call_form: CallForm::Free,
+                    receiver: None,
+                    qualifier: None,
+                    enclosing_symbol_idx: None,
+                });
+            }
+        } else if captures.contains_key("call_method") {
+            if let Some(&name_node) = captures.get("call_method_name") {
+                let call_node = captures.get("call_method").unwrap();
+                let receiver = captures
+                    .get("call_method_receiver")
+                    .map(|n| text(*n).to_string());
+                parsed.calls.push(RawCall {
+                    file_path: file_path.to_string(),
+                    call_site_line: call_node.start_position().row + 1,
+                    callee_name: text(name_node).to_string(),
+                    call_form: CallForm::Method,
+                    receiver,
+                    qualifier: None,
+                    enclosing_symbol_idx: None,
+                });
+            }
+        } else if captures.contains_key("call_scoped")
+            && let Some(&name_node) = captures.get("call_scoped_name")
+        {
+            let call_node = captures.get("call_scoped").unwrap();
+            let qualifier = captures
+                .get("call_scoped_path")
+                .map(|n| text(*n).to_string());
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Scoped,
+                receiver: None,
+                qualifier,
+                enclosing_symbol_idx: None,
+            });
+        }
+
+        // Imports
+        if captures.contains_key("use_decl")
+            && let Some(&path_node) = captures.get("use_path")
+        {
+            let entries = extract_rust_use(path_node, code);
+            for entry in entries {
+                parsed.imports.push(RawImport {
+                    file_path: file_path.to_string(),
+                    entry,
+                });
+            }
         }
     }
 }
 
-/// Recursively collect path segments from a scoped_identifier or leaf node.
-/// For `std::collections::HashMap`, produces `["std", "collections", "HashMap"]`.
-fn collect_path_segments(node: Node, code: &str, segments: &mut Vec<String>) {
-    match node.kind() {
-        "identifier" => segments.push(code[node.byte_range()].trim().to_string()),
-        "crate" => segments.push("crate".to_string()),
-        "self" => segments.push("self".to_string()),
-        "super" => segments.push("super".to_string()),
-        "scoped_identifier" => {
-            if let Some(path) = node.child_by_field_name("path") {
-                collect_path_segments(path, code, segments);
-            }
-            if let Some(name) = node.child_by_field_name("name") {
-                segments.push(code[name.byte_range()].trim().to_string());
-            }
+fn find_ancestor<'a>(mut node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+    while let Some(parent) = node.parent() {
+        if parent.kind() == kind {
+            return Some(parent);
         }
-        _ => {}
-    }
-}
-
-/// Process a use clause (the `argument` of a `use_declaration`).
-/// `prefix_segments` accumulates the module path from outer scoped_use_list nodes.
-fn extract_use_clause(
-    node: Node,
-    code: &str,
-    prefix_segments: &[String],
-    entries: &mut Vec<ImportEntry>,
-) {
-    match node.kind() {
-        "scoped_identifier" => {
-            // e.g., `std::collections::HashMap` — all but last = module, last = name
-            let mut segments = Vec::new();
-            collect_path_segments(node, code, &mut segments);
-            let full: Vec<String> = prefix_segments.iter().cloned().chain(segments).collect();
-            if full.len() >= 2 {
-                let name = full.last().unwrap().clone();
-                let module = full[..full.len() - 1].join("::");
-                entries.push(ImportEntry::named_import(module, vec![name]));
-            } else if full.len() == 1 {
-                entries.push(ImportEntry::module_import(full[0].clone()));
-            }
-        }
-        "scoped_use_list" => {
-            // e.g., `std::collections::{HashMap, HashSet}`
-            let mut path_segments: Vec<String> = prefix_segments.to_vec();
-            if let Some(path) = node.child_by_field_name("path") {
-                collect_path_segments(path, code, &mut path_segments);
-            }
-            if let Some(list) = node.child_by_field_name("list") {
-                // Check for glob (*) and simple identifiers in the list
-                let mut names = Vec::new();
-                let mut has_glob = false;
-                for child in list.children(&mut list.walk()) {
-                    match child.kind() {
-                        "identifier" => {
-                            names.push(code[child.byte_range()].trim().to_string());
-                        }
-                        "self" => {
-                            // `{self, HashMap}` — self imports the module itself
-                            // We don't add "self" to imported_names
-                        }
-                        "use_wildcard" => {
-                            has_glob = true;
-                        }
-                        "scoped_identifier" | "scoped_use_list" | "use_as_clause" => {
-                            // Nested: recurse with accumulated prefix
-                            extract_use_clause(child, code, &path_segments, entries);
-                        }
-                        _ => {}
-                    }
-                }
-                let module = path_segments.join("::");
-                if has_glob {
-                    entries.push(ImportEntry::glob_import(module));
-                } else if !names.is_empty() {
-                    entries.push(ImportEntry::named_import(module, names));
-                }
-            }
-        }
-        "use_wildcard" => {
-            // e.g., `std::collections::*`
-            let mut path_segments: Vec<String> = prefix_segments.to_vec();
-            for child in node.children(&mut node.walk()) {
-                if child.kind() != "*" {
-                    collect_path_segments(child, code, &mut path_segments);
-                }
-            }
-            let module = path_segments.join("::");
-            entries.push(ImportEntry::glob_import(module));
-        }
-        "use_as_clause" => {
-            // e.g., `use std::io as stdio` — treated as named import
-            if let Some(path) = node.child_by_field_name("path") {
-                let mut segments = Vec::new();
-                collect_path_segments(path, code, &mut segments);
-                let full: Vec<String> = prefix_segments.iter().cloned().chain(segments).collect();
-                if full.len() >= 2 {
-                    let name = full.last().unwrap().clone();
-                    let module = full[..full.len() - 1].join("::");
-                    entries.push(ImportEntry::named_import(module, vec![name]));
-                } else if full.len() == 1 {
-                    entries.push(ImportEntry::module_import(full[0].clone()));
-                }
-            }
-        }
-        "identifier" => {
-            // Bare `use foo;`
-            let name = code[node.byte_range()].trim().to_string();
-            let full: Vec<String> = prefix_segments.iter().cloned().chain(Some(name)).collect();
-            if full.len() >= 2 {
-                let name = full.last().unwrap().clone();
-                let module = full[..full.len() - 1].join("::");
-                entries.push(ImportEntry::named_import(module, vec![name]));
-            } else {
-                entries.push(ImportEntry::module_import(full[0].clone()));
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Helper: extract the first child node of `child_kind` as the symbol name
-fn extract_name(node: Node, code: &str, child_kind: &str, kind: Kind) -> Option<(Kind, String)> {
-    for child in node.children(&mut node.walk()) {
-        if child.kind() == child_kind {
-            let name = code[child.byte_range()].to_string();
-            return Some((kind, name));
-        }
+        node = parent;
     }
     None
 }
 
-/// Given a module name and the file path where `mod name;` appears,
-/// return the candidate file paths for the module's contents.
-/// Returns [direct_path, mod_path] — e.g., for `mod parser;` in
-/// `src/analysis/mod.rs`, returns `["src/analysis/parser.rs", "src/analysis/parser/mod.rs"]`.
-/// For `mod types;` in `src/analysis.rs`, returns
-/// `["src/analysis/types.rs", "src/analysis/types/mod.rs"]`.
-fn resolve_module_file(mod_name: &str, declaring_file: &str) -> Vec<String> {
-    let path = std::path::Path::new(declaring_file);
-    let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+fn build_rust_fn_signature(
+    captures: &std::collections::HashMap<&str, tree_sitter::Node>,
+    code: &str,
+) -> String {
+    let name = captures
+        .get("fn_name")
+        .map(|n| &code[n.byte_range()])
+        .unwrap_or("?");
+    let params = captures
+        .get("fn_params")
+        .map(|n| &code[n.byte_range()])
+        .unwrap_or("()");
+    let ret = captures
+        .get("fn_ret")
+        .map(|n| format!(" -> {}", &code[n.byte_range()]));
+    format!("fn {}{}{}", name, params, ret.unwrap_or_default())
+}
 
-    let parent_dir = if file_name == "mod.rs" || file_name == "lib.rs" || file_name == "main.rs" {
-        // mod.rs, lib.rs, main.rs: sibling modules are in the same directory
-        path.parent().unwrap_or(std::path::Path::new(""))
+fn build_rust_method_signature(
+    captures: &std::collections::HashMap<&str, tree_sitter::Node>,
+    code: &str,
+) -> String {
+    let name = captures
+        .get("method_name")
+        .map(|n| &code[n.byte_range()])
+        .unwrap_or("?");
+    let params = captures
+        .get("method_params")
+        .map(|n| &code[n.byte_range()])
+        .unwrap_or("()");
+    let ret = captures
+        .get("method_ret")
+        .map(|n| format!(" -> {}", &code[n.byte_range()]));
+    format!("fn {}{}{}", name, params, ret.unwrap_or_default())
+}
+
+fn extract_rust_use(
+    node: tree_sitter::Node,
+    code: &str,
+) -> Vec<crate::analysis::types::ImportEntry> {
+    use crate::analysis::types::ImportEntry;
+
+    let text = &code[node.byte_range()];
+
+    // Handle glob: `foo::*`
+    if text.ends_with("::*") {
+        let module = text.trim_end_matches("::*");
+        return vec![ImportEntry::glob_import(module)];
+    }
+
+    // Handle scoped use list: `foo::{A, B}`
+    if node.kind() == "use_as_clause" || node.kind() == "scoped_use_list" {
+        return extract_scoped_use_list(node, code);
+    }
+
+    // Handle simple path: `foo::bar::Baz`
+    if let Some((module, name)) = text.rsplit_once("::") {
+        return vec![ImportEntry::named_import(module, vec![name.to_string()])];
+    }
+
+    // Single identifier (e.g., `use foo;`)
+    vec![ImportEntry::named_import("", vec![text.to_string()])]
+}
+
+fn extract_scoped_use_list(
+    node: tree_sitter::Node,
+    code: &str,
+) -> Vec<crate::analysis::types::ImportEntry> {
+    use crate::analysis::types::ImportEntry;
+
+    if node.kind() == "scoped_use_list" {
+        let path_node = node.child_by_field_name("path");
+        let list_node = node.child_by_field_name("list");
+        let module_path = path_node
+            .map(|n| code[n.byte_range()].to_string())
+            .unwrap_or_default();
+
+        if let Some(list) = list_node {
+            let mut names = Vec::new();
+            let mut cursor = list.walk();
+            for child in list.children(&mut cursor) {
+                match child.kind() {
+                    "identifier" | "type_identifier" => {
+                        names.push(code[child.byte_range()].to_string());
+                    }
+                    "scoped_use_list" => {
+                        let sub_entries = extract_scoped_use_list(child, code);
+                        if let Some(entry) = sub_entries.into_iter().next() {
+                            let full_module = if module_path.is_empty() {
+                                entry.module_path
+                            } else {
+                                format!("{}::{}", module_path, entry.module_path)
+                            };
+                            return vec![ImportEntry::named_import(
+                                full_module,
+                                entry.imported_names,
+                            )];
+                        }
+                    }
+                    "self" => {
+                        // `use foo::{self}` — imports the module itself
+                        if let Some(mod_name) = module_path.rsplit("::").next() {
+                            names.push(mod_name.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !names.is_empty() {
+                return vec![ImportEntry::named_import(module_path, names)];
+            }
+        }
+    }
+
+    // Fallback for use_as_clause and others
+    let text = &code[node.byte_range()];
+    if let Some((module, name)) = text.rsplit_once("::") {
+        vec![ImportEntry::named_import(module, vec![name.to_string()])]
     } else {
-        // src/analysis.rs: child modules are in src/analysis/
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let parent = path.parent().unwrap_or(std::path::Path::new(""));
-        let base = parent.join(stem);
-        return vec![
-            format!("{}/{}.rs", base.display(), mod_name),
-            format!("{}/{}/mod.rs", base.display(), mod_name),
-        ];
-    };
-
-    vec![
-        format!("{}/{}.rs", parent_dir.display(), mod_name),
-        format!("{}/{}/mod.rs", parent_dir.display(), mod_name),
-    ]
-}
-
-/// Extract the base type_identifier from a generic_type node.
-/// e.g. `SqliteProjectRepository<'a>` -> "SqliteProjectRepository"
-fn extract_type_name_from_generic(node: Node, code: &str) -> Option<String> {
-    for child in node.children(&mut node.walk()) {
-        if child.kind() == "type_identifier" {
-            return Some(code[child.byte_range()].to_string());
-        }
+        vec![ImportEntry::named_import("", vec![text.to_string()])]
     }
-    None
-}
-
-/// Built-in types that should not generate References edges
-const BUILTIN_TYPES: &[&str] = &[
-    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "f32",
-    "f64", "bool", "char", "str", "String", "Self", "Vec", "Option", "Result", "Box", "Rc", "Arc",
-    "HashMap", "HashSet", "BTreeMap", "BTreeSet", "Cow", "Pin", "Fn", "FnMut", "FnOnce",
-];
-
-/// Recursively collect type_identifier nodes from a subtree, skipping builtins
-fn collect_type_refs(
-    node: Node,
-    code: &str,
-    refs: &mut Vec<(SymbolName, ReferenceType)>,
-    ref_kind: ReferenceType,
-) {
-    if node.kind() == "type_identifier" {
-        let name = code[node.byte_range()].to_string();
-        if !BUILTIN_TYPES.contains(&name.as_str()) {
-            refs.push((SymbolName::new(name), ref_kind.clone()));
-        }
-    }
-    for child in node.children(&mut node.walk()) {
-        collect_type_refs(child, code, refs, ref_kind.clone());
-    }
-}
-
-/// Recursively collect type_identifier nodes from a return type subtree, skipping builtins
-fn collect_return_type_names(node: Node, code: &str, types: &mut Vec<SymbolName>) {
-    if node.kind() == "type_identifier" {
-        let name = code[node.byte_range()].to_string();
-        if !BUILTIN_TYPES.contains(&name.as_str()) {
-            types.push(SymbolName::new(name));
-        }
-        return;
-    }
-    for child in node.children(&mut node.walk()) {
-        collect_return_type_names(child, code, types);
-    }
-}
-
-// ============================================================================
-// Usage extraction helpers
-// ============================================================================
-
-/// Built-in identifiers/functions that should not generate usage edges
-const BUILTIN_IDENTIFIERS: &[&str] = &[
-    "println",
-    "print",
-    "eprintln",
-    "eprint",
-    "format",
-    "write",
-    "writeln",
-    "todo",
-    "unimplemented",
-    "unreachable",
-    "panic",
-    "assert",
-    "assert_eq",
-    "assert_ne",
-    "debug_assert",
-    "debug_assert_eq",
-    "cfg",
-    "include",
-    "include_str",
-    "include_bytes",
-    "env",
-    "concat",
-    "stringify",
-    "line",
-    "column",
-    "file",
-    "module_path",
-    "Ok",
-    "Err",
-    "Some",
-    "None",
-    "true",
-    "false",
-];
-
-/// Collect parameter names from a Rust function's parameters node
-fn collect_rust_param_names(
-    params: Node,
-    code: &str,
-    locals: &mut std::collections::HashSet<String>,
-) {
-    for child in params.children(&mut params.walk()) {
-        if child.kind() == "parameter" {
-            // parameter has a pattern child (identifier or destructuring)
-            if let Some(pat) = child.child_by_field_name("pattern") {
-                collect_pattern_names(pat, code, locals);
-            }
-        }
-    }
-}
-
-/// Collect names from a pattern (identifier, tuple pattern, struct pattern, etc.)
-fn collect_pattern_names(node: Node, code: &str, locals: &mut std::collections::HashSet<String>) {
-    match node.kind() {
-        "identifier" => {
-            locals.insert(code[node.byte_range()].to_string());
-        }
-        "tuple_pattern" | "slice_pattern" | "or_pattern" => {
-            for child in node.children(&mut node.walk()) {
-                collect_pattern_names(child, code, locals);
-            }
-        }
-        "struct_pattern" => {
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "field_pattern" {
-                    // The name in a field pattern
-                    if let Some(pat) = child.child_by_field_name("pattern") {
-                        collect_pattern_names(pat, code, locals);
-                    } else {
-                        // Shorthand: `Struct { field }` — field is both name and binding
-                        if let Some(name) = child.child_by_field_name("name") {
-                            locals.insert(code[name.byte_range()].to_string());
-                        }
-                    }
-                }
-            }
-        }
-        "ref_pattern" | "mut_pattern" => {
-            for child in node.children(&mut node.walk()) {
-                collect_pattern_names(child, code, locals);
-            }
-        }
-        "tuple_struct_pattern" => {
-            for child in node.children(&mut node.walk()) {
-                if child.kind() != "identifier"
-                    || child.id()
-                        == node
-                            .children(&mut node.walk())
-                            .next()
-                            .map(|c| c.id())
-                            .unwrap_or(0)
-                {
-                    // First identifier is the type name, skip it
-                    // Remaining children are the patterns inside
-                } else {
-                    collect_pattern_names(child, code, locals);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Extract pattern names from a let_condition or let_chain
-fn collect_let_condition_names(
-    node: Node,
-    code: &str,
-    locals: &mut std::collections::HashSet<String>,
-) {
-    match node.kind() {
-        "let_condition" => {
-            if let Some(pat) = node.child_by_field_name("pattern") {
-                collect_pattern_names(pat, code, locals);
-            }
-        }
-        "let_chain" => {
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "let_condition"
-                    && let Some(pat) = child.child_by_field_name("pattern")
-                {
-                    collect_pattern_names(pat, code, locals);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Recursively collect local variable declarations from a Rust block
-fn collect_rust_local_declarations(
-    node: Node,
-    code: &str,
-    locals: &mut std::collections::HashSet<String>,
-) {
-    match node.kind() {
-        "let_declaration" => {
-            if let Some(pat) = node.child_by_field_name("pattern") {
-                collect_pattern_names(pat, code, locals);
-            }
-            return;
-        }
-        "for_expression" => {
-            // `for item in iter { ... }` — item is a pattern
-            if let Some(pat) = node.child_by_field_name("pattern") {
-                collect_pattern_names(pat, code, locals);
-            }
-            // Recurse into body but not the pattern
-            if let Some(body) = node.child_by_field_name("body") {
-                collect_rust_local_declarations(body, code, locals);
-            }
-            return;
-        }
-        "if_expression" => {
-            // `if let Some(x) = expr { ... }` — x is local
-            if let Some(condition) = node.child_by_field_name("condition") {
-                collect_let_condition_names(condition, code, locals);
-            }
-            // Continue recursing for nested blocks
-        }
-        "match_arm" => {
-            if let Some(pat) = node.child_by_field_name("pattern") {
-                collect_pattern_names(pat, code, locals);
-            }
-        }
-        _ => {}
-    }
-
-    for child in node.children(&mut node.walk()) {
-        // Don't recurse into closures (they have their own scope)
-        if child.kind() != "closure_expression" {
-            collect_rust_local_declarations(child, code, locals);
-        }
-    }
-}
-
-/// Collect identifier usages from a Rust function body
-fn collect_rust_identifier_usages(
-    node: Node,
-    code: &str,
-    locals: &std::collections::HashSet<String>,
-    usages: &mut Vec<(SymbolName, usize)>,
-    seen: &mut std::collections::HashSet<String>,
-) {
-    if node.kind() == "identifier" {
-        let name = code[node.byte_range()].to_string();
-        if !locals.contains(&name)
-            && !BUILTIN_IDENTIFIERS.contains(&name.as_str())
-            && !BUILTIN_TYPES.contains(&name.as_str())
-            && !seen.contains(&name)
-            && name.len() > 1
-            && !is_rust_definition_position(node)
-        {
-            seen.insert(name.clone());
-            let line = node.start_position().row + 1;
-            usages.push((SymbolName::new(name), line));
-        }
-        return;
-    }
-
-    // Don't recurse into closures
-    if node.kind() == "closure_expression" {
-        return;
-    }
-
-    for child in node.children(&mut node.walk()) {
-        collect_rust_identifier_usages(child, code, locals, usages, seen);
-    }
-}
-
-/// Check if a Rust identifier is in a definition position
-fn is_rust_definition_position(node: Node) -> bool {
-    let Some(parent) = node.parent() else {
-        return false;
-    };
-    match parent.kind() {
-        // Part of a let pattern
-        "let_declaration" => {
-            if let Some(pat) = parent.child_by_field_name("pattern") {
-                node.id() == pat.id() || is_rust_ancestor_of(pat, node)
-            } else {
-                false
-            }
-        }
-        // Field access: `obj.field` — field is not a usage of a standalone identifier
-        "field_expression" => {
-            if let Some(field) = parent.child_by_field_name("field") {
-                node.id() == field.id()
-            } else {
-                false
-            }
-        }
-        // Scoped identifier: `module::item` — only the last segment matters
-        // but we let these through since they reference module-level items
-        _ => false,
-    }
-}
-
-/// Check if `ancestor` contains `node`
-fn is_rust_ancestor_of(ancestor: Node, node: Node) -> bool {
-    if ancestor.id() == node.id() {
-        return true;
-    }
-    for child in ancestor.children(&mut ancestor.walk()) {
-        if is_rust_ancestor_of(child, node) {
-            return true;
-        }
-    }
-    false
 }

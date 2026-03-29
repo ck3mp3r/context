@@ -14,9 +14,6 @@ pub mod common;
 pub mod db;
 
 #[cfg(feature = "backend")]
-pub mod jobs;
-
-#[cfg(feature = "backend")]
 pub mod mcp;
 
 #[cfg(feature = "backend")]

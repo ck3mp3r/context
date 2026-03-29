@@ -97,21 +97,6 @@ enum Commands {
         #[command(subcommand)]
         command: SyncCommands,
     },
-    /// Job management
-    Job {
-        #[command(flatten)]
-        args: commands::job::JobArgs,
-    },
-    /// Analyze a repository's code and extract symbols into the code graph
-    Analyze {
-        /// Path to repository (defaults to current directory)
-        #[arg(default_value = ".")]
-        path: std::path::PathBuf,
-
-        /// Repository ID (if provided, ignores path and uses this repo)
-        #[arg(long)]
-        repo_id: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -1254,17 +1239,6 @@ pub async fn run() -> Result<()> {
                 println!("{}", output);
             }
         },
-        Some(Commands::Job { args }) => {
-            let output = commands::job::handle_job(&api_client, args).await?;
-            println!("{}", output);
-        }
-        Some(Commands::Analyze { path, repo_id }) => {
-            let args = commands::analyze::AnalyzeArgs {
-                repo: repo_id.unwrap_or_else(|| path.to_string_lossy().to_string()),
-            };
-            let output = commands::analyze::analyze(&api_client, args).await?;
-            println!("{}", output);
-        }
         None => {
             // Show help when no command provided
             let _ = Cli::parse_from(["c5t", "--help"]);

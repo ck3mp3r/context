@@ -21,17 +21,11 @@ async fn test_app() -> axum::Router {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let skills_dir = temp_dir.path().join("skills");
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
         skills_dir,
-        job_queue,
-        job_executor,
     );
     routes::create_router(state, false)
 }

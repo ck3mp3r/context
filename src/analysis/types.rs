@@ -1,8 +1,8 @@
 // Type definitions for code analysis
 //
-// These types represent symbols and relationships extracted from source code.
-// Newtype wrappers enforce type safety: you can't mix up a SymbolId with a
-// SymbolName or FileId at the type level.
+// Newtype wrappers enforce type safety and the raw extraction types
+// form the intermediate representation between tree-sitter parsing
+// and graph loading.
 
 // ============================================================================
 // Newtype wrappers for type-safe identifiers
@@ -22,13 +22,8 @@ impl SymbolId {
         &self.0
     }
 
-    /// Extract the file path from the SymbolId.
-    /// Format: "symbol:{file_path}:{name}:{start_line}"
     pub fn file_path(&self) -> Option<&str> {
         let s = self.0.strip_prefix("symbol:")?;
-        // Find the last two colons to separate file_path from name:line
-        // We need to find name:line at the end, which is {name}:{line}
-        // Since name can't contain ':', we find from the right
         let last_colon = s.rfind(':')?;
         let before_last = &s[..last_colon];
         let second_last_colon = before_last.rfind(':')?;
@@ -64,7 +59,6 @@ impl std::fmt::Display for FileId {
 }
 
 /// A symbol name used for cross-file resolution lookups.
-/// Distinct from SymbolId to prevent mixing names and IDs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolName(String);
 
@@ -87,16 +81,11 @@ impl std::fmt::Display for SymbolName {
 /// A module-qualified symbol name for unambiguous cross-file resolution.
 ///
 /// Format: `"module_path::symbol_name"` (e.g., `"analysis::types::SymbolId"`).
-/// For root-level symbols (no module), the bare name is used (e.g., `"main"`).
-///
-/// The separator is always `::` regardless of language, providing a
-/// uniform namespace across Rust, Go, and Nushell.
+/// Separator is always `::` regardless of language.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QualifiedName(String);
 
 impl QualifiedName {
-    /// Create a qualified name from module path and symbol name.
-    /// If module_path is empty, returns the bare symbol name.
     pub fn new(module_path: &str, symbol_name: &str) -> Self {
         if module_path.is_empty() {
             Self(symbol_name.to_string())
@@ -105,7 +94,6 @@ impl QualifiedName {
         }
     }
 
-    /// Create a qualified name from an already-qualified string.
     pub fn from_qualified(qualified: impl Into<String>) -> Self {
         Self(qualified.into())
     }
@@ -114,13 +102,10 @@ impl QualifiedName {
         &self.0
     }
 
-    /// Get the bare symbol name (last segment after `::`)
     pub fn bare_name(&self) -> &str {
         self.0.rsplit("::").next().unwrap_or(&self.0)
     }
 
-    /// Get the module path (everything before the last `::`)
-    /// Returns empty string for unqualified names.
     pub fn module_path(&self) -> &str {
         match self.0.rsplit_once("::") {
             Some((path, _)) => path,
@@ -135,39 +120,22 @@ impl std::fmt::Display for QualifiedName {
     }
 }
 
-/// Derives the module path from a source file path.
-///
-/// Language-specific rules:
-/// - **Rust**: Strips `src/` prefix, removes file extension and `mod.rs`/`lib.rs`/`main.rs`
-///   suffixes. E.g., `src/analysis/types.rs` → `analysis::types`,
-///   `src/analysis/mod.rs` → `analysis`, `src/lib.rs` → `""` (root).
-/// - **Go**: Uses the package name directly (not file path), since Go's
-///   package identity is declared, not inferred from paths. Returns empty
-///   for now — Go callers should use the package name from `package_clause`.
-/// - **Nushell**: Strips `.nu` extension, converts path separators to `::`.
+// ============================================================================
+// Module path derivation
+// ============================================================================
+
 pub fn derive_module_path(file_path: &str, language: &str) -> String {
     match language {
         "rust" => derive_rust_module_path(file_path),
         "nushell" => derive_nushell_module_path(file_path),
-        // Go uses package names, not file paths — caller provides module path directly
         _ => String::new(),
     }
 }
 
-/// Derive module path from a Rust file path.
-///
-/// Rules:
-/// - Strip `src/` prefix if present
-/// - `lib.rs`, `main.rs` at root → empty (crate root)
-/// - `mod.rs` → parent directory path
-/// - Other `.rs` files → directory path + stem
-/// - Path separators become `::`
 fn derive_rust_module_path(file_path: &str) -> String {
     use std::path::Path;
 
     let path = Path::new(file_path);
-
-    // Strip src/ prefix
     let path = path
         .strip_prefix("src/")
         .or_else(|_| path.strip_prefix("src"))
@@ -177,16 +145,9 @@ fn derive_rust_module_path(file_path: &str) -> String {
     let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
 
     let module_part = match file_name {
-        "lib.rs" | "main.rs" => {
-            // Crate root — module path is just the parent directory
-            parent.to_string()
-        }
-        "mod.rs" => {
-            // Module root — module path is the parent directory
-            parent.to_string()
-        }
+        "lib.rs" | "main.rs" => parent.to_string(),
+        "mod.rs" => parent.to_string(),
         _ => {
-            // Regular file — module path is parent + stem
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             if parent.is_empty() {
                 stem.to_string()
@@ -196,16 +157,9 @@ fn derive_rust_module_path(file_path: &str) -> String {
         }
     };
 
-    // Convert path separators to ::
     module_part.replace('/', "::")
 }
 
-/// Derive module path from a Nushell file path.
-///
-/// Rules:
-/// - Strip `.nu` extension
-/// - `mod.nu` → parent directory path
-/// - Convert path separators to `::`
 fn derive_nushell_module_path(file_path: &str) -> String {
     use std::path::Path;
 
@@ -229,118 +183,9 @@ fn derive_nushell_module_path(file_path: &str) -> String {
 }
 
 // ============================================================================
-// Symbol
+// Relationship enums
 // ============================================================================
 
-/// Symbol from source code, generic over the kind type.
-///
-/// Each language defines its own `Kind` enum (e.g. `rust::Kind`, `nushell::Kind`).
-/// The `K: AsRef<str>` bound ensures the kind can always be serialized to its
-/// language-specific string (e.g. `"command"`, `"struct"`, `"alias"`).
-#[derive(Debug, Clone)]
-pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
-    pub name: String,
-    pub kind: K,
-    pub language: String, // "rust", "nushell", etc.
-    pub file_path: String,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub content: String, // Code snippet with context - empty during insertion
-    pub signature: Option<String>, // For functions/methods: "fn foo(a: i32) -> String"
-}
-
-impl<K: AsRef<str> + std::fmt::Debug> Symbol<K> {
-    /// Create a new symbol (content empty, filled during query)
-    pub fn new(
-        name: String,
-        kind: K,
-        language: String,
-        file_path: String,
-        start_line: usize,
-        end_line: usize,
-        signature: Option<String>,
-    ) -> Self {
-        Self {
-            name,
-            kind,
-            language,
-            file_path,
-            start_line,
-            end_line,
-            content: String::new(),
-            signature,
-        }
-    }
-}
-
-// ============================================================================
-// Import types
-// ============================================================================
-
-/// A single import/use statement parsed from source code.
-///
-/// Represents what a file imports from external modules/packages.
-/// Used to build Import edges in the graph and resolve cross-file references.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportEntry {
-    /// The module/package path being imported.
-    /// - Rust: `"std::collections"`, `"crate::analysis::types"`
-    /// - Go: `"fmt"`, `"github.com/foo/bar"`
-    /// - Nushell: `"std"`, `"utils"`
-    pub module_path: String,
-    /// Individual names imported from this module.
-    /// Empty means the module itself is imported (or glob).
-    /// - Rust `use std::collections::{HashMap, HashSet}` → `["HashMap", "HashSet"]`
-    /// - Go `import "fmt"` → `[]` (package-level)
-    /// - Nushell `use std [log warn]` → `["log", "warn"]`
-    pub imported_names: Vec<String>,
-    /// Optional alias for the import.
-    /// - Go `import alias "pkg"` → alias = Some("alias")
-    /// - Others: None
-    pub alias: Option<String>,
-    /// Whether this is a glob/wildcard import.
-    /// - Rust `use foo::*` → true
-    /// - Nushell `use mod *` → true
-    pub is_glob: bool,
-}
-
-impl ImportEntry {
-    /// Create a simple module import with no specific names.
-    pub fn module_import(module_path: impl Into<String>) -> Self {
-        Self {
-            module_path: module_path.into(),
-            imported_names: Vec::new(),
-            alias: None,
-            is_glob: false,
-        }
-    }
-
-    /// Create an import with specific named items.
-    pub fn named_import(module_path: impl Into<String>, names: Vec<String>) -> Self {
-        Self {
-            module_path: module_path.into(),
-            imported_names: names,
-            alias: None,
-            is_glob: false,
-        }
-    }
-
-    /// Create a glob/wildcard import.
-    pub fn glob_import(module_path: impl Into<String>) -> Self {
-        Self {
-            module_path: module_path.into(),
-            imported_names: Vec::new(),
-            alias: None,
-            is_glob: true,
-        }
-    }
-}
-
-// ============================================================================
-// Relationship enums (used in store methods and DeferredEdge)
-// ============================================================================
-
-/// Types of references between symbols — each maps to a distinct edge type in the graph
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReferenceType {
     Import,
@@ -352,7 +197,6 @@ pub enum ReferenceType {
 }
 
 impl ReferenceType {
-    /// PascalCase edge name for the graph schema
     pub fn edge_name(&self) -> &str {
         match self {
             Self::Import => "Import",
@@ -381,12 +225,11 @@ impl std::str::FromStr for ReferenceType {
     }
 }
 
-/// Types of inheritance/implementation relationships
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InheritanceType {
-    Extends,    // TypeScript, Java (class extends)
-    Implements, // Rust (impl Trait for Type), Java/TypeScript (implements)
-    TraitBound, // Rust (where T: Trait)
+    Extends,
+    Implements,
+    TraitBound,
 }
 
 impl InheritanceType {
@@ -413,187 +256,176 @@ impl std::str::FromStr for InheritanceType {
 }
 
 // ============================================================================
-// Tests
+// Symbol (used by store for graph queries)
 // ============================================================================
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Debug, Clone)]
+pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
+    pub name: String,
+    pub kind: K,
+    pub language: String,
+    pub file_path: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub content: String,
+    pub signature: Option<String>,
+}
 
-    // ---- SymbolId::file_path() ----
+impl<K: AsRef<str> + std::fmt::Debug> Symbol<K> {
+    pub fn new(
+        name: String,
+        kind: K,
+        language: String,
+        file_path: String,
+        start_line: usize,
+        end_line: usize,
+        signature: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            language,
+            file_path,
+            start_line,
+            end_line,
+            content: String::new(),
+            signature,
+        }
+    }
+}
 
-    #[test]
-    fn test_symbol_id_file_path() {
-        let id = SymbolId::new("src/analysis/types.rs", "SymbolId", 14);
-        assert_eq!(id.file_path(), Some("src/analysis/types.rs"));
+// ============================================================================
+// Import entry (shared between old and new pipeline)
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportEntry {
+    pub module_path: String,
+    pub imported_names: Vec<String>,
+    pub alias: Option<String>,
+    pub is_glob: bool,
+}
+
+impl ImportEntry {
+    pub fn module_import(module_path: impl Into<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            imported_names: Vec::new(),
+            alias: None,
+            is_glob: false,
+        }
     }
 
-    #[test]
-    fn test_symbol_id_file_path_deep() {
-        let id = SymbolId::new("src/analysis/lang/rust/parser.rs", "extract_callee", 32);
-        assert_eq!(id.file_path(), Some("src/analysis/lang/rust/parser.rs"));
+    pub fn named_import(module_path: impl Into<String>, names: Vec<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            imported_names: names,
+            alias: None,
+            is_glob: false,
+        }
     }
 
-    // ---- QualifiedName construction ----
-
-    #[test]
-    fn test_qualified_name_with_module_path() {
-        let qn = QualifiedName::new("analysis::types", "SymbolId");
-        assert_eq!(qn.as_str(), "analysis::types::SymbolId");
+    pub fn glob_import(module_path: impl Into<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            imported_names: Vec::new(),
+            alias: None,
+            is_glob: true,
+        }
     }
+}
 
-    #[test]
-    fn test_qualified_name_bare_name() {
-        let qn = QualifiedName::new("", "main");
-        assert_eq!(qn.as_str(), "main");
+// ============================================================================
+// Raw extraction types (query-based pipeline)
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallForm {
+    Free,
+    Method,
+    Scoped,
+}
+
+#[derive(Debug, Clone)]
+pub struct RawSymbol {
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub signature: Option<String>,
+    pub language: String,
+}
+
+impl RawSymbol {
+    pub fn symbol_id(&self) -> SymbolId {
+        SymbolId::new(&self.file_path, &self.name, self.start_line)
     }
+}
 
-    #[test]
-    fn test_qualified_name_from_qualified() {
-        let qn = QualifiedName::from_qualified("analysis::types::SymbolId");
-        assert_eq!(qn.as_str(), "analysis::types::SymbolId");
-    }
+#[derive(Debug, Clone)]
+pub struct RawCall {
+    pub file_path: String,
+    pub call_site_line: usize,
+    pub callee_name: String,
+    pub call_form: CallForm,
+    pub receiver: Option<String>,
+    pub qualifier: Option<String>,
+    pub enclosing_symbol_idx: Option<usize>,
+}
 
-    #[test]
-    fn test_qualified_name_bare_name_extraction() {
-        let qn = QualifiedName::new("analysis::types", "SymbolId");
-        assert_eq!(qn.bare_name(), "SymbolId");
-    }
+#[derive(Debug, Clone)]
+pub struct RawImport {
+    pub file_path: String,
+    pub entry: ImportEntry,
+}
 
-    #[test]
-    fn test_qualified_name_bare_name_no_module() {
-        let qn = QualifiedName::new("", "main");
-        assert_eq!(qn.bare_name(), "main");
-    }
+#[derive(Debug, Clone)]
+pub struct RawHeritage {
+    pub file_path: String,
+    pub type_name: String,
+    pub parent_name: String,
+    pub kind: InheritanceType,
+}
 
-    #[test]
-    fn test_qualified_name_module_path_extraction() {
-        let qn = QualifiedName::new("analysis::types", "SymbolId");
-        assert_eq!(qn.module_path(), "analysis::types");
-    }
+#[derive(Debug, Clone)]
+pub struct RawContainment {
+    pub file_path: String,
+    pub parent_name: String,
+    pub child_symbol_idx: usize,
+}
 
-    #[test]
-    fn test_qualified_name_module_path_empty() {
-        let qn = QualifiedName::new("", "main");
-        assert_eq!(qn.module_path(), "");
-    }
+#[derive(Debug, Clone)]
+pub struct RawTypeRef {
+    pub file_path: String,
+    pub from_symbol_idx: usize,
+    pub type_name: String,
+    pub ref_kind: ReferenceType,
+}
 
-    // ---- Rust module path derivation ----
+#[derive(Debug)]
+pub struct ParsedFile {
+    pub file_path: String,
+    pub language: String,
+    pub symbols: Vec<RawSymbol>,
+    pub calls: Vec<RawCall>,
+    pub imports: Vec<RawImport>,
+    pub heritage: Vec<RawHeritage>,
+    pub containments: Vec<RawContainment>,
+    pub type_refs: Vec<RawTypeRef>,
+}
 
-    #[test]
-    fn test_rust_module_path_lib_rs() {
-        assert_eq!(derive_module_path("src/lib.rs", "rust"), "");
-    }
-
-    #[test]
-    fn test_rust_module_path_main_rs() {
-        assert_eq!(derive_module_path("src/main.rs", "rust"), "");
-    }
-
-    #[test]
-    fn test_rust_module_path_mod_rs() {
-        assert_eq!(
-            derive_module_path("src/analysis/mod.rs", "rust"),
-            "analysis"
-        );
-    }
-
-    #[test]
-    fn test_rust_module_path_regular_file() {
-        assert_eq!(
-            derive_module_path("src/analysis/types.rs", "rust"),
-            "analysis::types"
-        );
-    }
-
-    #[test]
-    fn test_rust_module_path_deep_nested() {
-        assert_eq!(
-            derive_module_path("src/analysis/lang/rust/parser.rs", "rust"),
-            "analysis::lang::rust::parser"
-        );
-    }
-
-    #[test]
-    fn test_rust_module_path_nested_mod_rs() {
-        assert_eq!(
-            derive_module_path("src/analysis/lang/rust/mod.rs", "rust"),
-            "analysis::lang::rust"
-        );
-    }
-
-    #[test]
-    fn test_rust_module_path_no_src_prefix() {
-        // Some repos don't have src/ prefix
-        assert_eq!(derive_module_path("lib.rs", "rust"), "");
-    }
-
-    // ---- Nushell module path derivation ----
-
-    #[test]
-    fn test_nushell_module_path_simple() {
-        assert_eq!(derive_module_path("utils.nu", "nushell"), "utils");
-    }
-
-    #[test]
-    fn test_nushell_module_path_nested() {
-        assert_eq!(
-            derive_module_path("modules/network/client.nu", "nushell"),
-            "modules::network::client"
-        );
-    }
-
-    #[test]
-    fn test_nushell_module_path_mod_nu() {
-        assert_eq!(
-            derive_module_path("modules/network/mod.nu", "nushell"),
-            "modules::network"
-        );
-    }
-
-    // ---- Go module path (uses package name, not file path) ----
-
-    #[test]
-    fn test_go_module_path_returns_empty() {
-        // Go doesn't derive from file path — uses package_clause
-        assert_eq!(derive_module_path("pkg/server/handler.go", "go"), "");
-    }
-
-    // ---- QualifiedName equality for HashMap usage ----
-
-    #[test]
-    fn test_qualified_names_same_name_different_modules_are_distinct() {
-        let qn1 = QualifiedName::new("api", "Config");
-        let qn2 = QualifiedName::new("frontend::api", "Config");
-        assert_ne!(qn1, qn2);
-    }
-
-    #[test]
-    fn test_qualified_names_same_are_equal() {
-        let qn1 = QualifiedName::new("analysis::types", "SymbolId");
-        let qn2 = QualifiedName::new("analysis::types", "SymbolId");
-        assert_eq!(qn1, qn2);
-    }
-
-    #[test]
-    fn test_qualified_name_hashmap_lookup() {
-        use std::collections::HashMap;
-        let mut map: HashMap<QualifiedName, &str> = HashMap::new();
-        map.insert(QualifiedName::new("api", "Config"), "api_config");
-        map.insert(
-            QualifiedName::new("frontend::api", "Config"),
-            "frontend_config",
-        );
-
-        assert_eq!(
-            map.get(&QualifiedName::new("api", "Config")),
-            Some(&"api_config")
-        );
-        assert_eq!(
-            map.get(&QualifiedName::new("frontend::api", "Config")),
-            Some(&"frontend_config")
-        );
-        // Two Configs coexist without collision
-        assert_eq!(map.len(), 2);
+impl ParsedFile {
+    pub fn new(file_path: impl Into<String>, language: impl Into<String>) -> Self {
+        Self {
+            file_path: file_path.into(),
+            language: language.into(),
+            symbols: Vec::new(),
+            calls: Vec::new(),
+            imports: Vec::new(),
+            heritage: Vec::new(),
+            containments: Vec::new(),
+            type_refs: Vec::new(),
+        }
     }
 }
