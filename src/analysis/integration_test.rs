@@ -732,3 +732,119 @@ var _ ICache = (*FileBasedCache)(nil)
         deferred_inherits.len()
     );
 }
+
+#[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
+async fn test_go_implicit_interface_implementation() {
+    use crate::analysis::Go;
+
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut global = GlobalSymbolMap::new();
+    let mut parser = Parser::<Go>::new();
+
+    // No conformance check — just an interface and a struct with matching methods
+    let code = r#"
+package main
+
+type Reader interface {
+    Read(data []byte) (int, error)
+    Close() error
+}
+
+type FileReader struct{}
+
+func (f *FileReader) Read(data []byte) (int, error) {
+    return 0, nil
+}
+
+func (f *FileReader) Close() error {
+    return nil
+}
+"#;
+
+    parser
+        .parse_and_collect(code, "pkg/io.go", &mut graph, &mut global)
+        .expect("Failed to parse");
+
+    // Verify interface methods were collected
+    assert!(
+        global
+            .interface_methods
+            .contains_key(&SymbolName::new("Reader")),
+        "Should have Reader interface methods"
+    );
+    assert_eq!(
+        global
+            .interface_methods
+            .get(&SymbolName::new("Reader"))
+            .unwrap(),
+        &vec!["Read".to_string(), "Close".to_string()],
+        "Reader should have Read and Close methods"
+    );
+
+    // Verify type methods were collected
+    assert!(
+        global
+            .type_methods
+            .contains_key(&SymbolName::new("FileReader")),
+        "Should have FileReader type methods"
+    );
+
+    // Resolve deferred edges (including implicit interface matching)
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve edges");
+
+    // FileReader has Read + Close = matches Reader interface
+    // resolve_deferred_edges should have created an Inherits edge
+    assert!(
+        resolved > 0,
+        "Should resolve implicit interface implementation (FileReader implements Reader)"
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
+async fn test_go_partial_interface_no_match() {
+    use crate::analysis::Go;
+
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut global = GlobalSymbolMap::new();
+    let mut parser = Parser::<Go>::new();
+
+    // Struct only implements one of two interface methods — should NOT match
+    let code = r#"
+package main
+
+type Writer interface {
+    Write(data []byte) (int, error)
+    Flush() error
+}
+
+type BufferedWriter struct{}
+
+func (b *BufferedWriter) Write(data []byte) (int, error) {
+    return 0, nil
+}
+"#;
+
+    parser
+        .parse_and_collect(code, "pkg/io.go", &mut graph, &mut global)
+        .expect("Failed to parse");
+
+    let resolved = resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve edges");
+
+    // BufferedWriter only has Write but not Flush — should NOT implement Writer
+    // No implicit Inherits edges should have been created
+    assert_eq!(
+        resolved, 0,
+        "Should NOT create Inherits edge for partial implementation, resolved: {}",
+        resolved
+    );
+}

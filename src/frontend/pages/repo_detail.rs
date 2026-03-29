@@ -237,6 +237,9 @@ extern "C" {
     #[wasm_bindgen(js_name = graphGetLanguages)]
     fn get_languages(container_id: &str) -> String;
 
+    #[wasm_bindgen(js_name = graphGetEdgeTypes)]
+    fn get_edge_types(container_id: &str) -> String;
+
     #[wasm_bindgen(js_name = graphSearchNodes)]
     fn search_nodes(container_id: &str, query: &str) -> u32;
 }
@@ -249,10 +252,11 @@ extern "C" {
 fn GraphViewer(repo_id: String) -> impl IntoView {
     let container_id = "graph-canvas";
     let (graph_state, set_graph_state) = signal(GraphState::Loading);
-    let (view, set_view) = signal("full".to_string());
+    let (active_edges, set_active_edges) = signal(std::collections::HashSet::<String>::new()); // empty = all
     let (include_tests, set_include_tests) = signal(false);
     let (active_kinds, set_active_kinds) = signal(std::collections::HashSet::<String>::new());
     let (legend_kinds, set_legend_kinds) = signal(Vec::<KindInfo>::new());
+    let (legend_edge_types, set_legend_edge_types) = signal(Vec::<KindInfo>::new());
     let (available_languages, set_available_languages) = signal(Vec::<String>::new());
     let (selected_language, set_selected_language) = signal(String::new()); // empty = all
     let (is_fetching, set_is_fetching) = signal(false);
@@ -263,16 +267,26 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
 
     // Fetch graph data and initialize Sigma.js
     Effect::new(move || {
-        let current_view = view.get();
+        let edges = active_edges.get();
         let tests = include_tests.get();
         let lang = selected_language.get();
         let repo_id = repo_id_for_fetch.clone();
         let lang_param = if lang.is_empty() { None } else { Some(lang) };
+        let edges_param = if edges.is_empty() {
+            None
+        } else {
+            Some(edges.into_iter().collect::<Vec<_>>().join(","))
+        };
 
         set_is_fetching.set(true);
         spawn_local(async move {
-            match graph::get_repo_graph(&repo_id, Some(&current_view), tests, lang_param.as_deref())
-                .await
+            match graph::get_repo_graph(
+                &repo_id,
+                edges_param.as_deref(),
+                tests,
+                lang_param.as_deref(),
+            )
+            .await
             {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
@@ -298,6 +312,13 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         let kinds_json = get_kinds(container_id);
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
+                        }
+                        // Extract edge types from the graph for the edge legend
+                        let edge_types_json = get_edge_types(container_id);
+                        if let Ok(edge_types) =
+                            serde_json::from_str::<Vec<KindInfo>>(&edge_types_json)
+                        {
+                            set_legend_edge_types.set(edge_types);
                         }
                         // Extract available languages (only when unfiltered)
                         if selected_language.get_untracked().is_empty() {
@@ -421,29 +442,49 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                     </button>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    // View pills
-                    <span class="text-xs text-ctp-overlay0">"View:"</span>
-                    {["full", "calls", "inherits", "references", "contains"].into_iter().map(|v| {
-                        let value = v.to_string();
-                        let label = match v {
-                            "full" => "Full",
-                            "calls" => "Calls",
-                            "inherits" => "Inherits",
-                            "references" => "Refs",
-                            "contains" => "Contains",
-                            _ => v,
-                        };
+                    // Edge type toggle pills
+                    <span class="text-xs text-ctp-overlay0">"Edges:"</span>
+                    {[
+                        ("Calls", "Calls"),
+                        ("Uses", "Uses"),
+                        ("Returns", "Ret"),
+                        ("Accepts", "Acc"),
+                        ("FieldType", "Field"),
+                        ("TypeAnnotation", "Type"),
+                        ("Inherits", "Inh"),
+                        ("Contains", "Cont"),
+                    ].into_iter().map(|(value, label)| {
+                        let value = value.to_string();
                         let value_for_click = value.clone();
                         let is_active = Signal::derive({
                             let v = value.clone();
-                            move || view.get() == v
+                            move || {
+                                let edges = active_edges.get();
+                                edges.is_empty() || edges.contains(&v)
+                            }
                         });
                         view! {
                             <PillToggle
                                 label=label
                                 active=is_active
                                 color=PillColor::Blue
-                                on_click=move |_| set_view.set(value_for_click.clone())
+                                on_click=move |_| {
+                                    let mut edges = active_edges.get();
+                                    if edges.is_empty() {
+                                        // All are shown — click one to solo it
+                                        edges.insert(value_for_click.clone());
+                                    } else if edges.contains(&value_for_click) && edges.len() == 1 {
+                                        // Already solo — reset to all
+                                        edges.clear();
+                                    } else if edges.contains(&value_for_click) {
+                                        // Remove this edge type
+                                        edges.remove(&value_for_click);
+                                    } else {
+                                        // Add this edge type
+                                        edges.insert(value_for_click.clone());
+                                    }
+                                    set_active_edges.set(edges);
+                                }
                             />
                         }
                     }).collect::<Vec<_>>()}
@@ -519,8 +560,9 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 }}
             </div>
 
-            // Legend (dynamic from graph data)
+            // Legend: node kinds
             <div class="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-ctp-subtext0">
+                <span class="text-ctp-overlay0 font-medium">"Nodes:"</span>
                 {move || {
                     let kinds = legend_kinds.get();
                     let total = kinds.len();
@@ -563,6 +605,27 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                                     />
                                     {kind}
                                 </button>
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                }}
+            </div>
+            // Legend: edge types
+            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-ctp-subtext0">
+                <span class="text-ctp-overlay0 font-medium">"Edges:"</span>
+                {move || {
+                    legend_edge_types.get()
+                        .into_iter()
+                        .map(|ei| {
+                            let color = ei.color.clone();
+                            view! {
+                                <span class="flex items-center gap-1.5">
+                                    <span
+                                        class="inline-block w-4 h-0.5 rounded"
+                                        style:background-color=color
+                                    />
+                                    {ei.kind}
+                                </span>
                             }
                         })
                         .collect::<Vec<_>>()

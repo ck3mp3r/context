@@ -1092,3 +1092,96 @@ func process(r *Reader, w Writer) Status {
         refs
     );
 }
+
+// ============================================================================
+// Interface method extraction tests
+// ============================================================================
+
+#[test]
+fn test_extract_interface_methods() {
+    let code = r#"
+package main
+
+type Reader interface {
+    Read(data []byte) (int, error)
+    Close() error
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let result = Go::extract_interface_methods(type_decl, code);
+    assert!(result.is_some(), "Should extract interface methods");
+    let (name, methods) = result.unwrap();
+    assert_eq!(name, "Reader");
+    assert_eq!(methods, vec!["Read", "Close"]);
+}
+
+#[test]
+fn test_extract_interface_methods_empty_interface() {
+    let code = r#"
+package main
+
+type Empty interface {}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let result = Go::extract_interface_methods(type_decl, code);
+    assert!(result.is_some(), "Should return Some for empty interface");
+    let (name, methods) = result.unwrap();
+    assert_eq!(name, "Empty");
+    assert!(methods.is_empty(), "Empty interface should have no methods");
+}
+
+#[test]
+fn test_extract_interface_methods_struct_returns_none() {
+    let code = r#"
+package main
+
+type Server struct {
+    port int
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let result = Go::extract_interface_methods(type_decl, code);
+    assert!(
+        result.is_none(),
+        "Struct should not return interface methods"
+    );
+}
+
+#[test]
+fn test_parse_impl_method_declaration() {
+    let code = r#"
+package main
+
+func (s *Server) Start() error {
+    return nil
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let method = parse_and_find(&tree, "method_declaration").unwrap();
+    let result = Go::parse_impl(method, code);
+    assert!(
+        result.is_some(),
+        "Should extract impl info from method_declaration"
+    );
+    let info = result.unwrap();
+    assert_eq!(info.target_type, "Server");
+    assert!(
+        info.trait_name.is_none(),
+        "Method declarations have no trait"
+    );
+}

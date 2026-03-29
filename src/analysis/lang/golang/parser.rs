@@ -48,38 +48,49 @@ impl Language for Go {
     }
 
     fn parse_impl(node: Node, code: &str) -> Option<ImplInfo> {
-        // Go doesn't have impl blocks, but uses conformance check patterns:
-        //   var _ Interface = (*Type)(nil)
-        //   var _ Interface = &Type{}
-        // These are var_spec nodes with name "_" and an explicit type (the interface)
-        if node.kind() != "var_spec" {
-            return None;
+        match node.kind() {
+            // Method declaration: func (r *Type) MethodName(...)
+            // The receiver gives us the target type (like a Rust impl block)
+            "method_declaration" => {
+                let receiver = node.child_by_field_name("receiver")?;
+                // receiver is parameter_list, first child is parameter_declaration
+                let param = receiver.child(1)?; // skip '('
+                // Get the type from the parameter — could be *Type or Type
+                let type_node = param.child_by_field_name("type")?;
+                let type_name = extract_type_name(type_node, code)?;
+                Some(ImplInfo {
+                    target_type: type_name,
+                    trait_name: None,
+                })
+            }
+            // Conformance check: var _ Interface = (*Type)(nil)
+            "var_spec" => {
+                // Must be blank identifier
+                let name = node.child_by_field_name("name")?;
+                if node_text(name, code) != "_" {
+                    return None;
+                }
+
+                // The type field is the interface name
+                let type_node = node.child_by_field_name("type")?;
+                let interface_name = extract_type_name(type_node, code)?;
+
+                // The value field contains the concrete type, wrapped in expression_list
+                let value_node = node.child_by_field_name("value")?;
+                let expr = if value_node.kind() == "expression_list" {
+                    value_node.child(0)?
+                } else {
+                    value_node
+                };
+                let concrete_type = extract_conformance_type(expr, code)?;
+
+                Some(ImplInfo {
+                    target_type: concrete_type,
+                    trait_name: Some(interface_name),
+                })
+            }
+            _ => None,
         }
-
-        // Must be blank identifier
-        let name = node.child_by_field_name("name")?;
-        if node_text(name, code) != "_" {
-            return None;
-        }
-
-        // The type field is the interface name
-        let type_node = node.child_by_field_name("type")?;
-        let interface_name = extract_type_name(type_node, code)?;
-
-        // The value field contains the concrete type, wrapped in expression_list
-        let value_node = node.child_by_field_name("value")?;
-        // Unwrap expression_list to get the actual expression
-        let expr = if value_node.kind() == "expression_list" {
-            value_node.child(0)?
-        } else {
-            value_node
-        };
-        let concrete_type = extract_conformance_type(expr, code)?;
-
-        Some(ImplInfo {
-            target_type: concrete_type,
-            trait_name: Some(interface_name),
-        })
     }
 
     fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
@@ -182,6 +193,34 @@ impl Language for Go {
         // type_identifier, pointer_type, and parameter_declaration
         collect_return_type_identifiers(params, code, &mut types);
         types
+    }
+
+    fn extract_interface_methods(node: Node, code: &str) -> Option<(String, Vec<String>)> {
+        if node.kind() != "type_declaration" {
+            return None;
+        }
+        for child in node.children(&mut node.walk()) {
+            if child.kind() != "type_spec" {
+                continue;
+            }
+            let name = child.child_by_field_name("name")?;
+            let type_body = child.child_by_field_name("type")?;
+            if type_body.kind() != "interface_type" {
+                return None;
+            }
+            let iface_name = node_text(name, code);
+            let mut methods = Vec::new();
+            for member in type_body.children(&mut type_body.walk()) {
+                if member.kind() == "method_elem" {
+                    // method_elem has a "name" field
+                    if let Some(method_name) = member.child_by_field_name("name") {
+                        methods.push(node_text(method_name, code));
+                    }
+                }
+            }
+            return Some((iface_name, methods));
+        }
+        None
     }
 }
 

@@ -210,14 +210,14 @@ pub mod graph {
     /// Returns None if the repo has no analysis (204 No Content).
     pub async fn get_repo_graph(
         repo_id: &str,
-        view: Option<&str>,
+        edges: Option<&str>,
         include_tests: bool,
         language: Option<&str>,
     ) -> Result<Option<String>> {
         let mut url = format!("{}/repos/{}/graph", API_BASE, repo_id);
         let mut params = Vec::new();
-        if let Some(v) = view {
-            params.push(format!("view={}", v));
+        if let Some(e) = edges {
+            params.push(format!("edges={}", e));
         }
         if include_tests {
             params.push("include_tests=true".to_string());
