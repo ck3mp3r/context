@@ -633,3 +633,128 @@ func doWork() {
         names
     );
 }
+
+// ============================================================================
+// Implements edge tests (interface conformance checks)
+// ============================================================================
+
+#[test]
+fn test_parse_impl_conformance_check() {
+    // Go pattern: var _ ICache = (*FileBasedCache)(nil)
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+var _ ICache = (*FileBasedCache)(nil)
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // Find the var_spec for the conformance check
+    let var_node = parse_and_find(&tree, "var_spec");
+    assert!(var_node.is_some(), "Should find the var_spec");
+    let var_node = var_node.unwrap();
+
+    let info = Go::parse_impl(var_node, code);
+    assert!(
+        info.is_some(),
+        "Should extract ImplInfo from conformance check"
+    );
+
+    let info = info.unwrap();
+    assert_eq!(info.target_type, "FileBasedCache");
+    assert_eq!(info.trait_name, Some("ICache".to_string()));
+}
+
+#[test]
+fn test_parse_impl_conformance_check_ampersand() {
+    // Alternative pattern: var _ ICache = &FileBasedCache{}
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+var _ ICache = &FileBasedCache{}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let var_node = parse_and_find(&tree, "var_spec");
+    assert!(var_node.is_some(), "Should find the var_spec");
+
+    let info = Go::parse_impl(var_node.unwrap(), code);
+    assert!(
+        info.is_some(),
+        "Should extract ImplInfo from &Type conformance check"
+    );
+
+    let info = info.unwrap();
+    assert_eq!(info.target_type, "FileBasedCache");
+    assert_eq!(info.trait_name, Some("ICache".to_string()));
+}
+
+#[test]
+fn test_parse_impl_not_conformance_regular_var() {
+    // Regular var declarations should NOT return ImplInfo
+    let code = r#"
+package main
+
+var myCache ICache = NewCache()
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let var_node = parse_and_find(&tree, "var_spec");
+    assert!(var_node.is_some());
+
+    let info = Go::parse_impl(var_node.unwrap(), code);
+    assert!(
+        info.is_none(),
+        "Regular var declarations should not be conformance checks"
+    );
+}
+
+#[test]
+fn test_parse_impl_blank_var_still_filtered_from_symbols() {
+    // The `_` var should still be filtered from symbols
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+var _ ICache = (*FileBasedCache)(nil)
+"#;
+    let symbols = extract_all_symbols(code);
+    let names: Vec<&str> = symbols.iter().map(|(_, n)| n.as_str()).collect();
+    assert!(
+        !names.contains(&"_"),
+        "Blank identifier should be filtered from symbols, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"ICache"),
+        "Interface should still be a symbol, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"FileBasedCache"),
+        "Struct should still be a symbol, got: {:?}",
+        names
+    );
+}

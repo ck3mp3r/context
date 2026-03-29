@@ -557,3 +557,178 @@ impl Foo {
         "Should insert relationships"
     );
 }
+
+// ============================================================================
+// Implements edge tests
+// ============================================================================
+
+/// Rust: `impl Trait for Type` should create an Inherits edge with type "implements".
+/// When both trait and type are defined in the same file, the edge resolves immediately.
+#[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
+fn test_rust_impl_trait_for_type_creates_implements_edge() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut global = GlobalSymbolMap::new();
+    let mut parser = Parser::<Rust>::new();
+
+    let code = r#"
+pub trait Displayable {
+    fn display(&self);
+}
+
+pub struct Widget {
+    name: String,
+}
+
+impl Displayable for Widget {
+    fn display(&self) {
+        println!("{}", self.name);
+    }
+}
+"#;
+
+    let stats = parser
+        .parse_and_collect(code, "src/widget.rs", &mut graph, &mut global)
+        .expect("Failed to parse");
+
+    // Both Displayable and Widget are in the same file, so the edge
+    // should resolve immediately (not deferred)
+    assert!(
+        stats.relationships_inserted > 0,
+        "Should insert relationships including Implements edge"
+    );
+
+    // Verify both symbols are in the global map
+    assert!(
+        global.map.contains_key(&SymbolName::new("Displayable")),
+        "Should have Displayable in global map"
+    );
+    assert!(
+        global.map.contains_key(&SymbolName::new("Widget")),
+        "Should have Widget in global map"
+    );
+
+    // The Inherits edge should NOT be deferred (same file)
+    let deferred_inherits = global
+        .deferred
+        .iter()
+        .filter(|e| matches!(e, crate::analysis::parser::DeferredEdge::Inherits { .. }))
+        .count();
+    assert_eq!(
+        deferred_inherits, 0,
+        "Same-file impl should not defer the Inherits edge"
+    );
+}
+
+/// Rust: `impl Type` (inherent impl) should NOT create an Implements edge.
+#[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
+fn test_rust_inherent_impl_no_implements_edge() {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut global = GlobalSymbolMap::new();
+    let mut parser = Parser::<Rust>::new();
+
+    let code = r#"
+pub struct Counter {
+    value: i32,
+}
+
+impl Counter {
+    pub fn new() -> Self {
+        Self { value: 0 }
+    }
+}
+"#;
+
+    parser
+        .parse_and_collect(code, "src/counter.rs", &mut graph, &mut global)
+        .expect("Failed to parse");
+
+    // No deferred Inherits edges for inherent impl
+    let deferred_inherits = global
+        .deferred
+        .iter()
+        .filter(|e| matches!(e, crate::analysis::parser::DeferredEdge::Inherits { .. }))
+        .count();
+    assert_eq!(
+        deferred_inherits, 0,
+        "Inherent impl should not create Inherits edges"
+    );
+}
+
+/// Go: `var _ Interface = (*Type)(nil)` conformance check creates a deferred Inherits edge.
+#[test]
+#[cfg_attr(
+    not(feature = "nanograph-tests"),
+    ignore = "requires nanograph CLI - disabled in CI"
+)]
+fn test_go_conformance_check_creates_implements_edge() {
+    use crate::analysis::Go;
+
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let mut graph = CodeGraph::new(temp.path(), "test-repo").expect("Failed to create graph");
+    let mut global = GlobalSymbolMap::new();
+    let mut parser = Parser::<Go>::new();
+
+    let code = r#"
+package main
+
+type ICache interface {
+    Get(key string) string
+}
+
+type FileBasedCache struct{}
+
+func (f *FileBasedCache) Get(key string) string {
+    return ""
+}
+
+var _ ICache = (*FileBasedCache)(nil)
+"#;
+
+    let stats = parser
+        .parse_and_collect(code, "pkg/cache.go", &mut graph, &mut global)
+        .expect("Failed to parse");
+
+    // Verify both symbols are in the global map
+    assert!(
+        global.map.contains_key(&SymbolName::new("ICache")),
+        "Should have ICache in global map"
+    );
+    assert!(
+        global.map.contains_key(&SymbolName::new("FileBasedCache")),
+        "Should have FileBasedCache in global map"
+    );
+
+    // The Inherits edge should be resolved immediately (same file)
+    // OR deferred — either way, check that there's a relationship
+    let deferred_inherits: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| matches!(e, crate::analysis::parser::DeferredEdge::Inherits { .. }))
+        .collect();
+
+    // If same-file, the edge is immediate (counted in stats.relationships_inserted)
+    // If deferred, resolve it now
+    if !deferred_inherits.is_empty() {
+        let resolved =
+            resolve_deferred_edges(&global, &mut graph).expect("Failed to resolve edges");
+        assert!(resolved > 0, "Should resolve the deferred Implements edge");
+    }
+
+    // Either way, relationships should have been created
+    assert!(
+        stats.relationships_inserted > 0 || !deferred_inherits.is_empty(),
+        "Should create Implements edge for conformance check. Stats: {:?}, deferred: {}",
+        stats.relationships_inserted,
+        deferred_inherits.len()
+    );
+}

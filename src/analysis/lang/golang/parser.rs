@@ -47,9 +47,39 @@ impl Language for Go {
         Some(node_text(func, code))
     }
 
-    fn parse_impl(_node: Node, _code: &str) -> Option<ImplInfo> {
-        // Go doesn't have impl blocks — methods use receiver syntax
-        None
+    fn parse_impl(node: Node, code: &str) -> Option<ImplInfo> {
+        // Go doesn't have impl blocks, but uses conformance check patterns:
+        //   var _ Interface = (*Type)(nil)
+        //   var _ Interface = &Type{}
+        // These are var_spec nodes with name "_" and an explicit type (the interface)
+        if node.kind() != "var_spec" {
+            return None;
+        }
+
+        // Must be blank identifier
+        let name = node.child_by_field_name("name")?;
+        if node_text(name, code) != "_" {
+            return None;
+        }
+
+        // The type field is the interface name
+        let type_node = node.child_by_field_name("type")?;
+        let interface_name = extract_type_name(type_node, code)?;
+
+        // The value field contains the concrete type, wrapped in expression_list
+        let value_node = node.child_by_field_name("value")?;
+        // Unwrap expression_list to get the actual expression
+        let expr = if value_node.kind() == "expression_list" {
+            value_node.child(0)?
+        } else {
+            value_node
+        };
+        let concrete_type = extract_conformance_type(expr, code)?;
+
+        Some(ImplInfo {
+            target_type: concrete_type,
+            trait_name: Some(interface_name),
+        })
     }
 
     fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
@@ -141,6 +171,79 @@ fn parse_type_spec(node: Node, code: &str) -> Option<(Kind, String)> {
     };
 
     Some((kind, name_str))
+}
+
+/// Extract a type name from a type node (type_identifier or pointer_type or qualified_type)
+fn extract_type_name(node: Node, code: &str) -> Option<String> {
+    match node.kind() {
+        "type_identifier" => Some(node_text(node, code)),
+        "pointer_type" => {
+            // *Type — recurse into the inner type
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "type_identifier" {
+                    return Some(node_text(child, code));
+                }
+            }
+            None
+        }
+        "qualified_type" => {
+            // pkg.Type — extract the type part
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "type_identifier" {
+                    return Some(node_text(child, code));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Extract the concrete type from a conformance check value expression.
+/// Handles:
+///   (*Type)(nil)  — call_expression wrapping parenthesized unary_expression (*Type)
+///   &Type{}       — unary_expression with address-of composite literal
+fn extract_conformance_type(node: Node, code: &str) -> Option<String> {
+    match node.kind() {
+        // (*FileBasedCache)(nil) is a call_expression
+        "call_expression" => {
+            let func = node.child_by_field_name("function")?;
+            extract_conformance_type(func, code)
+        }
+        // (*FileBasedCache) is a parenthesized_expression containing unary_expression *Type
+        "parenthesized_expression" => {
+            for child in node.children(&mut node.walk()) {
+                match child.kind() {
+                    // tree-sitter-go represents *Type in expressions as unary_expression
+                    "unary_expression" => {
+                        if let Some(operand) = child.child_by_field_name("operand")
+                            && operand.kind() == "identifier"
+                        {
+                            return Some(node_text(operand, code));
+                        }
+                    }
+                    "type_identifier" | "identifier" => {
+                        return Some(node_text(child, code));
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        // &FileBasedCache{} is a unary_expression with & operator
+        "unary_expression" => {
+            if let Some(operand) = node.child_by_field_name("operand")
+                && operand.kind() == "composite_literal"
+            {
+                // composite_literal has a type field
+                if let Some(type_node) = operand.child_by_field_name("type") {
+                    return extract_type_name(type_node, code);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 /// Extract function signature: `func name(params) return_type`
