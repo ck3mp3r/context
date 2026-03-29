@@ -177,8 +177,10 @@
 
         renderer.refresh();
 
-        // Zoom to fit focused subgraph
-        window.graphZoomToFit(containerId);
+        // Defer zoom to let Sigma recalculate after reducer hides nodes
+        setTimeout(function() {
+          window.graphZoomToFit(containerId);
+        }, 50);
       });
 
       // Click on empty canvas: restore previous zoom if focused

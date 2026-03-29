@@ -361,48 +361,72 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
             style:display=move || if is_visible() { "" } else { "none" }
         >
             // Controls row
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-3">
-                    <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
-                    // Search input
-                    <div class="relative">
-                        <input
-                            type="text"
-                            placeholder="Search nodes..."
-                            class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-40"
-                            on:input=move |ev| {
-                                let value = event_target_value(&ev);
-                                set_search_query.set(value);
-                            }
-                            prop:value=move || search_query.get()
-                        />
-                        // Search icon
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
-                            viewBox="0 0 20 20"
-                            fill="currentColor"
-                        >
-                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
-                        </svg>
-                        // Match count badge
-                        {move || {
-                            let q = search_query.get();
-                            let count = search_count.get();
-                            if !q.is_empty() {
-                                view! {
-                                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ctp-overlay0">
-                                        {count.to_string()}
-                                    </span>
-                                }.into_any()
-                            } else {
-                                view! { <span></span> }.into_any()
-                            }
-                        }}
+            <div class="flex flex-col gap-3 mb-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
+                        // Search input
+                        <div class="relative">
+                            <input
+                                type="text"
+                                placeholder="Search nodes..."
+                                class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 pr-14 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-44"
+                                on:input=move |ev| {
+                                    let value = event_target_value(&ev);
+                                    set_search_query.set(value);
+                                }
+                                prop:value=move || search_query.get()
+                            />
+                            // Search icon
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                            >
+                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+                            </svg>
+                            // Match count + clear button
+                            {move || {
+                                let q = search_query.get();
+                                let count = search_count.get();
+                                if !q.is_empty() {
+                                    view! {
+                                        <span class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            <span class="text-[10px] text-ctp-overlay0">
+                                                {count.to_string()}
+                                            </span>
+                                            <button
+                                                class="text-ctp-overlay0 hover:text-ctp-red transition-colors"
+                                                on:click=move |_| set_search_query.set(String::new())
+                                                title="Clear search"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </button>
+                                        </span>
+                                    }.into_any()
+                                } else {
+                                    view! { <span></span> }.into_any()
+                                }
+                            }}
+                        </div>
                     </div>
+                    // Fit button — icon with subtle background
+                    <button
+                        class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors flex-shrink-0"
+                        on:click=move |_| zoom_to_fit(container_id)
+                        title="Fit to canvas"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
+                        </svg>
+                    </button>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     // View pills
+                    <span class="text-xs text-ctp-overlay0">"View:"</span>
                     {["full", "calls", "inherits", "references", "contains"].into_iter().map(|v| {
                         let value = v.to_string();
                         let label = match v {
@@ -436,9 +460,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         }
                     }).collect::<Vec<_>>()}
 
-                    // Separator
-                    <span class="w-px h-5 bg-ctp-surface2"></span>
-
                     // Tests toggle pill
                     <button
                         class="text-xs px-2.5 py-1 rounded-full border transition-colors"
@@ -462,7 +483,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             let mut items = vec![("".to_string(), "All".to_string())];
                             items.extend(langs.into_iter().map(|l| (l.clone(), l)));
                             view! {
-                                <span class="w-px h-5 bg-ctp-surface2"></span>
+                                <span class="text-xs text-ctp-overlay0 ml-1">"Lang:"</span>
                                 {items.into_iter().map(|(value, label)| {
                                     let value_for_click = value.clone();
                                     let is_active = Memo::new({
@@ -491,16 +512,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             view! { <span></span> }.into_any()
                         }
                     }}
-
-                    // Separator + Fit button
-                    <span class="w-px h-5 bg-ctp-surface2"></span>
-                    <button
-                        class="text-xs px-2.5 py-1 rounded-full border bg-ctp-base border-ctp-surface2 text-ctp-subtext0 hover:text-ctp-blue hover:border-ctp-blue transition-colors"
-                        on:click=move |_| zoom_to_fit(container_id)
-                        title="Fit to screen"
-                    >
-                        "Fit"
-                    </button>
                 </div>
             </div>
 
