@@ -226,7 +226,9 @@ impl CodeGraph {
         Ok(())
     }
 
-    /// Insert References edge (e.g. function references a type in its signature)
+    /// Insert a reference edge between two symbols.
+    /// The ReferenceType determines which edge type is used in the graph
+    /// (Import, TypeAnnotation, FieldType, Returns, Accepts, Uses).
     pub fn insert_references_edge(
         &mut self,
         from: &SymbolId,
@@ -234,23 +236,18 @@ impl CodeGraph {
         reference_type: &ReferenceType,
         confidence: f64,
     ) -> Result<(), StoreError> {
+        let edge_name = reference_type.edge_name();
         let data = serde_json::json!({
-            "edge": "References",
+            "edge": edge_name,
             "from": from.as_str(),
             "to": to.as_str(),
             "data": {
                 "confidence": confidence,
-                "reference_type": reference_type.as_str(),
             }
         });
 
         self.append_batch(&data)?;
-        tracing::debug!(
-            "Appended References edge to batch: {} -> {} ({})",
-            from,
-            to,
-            reference_type.as_str()
-        );
+        tracing::debug!("Appended {} edge to batch: {} -> {}", edge_name, from, to);
         Ok(())
     }
 

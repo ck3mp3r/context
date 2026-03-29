@@ -53,14 +53,38 @@ edge Calls: Symbol -> Symbol {
     call_site_line: I32            // Where the call happens
 }
 
-// References: imports, type annotations, variable usage
-edge References: Symbol -> Symbol {
+// References: imports
+edge Import: Symbol -> Symbol {
     confidence: F64 @default(1.0)
-    reference_type: String         // "import", "type_annotation", "usage"
+}
+
+// Type annotations in function signatures
+edge TypeAnnotation: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Field type references in structs
+edge FieldType: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
 }
 
 // Inheritance: extends, implements, trait bounds
 edge Inherits: Symbol -> Symbol {
     confidence: F64 @default(1.0)
     inheritance_type: String       // "extends", "implements", "trait_bound"
+}
+
+// Returns: function/method returns a type
+edge Returns: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Accepts: function/method accepts a type as parameter
+edge Accepts: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Uses: function/method body references a variable/constant
+edge Uses: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
 }
