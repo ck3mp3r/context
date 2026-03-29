@@ -2,7 +2,7 @@
 
 use crate::analysis::store::CodeGraph;
 use crate::analysis::types::{
-    FileId, InheritanceType, QualifiedName, ReferenceType, SymbolId, SymbolName,
+    FileId, ImportEntry, InheritanceType, QualifiedName, ReferenceType, SymbolId, SymbolName,
 };
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -293,6 +293,16 @@ pub trait Language {
     ///
     /// Default: None (no module support).
     fn module_info(_node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
+        None
+    }
+
+    /// Extract import/use statements from an AST node.
+    ///
+    /// Called on each top-level node in the file. Returns `Some(ImportEntry)`
+    /// if the node is an import statement (Rust `use`, Go `import`, Nushell `use`).
+    ///
+    /// Default: None (no import extraction).
+    fn extract_import(_node: Node, _code: &str) -> Option<Vec<ImportEntry>> {
         None
     }
 }

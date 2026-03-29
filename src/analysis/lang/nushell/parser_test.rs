@@ -2,6 +2,7 @@
 
 use crate::analysis::lang::nushell::{Kind, Nushell};
 use crate::analysis::parser::Language;
+use crate::analysis::types::ImportEntry;
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
@@ -256,4 +257,92 @@ fn test_module_info_non_module_node() {
     let def_node = parse_and_find(&tree, "decl_def").unwrap();
     let info = Nushell::module_info(def_node, code, "main.nu");
     assert!(info.is_none(), "Non-module node should return None");
+}
+
+// ============================================================================
+// Import extraction tests
+// ============================================================================
+
+/// Helper: parse code and collect all imports from top-level nodes
+fn extract_all_imports(code: &str) -> Vec<ImportEntry> {
+    let mut parser = Parser::new();
+    parser.set_language(&Nushell::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mut imports = Vec::new();
+    let root = tree.root_node();
+    for child in root.children(&mut root.walk()) {
+        if let Some(entries) = Nushell::extract_import(child, code) {
+            imports.extend(entries);
+        }
+    }
+    imports
+}
+
+#[test]
+fn test_extract_import_simple_use() {
+    // `use std` — import entire module
+    let code = "use std";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std");
+    assert!(imports[0].imported_names.is_empty());
+    assert!(!imports[0].is_glob);
+}
+
+#[test]
+fn test_extract_import_with_members() {
+    // `use std [log warn]` — import specific members
+    let code = "use std [log warn]";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std");
+    let mut names = imports[0].imported_names.clone();
+    names.sort();
+    assert_eq!(names, vec!["log", "warn"]);
+}
+
+#[test]
+fn test_extract_import_glob() {
+    // `use std *` — glob import
+    let code = "use std *";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "std");
+    assert!(imports[0].is_glob);
+}
+
+#[test]
+fn test_extract_import_file_module() {
+    // `use utils.nu` — file-based module import
+    let code = "use utils.nu";
+    let imports = extract_all_imports(code);
+    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
+    assert_eq!(imports[0].module_path, "utils.nu");
+}
+
+#[test]
+fn test_extract_import_multiple() {
+    let code = r#"
+use std
+use utils.nu [helper]
+"#;
+    let imports = extract_all_imports(code);
+    assert_eq!(
+        imports.len(),
+        2,
+        "Should find 2 imports, got: {:?}",
+        imports
+    );
+}
+
+#[test]
+fn test_extract_import_non_use_node() {
+    let code = "def greet [] { 'hello' }";
+    let imports = extract_all_imports(code);
+    assert!(
+        imports.is_empty(),
+        "Non-use node should not produce imports, got: {:?}",
+        imports
+    );
 }

@@ -274,6 +274,69 @@ impl<K: AsRef<str> + std::fmt::Debug> Symbol<K> {
 }
 
 // ============================================================================
+// Import types
+// ============================================================================
+
+/// A single import/use statement parsed from source code.
+///
+/// Represents what a file imports from external modules/packages.
+/// Used to build Import edges in the graph and resolve cross-file references.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportEntry {
+    /// The module/package path being imported.
+    /// - Rust: `"std::collections"`, `"crate::analysis::types"`
+    /// - Go: `"fmt"`, `"github.com/foo/bar"`
+    /// - Nushell: `"std"`, `"utils"`
+    pub module_path: String,
+    /// Individual names imported from this module.
+    /// Empty means the module itself is imported (or glob).
+    /// - Rust `use std::collections::{HashMap, HashSet}` → `["HashMap", "HashSet"]`
+    /// - Go `import "fmt"` → `[]` (package-level)
+    /// - Nushell `use std [log warn]` → `["log", "warn"]`
+    pub imported_names: Vec<String>,
+    /// Optional alias for the import.
+    /// - Go `import alias "pkg"` → alias = Some("alias")
+    /// - Others: None
+    pub alias: Option<String>,
+    /// Whether this is a glob/wildcard import.
+    /// - Rust `use foo::*` → true
+    /// - Nushell `use mod *` → true
+    pub is_glob: bool,
+}
+
+impl ImportEntry {
+    /// Create a simple module import with no specific names.
+    pub fn module_import(module_path: impl Into<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            imported_names: Vec::new(),
+            alias: None,
+            is_glob: false,
+        }
+    }
+
+    /// Create an import with specific named items.
+    pub fn named_import(module_path: impl Into<String>, names: Vec<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            imported_names: names,
+            alias: None,
+            is_glob: false,
+        }
+    }
+
+    /// Create a glob/wildcard import.
+    pub fn glob_import(module_path: impl Into<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            imported_names: Vec::new(),
+            alias: None,
+            is_glob: true,
+        }
+    }
+}
+
+// ============================================================================
 // Relationship enums (used in store methods and DeferredEdge)
 // ============================================================================
 

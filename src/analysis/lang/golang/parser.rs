@@ -2,7 +2,7 @@
 
 use super::types::Kind;
 use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ReferenceType, SymbolName};
+use crate::analysis::types::{ImportEntry, ReferenceType, SymbolName};
 use tree_sitter::Node;
 
 /// Go language implementation
@@ -248,6 +248,67 @@ impl Language for Go {
             candidate_paths: Vec::new(),
         })
     }
+
+    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
+        if node.kind() != "import_declaration" {
+            return None;
+        }
+
+        let mut entries = Vec::new();
+
+        // Go import can be single: `import "fmt"` or grouped: `import (...)`
+        for child in node.children(&mut node.walk()) {
+            match child.kind() {
+                "import_spec" => {
+                    if let Some(entry) = parse_import_spec(child, code) {
+                        entries.push(entry);
+                    }
+                }
+                "import_spec_list" => {
+                    for spec in child.children(&mut child.walk()) {
+                        if spec.kind() == "import_spec"
+                            && let Some(entry) = parse_import_spec(spec, code)
+                        {
+                            entries.push(entry);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if entries.is_empty() {
+            None
+        } else {
+            Some(entries)
+        }
+    }
+}
+
+/// Parse a single Go import_spec into an ImportEntry.
+/// import_spec has optional `name` field (alias) and required `path` field (string literal).
+fn parse_import_spec(node: Node, code: &str) -> Option<ImportEntry> {
+    // Extract the path (required) — it's an interpreted_string_literal
+    let path_node = node.child_by_field_name("path")?;
+    let raw_path = node_text(path_node, code);
+    // Strip surrounding quotes
+    let module_path = raw_path.trim_matches('"').to_string();
+    if module_path.is_empty() {
+        return None;
+    }
+
+    // Extract optional alias (package_identifier, dot, or blank_identifier)
+    let alias = node.child_by_field_name("name").map(|n| {
+        let text = node_text(n, code);
+        text.trim().to_string()
+    });
+
+    Some(ImportEntry {
+        module_path,
+        imported_names: Vec::new(),
+        alias,
+        is_glob: false,
+    })
 }
 
 /// Extract text from a node

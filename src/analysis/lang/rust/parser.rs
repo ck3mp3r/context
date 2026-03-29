@@ -2,7 +2,7 @@
 
 use super::types::Kind;
 use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ReferenceType, SymbolName};
+use crate::analysis::types::{ImportEntry, ReferenceType, SymbolName};
 use tree_sitter::Node;
 
 /// Rust language implementation
@@ -297,6 +297,138 @@ impl Language for Rust {
                 candidate_paths,
             })
         }
+    }
+
+    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
+        if node.kind() != "use_declaration" {
+            return None;
+        }
+
+        let argument = node.child_by_field_name("argument")?;
+        let mut entries = Vec::new();
+        extract_use_clause(argument, code, &[], &mut entries);
+        Some(entries)
+    }
+}
+
+/// Recursively collect path segments from a scoped_identifier or leaf node.
+/// For `std::collections::HashMap`, produces `["std", "collections", "HashMap"]`.
+fn collect_path_segments(node: Node, code: &str, segments: &mut Vec<String>) {
+    match node.kind() {
+        "identifier" => segments.push(code[node.byte_range()].trim().to_string()),
+        "crate" => segments.push("crate".to_string()),
+        "self" => segments.push("self".to_string()),
+        "super" => segments.push("super".to_string()),
+        "scoped_identifier" => {
+            if let Some(path) = node.child_by_field_name("path") {
+                collect_path_segments(path, code, segments);
+            }
+            if let Some(name) = node.child_by_field_name("name") {
+                segments.push(code[name.byte_range()].trim().to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Process a use clause (the `argument` of a `use_declaration`).
+/// `prefix_segments` accumulates the module path from outer scoped_use_list nodes.
+fn extract_use_clause(
+    node: Node,
+    code: &str,
+    prefix_segments: &[String],
+    entries: &mut Vec<ImportEntry>,
+) {
+    match node.kind() {
+        "scoped_identifier" => {
+            // e.g., `std::collections::HashMap` — all but last = module, last = name
+            let mut segments = Vec::new();
+            collect_path_segments(node, code, &mut segments);
+            let full: Vec<String> = prefix_segments.iter().cloned().chain(segments).collect();
+            if full.len() >= 2 {
+                let name = full.last().unwrap().clone();
+                let module = full[..full.len() - 1].join("::");
+                entries.push(ImportEntry::named_import(module, vec![name]));
+            } else if full.len() == 1 {
+                entries.push(ImportEntry::module_import(full[0].clone()));
+            }
+        }
+        "scoped_use_list" => {
+            // e.g., `std::collections::{HashMap, HashSet}`
+            let mut path_segments: Vec<String> = prefix_segments.to_vec();
+            if let Some(path) = node.child_by_field_name("path") {
+                collect_path_segments(path, code, &mut path_segments);
+            }
+            if let Some(list) = node.child_by_field_name("list") {
+                // Check for glob (*) and simple identifiers in the list
+                let mut names = Vec::new();
+                let mut has_glob = false;
+                for child in list.children(&mut list.walk()) {
+                    match child.kind() {
+                        "identifier" => {
+                            names.push(code[child.byte_range()].trim().to_string());
+                        }
+                        "self" => {
+                            // `{self, HashMap}` — self imports the module itself
+                            // We don't add "self" to imported_names
+                        }
+                        "use_wildcard" => {
+                            has_glob = true;
+                        }
+                        "scoped_identifier" | "scoped_use_list" | "use_as_clause" => {
+                            // Nested: recurse with accumulated prefix
+                            extract_use_clause(child, code, &path_segments, entries);
+                        }
+                        _ => {}
+                    }
+                }
+                let module = path_segments.join("::");
+                if has_glob {
+                    entries.push(ImportEntry::glob_import(module));
+                } else if !names.is_empty() {
+                    entries.push(ImportEntry::named_import(module, names));
+                }
+            }
+        }
+        "use_wildcard" => {
+            // e.g., `std::collections::*`
+            let mut path_segments: Vec<String> = prefix_segments.to_vec();
+            for child in node.children(&mut node.walk()) {
+                if child.kind() != "*" {
+                    collect_path_segments(child, code, &mut path_segments);
+                }
+            }
+            let module = path_segments.join("::");
+            entries.push(ImportEntry::glob_import(module));
+        }
+        "use_as_clause" => {
+            // e.g., `use std::io as stdio` — treated as named import
+            if let Some(path) = node.child_by_field_name("path") {
+                let mut segments = Vec::new();
+                collect_path_segments(path, code, &mut segments);
+                let full: Vec<String> = prefix_segments.iter().cloned().chain(segments).collect();
+                if full.len() >= 2 {
+                    let name = full.last().unwrap().clone();
+                    let module = full[..full.len() - 1].join("::");
+                    entries.push(ImportEntry::named_import(module, vec![name]));
+                } else if full.len() == 1 {
+                    entries.push(ImportEntry::module_import(full[0].clone()));
+                }
+            }
+        }
+        "identifier" => {
+            // Bare `use foo;`
+            let name = code[node.byte_range()].trim().to_string();
+            let full: Vec<String> = prefix_segments.iter().cloned().chain(Some(name)).collect();
+            if full.len() >= 2 {
+                let name = full.last().unwrap().clone();
+                let module = full[..full.len() - 1].join("::");
+                entries.push(ImportEntry::named_import(module, vec![name]));
+            } else {
+                entries.push(ImportEntry::module_import(full[0].clone()));
+            }
+        }
+        _ => {}
     }
 }
 
