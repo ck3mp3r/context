@@ -237,9 +237,6 @@ extern "C" {
     #[wasm_bindgen(js_name = graphGetLanguages)]
     fn get_languages(container_id: &str) -> String;
 
-    #[wasm_bindgen(js_name = graphFilterLanguage)]
-    fn filter_language(container_id: &str, language: &str);
-
     #[wasm_bindgen(js_name = graphSearchNodes)]
     fn search_nodes(container_id: &str, query: &str) -> u32;
 }
@@ -268,11 +265,15 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     Effect::new(move || {
         let current_view = view.get();
         let tests = include_tests.get();
+        let lang = selected_language.get();
         let repo_id = repo_id_for_fetch.clone();
+        let lang_param = if lang.is_empty() { None } else { Some(lang) };
 
         set_is_fetching.set(true);
         spawn_local(async move {
-            match graph::get_repo_graph(&repo_id, Some(&current_view), tests, None).await {
+            match graph::get_repo_graph(&repo_id, Some(&current_view), tests, lang_param.as_deref())
+                .await
+            {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
@@ -298,10 +299,12 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
                         }
-                        // Extract available languages
-                        let langs_json = get_languages(container_id);
-                        if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
-                            set_available_languages.set(langs);
+                        // Extract available languages (only when unfiltered)
+                        if selected_language.get_untracked().is_empty() {
+                            let langs_json = get_languages(container_id);
+                            if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
+                                set_available_languages.set(langs);
+                            }
                         }
                         // Reset active filter on new data
                         set_active_kinds.set(std::collections::HashSet::new());
@@ -331,13 +334,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let kinds_vec: Vec<&str> = kinds.iter().map(|s| s.as_str()).collect();
         let json = serde_json::to_string(&kinds_vec).unwrap_or_else(|_| "[]".to_string());
         filter_kinds(container_id, &json);
-        zoom_to_fit(container_id);
-    });
-
-    // Push language filter to JS when selected_language changes
-    Effect::new(move || {
-        let lang = selected_language.get();
-        filter_language(container_id, &lang);
         zoom_to_fit(container_id);
     });
 
