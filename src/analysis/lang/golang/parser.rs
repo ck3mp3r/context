@@ -84,7 +84,23 @@ impl Language for Go {
 
     fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
         let mut refs = Vec::new();
-        collect_type_identifiers(node, code, &mut refs);
+        if node.kind() == "type_declaration" {
+            // Determine if this is a struct or interface to assign correct edge type
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "type_spec"
+                    && let Some(type_body) = child.child_by_field_name("type")
+                {
+                    let ref_kind = match type_body.kind() {
+                        "struct_type" => ReferenceType::FieldType,
+                        "interface_type" => ReferenceType::TypeAnnotation,
+                        _ => ReferenceType::FieldType,
+                    };
+                    collect_type_identifiers_with_kind(child, code, &mut refs, &ref_kind);
+                }
+            }
+        }
+        // function/method type refs are handled by extract_return_types
+        // and extract_param_types — don't duplicate them here
         refs
     }
 
@@ -349,14 +365,20 @@ fn extract_method_signature(node: Node, code: &str) -> Option<String> {
     Some(sig)
 }
 
-/// Recursively collect type_identifier references from a node's subtree.
+/// Recursively collect type_identifier references from a node's subtree,
+/// assigning the given reference kind.
 /// Skips the "name" field of type_spec to avoid self-references.
-fn collect_type_identifiers(node: Node, code: &str, refs: &mut Vec<(SymbolName, ReferenceType)>) {
+fn collect_type_identifiers_with_kind(
+    node: Node,
+    code: &str,
+    refs: &mut Vec<(SymbolName, ReferenceType)>,
+    ref_kind: &ReferenceType,
+) {
     if node.kind() == "type_identifier" {
         let name = node_text(node, code);
         // Skip built-in types
         if !is_builtin_type(&name) {
-            refs.push((SymbolName::new(name), ReferenceType::Usage));
+            refs.push((SymbolName::new(name), ref_kind.clone()));
         }
         return;
     }
@@ -369,7 +391,7 @@ fn collect_type_identifiers(node: Node, code: &str, refs: &mut Vec<(SymbolName, 
         {
             continue;
         }
-        collect_type_identifiers(child, code, refs);
+        collect_type_identifiers_with_kind(child, code, refs, ref_kind);
     }
 }
 

@@ -2,6 +2,7 @@
 
 use crate::analysis::lang::golang::{Go, Kind};
 use crate::analysis::parser::Language;
+use crate::analysis::types::ReferenceType;
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
@@ -317,7 +318,9 @@ func (s *Server) Listen(addr string) error {
 // ============================================================================
 
 #[test]
-fn test_extract_type_references_from_function() {
+fn test_extract_type_references_from_function_is_empty() {
+    // Function type refs are now handled by extract_return_types and extract_param_types.
+    // extract_type_references should return empty for function nodes.
     let code = r#"
 package main
 
@@ -331,16 +334,10 @@ func process(r *Reader, w Writer) error {
 
     let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
     let refs = Go::extract_type_references(fn_node, code);
-    let type_names: Vec<_> = refs.iter().map(|(name, _)| name.as_str()).collect();
     assert!(
-        type_names.contains(&"Reader"),
-        "Should reference Reader, got: {:?}",
-        type_names
-    );
-    assert!(
-        type_names.contains(&"Writer"),
-        "Should reference Writer, got: {:?}",
-        type_names
+        refs.is_empty(),
+        "Function type refs should be empty, got: {:?}",
+        refs
     );
 }
 
@@ -994,5 +991,104 @@ func (s *Server) Handle(req Request) {
         vec!["Request"],
         "Should extract Request but not receiver type, got: {:?}",
         types
+    );
+}
+
+// ============================================================================
+// Type reference edge kind tests (FieldType vs TypeAnnotation)
+// ============================================================================
+
+#[test]
+fn test_struct_field_types_produce_field_type_edges() {
+    let code = r#"
+package main
+
+type Server struct {
+    config Config
+    logger *Logger
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let refs = Go::extract_type_references(type_decl, code);
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::FieldType,
+            "Struct field type '{}' should produce FieldType edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Config"),
+        "Should contain Config, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Logger"),
+        "Should contain Logger, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_interface_method_types_produce_type_annotation_edges() {
+    let code = r#"
+package main
+
+type Repository interface {
+    Get(id string) (*Entity, error)
+    Save(entity *Entity) error
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
+    let refs = Go::extract_type_references(type_decl, code);
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::TypeAnnotation,
+            "Interface method type '{}' should produce TypeAnnotation edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Entity"),
+        "Should contain Entity, got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_function_type_refs_excluded_from_extract_type_references() {
+    // extract_type_references on function/method nodes should return empty
+    // because extract_return_types and extract_param_types handle those separately
+    let code = r#"
+package main
+
+func process(r *Reader, w Writer) Status {
+    return Status{}
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
+    let refs = Go::extract_type_references(fn_node, code);
+    assert!(
+        refs.is_empty(),
+        "Function type refs should be empty (handled by extract_return_types/extract_param_types), got: {:?}",
+        refs
     );
 }

@@ -2,6 +2,7 @@
 
 use crate::analysis::lang::rust::{Kind, Rust};
 use crate::analysis::parser::Language;
+use crate::analysis::types::ReferenceType;
 use tree_sitter::{Node, Parser};
 
 /// Helper: parse code and find first node of given kind
@@ -280,7 +281,9 @@ fn test_extract_trait_signature() {
 // ============================================================================
 
 #[test]
-fn test_extract_type_refs_from_function() {
+fn test_extract_type_refs_from_function_is_empty() {
+    // Function type refs are now handled by extract_return_types and extract_param_types.
+    // extract_type_references should return empty for function_item nodes.
     let code = "fn process(config: Config) -> Status { todo!() }";
     let mut parser = Parser::new();
     parser.set_language(&Rust::grammar()).unwrap();
@@ -288,20 +291,28 @@ fn test_extract_type_refs_from_function() {
 
     let fn_node = parse_and_find(&tree, "function_item").unwrap();
     let refs = Rust::extract_type_references(fn_node, code);
-    let names: Vec<_> = refs.iter().map(|(name, _)| name.as_str()).collect();
-    assert!(names.contains(&"Config"), "Should reference Config");
-    assert!(names.contains(&"Status"), "Should reference Status");
+    assert!(
+        refs.is_empty(),
+        "Function type refs should be empty, got: {:?}",
+        refs
+    );
 }
 
 #[test]
 fn test_type_refs_skip_builtins() {
-    let code = "fn process(x: i32, name: String) -> bool { true }";
+    let code = r#"
+struct Data {
+    count: i32,
+    name: String,
+    flag: bool,
+}
+"#;
     let mut parser = Parser::new();
     parser.set_language(&Rust::grammar()).unwrap();
     let tree = parser.parse(code, None).unwrap();
 
-    let fn_node = parse_and_find(&tree, "function_item").unwrap();
-    let refs = Rust::extract_type_references(fn_node, code);
+    let struct_node = parse_and_find(&tree, "struct_item").unwrap();
+    let refs = Rust::extract_type_references(struct_node, code);
     // i32, String, bool are all builtins - should be empty
     assert!(
         refs.is_empty(),
@@ -715,4 +726,62 @@ fn test_extract_param_type_skips_self() {
     let code = "fn method(&self, config: Config) { }";
     let types = extract_param_types_from_func(code);
     assert_eq!(types, vec!["Config"], "Should skip self, got: {:?}", types);
+}
+
+// ============================================================================
+// Type reference edge kind tests (FieldType vs TypeAnnotation cleanup)
+// ============================================================================
+
+#[test]
+fn test_function_type_refs_excluded_from_extract_type_references() {
+    // extract_type_references on function_item should return empty
+    // because extract_return_types and extract_param_types handle those separately
+    let code = "fn process(config: Config) -> Status { todo!() }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").unwrap();
+    let refs = Rust::extract_type_references(fn_node, code);
+    assert!(
+        refs.is_empty(),
+        "Function type refs should be empty (handled by extract_return_types/extract_param_types), got: {:?}",
+        refs
+    );
+}
+
+#[test]
+fn test_struct_field_types_produce_field_type_edges() {
+    let code = r#"
+struct Server {
+    config: Config,
+    logger: Logger,
+}
+"#;
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let struct_node = parse_and_find(&tree, "struct_item").unwrap();
+    let refs = Rust::extract_type_references(struct_node, code);
+    for (name, ref_kind) in &refs {
+        assert_eq!(
+            *ref_kind,
+            ReferenceType::FieldType,
+            "Struct field type '{}' should produce FieldType edge, got {:?}",
+            name.as_str(),
+            ref_kind
+        );
+    }
+    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(
+        names.contains(&"Config"),
+        "Should contain Config, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Logger"),
+        "Should contain Logger, got: {:?}",
+        names
+    );
 }
