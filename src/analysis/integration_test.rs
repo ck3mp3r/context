@@ -1187,3 +1187,145 @@ pub fn process(c: Config) {}
         "Should resolve to module_a::Config, not module_b::Config"
     );
 }
+
+#[test]
+fn test_import_edges_created_for_named_imports() {
+    let tmp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(tmp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File A defines a struct
+    let mod_a = r#"
+pub struct Config {
+    pub name: String,
+}
+"#;
+
+    // File B imports Config from A and uses it
+    let mod_b = r#"
+use crate::module_a::Config;
+
+pub fn process(c: Config) {}
+"#;
+
+    parser
+        .parse_and_collect(mod_a, "src/module_a.rs", &mut graph, &mut global)
+        .unwrap();
+    parser
+        .parse_and_collect(mod_b, "src/module_b.rs", &mut graph, &mut global)
+        .unwrap();
+
+    // There should be a deferred Import edge from module_b to module_a::Config
+    let import_edges: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| matches!(e, crate::analysis::parser::DeferredEdge::Import { .. }))
+        .collect();
+    assert!(
+        !import_edges.is_empty(),
+        "Should have deferred Import edges, got: {:?}",
+        global.deferred.len()
+    );
+
+    // Resolve deferred edges — this should create Import edges in the graph
+    let resolved = resolve_deferred_edges(&global, &mut graph).unwrap();
+    assert!(
+        resolved > 0,
+        "Should resolve at least some deferred edges (including imports)"
+    );
+}
+
+#[test]
+fn test_import_edges_skip_external_dependencies() {
+    let tmp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(tmp.path(), "test-repo").unwrap();
+    let mut parser = Parser::<Rust>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // File imports something that doesn't exist in our graph
+    let code = r#"
+use std::collections::HashMap;
+
+pub fn process() {}
+"#;
+
+    parser
+        .parse_and_collect(code, "src/main.rs", &mut graph, &mut global)
+        .unwrap();
+
+    // There should be a deferred Import edge for HashMap
+    let import_edges: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| matches!(e, crate::analysis::parser::DeferredEdge::Import { .. }))
+        .collect();
+    assert!(
+        !import_edges.is_empty(),
+        "Should have deferred Import edge for HashMap"
+    );
+
+    // Resolve — HashMap won't be found in our graph (it's external)
+    // so the Import edge should NOT be created (no crash, just skipped)
+    let resolved = resolve_deferred_edges(&global, &mut graph).unwrap();
+    // resolved might be 0 or small (no matching symbols for std::collections::HashMap)
+    assert!(
+        resolved == 0,
+        "External imports should not create edges, got: {}",
+        resolved
+    );
+}
+
+#[test]
+fn test_go_import_edges_cross_package() {
+    use crate::analysis::Go;
+
+    let tmp = TempDir::new().unwrap();
+    let mut graph = CodeGraph::new(tmp.path(), "test-repo").unwrap();
+    let mut go_parser = Parser::<Go>::new();
+    let mut global = GlobalSymbolMap::new();
+
+    // Package "cache" defines Get
+    let cache_code = r#"
+package cache
+
+func Get(key string) string { return "" }
+"#;
+
+    // Package "main" imports and uses cache
+    let main_code = r#"
+package main
+
+import "myapp/cache"
+
+func main() {
+    cache.Get("foo")
+}
+"#;
+
+    go_parser
+        .parse_and_collect(cache_code, "pkg/cache/cache.go", &mut graph, &mut global)
+        .unwrap();
+    go_parser
+        .parse_and_collect(main_code, "cmd/main.go", &mut graph, &mut global)
+        .unwrap();
+
+    // Verify import deferred edges exist for Go
+    let import_edges: Vec<_> = global
+        .deferred
+        .iter()
+        .filter(|e| matches!(e, crate::analysis::parser::DeferredEdge::Import { .. }))
+        .collect();
+    assert!(
+        !import_edges.is_empty(),
+        "Go should create deferred Import edges"
+    );
+
+    // Resolve — "cache" package should be found as a symbol
+    let resolved = resolve_deferred_edges(&global, &mut graph).unwrap();
+    assert!(
+        resolved > 0,
+        "Go import edges should resolve (cache package exists), got: {}",
+        resolved
+    );
+}

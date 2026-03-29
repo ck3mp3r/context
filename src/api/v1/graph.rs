@@ -263,6 +263,30 @@ fn query_inherits_edges() -> &'static str {
 }"#
 }
 
+fn query_import_edges() -> &'static str {
+    r#"query import_edges() {
+    match {
+        $from: Symbol
+        $to: Symbol
+        $from import $to
+    }
+    return {
+        $from.symbol_id as src_id
+        $from.name as src_name
+        $from.kind as src_kind
+        $from.language as src_language
+        $from.file_path as src_file_path
+        $from.start_line as src_start_line
+        $to.symbol_id as dst_id
+        $to.name as dst_name
+        $to.kind as dst_kind
+        $to.language as dst_language
+        $to.file_path as dst_file_path
+        $to.start_line as dst_start_line
+    }
+}"#
+}
+
 fn query_contains_edges() -> &'static str {
     r#"query contains_edges() {
     match {
@@ -443,6 +467,7 @@ fn build_graph_data(
             query_type_annotation_edges(),
         ),
         ("inherits_edges", "Inherits", query_inherits_edges()),
+        ("import_edges", "Import", query_import_edges()),
         ("contains_edges", "Contains", query_contains_edges()),
     ];
 
@@ -464,6 +489,18 @@ fn build_graph_data(
     let mut symbol_map: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
 
+    let is_included = |sym: &serde_json::Value| -> bool {
+        if !include_tests && is_test_symbol(sym) {
+            return false;
+        }
+        if let Some(lang) = language_filter
+            && sym["language"].as_str().unwrap_or("") != lang
+        {
+            return false;
+        }
+        true
+    };
+
     for (query_name, edge_type, query_content) in &edge_queries {
         let rows = run_nanograph_query(db_path, query_content, query_name)?;
         for row in rows {
@@ -473,52 +510,39 @@ fn build_graph_data(
                 continue;
             }
 
-            // Collect source symbol
-            symbol_map.entry(src_id.clone()).or_insert_with(|| {
-                serde_json::json!({
-                    "symbol_id": row["src_id"],
-                    "name": row["src_name"],
-                    "kind": row["src_kind"],
-                    "language": row["src_language"],
-                    "file_path": row["src_file_path"],
-                    "start_line": row["src_start_line"],
-                })
+            let src_sym = serde_json::json!({
+                "symbol_id": row["src_id"],
+                "name": row["src_name"],
+                "kind": row["src_kind"],
+                "language": row["src_language"],
+                "file_path": row["src_file_path"],
+                "start_line": row["src_start_line"],
+            });
+            let dst_sym = serde_json::json!({
+                "symbol_id": row["dst_id"],
+                "name": row["dst_name"],
+                "kind": row["dst_kind"],
+                "language": row["dst_language"],
+                "file_path": row["dst_file_path"],
+                "start_line": row["dst_start_line"],
             });
 
-            // Collect target symbol
-            symbol_map.entry(dst_id.clone()).or_insert_with(|| {
-                serde_json::json!({
-                    "symbol_id": row["dst_id"],
-                    "name": row["dst_name"],
-                    "kind": row["dst_kind"],
-                    "language": row["dst_language"],
-                    "file_path": row["dst_file_path"],
-                    "start_line": row["dst_start_line"],
-                })
-            });
+            if !is_included(&src_sym) || !is_included(&dst_sym) {
+                continue;
+            }
 
+            symbol_map.entry(src_id.clone()).or_insert(src_sym);
+            symbol_map.entry(dst_id.clone()).or_insert(dst_sym);
             all_edges.push((src_id, dst_id, edge_type.to_string()));
         }
     }
+
+    let total_symbols = symbol_map.len();
     let total_edges = all_edges.len();
 
-    // Apply filters
-    let symbols: Vec<serde_json::Value> = symbol_map
-        .into_values()
-        .filter(|s| include_tests || !is_test_symbol(s))
-        .filter(|s| {
-            language_filter
-                .map(|lang| s["language"].as_str().unwrap_or("") == lang)
-                .unwrap_or(true)
-        })
-        .collect();
-    let total_symbols = symbols.len();
+    let truncated = symbol_map.len() > limit;
+    let symbols_limited: Vec<_> = symbol_map.into_values().take(limit).collect();
 
-    // Truncate to limit
-    let truncated = symbols.len() > limit;
-    let symbols_limited: Vec<_> = symbols.into_iter().take(limit).collect();
-
-    // Collect node IDs for filtering edges
     let node_ids: std::collections::HashSet<String> = symbols_limited
         .iter()
         .filter_map(|s| s["symbol_id"].as_str().map(String::from))

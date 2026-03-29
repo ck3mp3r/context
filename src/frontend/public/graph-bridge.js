@@ -43,6 +43,7 @@
     "FieldType":      "#f5c2e7",  // pink
     "TypeAnnotation": "#fab387",  // peach
     "Inherits":       "#cba6f7",  // mauve
+    "Import":         "#74c7ec",  // sapphire
     "Contains":       "#585b70",  // surface2 (subtle)
   };
   var defaultEdgeColor = "#585b70"; // surface2

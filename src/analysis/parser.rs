@@ -68,16 +68,23 @@ pub enum DeferredEdge {
         /// (e.g., ["src/analysis/parser.rs", "src/analysis/parser/mod.rs"])
         candidate_paths: Vec<String>,
     },
+    /// Import: a file imports a symbol by name.
+    /// Creates Import edge from a representative source symbol in the file
+    /// to the imported symbol (if found in the graph).
+    Import {
+        file_path: String,
+        module_path: String,
+        imported_name: String,
+        language: String,
+    },
 }
 
 /// Global state shared across all files during analysis.
 /// Built up file-by-file, then used to resolve cross-file relationships.
 pub struct GlobalSymbolMap {
-    /// Primary map: qualified name -> symbol_id (unambiguous lookup)
     pub qualified_map: HashMap<QualifiedName, SymbolId>,
-    /// Reverse index: bare name -> list of qualified names (for disambiguation)
     pub bare_to_qualified: HashMap<SymbolName, Vec<QualifiedName>>,
-    /// Relationships that couldn't be resolved within a single file
+    pub symbol_kinds: HashMap<SymbolId, String>,
     pub deferred: Vec<DeferredEdge>,
     /// Interface name -> method names (for implicit interface matching in Go)
     pub interface_methods: HashMap<SymbolName, Vec<String>>,
@@ -85,6 +92,8 @@ pub struct GlobalSymbolMap {
     pub type_methods: HashMap<SymbolName, Vec<String>>,
     /// File path -> top-level symbol IDs (for resolving external module containment)
     pub file_symbols: HashMap<String, Vec<SymbolId>>,
+    /// File path -> module/package symbol ID (for Import edge sources in Go etc.)
+    pub file_module_symbol: HashMap<String, SymbolId>,
     /// Per-file import tables: file_path -> ImportTable
     /// Built from import/use statements during walk_and_insert.
     pub import_tables: HashMap<String, ImportTable>,
@@ -109,10 +118,12 @@ impl GlobalSymbolMap {
         Self {
             qualified_map: HashMap::new(),
             bare_to_qualified: HashMap::new(),
+            symbol_kinds: HashMap::new(),
             deferred: Vec::new(),
             interface_methods: HashMap::new(),
             type_methods: HashMap::new(),
             file_symbols: HashMap::new(),
+            file_module_symbol: HashMap::new(),
             import_tables: HashMap::new(),
         }
     }
@@ -376,6 +387,16 @@ pub trait Language {
     fn extract_import(_node: Node, _code: &str) -> Option<Vec<ImportEntry>> {
         None
     }
+
+    /// Resolve an import to (source, target) symbol pairs.
+    /// Each language implements its own resolution strategy.
+    /// Returns empty vec if the import can't be resolved (e.g., external dependency).
+    fn resolve_import(
+        global: &GlobalSymbolMap,
+        file_path: &str,
+        module_path: &str,
+        imported_name: &str,
+    ) -> Vec<(SymbolId, SymbolId)>;
 }
 
 /// Generic parser that works for any Language
@@ -434,32 +455,25 @@ impl<L: Language> Parser<L> {
         let file_id = graph.insert_file(file_path, L::name(), "todo_hash")?;
 
         // First pass: collect imports from top-level nodes to build ImportTable
+        // and create deferred Import edges for resolution after all files are processed
         let mut import_table = ImportTable::default();
         let root = tree.root_node();
         for child in root.children(&mut root.walk()) {
             if let Some(entries) = L::extract_import(child, code) {
                 for entry in entries {
                     if entry.is_glob {
-                        import_table.glob_modules.push(entry.module_path);
+                        import_table.glob_modules.push(entry.module_path.clone());
                     } else {
                         for name in &entry.imported_names {
                             import_table
                                 .name_to_module
                                 .insert(name.clone(), entry.module_path.clone());
-                        }
-                        // If no specific names, the module itself is imported
-                        // (e.g., Go `import "fmt"` or Nushell `use std`)
-                        // In this case, the module_path's last segment is the usable name
-                        if entry.imported_names.is_empty() {
-                            let last_segment = entry
-                                .module_path
-                                .rsplit("::")
-                                .next()
-                                .or_else(|| entry.module_path.rsplit('/').next())
-                                .unwrap_or(&entry.module_path);
-                            import_table
-                                .name_to_module
-                                .insert(last_segment.to_string(), entry.module_path);
+                            global.deferred.push(DeferredEdge::Import {
+                                file_path: file_path.to_string(),
+                                module_path: entry.module_path.clone(),
+                                imported_name: name.clone(),
+                                language: L::name().to_string(),
+                            });
                         }
                     }
                 }
@@ -483,6 +497,56 @@ impl<L: Language> Parser<L> {
         };
 
         self.walk_and_insert(tree.root_node(), &mut ctx, graph, None, None, None)?;
+
+        // Ensure every file has a module symbol for import edge sourcing.
+        // Go files always have one (from package declarations).
+        // Rust/Nushell files may not if they have no explicit module node.
+        if !global.file_module_symbol.contains_key(file_path) {
+            let module_path = crate::analysis::types::derive_module_path(file_path, L::name());
+            let mod_name = if module_path.is_empty() {
+                Path::new(file_path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(file_path)
+                    .to_string()
+            } else {
+                module_path
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or(&module_path)
+                    .to_string()
+            };
+
+            let mod_symbol = crate::analysis::types::Symbol::new(
+                mod_name,
+                "module".to_string(),
+                L::name().to_string(),
+                file_path.to_string(),
+                0,
+                0,
+                None,
+            );
+            let mod_id = graph.insert_symbol(&mod_symbol)?;
+            graph.insert_contains(&file_id, &mod_id, 1.0)?;
+
+            // Wire up containment: module contains all top-level symbols
+            if let Some(syms) = global.file_symbols.get(file_path) {
+                for sym_id in syms {
+                    graph.insert_symbol_contains_edge(&mod_id, sym_id, 1.0)?;
+                    relationships_inserted += 1;
+                }
+            }
+
+            let qn = crate::analysis::types::QualifiedName::new("", &mod_symbol.name);
+            global.insert_symbol(qn, mod_id.clone());
+            global
+                .symbol_kinds
+                .insert(mod_id.clone(), "module".to_string());
+            global
+                .file_module_symbol
+                .insert(file_path.to_string(), mod_id);
+            symbols_inserted += 1;
+        }
 
         Ok(AnalysisStats {
             symbols_inserted,
@@ -570,6 +634,7 @@ impl<L: Language> Parser<L> {
         if let Some((symbol_kind, name)) = L::parse_symbol(node, ctx.code) {
             let (start_line, end_line) = self.get_lines(node);
             let signature = L::extract_signature(node, ctx.code);
+            let kind_str = symbol_kind.as_ref().to_string();
 
             let symbol = crate::analysis::types::Symbol::new(
                 name.clone(),
@@ -582,6 +647,7 @@ impl<L: Language> Parser<L> {
             );
 
             let symbol_id = graph.insert_symbol(&symbol)?;
+            ctx.global.symbol_kinds.insert(symbol_id.clone(), kind_str);
 
             // Link to file
             graph.insert_contains(ctx.file_id, &symbol_id, 1.0)?;
@@ -639,6 +705,11 @@ impl<L: Language> Parser<L> {
                 if mod_info.has_body {
                     // Inline module: children inside this node get SymbolContains edges
                     current_module_context = Some(symbol_id.clone());
+                    // Record as the file's module symbol (for Import edge sources)
+                    ctx.global
+                        .file_module_symbol
+                        .entry(ctx.file_path.to_string())
+                        .or_insert_with(|| symbol_id.clone());
                 } else if !mod_info.candidate_paths.is_empty() {
                     // External module: defer until we know which files have been processed
                     ctx.global.deferred.push(DeferredEdge::ModuleContains {
@@ -787,8 +858,14 @@ impl<L: Language> Parser<L> {
                 if let Some(mod_id) = ctx
                     .global
                     .get_by_bare_name_with_hint(&sym_name, &ctx.module_path)
+                    .cloned()
                 {
                     child_module_context = Some(mod_id.clone());
+                    // Record as the file's module symbol (for Import edge sources)
+                    ctx.global
+                        .file_module_symbol
+                        .entry(ctx.file_path.to_string())
+                        .or_insert(mod_id);
                 }
             }
         }
@@ -914,6 +991,44 @@ pub fn resolve_deferred_edges(
                         }
                         break; // Only one candidate path can match
                     }
+                }
+            }
+            DeferredEdge::Import {
+                file_path,
+                module_path,
+                imported_name,
+                language,
+            } => {
+                let pairs = match language.as_str() {
+                    "rust" => crate::analysis::lang::rust::parser::Rust::resolve_import(
+                        global,
+                        file_path,
+                        module_path,
+                        imported_name,
+                    ),
+                    "go" => crate::analysis::lang::golang::parser::Go::resolve_import(
+                        global,
+                        file_path,
+                        module_path,
+                        imported_name,
+                    ),
+                    "nushell" => crate::analysis::lang::nushell::parser::Nushell::resolve_import(
+                        global,
+                        file_path,
+                        module_path,
+                        imported_name,
+                    ),
+                    _ => Vec::new(),
+                };
+
+                for (source_id, target_id) in pairs {
+                    graph.insert_references_edge(
+                        &source_id,
+                        &target_id,
+                        &ReferenceType::Import,
+                        1.0,
+                    )?;
+                    resolved += 1;
                 }
             }
         }

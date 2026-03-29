@@ -286,7 +286,7 @@ fn test_extract_import_simple_use() {
     let imports = extract_all_imports(code);
     assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
     assert_eq!(imports[0].module_path, "std");
-    assert!(imports[0].imported_names.is_empty());
+    assert_eq!(imports[0].imported_names, vec!["std"]);
     assert!(!imports[0].is_glob);
 }
 

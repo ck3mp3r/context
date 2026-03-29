@@ -1,8 +1,8 @@
 // Go language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ImportEntry, ReferenceType, SymbolName};
+use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
+use crate::analysis::types::{ImportEntry, ReferenceType, SymbolId, SymbolName};
 use tree_sitter::Node;
 
 /// Go language implementation
@@ -283,6 +283,36 @@ impl Language for Go {
             Some(entries)
         }
     }
+
+    fn resolve_import(
+        global: &GlobalSymbolMap,
+        file_path: &str,
+        _module_path: &str,
+        imported_name: &str,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        let bare = SymbolName::new(imported_name);
+        let candidates = match global.bare_to_qualified.get(&bare) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let target_id = match candidates.iter().find_map(|qn| {
+            let id = global.qualified_map.get(qn)?;
+            let kind = global.symbol_kinds.get(id)?;
+            if kind == "package" {
+                Some(id.clone())
+            } else {
+                None
+            }
+        }) {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+
+        match global.file_module_symbol.get(file_path) {
+            Some(source_id) => vec![(source_id.clone(), target_id)],
+            None => Vec::new(),
+        }
+    }
 }
 
 /// Parse a single Go import_spec into an ImportEntry.
@@ -303,9 +333,23 @@ fn parse_import_spec(node: Node, code: &str) -> Option<ImportEntry> {
         text.trim().to_string()
     });
 
+    // Go convention: the usable package name is the last segment of the import path.
+    // `import "myapp/cache"` makes `cache` available as the package name.
+    // If aliased (`import foo "myapp/cache"`), the alias overrides.
+    let package_name = if let Some(ref a) = alias {
+        if a == "." || a == "_" {
+            // dot import or blank import — no single usable name
+            None
+        } else {
+            Some(a.clone())
+        }
+    } else {
+        module_path.rsplit('/').next().map(|s| s.to_string())
+    };
+
     Some(ImportEntry {
         module_path,
-        imported_names: Vec::new(),
+        imported_names: package_name.into_iter().collect(),
         alias,
         is_glob: false,
     })

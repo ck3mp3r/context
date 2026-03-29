@@ -1,8 +1,8 @@
 // Rust language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ImportEntry, ReferenceType, SymbolName};
+use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
+use crate::analysis::types::{ImportEntry, QualifiedName, ReferenceType, SymbolId, SymbolName};
 use tree_sitter::Node;
 
 /// Rust language implementation
@@ -308,6 +308,31 @@ impl Language for Rust {
         let mut entries = Vec::new();
         extract_use_clause(argument, code, &[], &mut entries);
         Some(entries)
+    }
+
+    fn resolve_import(
+        global: &GlobalSymbolMap,
+        file_path: &str,
+        module_path: &str,
+        imported_name: &str,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        let normalized = module_path
+            .strip_prefix("crate::")
+            .or_else(|| module_path.strip_prefix("super::"))
+            .unwrap_or(module_path);
+
+        let target_id = match global
+            .qualified_map
+            .get(&QualifiedName::new(normalized, imported_name))
+        {
+            Some(id) => id.clone(),
+            None => return Vec::new(),
+        };
+
+        match global.file_module_symbol.get(file_path) {
+            Some(mod_id) => vec![(mod_id.clone(), target_id)],
+            None => Vec::new(),
+        }
     }
 }
 

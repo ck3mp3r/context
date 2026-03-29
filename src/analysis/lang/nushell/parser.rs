@@ -1,8 +1,8 @@
 // Nushell language parser implementation
 
 use super::types::Kind;
-use crate::analysis::parser::{ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ImportEntry, ReferenceType, SymbolName};
+use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
+use crate::analysis::types::{ImportEntry, QualifiedName, ReferenceType, SymbolId, SymbolName};
 use tree_sitter::Node;
 
 /// Nushell language implementation
@@ -184,8 +184,31 @@ impl Language for Nushell {
             }
         }
 
-        // Simple module import: `use std`
-        Some(vec![ImportEntry::module_import(module_path)])
+        // Simple module import: `use std` — the module name itself is the usable name
+        Some(vec![ImportEntry::named_import(
+            module_path.clone(),
+            vec![module_path],
+        )])
+    }
+
+    fn resolve_import(
+        global: &GlobalSymbolMap,
+        file_path: &str,
+        module_path: &str,
+        imported_name: &str,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        let target_id = match global
+            .qualified_map
+            .get(&QualifiedName::new(module_path, imported_name))
+        {
+            Some(id) => id.clone(),
+            None => return Vec::new(),
+        };
+
+        match global.file_module_symbol.get(file_path) {
+            Some(mod_id) => vec![(mod_id.clone(), target_id)],
+            None => Vec::new(),
+        }
     }
 }
 
