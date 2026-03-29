@@ -9,14 +9,14 @@
   curl,
 }: let
   pname = "wasm-bindgen-cli";
-  version = "0.2.114";
+  version = "0.2.115";
   src = fetchCrate {
     inherit pname version;
-    sha256 = "sha256-xrCym+rFY6EUQFWyWl6OPA+LtftpUAE5pIaElAIVqW0=";
+    sha256 = "sha256-wRynyZKYEMoIhX64n4DkGG2iepU6rE5qdBjT1LkUgtE=";
   };
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    hash = "sha256-Z8+dUXPQq7S+Q7DWNr2Y9d8GMuEdSnq00quUR0wDNPM=";
+    hash = "sha256-+7hgX56dOo/GErpf/unRprv72Kkars5dOFew+NfZZMY=";
   };
 in
   rustPlatform.buildRustPackage {
