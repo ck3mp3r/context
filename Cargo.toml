@@ -42,6 +42,7 @@ backend = [
     "dep:tracing",
     "dep:tracing-subscriber",
     "dep:tree-sitter",
+    "dep:tree-sitter-go",
     "dep:tree-sitter-rust",
     "dep:tree-sitter-nu",
     "dep:tree-sitter-language",
@@ -200,6 +201,10 @@ optional = true
 
 [dependencies.tree-sitter-rust]
 version = "0.24.1"
+optional = true
+
+[dependencies.tree-sitter-go]
+version = "0.25"
 optional = true
 
 [dependencies.tree-sitter-nu]

@@ -34,8 +34,6 @@ pub struct GraphNode {
     pub start_line: i64,
     /// Node size computed from edge count
     pub size: f64,
-    /// Color based on kind (Catppuccin palette)
-    pub color: String,
     /// X position from layout
     pub x: f64,
     /// Y position from layout
@@ -86,23 +84,6 @@ pub struct GraphQuery {
 // =============================================================================
 // Color mapping (Catppuccin Mocha)
 // =============================================================================
-
-fn kind_color(kind: &str) -> &'static str {
-    match kind {
-        "function" | "method" | "command" => "#89b4fa", // blue
-        "struct" => "#a6e3a1",                          // green
-        "enum" => "#f9e2af",                            // yellow
-        "trait" | "interface" => "#cba6f7",             // mauve
-        "module" | "mod" => "#fab387",                  // peach
-        "constant" | "const" => "#f2cdcd",              // flamingo
-        "static" => "#f38ba8",                          // red
-        "type_alias" | "type" => "#94e2d5",             // teal
-        "macro" => "#f5c2e7",                           // pink
-        "alias" => "#eba0ac",                           // maroon
-        "extern" => "#74c7ec",                          // sapphire
-        _ => "#a6adc8",                                 // subtext0 (fallback)
-    }
-}
 
 // =============================================================================
 // NanoGraph query execution
@@ -404,7 +385,6 @@ fn build_graph_data(
                 file_path: s["file_path"].as_str().unwrap_or("").to_string(),
                 start_line: s["start_line"].as_i64().unwrap_or(0),
                 size: 3.0 + (degree as f64).sqrt() * 2.0,
-                color: kind_color(kind).to_string(),
                 id,
                 x: 0.0,
                 y: 0.0,

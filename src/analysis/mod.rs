@@ -37,6 +37,9 @@ pub use lang::rust::Rust;
 #[cfg(feature = "backend")]
 pub use lang::nushell::Nushell;
 
+#[cfg(feature = "backend")]
+pub use lang::golang::Go;
+
 /// Get the analysis directory path for a repository
 ///
 /// Uses the XDG-compliant data directory from sync::paths

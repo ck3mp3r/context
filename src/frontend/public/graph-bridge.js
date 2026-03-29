@@ -7,6 +7,33 @@
   // Store active graph instances by container ID
   var instances = {};
 
+  // Kind-to-color mapping (Catppuccin Mocha palette)
+  var kindColors = {
+    "function": "#89b4fa",    // blue
+    "method":   "#89b4fa",    // blue
+    "command":  "#89b4fa",    // blue
+    "struct":   "#a6e3a1",    // green
+    "enum":     "#f9e2af",    // yellow
+    "trait":    "#cba6f7",    // mauve
+    "interface":"#cba6f7",    // mauve
+    "module":   "#fab387",    // peach
+    "mod":      "#fab387",    // peach
+    "constant": "#f2cdcd",    // flamingo
+    "const":    "#f2cdcd",    // flamingo
+    "static":   "#f38ba8",    // red
+    "var":      "#f38ba8",    // red
+    "type_alias":"#94e2d5",   // teal
+    "type":     "#94e2d5",    // teal
+    "macro":    "#f5c2e7",    // pink
+    "alias":    "#eba0ac",    // maroon
+    "extern":   "#74c7ec",    // sapphire
+  };
+  var defaultColor = "#a6adc8"; // subtext0
+
+  function kindColor(kind) {
+    return kindColors[kind] || defaultColor;
+  }
+
   /**
    * Initialize a graph in a container element.
    * @param {string} containerId - DOM element ID for the graph canvas
@@ -35,7 +62,7 @@
         graph.addNode(node.id, {
           label: node.label,
           size: node.size || 5,
-          color: node.color || "#a6adc8",
+          color: kindColor(node.kind),
           kind: node.kind,
           language: node.language || "unknown",
           filePath: node.file_path,
@@ -433,7 +460,7 @@
     inst.graph.forEachNode(function(node, attrs) {
       var kind = attrs.kind || "unknown";
       if (!kindMap[kind]) {
-        kindMap[kind] = attrs.color || "#a6adc8";
+        kindMap[kind] = kindColor(kind);
       }
     });
     var result = Object.keys(kindMap).sort().map(function(k) {
