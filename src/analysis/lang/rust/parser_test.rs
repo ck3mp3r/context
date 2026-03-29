@@ -554,3 +554,92 @@ fn do_work() {
         names
     );
 }
+
+// ============================================================================
+// Return type extraction tests
+// ============================================================================
+
+/// Helper: extract return types from the first function in code
+fn extract_return_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").expect("should find function_item");
+    Rust::extract_return_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_return_type_simple() {
+    let code = "fn create() -> Config { todo!() }";
+    let types = extract_return_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_return_type_option() {
+    let code = "fn find() -> Option<Config> { todo!() }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should unwrap Option to find Config, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_result() {
+    let code = "fn load() -> Result<Config, AppError> { todo!() }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should extract Config from Result, got: {:?}",
+        types
+    );
+    assert!(
+        types.contains(&"AppError".to_string()),
+        "Should extract AppError from Result, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_builtin_only() {
+    let code = "fn count() -> usize { 0 }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin return types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_no_return() {
+    let code = "fn do_work() { }";
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no return type should return empty, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_non_function() {
+    let code = "struct Config { name: String }";
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let struct_node = parse_and_find(&tree, "struct_item").expect("should find struct_item");
+    let types = Rust::extract_return_types(struct_node, code);
+    assert!(
+        types.is_empty(),
+        "Non-function nodes should return empty, got: {:?}",
+        types
+    );
+}

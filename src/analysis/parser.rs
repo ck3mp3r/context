@@ -138,6 +138,15 @@ pub trait Language {
     fn extract_usages(_node: Node, _code: &str) -> Vec<(SymbolName, usize)> {
         Vec::new()
     }
+
+    /// Extract return type names from a function/method node.
+    /// Returns a list of type names found in the return type position.
+    /// Must unwrap wrapper types (Option, Result, Box, etc. for Rust;
+    /// pointer types for Go) and skip primitive/builtin types.
+    /// Default: no return type extraction.
+    fn extract_return_types(_node: Node, _code: &str) -> Vec<SymbolName> {
+        Vec::new()
+    }
 }
 
 /// Generic parser that works for any Language
@@ -353,6 +362,26 @@ impl<L: Language> Parser<L> {
                         from_symbol_id: symbol_id.clone(),
                         type_name: usage_name,
                         ref_kind: ReferenceType::Usage,
+                    });
+                }
+            }
+
+            // Extract return type references
+            let return_types = L::extract_return_types(node, ctx.code);
+            for return_type_name in return_types {
+                if let Some(return_type_id) = ctx.global.map.get(&return_type_name) {
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        return_type_id,
+                        &ReferenceType::ReturnType,
+                        1.0,
+                    )?;
+                    *ctx.relationships_count += 1;
+                } else {
+                    ctx.global.deferred.push(DeferredEdge::Reference {
+                        from_symbol_id: symbol_id.clone(),
+                        type_name: return_type_name,
+                        ref_kind: ReferenceType::ReturnType,
                     });
                 }
             }

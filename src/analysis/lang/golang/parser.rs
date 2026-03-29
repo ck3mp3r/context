@@ -135,6 +135,21 @@ impl Language for Go {
         collect_identifier_usages(body, code, &locals, &mut usages, &mut seen);
         usages
     }
+
+    fn extract_return_types(node: Node, code: &str) -> Vec<SymbolName> {
+        match node.kind() {
+            "function_declaration" | "method_declaration" => {}
+            _ => return Vec::new(),
+        }
+
+        let Some(result) = node.child_by_field_name("result") else {
+            return Vec::new();
+        };
+
+        let mut types = Vec::new();
+        collect_return_type_identifiers(result, code, &mut types);
+        types
+    }
 }
 
 /// Extract text from a node
@@ -243,6 +258,39 @@ fn extract_conformance_type(node: Node, code: &str) -> Option<String> {
             None
         }
         _ => None,
+    }
+}
+
+/// Recursively collect type_identifier nodes from a Go return type subtree.
+/// Handles single types, pointer types, and parameter_list (multiple/named returns).
+/// Skips builtin types.
+fn collect_return_type_identifiers(node: Node, code: &str, types: &mut Vec<SymbolName>) {
+    match node.kind() {
+        "type_identifier" => {
+            let name = node_text(node, code);
+            if !is_builtin_type(&name) {
+                types.push(SymbolName::new(name));
+            }
+        }
+        "pointer_type" => {
+            // *Config — recurse to get the inner type
+            for child in node.children(&mut node.walk()) {
+                collect_return_type_identifiers(child, code, types);
+            }
+        }
+        "parameter_list" => {
+            // (Config, error) or (result Config, err error)
+            for child in node.children(&mut node.walk()) {
+                collect_return_type_identifiers(child, code, types);
+            }
+        }
+        "parameter_declaration" => {
+            // Named return: `result Config` — extract from type field
+            if let Some(type_node) = node.child_by_field_name("type") {
+                collect_return_type_identifiers(type_node, code, types);
+            }
+        }
+        _ => {}
     }
 }
 

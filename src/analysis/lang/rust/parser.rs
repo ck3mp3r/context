@@ -223,6 +223,21 @@ impl Language for Rust {
         collect_rust_identifier_usages(body, code, &locals, &mut usages, &mut seen);
         usages
     }
+
+    fn extract_return_types(node: Node, code: &str) -> Vec<SymbolName> {
+        if node.kind() != "function_item" {
+            return Vec::new();
+        }
+
+        // Find the return type node — it's the `type` field after `->`
+        let Some(return_type) = node.child_by_field_name("return_type") else {
+            return Vec::new();
+        };
+
+        let mut types = Vec::new();
+        collect_return_type_names(return_type, code, &mut types);
+        types
+    }
 }
 
 /// Helper: extract the first child node of `child_kind` as the symbol name
@@ -269,6 +284,20 @@ fn collect_type_refs(
     }
     for child in node.children(&mut node.walk()) {
         collect_type_refs(child, code, refs, ref_kind.clone());
+    }
+}
+
+/// Recursively collect type_identifier nodes from a return type subtree, skipping builtins
+fn collect_return_type_names(node: Node, code: &str, types: &mut Vec<SymbolName>) {
+    if node.kind() == "type_identifier" {
+        let name = code[node.byte_range()].to_string();
+        if !BUILTIN_TYPES.contains(&name.as_str()) {
+            types.push(SymbolName::new(name));
+        }
+        return;
+    }
+    for child in node.children(&mut node.walk()) {
+        collect_return_type_names(child, code, types);
     }
 }
 

@@ -758,3 +758,126 @@ var _ ICache = (*FileBasedCache)(nil)
         names
     );
 }
+
+// ============================================================================
+// Return type extraction tests
+// ============================================================================
+
+/// Helper: extract return types from the first function/method in code
+fn extract_return_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    // Try function_declaration first, then method_declaration
+    let fn_node = parse_and_find(&tree, "function_declaration")
+        .or_else(|| parse_and_find(&tree, "method_declaration"))
+        .expect("should find function or method declaration");
+    Go::extract_return_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_return_type_simple() {
+    let code = r#"
+package main
+
+func NewConfig() Config {
+    return Config{}
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_return_type_pointer() {
+    let code = r#"
+package main
+
+func NewConfig() *Config {
+    return &Config{}
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert_eq!(types, vec!["Config"], "Should unwrap pointer to get Config");
+}
+
+#[test]
+fn test_extract_return_type_multiple() {
+    let code = r#"
+package main
+
+func Open() (*Connection, error) {
+    return nil, nil
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Connection".to_string()),
+        "Should extract Connection, got: {:?}",
+        types
+    );
+    assert!(
+        !types.contains(&"error".to_string()),
+        "Should skip builtin error, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_named_returns() {
+    let code = r#"
+package main
+
+func Parse() (result Config, err error) {
+    return
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should extract Config from named return, got: {:?}",
+        types
+    );
+    assert!(
+        !types.contains(&"error".to_string()),
+        "Should skip builtin error, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_builtin_only() {
+    let code = r#"
+package main
+
+func Count() int {
+    return 0
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin return types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_return_type_no_return() {
+    let code = r#"
+package main
+
+func DoWork() {
+}
+"#;
+    let types = extract_return_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no return type should return empty, got: {:?}",
+        types
+    );
+}
