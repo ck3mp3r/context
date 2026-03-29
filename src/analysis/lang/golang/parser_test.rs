@@ -881,3 +881,118 @@ func DoWork() {
         types
     );
 }
+
+// ============================================================================
+// Parameter type extraction tests
+// ============================================================================
+
+/// Helper: extract param types from the first function/method in code
+fn extract_param_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Go::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_declaration")
+        .or_else(|| parse_and_find(&tree, "method_declaration"))
+        .expect("should find function or method declaration");
+    Go::extract_param_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_param_type_simple() {
+    let code = r#"
+package main
+
+func Process(config Config) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_param_type_pointer() {
+    let code = r#"
+package main
+
+func Process(config *Config) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should unwrap pointer to get Config, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_multiple() {
+    let code = r#"
+package main
+
+func Process(config Config, conn *Connection) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(types.contains(&"Config".to_string()), "got: {:?}", types);
+    assert!(
+        types.contains(&"Connection".to_string()),
+        "got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_builtin_only() {
+    let code = r#"
+package main
+
+func Process(name string, count int) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin param types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_no_params() {
+    let code = r#"
+package main
+
+func DoWork() {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no params should return empty, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_method_skips_receiver() {
+    let code = r#"
+package main
+
+type Server struct{}
+
+func (s *Server) Handle(req Request) {
+}
+"#;
+    let types = extract_param_types_from_func(code);
+    assert_eq!(
+        types,
+        vec!["Request"],
+        "Should extract Request but not receiver type, got: {:?}",
+        types
+    );
+}

@@ -150,6 +150,23 @@ impl Language for Go {
         collect_return_type_identifiers(result, code, &mut types);
         types
     }
+
+    fn extract_param_types(node: Node, code: &str) -> Vec<SymbolName> {
+        match node.kind() {
+            "function_declaration" | "method_declaration" => {}
+            _ => return Vec::new(),
+        }
+
+        let Some(params) = node.child_by_field_name("parameters") else {
+            return Vec::new();
+        };
+
+        let mut types = Vec::new();
+        // Reuse the same collector as return types — it handles
+        // type_identifier, pointer_type, and parameter_declaration
+        collect_return_type_identifiers(params, code, &mut types);
+        types
+    }
 }
 
 /// Extract text from a node

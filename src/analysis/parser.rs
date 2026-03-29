@@ -147,6 +147,15 @@ pub trait Language {
     fn extract_return_types(_node: Node, _code: &str) -> Vec<SymbolName> {
         Vec::new()
     }
+
+    /// Extract parameter type names from a function/method node.
+    /// Returns a list of type names found in the parameter positions.
+    /// Must unwrap wrapper types (&T, &mut T, Option<T>, etc. for Rust;
+    /// *T for Go) and skip primitive/builtin types.
+    /// Default: no parameter type extraction.
+    fn extract_param_types(_node: Node, _code: &str) -> Vec<SymbolName> {
+        Vec::new()
+    }
 }
 
 /// Generic parser that works for any Language
@@ -382,6 +391,26 @@ impl<L: Language> Parser<L> {
                         from_symbol_id: symbol_id.clone(),
                         type_name: return_type_name,
                         ref_kind: ReferenceType::ReturnType,
+                    });
+                }
+            }
+
+            // Extract parameter type references
+            let param_types = L::extract_param_types(node, ctx.code);
+            for param_type_name in param_types {
+                if let Some(param_type_id) = ctx.global.map.get(&param_type_name) {
+                    graph.insert_references_edge(
+                        &symbol_id,
+                        param_type_id,
+                        &ReferenceType::ParamType,
+                        1.0,
+                    )?;
+                    *ctx.relationships_count += 1;
+                } else {
+                    ctx.global.deferred.push(DeferredEdge::Reference {
+                        from_symbol_id: symbol_id.clone(),
+                        type_name: param_type_name,
+                        ref_kind: ReferenceType::ParamType,
                     });
                 }
             }

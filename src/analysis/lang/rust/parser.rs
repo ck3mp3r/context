@@ -238,6 +238,27 @@ impl Language for Rust {
         collect_return_type_names(return_type, code, &mut types);
         types
     }
+
+    fn extract_param_types(node: Node, code: &str) -> Vec<SymbolName> {
+        if node.kind() != "function_item" {
+            return Vec::new();
+        }
+
+        let Some(params) = node.child_by_field_name("parameters") else {
+            return Vec::new();
+        };
+
+        let mut types = Vec::new();
+        for child in params.children(&mut params.walk()) {
+            if child.kind() == "parameter" {
+                // Extract type from the "type" field, skipping self parameters
+                if let Some(type_node) = child.child_by_field_name("type") {
+                    collect_return_type_names(type_node, code, &mut types);
+                }
+            }
+        }
+        types
+    }
 }
 
 /// Helper: extract the first child node of `child_kind` as the symbol name

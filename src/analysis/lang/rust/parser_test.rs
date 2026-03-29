@@ -643,3 +643,76 @@ fn test_extract_return_type_non_function() {
         types
     );
 }
+
+// ============================================================================
+// Parameter type extraction tests
+// ============================================================================
+
+/// Helper: extract param types from the first function in code
+fn extract_param_types_from_func(code: &str) -> Vec<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&Rust::grammar()).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let fn_node = parse_and_find(&tree, "function_item").expect("should find function_item");
+    Rust::extract_param_types(fn_node, code)
+        .into_iter()
+        .map(|n| n.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn test_extract_param_type_simple() {
+    let code = "fn process(config: Config) { }";
+    let types = extract_param_types_from_func(code);
+    assert_eq!(types, vec!["Config"]);
+}
+
+#[test]
+fn test_extract_param_type_reference() {
+    let code = "fn process(config: &Config) { }";
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.contains(&"Config".to_string()),
+        "Should unwrap & to find Config, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_multiple() {
+    let code = "fn process(a: TypeA, b: TypeB) { }";
+    let types = extract_param_types_from_func(code);
+    assert!(types.contains(&"TypeA".to_string()), "got: {:?}", types);
+    assert!(types.contains(&"TypeB".to_string()), "got: {:?}", types);
+}
+
+#[test]
+fn test_extract_param_type_builtin_only() {
+    let code = "fn process(x: i32, name: String) { }";
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Should skip builtin param types, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_no_params() {
+    let code = "fn do_work() { }";
+    let types = extract_param_types_from_func(code);
+    assert!(
+        types.is_empty(),
+        "Function with no params should return empty, got: {:?}",
+        types
+    );
+}
+
+#[test]
+fn test_extract_param_type_skips_self() {
+    // &self is not a user-defined type
+    let code = "fn method(&self, config: Config) { }";
+    let types = extract_param_types_from_func(code);
+    assert_eq!(types, vec!["Config"], "Should skip self, got: {:?}", types);
+}

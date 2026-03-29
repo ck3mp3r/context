@@ -128,6 +128,7 @@ pub enum ReferenceType {
     FieldType,
     Usage,
     ReturnType,
+    ParamType,
 }
 
 impl ReferenceType {
@@ -138,6 +139,7 @@ impl ReferenceType {
             Self::FieldType => "field_type",
             Self::Usage => "usage",
             Self::ReturnType => "return_type",
+            Self::ParamType => "param_type",
         }
     }
 }
@@ -152,6 +154,7 @@ impl std::str::FromStr for ReferenceType {
             "field_type" => Ok(Self::FieldType),
             "usage" => Ok(Self::Usage),
             "return_type" => Ok(Self::ReturnType),
+            "param_type" => Ok(Self::ParamType),
             _ => Err(format!("Unknown reference type: {}", s)),
         }
     }
