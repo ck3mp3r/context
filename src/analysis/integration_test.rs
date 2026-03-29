@@ -207,11 +207,11 @@ impl Drawable for Circle {
 
     // Both symbols should be in the global map
     assert!(
-        global.map.contains_key(&SymbolName::new("Drawable")),
+        global.contains_bare_name("Drawable"),
         "Drawable should be in global map"
     );
     assert!(
-        global.map.contains_key(&SymbolName::new("Circle")),
+        global.contains_bare_name("Circle"),
         "Circle should be in global map"
     );
 }
@@ -424,9 +424,9 @@ impl Server {
     );
 
     // All symbols should be in the global map
-    assert!(global.map.contains_key(&SymbolName::new("Server")));
-    assert!(global.map.contains_key(&SymbolName::new("new")));
-    assert!(global.map.contains_key(&SymbolName::new("start")));
+    assert!(global.contains_bare_name("Server"));
+    assert!(global.contains_bare_name("new"));
+    assert!(global.contains_bare_name("start"));
 }
 
 /// Struct defined AFTER impl block - exercises deferred SymbolContains.
@@ -524,9 +524,9 @@ pub fn main() {
     );
 
     // Calculator, new, main should all be in global map
-    assert!(global.map.contains_key(&SymbolName::new("Calculator")));
-    assert!(global.map.contains_key(&SymbolName::new("new")));
-    assert!(global.map.contains_key(&SymbolName::new("main")));
+    assert!(global.contains_bare_name("Calculator"));
+    assert!(global.contains_bare_name("new"));
+    assert!(global.contains_bare_name("main"));
 }
 
 /// parse_and_analyze (backward compat) should still work for single-file use.
@@ -604,11 +604,11 @@ impl Displayable for Widget {
 
     // Verify both symbols are in the global map
     assert!(
-        global.map.contains_key(&SymbolName::new("Displayable")),
+        global.contains_bare_name("Displayable"),
         "Should have Displayable in global map"
     );
     assert!(
-        global.map.contains_key(&SymbolName::new("Widget")),
+        global.contains_bare_name("Widget"),
         "Should have Widget in global map"
     );
 
@@ -700,11 +700,11 @@ var _ ICache = (*FileBasedCache)(nil)
 
     // Verify both symbols are in the global map
     assert!(
-        global.map.contains_key(&SymbolName::new("ICache")),
+        global.contains_bare_name("ICache"),
         "Should have ICache in global map"
     );
     assert!(
-        global.map.contains_key(&SymbolName::new("FileBasedCache")),
+        global.contains_bare_name("FileBasedCache"),
         "Should have FileBasedCache in global map"
     );
 
@@ -878,7 +878,7 @@ fn main() {}
     // Should have SymbolContains edges: utils -> helper, utils -> Config
     // Plus FileContains edges for all symbols
     // main should NOT be contained by utils
-    let deferred_symbol_contains: Vec<_> = global
+    let _deferred_symbol_contains: Vec<_> = global
         .deferred
         .iter()
         .filter(|e| {
@@ -1046,7 +1046,7 @@ func Set(key string, value string) {}
 
     // Package "cache" should appear only once in the global map
     assert!(
-        global.map.contains_key(&SymbolName::new("cache")),
+        global.contains_bare_name("cache"),
         "Package 'cache' should be in global map"
     );
 

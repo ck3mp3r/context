@@ -14,6 +14,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::analysis::get_analysis_path;
+use crate::analysis::types::derive_module_path;
 use crate::api::AppState;
 use crate::db::{Database, RepoRepository};
 use crate::sync::GitOps;
@@ -27,7 +28,10 @@ use super::ErrorResponse;
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GraphNode {
     pub id: String,
+    /// Short display label (bare symbol name)
     pub label: String,
+    /// Module-qualified name (e.g., "analysis::types::SymbolId")
+    pub qualified_name: String,
     pub kind: String,
     pub language: String,
     pub file_path: String,
@@ -538,13 +542,37 @@ fn build_graph_data(
         .filter_map(|s| {
             let id = s["symbol_id"].as_str()?.to_string();
             let kind = s["kind"].as_str().unwrap_or("unknown");
-            let language = s["language"].as_str().unwrap_or("unknown").to_string();
+            let name = s["name"].as_str().unwrap_or("?");
+            let file_path = s["file_path"].as_str().unwrap_or("");
+            let language = s["language"].as_str().unwrap_or("unknown");
             let degree = *edge_counts.get(&id).unwrap_or(&0);
+
+            // Derive qualified name from module path + symbol name
+            let module_path = derive_module_path(file_path, language);
+            // For Go, derive_module_path returns empty — fall back to
+            // directory name (last component of the parent path)
+            let module_path = if module_path.is_empty() && language == "go" {
+                file_path
+                    .rfind('/')
+                    .map(|i| &file_path[..i])
+                    .and_then(|dir| dir.rfind('/').map(|j| &dir[j + 1..]).or(Some(dir)))
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                module_path
+            };
+            let qualified_name = if module_path.is_empty() {
+                name.to_string()
+            } else {
+                format!("{}::{}", module_path, name)
+            };
+
             Some(GraphNode {
-                label: s["name"].as_str().unwrap_or("?").to_string(),
+                label: name.to_string(),
+                qualified_name,
                 kind: kind.to_string(),
-                language,
-                file_path: s["file_path"].as_str().unwrap_or("").to_string(),
+                language: language.to_string(),
+                file_path: file_path.to_string(),
                 start_line: s["start_line"].as_i64().unwrap_or(0),
                 size: 3.0 + (degree as f64).sqrt() * 2.0,
                 id,

@@ -207,8 +207,6 @@ def main [] {
 
 #[test]
 fn test_module_info_inline_module() {
-    use crate::analysis::parser::ModuleInfo;
-
     let code = r#"
 module utils {
     export def helper [] { "help" }

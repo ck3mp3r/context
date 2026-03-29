@@ -78,6 +78,7 @@
       (data.nodes || []).forEach(function(node) {
         graph.addNode(node.id, {
           label: node.label,
+          qualifiedName: node.qualified_name || node.label,
           size: node.size || 5,
           color: kindColor(node.kind),
           kind: node.kind,
@@ -149,12 +150,13 @@
           context.lineWidth = 2;
           context.stroke();
 
-          // Draw hover label
-          if (!data.label) return;
+          // Draw hover label — show qualified name for disambiguation
+          var hoverLabel = data.qualifiedName || data.label;
+          if (!hoverLabel) return;
           var size = settings.labelSize + 2;
           var font = settings.labelFont;
           context.font = size + "px " + font;
-          var textWidth = context.measureText(data.label).width;
+          var textWidth = context.measureText(hoverLabel).width;
           var padding = 6;
           var x = data.x + data.size + 5;
           var y = data.y + size / 3;
@@ -174,7 +176,7 @@
           context.stroke();
           // Light text
           context.fillStyle = "#cdd6f4";
-          context.fillText(data.label, x, y);
+          context.fillText(hoverLabel, x, y);
         },
       });
 
@@ -555,7 +557,8 @@
     var matches = new Set();
     inst.graph.forEachNode(function(node, attrs) {
       var label = (attrs.label || "").toLowerCase();
-      if (label.indexOf(q) !== -1) {
+      var qname = (attrs.qualifiedName || "").toLowerCase();
+      if (label.indexOf(q) !== -1 || qname.indexOf(q) !== -1) {
         matches.add(node);
       }
     });

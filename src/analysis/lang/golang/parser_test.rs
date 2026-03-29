@@ -1291,8 +1291,6 @@ func main() {}
 
 #[test]
 fn test_module_info_package_clause() {
-    use crate::analysis::parser::ModuleInfo;
-
     let code = r#"
 package cache
 

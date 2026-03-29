@@ -1,7 +1,9 @@
 // Generic language-agnostic parser with trait-based language support
 
 use crate::analysis::store::CodeGraph;
-use crate::analysis::types::{FileId, InheritanceType, ReferenceType, SymbolId, SymbolName};
+use crate::analysis::types::{
+    FileId, InheritanceType, QualifiedName, ReferenceType, SymbolId, SymbolName,
+};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -71,8 +73,10 @@ pub enum DeferredEdge {
 /// Global state shared across all files during analysis.
 /// Built up file-by-file, then used to resolve cross-file relationships.
 pub struct GlobalSymbolMap {
-    /// Maps symbol name -> symbol_id across ALL files
-    pub map: HashMap<SymbolName, SymbolId>,
+    /// Primary map: qualified name -> symbol_id (unambiguous lookup)
+    pub qualified_map: HashMap<QualifiedName, SymbolId>,
+    /// Reverse index: bare name -> list of qualified names (for disambiguation)
+    pub bare_to_qualified: HashMap<SymbolName, Vec<QualifiedName>>,
     /// Relationships that couldn't be resolved within a single file
     pub deferred: Vec<DeferredEdge>,
     /// Interface name -> method names (for implicit interface matching in Go)
@@ -86,12 +90,93 @@ pub struct GlobalSymbolMap {
 impl GlobalSymbolMap {
     pub fn new() -> Self {
         Self {
-            map: HashMap::new(),
+            qualified_map: HashMap::new(),
+            bare_to_qualified: HashMap::new(),
             deferred: Vec::new(),
             interface_methods: HashMap::new(),
             type_methods: HashMap::new(),
             file_symbols: HashMap::new(),
         }
+    }
+
+    /// Insert a symbol into both the primary and reverse index.
+    pub fn insert_symbol(&mut self, qualified_name: QualifiedName, symbol_id: SymbolId) {
+        let bare = SymbolName::new(qualified_name.bare_name());
+        self.bare_to_qualified
+            .entry(bare)
+            .or_default()
+            .push(qualified_name.clone());
+        self.qualified_map.insert(qualified_name, symbol_id);
+    }
+
+    /// Look up a symbol by bare name, using the caller's module path for disambiguation.
+    ///
+    /// Resolution order:
+    /// 1. Same module: try `caller_module::bare_name`
+    /// 2. Unique bare name: if only one qualified name matches, use it
+    /// 3. Ambiguous: return None (caller should use import table or defer)
+    pub fn resolve_bare_name(
+        &self,
+        bare_name: &SymbolName,
+        caller_module: &str,
+    ) -> Option<&SymbolId> {
+        // 1. Try same-module lookup
+        let same_module_qn = QualifiedName::new(caller_module, bare_name.as_str());
+        if let Some(id) = self.qualified_map.get(&same_module_qn) {
+            return Some(id);
+        }
+
+        // 2. Check reverse index for candidates
+        let candidates = self.bare_to_qualified.get(bare_name)?;
+
+        if candidates.len() == 1 {
+            // Unique: only one symbol with this bare name
+            return self.qualified_map.get(&candidates[0]);
+        }
+
+        // 3. Ambiguous — multiple candidates, no import table available here
+        // Caller should try import table or other disambiguation
+        None
+    }
+
+    /// Look up by fully qualified name (exact match).
+    pub fn resolve_qualified(&self, qualified_name: &QualifiedName) -> Option<&SymbolId> {
+        self.qualified_map.get(qualified_name)
+    }
+
+    /// Legacy compatibility: look up by bare name, return first match.
+    /// Used during walk_and_insert where we haven't yet built import tables.
+    /// Tries same-module first, then falls back to unique match or first candidate.
+    pub fn get_by_bare_name_with_hint(
+        &self,
+        bare_name: &SymbolName,
+        caller_module: &str,
+    ) -> Option<&SymbolId> {
+        // 1. Try same-module
+        let same_module_qn = QualifiedName::new(caller_module, bare_name.as_str());
+        if let Some(id) = self.qualified_map.get(&same_module_qn) {
+            return Some(id);
+        }
+
+        // 2. Check reverse index
+        if let Some(candidates) = self.bare_to_qualified.get(bare_name) {
+            if candidates.len() == 1 {
+                return self.qualified_map.get(&candidates[0]);
+            }
+            // Multiple candidates: return first (best-effort during walk)
+            // This will be re-resolved properly in resolve_deferred_edges with import tables
+            if let Some(first) = candidates.first() {
+                return self.qualified_map.get(first);
+            }
+        }
+
+        None
+    }
+
+    /// Check if a bare symbol name exists in the map (any module).
+    /// Useful for tests.
+    pub fn contains_bare_name(&self, name: &str) -> bool {
+        self.bare_to_qualified.contains_key(&SymbolName::new(name))
     }
 }
 
@@ -222,6 +307,8 @@ struct WalkContext<'a> {
     code: &'a str,
     file_path: &'a str,
     file_id: &'a FileId,
+    /// Module path derived from file_path (e.g., "analysis::types" for "src/analysis/types.rs")
+    module_path: String,
     symbols_count: &'a mut usize,
     relationships_count: &'a mut usize,
     /// Global symbol map shared across all files
@@ -272,6 +359,7 @@ impl<L: Language> Parser<L> {
             code,
             file_path,
             file_id: &file_id,
+            module_path: crate::analysis::types::derive_module_path(file_path, L::name()),
             symbols_count: &mut symbols_inserted,
             relationships_count: &mut relationships_inserted,
             global,
@@ -329,9 +417,12 @@ impl<L: Language> Parser<L> {
             if let Some(ref trait_name) = impl_info.trait_name {
                 let target_name = SymbolName::new(&impl_info.target_type);
                 let trait_sym_name = SymbolName::new(trait_name.as_str());
+                let module_path = ctx.module_path.clone();
                 match (
-                    ctx.global.map.get(&target_name),
-                    ctx.global.map.get(&trait_sym_name),
+                    ctx.global
+                        .get_by_bare_name_with_hint(&target_name, &module_path),
+                    ctx.global
+                        .get_by_bare_name_with_hint(&trait_sym_name, &module_path),
                 ) {
                     (Some(type_id), Some(trait_id)) => {
                         graph.insert_inherits_edge(
@@ -395,7 +486,10 @@ impl<L: Language> Parser<L> {
             // If inside an impl block, create or defer SymbolContains edge
             if let Some(impl_info) = current_impl_context {
                 let parent_name = SymbolName::new(&impl_info.target_type);
-                if let Some(type_symbol_id) = ctx.global.map.get(&parent_name) {
+                if let Some(type_symbol_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&parent_name, &ctx.module_path)
+                {
                     graph.insert_symbol_contains_edge(type_symbol_id, &symbol_id, 1.0)?;
                     *ctx.relationships_count += 1;
                 } else {
@@ -412,9 +506,9 @@ impl<L: Language> Parser<L> {
                     .push(name.clone());
             }
 
-            // Track in global symbol map
-            let sym_name = SymbolName::new(&name);
-            ctx.global.map.insert(sym_name, symbol_id.clone());
+            // Track in global symbol map with qualified name
+            let qualified_name = QualifiedName::new(&ctx.module_path, &name);
+            ctx.global.insert_symbol(qualified_name, symbol_id.clone());
 
             // Extract interface method names (for implicit interface matching)
             if let Some((iface_name, methods)) = L::extract_interface_methods(node, ctx.code) {
@@ -440,7 +534,10 @@ impl<L: Language> Parser<L> {
             // Extract type references
             let refs = L::extract_type_references(node, ctx.code);
             for (ref_type_name, ref_kind) in refs {
-                if let Some(ref_symbol_id) = ctx.global.map.get(&ref_type_name) {
+                if let Some(ref_symbol_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&ref_type_name, &ctx.module_path)
+                {
                     graph.insert_references_edge(&symbol_id, ref_symbol_id, &ref_kind, 1.0)?;
                     *ctx.relationships_count += 1;
                 } else {
@@ -455,7 +552,10 @@ impl<L: Language> Parser<L> {
             // Extract value-level usages (references to vars/consts)
             let usages = L::extract_usages(node, ctx.code);
             for (usage_name, _usage_line) in usages {
-                if let Some(usage_symbol_id) = ctx.global.map.get(&usage_name) {
+                if let Some(usage_symbol_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&usage_name, &ctx.module_path)
+                {
                     graph.insert_references_edge(
                         &symbol_id,
                         usage_symbol_id,
@@ -475,7 +575,10 @@ impl<L: Language> Parser<L> {
             // Extract return type references
             let return_types = L::extract_return_types(node, ctx.code);
             for return_type_name in return_types {
-                if let Some(return_type_id) = ctx.global.map.get(&return_type_name) {
+                if let Some(return_type_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&return_type_name, &ctx.module_path)
+                {
                     graph.insert_references_edge(
                         &symbol_id,
                         return_type_id,
@@ -495,7 +598,10 @@ impl<L: Language> Parser<L> {
             // Extract parameter type references
             let param_types = L::extract_param_types(node, ctx.code);
             for param_type_name in param_types {
-                if let Some(param_type_id) = ctx.global.map.get(&param_type_name) {
+                if let Some(param_type_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&param_type_name, &ctx.module_path)
+                {
                     graph.insert_references_edge(
                         &symbol_id,
                         param_type_id,
@@ -522,7 +628,10 @@ impl<L: Language> Parser<L> {
             let call_line = node.start_position().row + 1;
             if let Some(caller_id) = containing_symbol.as_ref() {
                 let callee_sym_name = SymbolName::new(&callee_name);
-                if let Some(callee_id) = ctx.global.map.get(&callee_sym_name) {
+                if let Some(callee_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&callee_sym_name, &ctx.module_path)
+                {
                     graph.insert_calls_edge(caller_id, callee_id, call_line, 1.0)?;
                     *ctx.relationships_count += 1;
                 } else {
@@ -558,7 +667,10 @@ impl<L: Language> Parser<L> {
                 && mod_info.has_body
             {
                 let sym_name = SymbolName::new(name);
-                if let Some(mod_id) = ctx.global.map.get(&sym_name) {
+                if let Some(mod_id) = ctx
+                    .global
+                    .get_by_bare_name_with_hint(&sym_name, &ctx.module_path)
+                {
                     child_module_context = Some(mod_id.clone());
                 }
             }
@@ -580,6 +692,28 @@ impl<L: Language> Default for Parser<L> {
     }
 }
 
+/// Derive a module path from a SymbolId by extracting the file path
+/// and inferring the language from the file extension.
+fn module_path_from_symbol_id(symbol_id: &SymbolId) -> String {
+    symbol_id
+        .file_path()
+        .map(|fp| {
+            let lang = language_from_extension(fp);
+            crate::analysis::types::derive_module_path(fp, lang)
+        })
+        .unwrap_or_default()
+}
+
+/// Infer language name from file extension.
+fn language_from_extension(file_path: &str) -> &str {
+    match Path::new(file_path).extension().and_then(|e| e.to_str()) {
+        Some("rs") => "rust",
+        Some("go") => "go",
+        Some("nu") => "nushell",
+        _ => "",
+    }
+}
+
 /// Resolve deferred edges against the global symbol map.
 /// Call this once after all files have been processed.
 /// Returns the number of edges successfully resolved.
@@ -596,7 +730,10 @@ pub fn resolve_deferred_edges(
                 callee_name,
                 call_site_line,
             } => {
-                if let Some(callee_id) = global.map.get(callee_name) {
+                let caller_module = module_path_from_symbol_id(caller_id);
+                if let Some(callee_id) =
+                    global.get_by_bare_name_with_hint(callee_name, &caller_module)
+                {
                     graph.insert_calls_edge(caller_id, callee_id, *call_site_line, 1.0)?;
                     resolved += 1;
                 }
@@ -606,7 +743,10 @@ pub fn resolve_deferred_edges(
                 type_name,
                 ref_kind,
             } => {
-                if let Some(to_symbol_id) = global.map.get(type_name) {
+                let caller_module = module_path_from_symbol_id(from_symbol_id);
+                if let Some(to_symbol_id) =
+                    global.get_by_bare_name_with_hint(type_name, &caller_module)
+                {
                     graph.insert_references_edge(from_symbol_id, to_symbol_id, ref_kind, 1.0)?;
                     resolved += 1;
                 }
@@ -615,9 +755,11 @@ pub fn resolve_deferred_edges(
                 type_name,
                 trait_name,
             } => {
-                if let (Some(type_id), Some(trait_id)) =
-                    (global.map.get(type_name), global.map.get(trait_name))
-                {
+                // For inherits, use empty module hint (types and traits may be in different modules)
+                if let (Some(type_id), Some(trait_id)) = (
+                    global.get_by_bare_name_with_hint(type_name, ""),
+                    global.get_by_bare_name_with_hint(trait_name, ""),
+                ) {
                     graph.insert_inherits_edge(
                         type_id,
                         trait_id,
@@ -631,7 +773,10 @@ pub fn resolve_deferred_edges(
                 parent_type_name,
                 child_symbol_id,
             } => {
-                if let Some(parent_id) = global.map.get(parent_type_name) {
+                let child_module = module_path_from_symbol_id(child_symbol_id);
+                if let Some(parent_id) =
+                    global.get_by_bare_name_with_hint(parent_type_name, &child_module)
+                {
                     graph.insert_symbol_contains_edge(parent_id, child_symbol_id, 1.0)?;
                     resolved += 1;
                 }
@@ -678,8 +823,10 @@ pub fn resolve_deferred_edges(
             // Check if type has all interface methods
             let has_all = iface_methods.iter().all(|m| type_method_list.contains(m));
             if has_all
-                && let (Some(type_id), Some(iface_id)) =
-                    (global.map.get(type_name), global.map.get(iface_name))
+                && let (Some(type_id), Some(iface_id)) = (
+                    global.get_by_bare_name_with_hint(type_name, ""),
+                    global.get_by_bare_name_with_hint(iface_name, ""),
+                )
             {
                 graph.insert_inherits_edge(
                     type_id,

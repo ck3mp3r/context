@@ -871,8 +871,6 @@ mod utils {
 
 #[test]
 fn test_module_info_inline_mod() {
-    use crate::analysis::parser::ModuleInfo;
-
     let code = "mod utils { pub fn helper() {} }";
     let mut parser = Parser::new();
     parser.set_language(&Rust::grammar()).unwrap();
