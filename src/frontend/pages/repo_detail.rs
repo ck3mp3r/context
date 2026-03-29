@@ -4,7 +4,7 @@ use leptos_router::hooks::use_params_map;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{ApiClientError, graph, projects, repos};
-use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId};
+use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId, PillColor, PillToggle};
 use crate::models::{Project, Repo, UpdateMessage};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
@@ -237,8 +237,8 @@ extern "C" {
     #[wasm_bindgen(js_name = graphGetLanguages)]
     fn get_languages(container_id: &str) -> String;
 
-    #[wasm_bindgen(js_name = graphFilterLanguage)]
-    fn filter_language(container_id: &str, language: &str);
+    #[wasm_bindgen(js_name = graphSearchNodes)]
+    fn search_nodes(container_id: &str, query: &str) -> u32;
 }
 
 // =============================================================================
@@ -255,6 +255,9 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     let (legend_kinds, set_legend_kinds) = signal(Vec::<KindInfo>::new());
     let (available_languages, set_available_languages) = signal(Vec::<String>::new());
     let (selected_language, set_selected_language) = signal(String::new()); // empty = all
+    let (is_fetching, set_is_fetching) = signal(false);
+    let (search_query, set_search_query) = signal(String::new());
+    let (search_count, set_search_count) = signal(0u32);
 
     let repo_id_for_fetch = repo_id.clone();
 
@@ -262,10 +265,15 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     Effect::new(move || {
         let current_view = view.get();
         let tests = include_tests.get();
+        let lang = selected_language.get();
         let repo_id = repo_id_for_fetch.clone();
+        let lang_param = if lang.is_empty() { None } else { Some(lang) };
 
+        set_is_fetching.set(true);
         spawn_local(async move {
-            match graph::get_repo_graph(&repo_id, Some(&current_view), tests, None).await {
+            match graph::get_repo_graph(&repo_id, Some(&current_view), tests, lang_param.as_deref())
+                .await
+            {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
@@ -291,18 +299,23 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
                         }
-                        // Extract available languages
-                        let langs_json = get_languages(container_id);
-                        if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
-                            set_available_languages.set(langs);
+                        // Extract available languages (only when unfiltered)
+                        if selected_language.get_untracked().is_empty() {
+                            let langs_json = get_languages(container_id);
+                            if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
+                                set_available_languages.set(langs);
+                            }
                         }
                         // Reset active filter on new data
                         set_active_kinds.set(std::collections::HashSet::new());
+                        set_search_query.set(String::new());
                         set_graph_state.set(GraphState::Loaded);
+                        set_is_fetching.set(false);
                     } else {
                         set_graph_state.set(GraphState::Error(
                             "Failed to initialize graph renderer".to_string(),
                         ));
+                        set_is_fetching.set(false);
                     }
                 },
                 std::time::Duration::ZERO,
@@ -321,12 +334,14 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let kinds_vec: Vec<&str> = kinds.iter().map(|s| s.as_str()).collect();
         let json = serde_json::to_string(&kinds_vec).unwrap_or_else(|_| "[]".to_string());
         filter_kinds(container_id, &json);
+        zoom_to_fit(container_id);
     });
 
-    // Push language filter to JS when selected_language changes
+    // Push search query to JS when it changes
     Effect::new(move || {
-        let lang = selected_language.get();
-        filter_language(container_id, &lang);
+        let query = search_query.get();
+        let count = search_nodes(container_id, &query);
+        set_search_count.set(count);
     });
 
     let is_visible = move || {
@@ -341,63 +356,134 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
             class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6"
             style:display=move || if is_visible() { "" } else { "none" }
         >
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
-                <div class="flex items-center gap-3">
-                    <label class="flex items-center gap-1.5 text-ctp-subtext0 text-sm cursor-pointer">
-                        <input
-                            type="checkbox"
-                            class="accent-ctp-blue"
-                            prop:checked=move || include_tests.get()
-                            on:change=move |ev| {
-                                let checked = event_target::<web_sys::HtmlInputElement>(&ev)
-                                    .checked();
-                                set_include_tests.set(checked);
-                            }
-                        />
-                        "Tests"
-                    </label>
-                    <select
-                        class="bg-ctp-base border border-ctp-surface2 text-ctp-text text-sm rounded px-2 py-1"
-                        on:change=move |ev| {
-                            set_view.set(event_target_value(&ev));
-                        }
+            // Controls row
+            <div class="flex flex-col gap-3 mb-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
+                        // Search input
+                        <div class="relative">
+                            <input
+                                type="text"
+                                placeholder="Search nodes..."
+                                class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 pr-14 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-44"
+                                on:input=move |ev| {
+                                    let value = event_target_value(&ev);
+                                    set_search_query.set(value);
+                                }
+                                prop:value=move || search_query.get()
+                            />
+                            // Search icon
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                            >
+                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+                            </svg>
+                            // Match count + clear button
+                            {move || {
+                                let q = search_query.get();
+                                let count = search_count.get();
+                                if !q.is_empty() {
+                                    view! {
+                                        <span class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            <span class="text-[10px] text-ctp-overlay0">
+                                                {count.to_string()}
+                                            </span>
+                                            <button
+                                                class="text-ctp-overlay0 hover:text-ctp-red transition-colors"
+                                                on:click=move |_| set_search_query.set(String::new())
+                                                title="Clear search"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </button>
+                                        </span>
+                                    }.into_any()
+                                } else {
+                                    view! { <span></span> }.into_any()
+                                }
+                            }}
+                        </div>
+                    </div>
+                    // Fit button — icon with subtle background
+                    <button
+                        class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors flex-shrink-0"
+                        on:click=move |_| zoom_to_fit(container_id)
+                        title="Fit to canvas"
                     >
-                        <option value="full" selected=true>"Full"</option>
-                        <option value="calls">"Calls"</option>
-                        <option value="inherits">"Inherits"</option>
-                        <option value="references">"References"</option>
-                        <option value="contains">"Contains"</option>
-                    </select>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    // View pills
+                    <span class="text-xs text-ctp-overlay0">"View:"</span>
+                    {["full", "calls", "inherits", "references", "contains"].into_iter().map(|v| {
+                        let value = v.to_string();
+                        let label = match v {
+                            "full" => "Full",
+                            "calls" => "Calls",
+                            "inherits" => "Inherits",
+                            "references" => "Refs",
+                            "contains" => "Contains",
+                            _ => v,
+                        };
+                        let value_for_click = value.clone();
+                        let is_active = Signal::derive({
+                            let v = value.clone();
+                            move || view.get() == v
+                        });
+                        view! {
+                            <PillToggle
+                                label=label
+                                active=is_active
+                                color=PillColor::Blue
+                                on_click=move |_| set_view.set(value_for_click.clone())
+                            />
+                        }
+                    }).collect::<Vec<_>>()}
+
+                    // Tests toggle pill
+                    <PillToggle
+                        label="Tests"
+                        active=Signal::derive(move || include_tests.get())
+                        color=PillColor::Mauve
+                        on_click=move |_| set_include_tests.set(!include_tests.get_untracked())
+                    />
+
+                    // Language pills (only if multiple languages)
                     {move || {
                         let langs = available_languages.get();
                         if langs.len() > 1 {
+                            let mut items = vec![("".to_string(), "All".to_string())];
+                            items.extend(langs.into_iter().map(|l| (l.clone(), l)));
                             view! {
-                                <select
-                                    class="bg-ctp-base border border-ctp-surface2 text-ctp-text text-sm rounded px-2 py-1"
-                                    on:change=move |ev| {
-                                        set_selected_language.set(event_target_value(&ev));
+                                <span class="text-xs text-ctp-overlay0 ml-1">"Lang:"</span>
+                                {items.into_iter().map(|(value, label)| {
+                                    let value_for_click = value.clone();
+                                    let is_active = Signal::derive({
+                                        let v = value.clone();
+                                        move || selected_language.get() == v
+                                    });
+                                    view! {
+                                        <PillToggle
+                                            label=label
+                                            active=is_active
+                                            color=PillColor::Green
+                                            on_click=move |_| set_selected_language.set(value_for_click.clone())
+                                        />
                                     }
-                                >
-                                    <option value="" selected=true>"All Languages"</option>
-                                    {langs.iter().map(|lang| {
-                                        let l = lang.clone();
-                                        let display = lang.clone();
-                                        view! { <option value={l}>{display}</option> }
-                                    }).collect::<Vec<_>>()}
-                                </select>
+                                }).collect::<Vec<_>>()}
                             }.into_any()
                         } else {
                             view! { <span></span> }.into_any()
                         }
                     }}
-                    <button
-                        class="bg-ctp-base border border-ctp-surface2 text-ctp-subtext0 text-sm rounded px-2 py-1 hover:text-ctp-blue hover:border-ctp-blue transition-colors"
-                        on:click=move |_| zoom_to_fit(container_id)
-                        title="Fit to screen"
-                    >
-                        "Fit"
-                    </button>
                 </div>
             </div>
 
@@ -407,6 +493,15 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 class="w-full bg-ctp-mantle rounded-lg relative"
                 style="height: 500px;"
             >
+                // Activity indicator
+                <div
+                    class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
+                    style:opacity=move || if is_fetching.get() { "1" } else { "0" }
+                    style:pointer-events="none"
+                >
+                    <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
+                    "Loading..."
+                </div>
                 {move || match graph_state.get() {
                     GraphState::Error(ref msg) => {
                         view! {
