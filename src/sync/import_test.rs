@@ -1018,7 +1018,11 @@ This skill has attachments.
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(script_content);
-        format!("{:x}", hasher.finalize())
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
     };
     let script_b64 = BASE64_STANDARD.encode(script_content);
 
@@ -1027,7 +1031,11 @@ This skill has attachments.
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(reference_content);
-        format!("{:x}", hasher.finalize())
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
     };
     let reference_b64 = BASE64_STANDARD.encode(reference_content);
 
@@ -1109,7 +1117,11 @@ This skill has attachments.
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(modified_script);
-        format!("{:x}", hasher.finalize())
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
     };
     let modified_b64 = BASE64_STANDARD.encode(modified_script);
 
