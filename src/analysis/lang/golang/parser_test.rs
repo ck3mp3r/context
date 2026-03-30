@@ -411,3 +411,135 @@ fn test_entry_type_regular_function_is_none() {
         "regular function should not have entry_type"
     );
 }
+
+#[test]
+fn test_struct_field_containment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    let cache_fields: Vec<&str> = parsed
+        .containments
+        .iter()
+        .filter(|c| c.parent_name == "Cache")
+        .filter(|c| parsed.symbols[c.child_symbol_idx].kind == "field")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .collect();
+
+    assert!(
+        cache_fields.contains(&"mu"),
+        "Cache should contain field 'mu', got: {:?}",
+        cache_fields
+    );
+    assert!(
+        cache_fields.contains(&"items"),
+        "Cache should contain field 'items', got: {:?}",
+        cache_fields
+    );
+
+    let item_fields: Vec<&str> = parsed
+        .containments
+        .iter()
+        .filter(|c| c.parent_name == "Item")
+        .filter(|c| parsed.symbols[c.child_symbol_idx].kind == "field")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .collect();
+
+    assert!(
+        item_fields.contains(&"Value"),
+        "Item should contain field 'Value', got: {:?}",
+        item_fields
+    );
+    assert!(
+        item_fields.contains(&"Expires"),
+        "Item should contain field 'Expires', got: {:?}",
+        item_fields
+    );
+
+    let rwc_fields: Vec<&str> = parsed
+        .containments
+        .iter()
+        .filter(|c| c.parent_name == "ReadWriteCache")
+        .filter(|c| parsed.symbols[c.child_symbol_idx].kind == "field")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .collect();
+
+    assert!(
+        rwc_fields.contains(&"maxSize"),
+        "ReadWriteCache should contain field 'maxSize', got: {:?}",
+        rwc_fields
+    );
+    assert!(
+        rwc_fields.contains(&"hits"),
+        "ReadWriteCache should contain field 'hits', got: {:?}",
+        rwc_fields
+    );
+}
+
+#[test]
+fn test_interface_method_containment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    let method_syms: Vec<&RawSymbol> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "function" && s.name == "Get" || s.name == "Set")
+        .collect();
+
+    assert!(
+        method_syms
+            .iter()
+            .any(|s| s.name == "Get" && s.start_line >= 21 && s.start_line <= 22),
+        "should extract Cacher.Get as a function symbol"
+    );
+    assert!(
+        method_syms
+            .iter()
+            .any(|s| s.name == "Set" && s.start_line >= 22 && s.start_line <= 23),
+        "should extract Cacher.Set as a function symbol"
+    );
+
+    let cacher_methods: Vec<&str> = parsed
+        .containments
+        .iter()
+        .filter(|c| c.parent_name == "Cacher")
+        .filter(|c| parsed.symbols[c.child_symbol_idx].kind == "function")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .collect();
+
+    assert!(
+        cacher_methods.contains(&"Get"),
+        "Cacher interface should contain method 'Get', got: {:?}",
+        cacher_methods
+    );
+    assert!(
+        cacher_methods.contains(&"Set"),
+        "Cacher interface should contain method 'Set', got: {:?}",
+        cacher_methods
+    );
+}
+
+#[test]
+fn test_server_struct_field_containment() {
+    let code = load_testdata("server.go");
+    let parsed = Go::extract(&code, "server/server.go");
+
+    let server_fields: Vec<&str> = parsed
+        .containments
+        .iter()
+        .filter(|c| c.parent_name == "Server")
+        .filter(|c| parsed.symbols[c.child_symbol_idx].kind == "field")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .collect();
+
+    assert!(
+        server_fields.contains(&"host"),
+        "Server should contain field 'host', got: {:?}",
+        server_fields
+    );
+    assert!(
+        server_fields.contains(&"port"),
+        "Server should contain field 'port', got: {:?}",
+        server_fields
+    );
+}

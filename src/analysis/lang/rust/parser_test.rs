@@ -32,6 +32,19 @@ fn test_server_symbols() {
     assert!(sym("MAX_CONNECTIONS").is_some_and(|s| s.kind == "const"));
     assert!(sym("INSTANCE_COUNT").is_some_and(|s| s.kind == "static"));
     assert!(sym("internal").is_some_and(|s| s.kind == "module"));
+    assert!(
+        sym("InternalConfig").is_some_and(|s| s.kind == "struct"),
+        "should extract InternalConfig struct from module, got: {:?}",
+        parsed
+            .symbols
+            .iter()
+            .map(|s| (&s.name, &s.kind))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        sym("INTERNAL_VERSION").is_some_and(|s| s.kind == "const"),
+        "should extract INTERNAL_VERSION const from module"
+    );
 }
 
 #[test]
@@ -457,5 +470,144 @@ fn test_entry_type_regular_function_is_none() {
         entry("create_default_config"),
         None,
         "regular function should not have entry_type"
+    );
+}
+
+#[test]
+fn test_struct_field_containment() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let children_of = |parent: &str| -> Vec<&str> {
+        parsed
+            .containments
+            .iter()
+            .filter(|c| c.parent_name == parent)
+            .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+            .collect()
+    };
+
+    let server_children = children_of("Server");
+    assert!(
+        server_children.contains(&"host"),
+        "Server should contain field 'host', got: {:?}",
+        server_children
+    );
+    assert!(
+        server_children.contains(&"port"),
+        "Server should contain field 'port', got: {:?}",
+        server_children
+    );
+    assert!(
+        server_children.contains(&"handlers"),
+        "Server should contain field 'handlers', got: {:?}",
+        server_children
+    );
+
+    let request_children = children_of("Request");
+    assert!(
+        request_children.contains(&"path"),
+        "Request should contain field 'path', got: {:?}",
+        request_children
+    );
+    assert!(
+        request_children.contains(&"method"),
+        "Request should contain field 'method', got: {:?}",
+        request_children
+    );
+
+    let response_children = children_of("Response");
+    assert!(
+        response_children.contains(&"status"),
+        "Response should contain field 'status', got: {:?}",
+        response_children
+    );
+    assert!(
+        response_children.contains(&"body"),
+        "Response should contain field 'body', got: {:?}",
+        response_children
+    );
+
+    let container_children = children_of("Container");
+    assert!(
+        container_children.contains(&"items"),
+        "Container should contain field 'items', got: {:?}",
+        container_children
+    );
+    assert!(
+        container_children.contains(&"label"),
+        "Container should contain field 'label', got: {:?}",
+        container_children
+    );
+}
+
+#[test]
+fn test_trait_method_containment() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let children_of = |parent: &str| -> Vec<&str> {
+        parsed
+            .containments
+            .iter()
+            .filter(|c| c.parent_name == parent)
+            .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+            .collect()
+    };
+
+    let handler_children = children_of("Handler");
+    assert!(
+        handler_children.contains(&"handle"),
+        "Handler trait should contain method 'handle', got: {:?}",
+        handler_children
+    );
+
+    let middleware_children = children_of("Middleware");
+    assert!(
+        middleware_children.contains(&"before"),
+        "Middleware trait should contain method 'before', got: {:?}",
+        middleware_children
+    );
+}
+
+#[test]
+#[test]
+fn test_module_children_containment() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let children_of = |parent: &str| -> Vec<(&str, &str)> {
+        parsed
+            .containments
+            .iter()
+            .filter(|c| c.parent_name == parent)
+            .map(|c| {
+                let sym = &parsed.symbols[c.child_symbol_idx];
+                (sym.name.as_str(), sym.kind.as_str())
+            })
+            .collect()
+    };
+
+    let internal_children = children_of("internal");
+    assert!(
+        internal_children
+            .iter()
+            .any(|(name, kind)| *name == "helper" && *kind == "function"),
+        "module 'internal' should contain function 'helper', got: {:?}",
+        internal_children
+    );
+    assert!(
+        internal_children
+            .iter()
+            .any(|(name, kind)| *name == "INTERNAL_VERSION" && *kind == "const"),
+        "module 'internal' should contain const 'INTERNAL_VERSION', got: {:?}",
+        internal_children
+    );
+    assert!(
+        internal_children
+            .iter()
+            .any(|(name, kind)| *name == "InternalConfig" && *kind == "struct"),
+        "module 'internal' should contain struct 'InternalConfig', got: {:?}",
+        internal_children
     );
 }

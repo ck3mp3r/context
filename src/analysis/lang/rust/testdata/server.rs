@@ -76,6 +76,12 @@ impl Middleware for Server {
 }
 
 mod internal {
+    pub const INTERNAL_VERSION: u32 = 1;
+
+    pub struct InternalConfig {
+        pub debug: bool,
+    }
+
     pub fn helper() -> String {
         "internal".to_string()
     }

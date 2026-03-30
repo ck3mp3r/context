@@ -46,10 +46,22 @@ const QUERIES: &str = r#"
         (var_spec
             name: (identifier) @var_name))) @var_def
 
-;;; struct field declarations (named fields)
-(field_declaration_list
-    (field_declaration
-        name: (field_identifier) @field_name) @field_def)
+;;; struct field declarations with parent struct name
+(type_declaration
+    (type_spec
+        name: (type_identifier) @field_parent
+        type: (struct_type
+            (field_declaration_list
+                (field_declaration
+                    name: (field_identifier) @field_name) @field_def))))
+
+;;; interface method specs with parent interface name
+(type_declaration
+    (type_spec
+        name: (type_identifier) @iface_method_parent
+        type: (interface_type
+            (method_elem
+                name: (field_identifier) @iface_method_name) @iface_method_def)))
 
 ;;; struct embedding heritage (anonymous fields only — !name excludes named fields)
 (type_declaration
@@ -314,10 +326,11 @@ impl Go {
             return;
         }
 
-        // Struct fields (named)
+        // Struct fields (named) with parent containment
         if let Some(&node) = captures.get("field_def")
             && let Some(&name_node) = captures.get("field_name")
         {
+            let idx = parsed.symbols.len();
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "field".to_string(),
@@ -328,6 +341,38 @@ impl Go {
                 language: "go".to_string(),
                 visibility: None,
                 entry_type: None,
+            });
+            if let Some(&parent_node) = captures.get("field_parent") {
+                parsed.containments.push(RawContainment {
+                    file_path: file_path.to_string(),
+                    parent_name: text(parent_node).to_string(),
+                    child_symbol_idx: idx,
+                });
+            }
+            return;
+        }
+
+        // Interface method specs with parent containment
+        if let Some(&node) = captures.get("iface_method_def")
+            && let Some(&name_node) = captures.get("iface_method_name")
+            && let Some(&parent_node) = captures.get("iface_method_parent")
+        {
+            let idx = parsed.symbols.len();
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "function".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            parsed.containments.push(RawContainment {
+                file_path: file_path.to_string(),
+                parent_name: text(parent_node).to_string(),
+                child_symbol_idx: idx,
             });
             return;
         }

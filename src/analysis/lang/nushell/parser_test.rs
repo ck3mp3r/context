@@ -198,3 +198,33 @@ fn test_nushell_visibility() {
         "def main without export should be private"
     );
 }
+
+#[test]
+fn test_module_children_containment() {
+    let code = load_testdata("app.nu");
+    let parsed = Nushell::extract(&code, "app.nu");
+
+    let network_children: Vec<&str> = parsed
+        .containments
+        .iter()
+        .filter(|c| c.parent_name == "network")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .collect();
+
+    assert!(
+        network_children.contains(&"ping"),
+        "network module should contain command 'ping', got: {:?}",
+        network_children
+    );
+    assert!(
+        network_children.contains(&"fetch"),
+        "network module should contain command 'fetch', got: {:?}",
+        network_children
+    );
+    assert_eq!(
+        network_children.len(),
+        2,
+        "network module should contain exactly 2 children, got: {:?}",
+        network_children
+    );
+}

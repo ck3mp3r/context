@@ -1,4 +1,4 @@
-use crate::analysis::types::ParsedFile;
+use crate::analysis::types::{ParsedFile, RawContainment};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Nushell;
@@ -75,6 +75,37 @@ impl Nushell {
         // Extract imports separately (use statements need manual AST walking
         // because Nushell's use syntax is complex)
         Self::extract_imports(&tree, code, file_path, &mut parsed);
+
+        // Post-processing: module → children containment via line ranges
+        let containers: Vec<(usize, &str, usize, usize)> = parsed
+            .symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.kind == "module")
+            .map(|(i, s)| (i, s.name.as_str(), s.start_line, s.end_line))
+            .collect();
+
+        for (child_idx, child) in parsed.symbols.iter().enumerate() {
+            if child.kind == "module" {
+                continue;
+            }
+            let mut best: Option<(&str, usize)> = None;
+            for &(_, name, start, end) in &containers {
+                if child.start_line > start
+                    && child.end_line <= end
+                    && best.is_none_or(|(_, span)| (end - start) < span)
+                {
+                    best = Some((name, end - start));
+                }
+            }
+            if let Some((parent_name, _)) = best {
+                parsed.containments.push(RawContainment {
+                    file_path: file_path.to_string(),
+                    parent_name: parent_name.to_string(),
+                    child_symbol_idx: child_idx,
+                });
+            }
+        }
 
         parsed
     }
