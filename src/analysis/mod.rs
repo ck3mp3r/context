@@ -27,6 +27,9 @@ pub mod pipeline;
 pub mod service;
 
 #[cfg(feature = "backend")]
+pub mod queries;
+
+#[cfg(feature = "backend")]
 pub use store::CodeGraph;
 
 /// Get the analysis directory path for a repository

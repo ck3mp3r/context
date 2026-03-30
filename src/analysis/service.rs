@@ -59,6 +59,8 @@ where
     tracing::info!("Committing all data to nanograph...");
     graph.commit()?;
 
+    crate::analysis::queries::install_bundled_queries(graph_path)?;
+
     tracing::info!(
         "Analysis complete: {} files, {} symbols, {} relationships",
         result.files_analyzed,

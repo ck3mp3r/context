@@ -1,0 +1,10 @@
+query public_api()
+  @description("Public API surface: all public structs, traits, interfaces, and enums")
+  @instruction("Use to understand what a codebase exposes. Follow up with callers or hub_symbols for importance ranking")
+{
+  match {
+    $s: Symbol { visibility: "public" }
+  }
+  return { $s.name, $s.kind, $s.file_path, $s.start_line }
+  order { $s.kind asc }
+}
