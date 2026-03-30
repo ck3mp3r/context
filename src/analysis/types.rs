@@ -269,29 +269,7 @@ pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
     pub end_line: usize,
     pub content: String,
     pub signature: Option<String>,
-}
-
-impl<K: AsRef<str> + std::fmt::Debug> Symbol<K> {
-    pub fn new(
-        name: String,
-        kind: K,
-        language: String,
-        file_path: String,
-        start_line: usize,
-        end_line: usize,
-        signature: Option<String>,
-    ) -> Self {
-        Self {
-            name,
-            kind,
-            language,
-            file_path,
-            start_line,
-            end_line,
-            content: String::new(),
-            signature,
-        }
-    }
+    pub visibility: Option<String>,
 }
 
 // ============================================================================
@@ -355,6 +333,7 @@ pub struct RawSymbol {
     pub end_line: usize,
     pub signature: Option<String>,
     pub language: String,
+    pub visibility: Option<String>,
 }
 
 impl RawSymbol {

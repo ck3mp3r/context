@@ -111,6 +111,7 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -127,6 +128,7 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -143,6 +145,7 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -159,6 +162,7 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -175,6 +179,7 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
+                visibility: None,
             });
             return;
         }

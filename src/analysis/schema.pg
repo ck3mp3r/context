@@ -28,6 +28,7 @@ node Symbol {
     file_path: String @index
     start_line: I32
     end_line: I32
+    visibility: String? @index  // "public", "private", "pub_crate" (null = unknown)
     signature: String?  // For functions/methods: "fn foo(a: i32) -> String"
     content: String?    // Code snippet with context (±2 lines)
     // Phase 2: embedding: Vector(384)? @embed(content)

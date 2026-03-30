@@ -142,6 +142,7 @@ impl CodeGraph {
                 "file_path": &symbol.file_path,
                 "start_line": symbol.start_line,
                 "end_line": symbol.end_line,
+                "visibility": symbol.visibility.as_deref(),
                 "signature": symbol.signature.as_deref().unwrap_or(""),
                 "repo_id": &self.repo_id,
             }
@@ -392,6 +393,7 @@ impl CodeGraph {
                         Some(s.to_string())
                     }
                 }),
+                visibility: row["visibility"].as_str().map(|s| s.to_string()),
             });
         }
 

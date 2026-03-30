@@ -517,15 +517,17 @@ impl<L: Language> Parser<L> {
                     .to_string()
             };
 
-            let mod_symbol = crate::analysis::types::Symbol::new(
-                mod_name,
-                "module".to_string(),
-                L::name().to_string(),
-                file_path.to_string(),
-                0,
-                0,
-                None,
-            );
+            let mod_symbol = crate::analysis::types::Symbol {
+                name: mod_name,
+                kind: "module".to_string(),
+                language: L::name().to_string(),
+                file_path: file_path.to_string(),
+                start_line: 0,
+                end_line: 0,
+                content: String::new(),
+                signature: None,
+                visibility: None,
+            };
             let mod_id = graph.insert_symbol(&mod_symbol)?;
             graph.insert_contains(&file_id, &mod_id, 1.0)?;
 
@@ -636,15 +638,17 @@ impl<L: Language> Parser<L> {
             let signature = L::extract_signature(node, ctx.code);
             let kind_str = symbol_kind.as_ref().to_string();
 
-            let symbol = crate::analysis::types::Symbol::new(
-                name.clone(),
-                symbol_kind,
-                L::name().to_string(),
-                ctx.file_path.to_string(),
+            let symbol = crate::analysis::types::Symbol {
+                name: name.clone(),
+                kind: symbol_kind,
+                language: L::name().to_string(),
+                file_path: ctx.file_path.to_string(),
                 start_line,
                 end_line,
+                content: String::new(),
                 signature,
-            );
+                visibility: None,
+            };
 
             let symbol_id = graph.insert_symbol(&symbol)?;
             ctx.global.symbol_kinds.insert(symbol_id.clone(), kind_str);

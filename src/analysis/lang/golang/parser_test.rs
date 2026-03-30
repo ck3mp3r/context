@@ -258,3 +258,56 @@ fn test_cache_write_access_increment() {
         parsed.write_accesses
     );
 }
+
+#[test]
+fn test_go_visibility() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    let vis = |name: &str| -> Option<String> {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.visibility.clone())
+    };
+
+    // Exported (uppercase first letter)
+    assert_eq!(
+        vis("Cache"),
+        Some("public".to_string()),
+        "uppercase struct should be public"
+    );
+    assert_eq!(
+        vis("Item"),
+        Some("public".to_string()),
+        "uppercase struct should be public"
+    );
+    assert_eq!(
+        vis("Cacher"),
+        Some("public".to_string()),
+        "uppercase interface should be public"
+    );
+    assert_eq!(
+        vis("New"),
+        Some("public".to_string()),
+        "uppercase function should be public"
+    );
+    assert_eq!(
+        vis("DefaultTTL"),
+        Some("public".to_string()),
+        "uppercase const should be public"
+    );
+
+    // Unexported (lowercase first letter)
+    assert_eq!(
+        vis("mu"),
+        Some("private".to_string()),
+        "lowercase field should be private"
+    );
+    assert_eq!(
+        vis("items"),
+        Some("private".to_string()),
+        "lowercase field should be private"
+    );
+}

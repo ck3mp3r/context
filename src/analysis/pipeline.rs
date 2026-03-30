@@ -128,15 +128,17 @@ pub fn run(
             let qn = QualifiedName::new(&module_path, &sym.name);
             registry.register(qn, sid.clone(), &sym.kind);
 
-            graph.insert_symbol(&Symbol::new(
-                sym.name.clone(),
-                sym.kind.clone(),
-                sym.language.clone(),
-                sym.file_path.clone(),
-                sym.start_line,
-                sym.end_line,
-                sym.signature.clone(),
-            ))?;
+            graph.insert_symbol(&Symbol {
+                name: sym.name.clone(),
+                kind: sym.kind.clone(),
+                language: sym.language.clone(),
+                file_path: sym.file_path.clone(),
+                start_line: sym.start_line,
+                end_line: sym.end_line,
+                content: String::new(),
+                signature: sym.signature.clone(),
+                visibility: sym.visibility.clone(),
+            })?;
             graph.insert_contains(&file_id, &sid, 1.0)?;
             total_symbols += 1;
         }

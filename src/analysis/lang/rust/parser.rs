@@ -163,6 +163,17 @@ const QUERIES: &str = r#"
         value: (_) @write_compound_receiver
         field: (field_identifier) @write_compound_field)
     right: (_)) @write_compound
+
+;;; visibility — public items (captures name + start line to correlate with symbols)
+(function_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
+(struct_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
+(enum_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
+(trait_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
+(mod_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
+(const_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
+(static_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
+(type_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
+(field_declaration (visibility_modifier) @vis name: (field_identifier) @vis_name) @vis_def
 "#;
 
 impl Rust {
@@ -201,8 +212,19 @@ impl Rust {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
 
+        let mut public_symbols: std::collections::HashSet<(String, usize)> =
+            std::collections::HashSet::new();
+
         while let Some(m) = matches.next() {
-            Self::process_match(&query, m, code, file_path, &mut parsed);
+            Self::process_match(&query, m, code, file_path, &mut parsed, &mut public_symbols);
+        }
+
+        for sym in &mut parsed.symbols {
+            if public_symbols.contains(&(sym.name.clone(), sym.start_line)) {
+                sym.visibility = Some("public".to_string());
+            } else {
+                sym.visibility = Some("private".to_string());
+            }
         }
 
         parsed
@@ -214,6 +236,7 @@ impl Rust {
         code: &str,
         file_path: &str,
         parsed: &mut ParsedFile,
+        public_symbols: &mut std::collections::HashSet<(String, usize)>,
     ) {
         use crate::analysis::types::*;
 
@@ -240,6 +263,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: Some(sig),
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("struct_def")
             && let Some(&name_node) = captures.get("struct_name")
@@ -252,6 +276,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("enum_def")
             && let Some(&name_node) = captures.get("enum_name")
@@ -264,6 +289,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("trait_def")
             && let Some(&name_node) = captures.get("trait_name")
@@ -276,6 +302,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("mod_def")
             && let Some(&name_node) = captures.get("mod_name")
@@ -288,6 +315,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("const_def")
             && let Some(&name_node) = captures.get("const_name")
@@ -300,6 +328,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("static_def")
             && let Some(&name_node) = captures.get("static_name")
@@ -312,6 +341,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("type_alias_def")
             && let Some(&name_node) = captures.get("type_alias_name")
@@ -324,6 +354,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         } else if let Some(&node) = captures.get("macro_def")
             && let Some(&name_node) = captures.get("macro_def_name")
@@ -336,6 +367,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         }
 
@@ -402,6 +434,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: Some(sig),
                 language: "rust".to_string(),
+                visibility: None,
             });
 
             if let Some(&type_node) = captures.get("method_impl_type") {
@@ -425,6 +458,7 @@ impl Rust {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
+                visibility: None,
             });
         }
 
@@ -576,6 +610,17 @@ impl Rust {
                 receiver: text(recv_node).to_string(),
                 property: text(field_node).to_string(),
             });
+        }
+
+        // Visibility — record public symbols for post-processing
+        if captures.contains_key("vis_def")
+            && let Some(&name_node) = captures.get("vis_name")
+        {
+            let def_node = captures["vis_def"];
+            public_symbols.insert((
+                text(name_node).to_string(),
+                def_node.start_position().row + 1,
+            ));
         }
     }
 }

@@ -326,3 +326,56 @@ fn test_rust_write_access() {
         parsed.write_accesses
     );
 }
+
+#[test]
+fn test_rust_visibility() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let vis = |name: &str| -> Option<String> {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.visibility.clone())
+    };
+
+    // Public items
+    assert_eq!(
+        vis("MAX_CONNECTIONS"),
+        Some("public".to_string()),
+        "pub const should be public"
+    );
+    assert_eq!(
+        vis("Server"),
+        Some("public".to_string()),
+        "pub struct should be public"
+    );
+    assert_eq!(
+        vis("Status"),
+        Some("public".to_string()),
+        "pub enum should be public"
+    );
+    assert_eq!(
+        vis("Handler"),
+        Some("public".to_string()),
+        "pub trait should be public"
+    );
+    assert_eq!(
+        vis("HandlerMap"),
+        Some("public".to_string()),
+        "pub type alias should be public"
+    );
+
+    // Private items
+    assert_eq!(
+        vis("INSTANCE_COUNT"),
+        Some("private".to_string()),
+        "non-pub static should be private"
+    );
+    assert_eq!(
+        vis("internal"),
+        Some("private".to_string()),
+        "non-pub mod should be private"
+    );
+}

@@ -166,6 +166,10 @@ impl Go {
             Self::process_match(&query, m, code, file_path, &mut parsed);
         }
 
+        for sym in &mut parsed.symbols {
+            sym.visibility = go_visibility(&sym.name);
+        }
+
         parsed
     }
 
@@ -201,6 +205,7 @@ impl Go {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "go".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -217,6 +222,7 @@ impl Go {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "go".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -234,6 +240,7 @@ impl Go {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "go".to_string(),
+                visibility: None,
             });
 
             if let Some(&recv_node) = captures.get("method_receiver") {
@@ -261,6 +268,7 @@ impl Go {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "go".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -277,6 +285,7 @@ impl Go {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "go".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -309,6 +318,7 @@ impl Go {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "go".to_string(),
+                visibility: None,
             });
             return;
         }
@@ -327,6 +337,7 @@ impl Go {
                     end_line: node.end_position().row + 1,
                     signature: None,
                     language: "go".to_string(),
+                    visibility: None,
                 });
             }
             return;
@@ -346,6 +357,7 @@ impl Go {
                     end_line: node.end_position().row + 1,
                     signature: None,
                     language: "go".to_string(),
+                    visibility: None,
                 });
             }
             return;
@@ -542,4 +554,17 @@ fn extract_go_receiver_type(receiver_text: &str) -> Option<String> {
     let parts: Vec<&str> = inner.split_whitespace().collect();
     let type_part = parts.last()?;
     Some(type_part.trim_start_matches('*').to_string())
+}
+
+fn go_visibility(name: &str) -> Option<String> {
+    name.chars()
+        .next()
+        .map(|c| {
+            if c.is_uppercase() {
+                "public"
+            } else {
+                "private"
+            }
+        })
+        .map(|s| s.to_string())
 }
