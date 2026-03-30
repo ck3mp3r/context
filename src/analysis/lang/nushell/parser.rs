@@ -1,4 +1,4 @@
-use crate::analysis::types::ParsedFile;
+use crate::analysis::types::{ParsedFile, RawContainment, RawSymbol};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Nushell;
@@ -75,6 +75,37 @@ impl Nushell {
         // Extract imports separately (use statements need manual AST walking
         // because Nushell's use syntax is complex)
         Self::extract_imports(&tree, code, file_path, &mut parsed);
+
+        // Post-processing: module → children containment via line ranges
+        let containers: Vec<(usize, &str, usize, usize)> = parsed
+            .symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.kind == "module")
+            .map(|(i, s)| (i, s.name.as_str(), s.start_line, s.end_line))
+            .collect();
+
+        for (child_idx, child) in parsed.symbols.iter().enumerate() {
+            if child.kind == "module" {
+                continue;
+            }
+            let mut best: Option<(&str, usize)> = None;
+            for &(_, name, start, end) in &containers {
+                if child.start_line > start
+                    && child.end_line <= end
+                    && best.is_none_or(|(_, span)| (end - start) < span)
+                {
+                    best = Some((name, end - start));
+                }
+            }
+            if let Some((parent_name, _)) = best {
+                parsed.containments.push(RawContainment {
+                    file_path: file_path.to_string(),
+                    parent_name: parent_name.to_string(),
+                    child_symbol_idx: child_idx,
+                });
+            }
+        }
 
         parsed
     }
@@ -282,6 +313,161 @@ impl Nushell {
                 }
                 _ => {
                     Self::extract_import_pattern(child, code, names, is_glob);
+                }
+            }
+        }
+    }
+
+    /// Resolve file-based module containment across multiple parsed Nushell files.
+    ///
+    /// A directory with a `mod.nu` defines a module named after the directory.
+    /// All top-level symbols in every `.nu` file in that directory become children
+    /// of that module. Symbols already contained (e.g., inside an inline `module { }`)
+    /// are skipped.
+    ///
+    /// The synthetic module symbol is added to the `mod.nu` ParsedFile. For sibling
+    /// files, the module symbol is also added so Phase 3 containment resolution can
+    /// find the parent via the file's own module path.
+    pub fn resolve_file_modules(parsed_files: &mut [ParsedFile]) {
+        use std::collections::{HashMap, HashSet};
+
+        let mut mod_dirs: HashMap<String, usize> = HashMap::new();
+        for (idx, pf) in parsed_files.iter().enumerate() {
+            if pf.language != "nushell" {
+                continue;
+            }
+            if pf.file_path.ends_with("/mod.nu") || pf.file_path == "mod.nu" {
+                let dir = if pf.file_path == "mod.nu" {
+                    ""
+                } else {
+                    pf.file_path.strip_suffix("/mod.nu").unwrap_or("")
+                };
+                mod_dirs.insert(dir.to_string(), idx);
+            }
+        }
+
+        if mod_dirs.is_empty() {
+            return;
+        }
+
+        // Collect what to insert (can't mutate while iterating)
+        struct ModuleInfo {
+            mod_file_idx: usize,
+            module_name: String,
+            mod_end_line: usize,
+            sibling_containments: Vec<(usize, Vec<usize>)>,
+        }
+
+        let mut infos: Vec<ModuleInfo> = Vec::new();
+
+        for (dir, mod_file_idx) in &mod_dirs {
+            let module_name = if dir.is_empty() {
+                continue;
+            } else {
+                dir.rsplit('/').next().unwrap_or(dir)
+            };
+
+            let mod_end = parsed_files[*mod_file_idx]
+                .symbols
+                .iter()
+                .map(|s| s.end_line)
+                .max()
+                .unwrap_or(1);
+
+            let mut sibling_containments = Vec::new();
+
+            for (file_idx, pf) in parsed_files.iter().enumerate() {
+                if pf.language != "nushell" {
+                    continue;
+                }
+                let file_dir = if let Some(pos) = pf.file_path.rfind('/') {
+                    &pf.file_path[..pos]
+                } else {
+                    ""
+                };
+                if file_dir != dir.as_str() {
+                    continue;
+                }
+
+                let contained: HashSet<usize> =
+                    pf.containments.iter().map(|c| c.child_symbol_idx).collect();
+
+                let orphan_idxs: Vec<usize> = pf
+                    .symbols
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, _)| !contained.contains(idx))
+                    .map(|(idx, _)| idx)
+                    .collect();
+
+                if !orphan_idxs.is_empty() {
+                    sibling_containments.push((file_idx, orphan_idxs));
+                }
+            }
+
+            infos.push(ModuleInfo {
+                mod_file_idx: *mod_file_idx,
+                module_name: module_name.to_string(),
+                mod_end_line: mod_end,
+                sibling_containments,
+            });
+        }
+
+        // Apply mutations
+        for info in infos {
+            // Insert synthetic module symbol into mod.nu file
+            let mod_pf = &mut parsed_files[info.mod_file_idx];
+            if !mod_pf
+                .symbols
+                .iter()
+                .any(|s| s.kind == "module" && s.name == info.module_name)
+            {
+                mod_pf.symbols.push(RawSymbol {
+                    name: info.module_name.clone(),
+                    kind: "module".to_string(),
+                    file_path: mod_pf.file_path.clone(),
+                    start_line: 1,
+                    end_line: info.mod_end_line,
+                    signature: None,
+                    language: "nushell".to_string(),
+                    visibility: Some("public".to_string()),
+                    entry_type: None,
+                });
+            }
+
+            // For each file in the directory, add the module symbol (if not mod.nu)
+            // and containment edges for orphan symbols
+            for (file_idx, orphan_idxs) in info.sibling_containments {
+                let pf = &mut parsed_files[file_idx];
+
+                // Sibling files need a copy of the module symbol so Phase 3
+                // can resolve the parent via this file's module path
+                if file_idx != info.mod_file_idx
+                    && !pf
+                        .symbols
+                        .iter()
+                        .any(|s| s.kind == "module" && s.name == info.module_name)
+                {
+                    pf.symbols.push(RawSymbol {
+                        name: info.module_name.clone(),
+                        kind: "module".to_string(),
+                        file_path: pf.file_path.clone(),
+                        start_line: 1,
+                        end_line: pf.symbols.iter().map(|s| s.end_line).max().unwrap_or(1),
+                        signature: None,
+                        language: "nushell".to_string(),
+                        visibility: Some("public".to_string()),
+                        entry_type: None,
+                    });
+                }
+
+                let file_path = pf.file_path.clone();
+                for idx in orphan_idxs {
+                    pf.containments.push(RawContainment {
+                        file_path: file_path.clone(),
+                        parent_name: info.module_name.clone(),
+                        child_symbol_idx: idx,
+                    });
                 }
             }
         }

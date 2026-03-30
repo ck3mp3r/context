@@ -1,4 +1,4 @@
-use crate::analysis::types::ParsedFile;
+use crate::analysis::types::{ParsedFile, RawContainment};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Rust;
@@ -105,10 +105,31 @@ const QUERIES: &str = r#"
             parameters: (parameters) @method_params
             return_type: (_)? @method_ret) @method_def))
 
-;;; struct field declarations
-(field_declaration_list
-    (field_declaration
-        name: (field_identifier) @field_name) @field_def)
+;;; struct field declarations (with parent struct for containment)
+(struct_item
+    name: (type_identifier) @field_parent
+    body: (field_declaration_list
+        (field_declaration
+            name: (field_identifier) @field_name) @field_def))
+
+;;; trait method signatures (function_signature_item inside trait body)
+(trait_item
+    name: (type_identifier) @trait_sig_parent
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_sig_name) @trait_sig_def))
+
+;;; attribute — simple (#[test], #[no_mangle])
+(attribute_item
+    (attribute
+        (identifier) @attr_simple_name)) @attr_simple
+
+;;; attribute — scoped (#[tokio::main], #[tokio::test])
+(attribute_item
+    (attribute
+        (scoped_identifier
+            path: (_) @attr_scope
+            name: (identifier) @attr_scoped_name))) @attr_scoped
 
 ;;; call_expression — plain function
 (call_expression
@@ -174,18 +195,6 @@ const QUERIES: &str = r#"
 (static_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
 (type_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
 (field_declaration (visibility_modifier) @vis name: (field_identifier) @vis_name) @vis_def
-
-;;; attribute — simple (#[test], #[no_mangle])
-(attribute_item
-    (attribute
-        (identifier) @attr_simple_name)) @attr_simple
-
-;;; attribute — scoped (#[tokio::main], #[tokio::test])
-(attribute_item
-    (attribute
-        (scoped_identifier
-            path: (_) @attr_scope
-            name: (identifier) @attr_scoped_name))) @attr_scoped
 "#;
 
 impl Rust {
@@ -239,6 +248,46 @@ impl Rust {
                 &mut public_symbols,
                 &mut attr_entry_types,
             );
+        }
+
+        // Post-processing: module → children containment via line ranges
+        let containers: Vec<(usize, &str, usize, usize)> = parsed
+            .symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.kind == "module" || s.kind == "trait")
+            .map(|(i, s)| (i, s.name.as_str(), s.start_line, s.end_line))
+            .collect();
+
+        for (child_idx, child) in parsed.symbols.iter().enumerate() {
+            if child.kind == "module" || child.kind == "trait" {
+                continue;
+            }
+            // Already has containment from query (impl methods, struct fields)?
+            if parsed
+                .containments
+                .iter()
+                .any(|c| c.child_symbol_idx == child_idx)
+            {
+                continue;
+            }
+            // Find the tightest containing module or trait
+            let mut best: Option<(usize, &str, usize)> = None;
+            for &(_, name, start, end) in &containers {
+                if child.start_line > start
+                    && child.end_line <= end
+                    && best.is_none_or(|(_, _, span)| (end - start) < span)
+                {
+                    best = Some((end - start, name, end - start));
+                }
+            }
+            if let Some((_, parent_name, _)) = best {
+                parsed.containments.push(RawContainment {
+                    file_path: file_path.to_string(),
+                    parent_name: parent_name.to_string(),
+                    child_symbol_idx: child_idx,
+                });
+            }
         }
 
         for sym in &mut parsed.symbols {
@@ -495,10 +544,11 @@ impl Rust {
             }
         }
 
-        // Struct fields
+        // Struct fields (with containment to parent struct)
         if let Some(&node) = captures.get("field_def")
             && let Some(&name_node) = captures.get("field_name")
         {
+            let idx = parsed.symbols.len();
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "field".to_string(),
@@ -509,6 +559,38 @@ impl Rust {
                 language: "rust".to_string(),
                 visibility: None,
                 entry_type: None,
+            });
+
+            if let Some(&parent_node) = captures.get("field_parent") {
+                parsed.containments.push(RawContainment {
+                    file_path: file_path.to_string(),
+                    parent_name: text(parent_node).to_string(),
+                    child_symbol_idx: idx,
+                });
+            }
+        }
+
+        // Trait method signatures (function_signature_item inside trait)
+        if let Some(&node) = captures.get("trait_sig_def")
+            && let Some(&name_node) = captures.get("trait_sig_name")
+            && let Some(&parent_node) = captures.get("trait_sig_parent")
+        {
+            let idx = parsed.symbols.len();
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "function".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            parsed.containments.push(RawContainment {
+                file_path: file_path.to_string(),
+                parent_name: text(parent_node).to_string(),
+                child_symbol_idx: idx,
             });
         }
 

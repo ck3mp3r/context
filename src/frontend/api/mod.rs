@@ -208,26 +208,8 @@ pub mod graph {
 
     /// Fetch graph data as raw JSON string (passed directly to JS bridge).
     /// Returns None if the repo has no analysis (204 No Content).
-    pub async fn get_repo_graph(
-        repo_id: &str,
-        edges: Option<&str>,
-        include_tests: bool,
-        language: Option<&str>,
-    ) -> Result<Option<String>> {
-        let mut url = format!("{}/repos/{}/graph", API_BASE, repo_id);
-        let mut params = Vec::new();
-        if let Some(e) = edges {
-            params.push(format!("edges={}", e));
-        }
-        if include_tests {
-            params.push("include_tests=true".to_string());
-        }
-        if let Some(lang) = language {
-            params.push(format!("language={}", lang));
-        }
-        if !params.is_empty() {
-            url = format!("{}?{}", url, params.join("&"));
-        }
+    pub async fn get_repo_graph(repo_id: &str) -> Result<Option<String>> {
+        let url = format!("{}/repos/{}/graph", API_BASE, repo_id);
         let response = Request::get(&url)
             .send()
             .await

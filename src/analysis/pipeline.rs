@@ -40,7 +40,7 @@ pub struct SymbolRegistry {
 }
 
 impl SymbolRegistry {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             qualified_map: HashMap::new(),
             bare_to_qualified: HashMap::new(),
@@ -49,7 +49,7 @@ impl SymbolRegistry {
         }
     }
 
-    fn register(&mut self, qn: QualifiedName, id: SymbolId, kind: &str) {
+    pub(crate) fn register(&mut self, qn: QualifiedName, id: SymbolId, kind: &str) {
         let bare = SymbolName::new(qn.bare_name());
         self.bare_to_qualified
             .entry(bare)
@@ -111,7 +111,7 @@ pub fn run(
 ) -> Result<PipelineResult, PipelineError> {
     let files = scan_supported_files(repo_path)?;
 
-    // Phase 1: Extract
+    // Phase 1: Extract (includes language-specific multi-file resolution)
     let parsed_files = extract_all(&files, repo_path);
 
     // Phase 2: Register symbols
@@ -337,6 +337,9 @@ fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {
 
         results.push(parsed);
     }
+
+    // Language-specific multi-file resolution
+    Nushell::resolve_file_modules(&mut results);
 
     results
 }
