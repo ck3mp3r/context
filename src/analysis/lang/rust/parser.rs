@@ -74,6 +74,10 @@ const QUERIES: &str = r#"
 ;;; use_declaration
 (use_declaration
     argument: (_) @use_path) @use_decl
+
+;;; macro_invocation
+(macro_invocation
+    macro: (identifier) @macro_name) @macro_call
 "#;
 
 impl Rust {
@@ -338,6 +342,22 @@ impl Rust {
                     entry,
                 });
             }
+        }
+
+        // Macro invocations
+        if captures.contains_key("macro_call")
+            && let Some(&name_node) = captures.get("macro_name")
+        {
+            let call_node = captures["macro_call"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
         }
     }
 }

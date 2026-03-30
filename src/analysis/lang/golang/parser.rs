@@ -66,16 +66,29 @@ const QUERIES: &str = r#"
         package: (package_identifier) @composite_pkg
         name: (type_identifier) @composite_qual_type)) @composite_qual_lit
 
-;;; import_declaration
+;;; import_declaration — single import
 (import_declaration
     (import_spec
         path: (interpreted_string_literal) @import_path)) @import_decl
 
-;;; import with alias
+;;; import_declaration — grouped imports
+(import_declaration
+    (import_spec_list
+        (import_spec
+            path: (interpreted_string_literal) @import_grouped_path))) @import_grouped_decl
+
+;;; import with alias — single
 (import_declaration
     (import_spec
         name: (package_identifier) @import_alias
         path: (interpreted_string_literal) @import_alias_path)) @import_alias_decl
+
+;;; import with alias — grouped
+(import_declaration
+    (import_spec_list
+        (import_spec
+            name: (package_identifier) @import_grouped_alias
+            path: (interpreted_string_literal) @import_grouped_alias_path))) @import_grouped_alias_decl
 "#;
 
 impl Go {
@@ -343,7 +356,7 @@ impl Go {
             return;
         }
 
-        // Imports
+        // Imports — single
         if captures.contains_key("import_decl")
             && let Some(&path_node) = captures.get("import_path")
         {
@@ -356,12 +369,47 @@ impl Go {
             return;
         }
 
-        // Import with alias
+        // Imports — grouped
+        if captures.contains_key("import_grouped_decl")
+            && let Some(&path_node) = captures.get("import_grouped_path")
+        {
+            let raw_path = text(path_node).trim_matches('"');
+            let pkg_name = raw_path.rsplit('/').next().unwrap_or(raw_path);
+            parsed.imports.push(RawImport {
+                file_path: file_path.to_string(),
+                entry: ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]),
+            });
+            return;
+        }
+
+        // Import with alias — single
         if captures.contains_key("import_alias_decl")
             && let Some(&path_node) = captures.get("import_alias_path")
         {
             let raw_path = text(path_node).trim_matches('"');
             let alias = captures.get("import_alias").map(|n| text(*n).to_string());
+            if let Some(alias_name) = &alias {
+                if alias_name == "_" || alias_name == "." {
+                    return;
+                }
+                let mut entry = ImportEntry::named_import(raw_path, vec![alias_name.clone()]);
+                entry.alias = Some(alias_name.clone());
+                parsed.imports.push(RawImport {
+                    file_path: file_path.to_string(),
+                    entry,
+                });
+            }
+            return;
+        }
+
+        // Import with alias — grouped
+        if captures.contains_key("import_grouped_alias_decl")
+            && let Some(&path_node) = captures.get("import_grouped_alias_path")
+        {
+            let raw_path = text(path_node).trim_matches('"');
+            let alias = captures
+                .get("import_grouped_alias")
+                .map(|n| text(*n).to_string());
             if let Some(alias_name) = &alias {
                 if alias_name == "_" || alias_name == "." {
                     return;

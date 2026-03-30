@@ -218,7 +218,7 @@ impl Nushell {
 
                 for c in &children {
                     match c.kind() {
-                        "cmd_identifier" if module_name.is_none() => {
+                        "cmd_identifier" | "unquoted" if module_name.is_none() => {
                             module_name = Some(code[c.byte_range()].to_string());
                         }
                         "import_pattern" => {
