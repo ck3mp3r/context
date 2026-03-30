@@ -348,7 +348,7 @@ fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
         for sym in &pf.symbols {
             let sid = sym.symbol_id();
             let qn = QualifiedName::new(&module_path, &sym.name);
-            registry.register(qn, sid, &sym.kind);
+            registry.register(qn, sid, &sym.kind, &sym.language);
         }
     }
 

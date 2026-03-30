@@ -330,6 +330,25 @@
           return res;
         }
 
+        // Edge type filter: hide nodes that have no visible edges of active types
+        if (inst.filteredEdgeTypes.size > 0) {
+          var hasVisibleEdge = false;
+          graph.forEachEdge(node, function(edge, attrs, src, tgt) {
+            if (hasVisibleEdge) return;
+            var et = attrs.edgeType;
+            if (!inst.filteredEdgeTypes.has(et)) return;
+            var peer = (src === node) ? tgt : src;
+            if (inst.hideTests && graph.getNodeAttribute(peer, "isTest")) return;
+            if (inst.filteredLanguage && graph.getNodeAttribute(peer, "language") !== inst.filteredLanguage) return;
+            if (filteredKinds.size > 0 && !filteredKinds.has(graph.getNodeAttribute(peer, "kind"))) return;
+            hasVisibleEdge = true;
+          });
+          if (!hasVisibleEdge) {
+            res.hidden = true;
+            return res;
+          }
+        }
+
         // Highlight focused node
         if (inst.focusedNode === node) {
           res.highlighted = true;

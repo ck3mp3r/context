@@ -1,4 +1,5 @@
 use super::parser::Rust;
+use crate::analysis::pipeline::SymbolRegistry;
 use crate::analysis::types::*;
 
 fn load_testdata(name: &str) -> String {
@@ -608,5 +609,425 @@ fn test_module_children_containment() {
             .any(|(name, kind)| *name == "InternalConfig" && *kind == "struct"),
         "module 'internal' should contain struct 'InternalConfig', got: {:?}",
         internal_children
+    );
+}
+
+// =============================================================================
+// Cross-file module containment tests
+// =============================================================================
+
+/// Simulate Phase 2+3: register symbols, then resolve containment edges.
+fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
+    let mut registry = SymbolRegistry::new();
+
+    for pf in parsed_files {
+        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        for sym in &pf.symbols {
+            let sid = sym.symbol_id();
+            let qn = QualifiedName::new(&module_path, &sym.name);
+            registry.register(qn, sid, &sym.kind, &sym.language);
+        }
+    }
+
+    let mut edges = Vec::new();
+    for pf in parsed_files {
+        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        for cont in &pf.containments {
+            let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
+            if registry.qualified_map.get(&parent_qn).is_some() {
+                let child = &pf.symbols[cont.child_symbol_idx];
+                edges.push((cont.parent_name.clone(), child.name.clone()));
+            } else {
+                panic!(
+                    "UNRESOLVABLE containment: parent '{}' (qualified '{}') \
+                     not found in registry for child '{}' in file '{}'. \
+                     Available qualified names: {:?}",
+                    cont.parent_name,
+                    parent_qn,
+                    pf.symbols[cont.child_symbol_idx].name,
+                    pf.file_path,
+                    registry
+                        .qualified_map
+                        .keys()
+                        .map(|k: &QualifiedName| k.as_str())
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+    edges
+}
+
+#[test]
+fn test_file_module_containment_flat_file() {
+    // lib.rs declares `mod handlers;` -> handlers.rs has functions
+    // After resolve_file_modules, handlers module should contain process and validate
+    let lib_code = load_testdata("multifile/lib.rs");
+    let handlers_code = load_testdata("multifile/handlers.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&lib_code, "src/lib.rs"),
+        Rust::extract(&handlers_code, "src/handlers.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    assert!(
+        edges.contains(&("handlers".to_string(), "process".to_string())),
+        "handlers should contain 'process', got: {:?}",
+        edges
+    );
+    assert!(
+        edges.contains(&("handlers".to_string(), "validate".to_string())),
+        "handlers should contain 'validate', got: {:?}",
+        edges
+    );
+}
+
+#[test]
+fn test_file_module_containment_mod_rs() {
+    // lib.rs declares `mod config;` -> config/mod.rs has functions
+    // After resolve_file_modules, config module should contain load
+    let lib_code = load_testdata("multifile/lib.rs");
+    let config_code = load_testdata("multifile/config/mod.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&lib_code, "src/lib.rs"),
+        Rust::extract(&config_code, "src/config/mod.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    assert!(
+        edges.contains(&("config".to_string(), "load".to_string())),
+        "config should contain 'load', got: {:?}",
+        edges
+    );
+}
+
+#[test]
+fn test_file_module_containment_nested() {
+    // config/mod.rs declares `mod defaults;` -> config/defaults.rs has items
+    // After resolve_file_modules, defaults module should contain DEFAULT_PORT and default_host
+    let config_code = load_testdata("multifile/config/mod.rs");
+    let defaults_code = load_testdata("multifile/config/defaults.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&config_code, "src/config/mod.rs"),
+        Rust::extract(&defaults_code, "src/config/defaults.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    assert!(
+        edges.contains(&("defaults".to_string(), "DEFAULT_PORT".to_string())),
+        "defaults should contain 'DEFAULT_PORT', got: {:?}",
+        edges
+    );
+    assert!(
+        edges.contains(&("defaults".to_string(), "default_host".to_string())),
+        "defaults should contain 'default_host', got: {:?}",
+        edges
+    );
+}
+
+#[test]
+fn test_file_module_containment_full_tree() {
+    // All 4 files together: lib.rs -> handlers.rs, config/mod.rs -> config/defaults.rs
+    let lib_code = load_testdata("multifile/lib.rs");
+    let handlers_code = load_testdata("multifile/handlers.rs");
+    let config_code = load_testdata("multifile/config/mod.rs");
+    let defaults_code = load_testdata("multifile/config/defaults.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&lib_code, "src/lib.rs"),
+        Rust::extract(&handlers_code, "src/handlers.rs"),
+        Rust::extract(&config_code, "src/config/mod.rs"),
+        Rust::extract(&defaults_code, "src/config/defaults.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    // handlers module contains its functions
+    assert!(edges.contains(&("handlers".to_string(), "process".to_string())));
+    assert!(edges.contains(&("handlers".to_string(), "validate".to_string())));
+
+    // config module contains load and the defaults submodule declaration
+    assert!(edges.contains(&("config".to_string(), "load".to_string())));
+    assert!(edges.contains(&("config".to_string(), "defaults".to_string())));
+
+    // defaults module contains its items
+    assert!(edges.contains(&("defaults".to_string(), "DEFAULT_PORT".to_string())));
+    assert!(edges.contains(&("defaults".to_string(), "default_host".to_string())));
+
+    // run in lib.rs should NOT be contained by any file module
+    // (it's a top-level function in the crate root)
+    assert!(
+        !edges.iter().any(|(_, child)| child == "run"),
+        "run should not be contained by any file module (it's in lib.rs crate root)"
+    );
+}
+
+// =============================================================================
+// Type reference extraction tests
+// =============================================================================
+
+#[test]
+fn test_typeref_debug_all() {
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let refs: Vec<_> = parsed
+        .type_refs
+        .iter()
+        .map(|tr| {
+            (
+                &parsed.symbols[tr.from_symbol_idx].name,
+                &tr.type_name,
+                &tr.ref_kind,
+            )
+        })
+        .collect();
+
+    // Expect:
+    // update_server -> Server (ParamType, via &mut)
+    // accept_direct -> Server (ParamType, direct)
+    // get_server -> Server (ReturnType)
+    // route -> Request (ParamType, via &)
+    // route -> Response (ReturnType)
+    assert!(
+        refs.iter().any(|(name, ty, kind)| *name == "accept_direct"
+            && *ty == "Server"
+            && **kind == ReferenceType::ParamType),
+        "accept_direct should accept Server\nrefs: {:?}\nsymbols: {:?}",
+        refs,
+        parsed
+            .symbols
+            .iter()
+            .map(|s| (&s.name, s.start_line, s.end_line))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        refs.iter().any(|(name, ty, kind)| *name == "update_server"
+            && *ty == "Server"
+            && **kind == ReferenceType::ParamType),
+        "update_server should accept Server, got: {:?}",
+        refs
+    );
+    assert!(
+        refs.iter().any(|(name, ty, kind)| *name == "get_server"
+            && *ty == "Server"
+            && **kind == ReferenceType::ReturnType),
+        "get_server should return Server, got: {:?}",
+        refs
+    );
+    assert!(
+        refs.iter().any(|(name, ty, kind)| *name == "route"
+            && *ty == "Request"
+            && **kind == ReferenceType::ParamType),
+        "route should accept Request, got: {:?}",
+        refs
+    );
+    assert!(
+        refs.iter().any(|(name, ty, kind)| *name == "route"
+            && *ty == "Response"
+            && **kind == ReferenceType::ReturnType),
+        "route should return Response, got: {:?}",
+        refs
+    );
+}
+
+#[test]
+fn test_param_type_refs() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // fn handle(&self, request: &Request) -> Response
+    // should produce Accepts edge from handle to Request
+    let handle_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "handle" && s.start_line == 20)
+        .expect("handle trait method should exist");
+
+    let has_request_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == handle_idx
+            && tr.type_name == "Request"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_request_param,
+        "handle should have Accepts ref to Request, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == handle_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_return_type_refs() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // fn handle(&self, request: &Request) -> Response
+    // should produce Returns edge from handle to Response
+    let handle_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "handle" && s.start_line == 20)
+        .expect("handle trait method should exist");
+
+    let has_response_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == handle_idx
+            && tr.type_name == "Response"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_response_return,
+        "handle should have Returns ref to Response, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == handle_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_field_type_refs() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // struct Server { handlers: HashMap<String, Box<dyn Handler>> }
+    // The field "handlers" should have a FieldType ref to Handler
+    let handlers_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "handlers" && s.kind == "field")
+        .expect("handlers field should exist");
+
+    let has_handler_ref = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == handlers_idx
+            && tr.type_name == "Handler"
+            && tr.ref_kind == ReferenceType::FieldType
+    });
+    assert!(
+        has_handler_ref,
+        "handlers field should have FieldType ref to Handler, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == handlers_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_create_default_config_returns_response() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // pub fn create_default_config() -> Response
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "create_default_config")
+        .expect("create_default_config should exist");
+
+    let has_response_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Response"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_response_return,
+        "create_default_config should return Response, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_update_server_accepts_server() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // pub fn update_server(server: &mut Server)
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "update_server")
+        .expect("update_server should exist");
+
+    let has_server_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Server"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_server_param,
+        "update_server should accept Server, got ALL type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .map(|tr| (
+                &parsed.symbols[tr.from_symbol_idx].name,
+                &tr.type_name,
+                &tr.ref_kind
+            ))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_scoped_call_qualifier_type_ref() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // Server::new() at line 172 inside test_server_creation should produce Usage ref to Server
+    let test_fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "test_server_creation")
+        .expect("test_server_creation should exist");
+
+    let has_server_usage = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == test_fn_idx
+            && tr.type_name == "Server"
+            && tr.ref_kind == ReferenceType::Usage
+    });
+    assert!(
+        has_server_usage,
+        "test_server_creation should have Usage ref to Server from Server::new(), got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == test_fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_scoped_call_qualifier_filters_self() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let has_self_usage = parsed
+        .type_refs
+        .iter()
+        .any(|tr| tr.type_name == "Self" && tr.ref_kind == ReferenceType::Usage);
+    assert!(
+        !has_self_usage,
+        "Self::method() should not produce a Usage ref"
     );
 }
