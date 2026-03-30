@@ -317,6 +317,136 @@ impl Rust {
         parsed
     }
 
+    /// Resolve cross-file module containment for Rust.
+    ///
+    /// In Rust, `mod foo;` in a parent file references symbols in `foo.rs` or
+    /// `foo/mod.rs`. This method finds body-less mod declarations (single-line
+    /// `mod foo;`), resolves the target file, and injects `RawContainment`
+    /// entries so Phase 3 creates `SymbolContains` edges.
+    pub fn resolve_file_modules(parsed_files: &mut [ParsedFile]) {
+        use std::collections::HashSet;
+
+        // Collect (declaring_file_idx, mod_name, declaring_file_dir) for body-less mods.
+        // A body-less mod has start_line == end_line (it's a single line: `mod foo;`).
+        struct ModDecl {
+            mod_name: String,
+            declaring_dir: String,
+        }
+
+        let mut decls: Vec<ModDecl> = Vec::new();
+
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            for sym in &pf.symbols {
+                if sym.kind == "module" && sym.start_line == sym.end_line {
+                    let dir = if let Some(pos) = pf.file_path.rfind('/') {
+                        &pf.file_path[..pos]
+                    } else {
+                        ""
+                    };
+                    decls.push(ModDecl {
+                        mod_name: sym.name.clone(),
+                        declaring_dir: dir.to_string(),
+                    });
+                }
+            }
+        }
+
+        if decls.is_empty() {
+            return;
+        }
+
+        // Build a lookup from file_path -> index in parsed_files
+        let file_idx: std::collections::HashMap<String, usize> = parsed_files
+            .iter()
+            .enumerate()
+            .map(|(i, pf)| (pf.file_path.clone(), i))
+            .collect();
+
+        // Collect mutations to apply
+        struct Containment {
+            target_file_idx: usize,
+            mod_name: String,
+            orphan_idxs: Vec<usize>,
+        }
+
+        let mut containments: Vec<Containment> = Vec::new();
+
+        for decl in &decls {
+            // Resolve target file: dir/mod_name.rs or dir/mod_name/mod.rs
+            let flat_path = if decl.declaring_dir.is_empty() {
+                format!("{}.rs", decl.mod_name)
+            } else {
+                format!("{}/{}.rs", decl.declaring_dir, decl.mod_name)
+            };
+            let dir_path = if decl.declaring_dir.is_empty() {
+                format!("{}/mod.rs", decl.mod_name)
+            } else {
+                format!("{}/{}/mod.rs", decl.declaring_dir, decl.mod_name)
+            };
+
+            let target_idx = file_idx.get(&flat_path).or_else(|| file_idx.get(&dir_path));
+
+            if let Some(&tidx) = target_idx {
+                let pf = &parsed_files[tidx];
+                let contained: HashSet<usize> =
+                    pf.containments.iter().map(|c| c.child_symbol_idx).collect();
+
+                let orphan_idxs: Vec<usize> = pf
+                    .symbols
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !contained.contains(i))
+                    .map(|(i, _)| i)
+                    .collect();
+
+                if !orphan_idxs.is_empty() {
+                    containments.push(Containment {
+                        target_file_idx: tidx,
+                        mod_name: decl.mod_name.clone(),
+                        orphan_idxs,
+                    });
+                }
+            }
+        }
+
+        // Apply mutations: add module symbol to target file + containment edges
+        for cont in containments {
+            let pf = &mut parsed_files[cont.target_file_idx];
+
+            // Ensure the target file has a module symbol so Phase 3 can
+            // resolve the parent via this file's module path
+            if !pf
+                .symbols
+                .iter()
+                .any(|s| s.kind == "module" && s.name == cont.mod_name)
+            {
+                pf.symbols.push(crate::analysis::types::RawSymbol {
+                    name: cont.mod_name.clone(),
+                    kind: "module".to_string(),
+                    file_path: pf.file_path.clone(),
+                    start_line: 1,
+                    end_line: pf.symbols.iter().map(|s| s.end_line).max().unwrap_or(1),
+                    signature: None,
+                    language: "rust".to_string(),
+                    visibility: Some("public".to_string()),
+                    entry_type: None,
+                });
+            }
+
+            let file_path = pf.file_path.clone();
+            for idx in cont.orphan_idxs {
+                pf.containments.push(RawContainment {
+                    file_path: file_path.clone(),
+                    parent_name: cont.mod_name.clone(),
+                    child_symbol_idx: idx,
+                });
+            }
+        }
+    }
+
     fn process_match(
         query: &Query,
         m: &tree_sitter::QueryMatch,

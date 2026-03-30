@@ -36,6 +36,7 @@ pub struct SymbolRegistry {
     pub qualified_map: HashMap<QualifiedName, SymbolId>,
     pub bare_to_qualified: HashMap<SymbolName, Vec<QualifiedName>>,
     pub symbol_kinds: HashMap<SymbolId, String>,
+    pub symbol_languages: HashMap<SymbolId, String>,
     pub import_tables: HashMap<String, ImportTable>,
 }
 
@@ -45,17 +46,20 @@ impl SymbolRegistry {
             qualified_map: HashMap::new(),
             bare_to_qualified: HashMap::new(),
             symbol_kinds: HashMap::new(),
+            symbol_languages: HashMap::new(),
             import_tables: HashMap::new(),
         }
     }
 
-    pub(crate) fn register(&mut self, qn: QualifiedName, id: SymbolId, kind: &str) {
+    pub(crate) fn register(&mut self, qn: QualifiedName, id: SymbolId, kind: &str, language: &str) {
         let bare = SymbolName::new(qn.bare_name());
         self.bare_to_qualified
             .entry(bare)
             .or_default()
             .push(qn.clone());
         self.symbol_kinds.insert(id.clone(), kind.to_string());
+        self.symbol_languages
+            .insert(id.clone(), language.to_string());
         self.qualified_map.insert(qn, id);
     }
 
@@ -64,6 +68,7 @@ impl SymbolRegistry {
         bare_name: &str,
         caller_module: &str,
         file_path: &str,
+        caller_language: &str,
     ) -> Option<&SymbolId> {
         let name = SymbolName::new(bare_name);
 
@@ -89,13 +94,20 @@ impl SymbolRegistry {
             }
         }
 
-        // 3. Unique bare name
+        // 3. Bare name fallback — same language only
         if let Some(candidates) = self.bare_to_qualified.get(&name) {
-            if candidates.len() == 1 {
-                return self.qualified_map.get(&candidates[0]);
-            }
-            if let Some(first) = candidates.first() {
-                return self.qualified_map.get(first);
+            let same_lang: Vec<_> = candidates
+                .iter()
+                .filter(|qn| {
+                    self.qualified_map
+                        .get(*qn)
+                        .and_then(|id| self.symbol_languages.get(id))
+                        .is_some_and(|lang| lang == caller_language)
+                })
+                .collect();
+
+            if same_lang.len() == 1 {
+                return self.qualified_map.get(same_lang[0]);
             }
         }
 
@@ -126,7 +138,7 @@ pub fn run(
         for sym in &pf.symbols {
             let sid = sym.symbol_id();
             let qn = QualifiedName::new(&module_path, &sym.name);
-            registry.register(qn, sid.clone(), &sym.kind);
+            registry.register(qn, sid.clone(), &sym.kind, &sym.language);
 
             graph.insert_symbol(&Symbol {
                 name: sym.name.clone(),
@@ -182,9 +194,18 @@ pub fn run(
     for pf in &parsed_files {
         let module_path = derive_module_path(&pf.file_path, &pf.language);
         for h in &pf.heritage {
-            let type_id = registry.resolve_with_imports(&h.type_name, &module_path, &pf.file_path);
-            let parent_id =
-                registry.resolve_with_imports(&h.parent_name, &module_path, &pf.file_path);
+            let type_id = registry.resolve_with_imports(
+                &h.type_name,
+                &module_path,
+                &pf.file_path,
+                &pf.language,
+            );
+            let parent_id = registry.resolve_with_imports(
+                &h.parent_name,
+                &module_path,
+                &pf.file_path,
+                &pf.language,
+            );
             if let (Some(tid), Some(pid)) = (type_id, parent_id) {
                 graph.insert_inherits_edge(tid, pid, &h.kind, 1.0)?;
                 total_rels += 1;
@@ -248,31 +269,31 @@ pub fn run(
             };
 
             let callee_id = match call.call_form {
-                CallForm::Free => {
-                    registry.resolve_with_imports(&call.callee_name, &module_path, &pf.file_path)
-                }
+                CallForm::Free => registry.resolve_with_imports(
+                    &call.callee_name,
+                    &module_path,
+                    &pf.file_path,
+                    &pf.language,
+                ),
                 CallForm::Scoped => {
                     if let Some(qualifier) = &call.qualifier {
                         let qn = QualifiedName::new(qualifier, &call.callee_name);
-                        registry.qualified_map.get(&qn).or_else(|| {
-                            registry.resolve_with_imports(
-                                &call.callee_name,
-                                &module_path,
-                                &pf.file_path,
-                            )
-                        })
+                        registry.qualified_map.get(&qn)
                     } else {
                         registry.resolve_with_imports(
                             &call.callee_name,
                             &module_path,
                             &pf.file_path,
+                            &pf.language,
                         )
                     }
                 }
-                CallForm::Method => {
-                    // Without type environment, best-effort by callee name
-                    registry.resolve_with_imports(&call.callee_name, &module_path, &pf.file_path)
-                }
+                CallForm::Method => registry.resolve_with_imports(
+                    &call.callee_name,
+                    &module_path,
+                    &pf.file_path,
+                    &pf.language,
+                ),
             };
 
             if let Some(callee_id) = callee_id {
@@ -288,9 +309,12 @@ pub fn run(
         for tr in &pf.type_refs {
             let from_sym = &pf.symbols[tr.from_symbol_idx];
             let from_id = from_sym.symbol_id();
-            if let Some(to_id) =
-                registry.resolve_with_imports(&tr.type_name, &module_path, &pf.file_path)
-            {
+            if let Some(to_id) = registry.resolve_with_imports(
+                &tr.type_name,
+                &module_path,
+                &pf.file_path,
+                &pf.language,
+            ) {
                 graph.insert_references_edge(&from_id, to_id, &tr.ref_kind, 1.0)?;
                 total_rels += 1;
             }
@@ -340,6 +364,7 @@ fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {
 
     // Language-specific multi-file resolution
     Nushell::resolve_file_modules(&mut results);
+    Rust::resolve_file_modules(&mut results);
 
     results
 }
@@ -373,3 +398,7 @@ fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, PipelineError>
 
     Ok(files)
 }
+
+#[cfg(test)]
+#[path = "pipeline_test.rs"]
+mod tests;

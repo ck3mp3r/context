@@ -1,4 +1,5 @@
 use super::parser::Rust;
+use crate::analysis::pipeline::SymbolRegistry;
 use crate::analysis::types::*;
 
 fn load_testdata(name: &str) -> String {
@@ -608,5 +609,165 @@ fn test_module_children_containment() {
             .any(|(name, kind)| *name == "InternalConfig" && *kind == "struct"),
         "module 'internal' should contain struct 'InternalConfig', got: {:?}",
         internal_children
+    );
+}
+
+// =============================================================================
+// Cross-file module containment tests
+// =============================================================================
+
+/// Simulate Phase 2+3: register symbols, then resolve containment edges.
+fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
+    let mut registry = SymbolRegistry::new();
+
+    for pf in parsed_files {
+        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        for sym in &pf.symbols {
+            let sid = sym.symbol_id();
+            let qn = QualifiedName::new(&module_path, &sym.name);
+            registry.register(qn, sid, &sym.kind, &sym.language);
+        }
+    }
+
+    let mut edges = Vec::new();
+    for pf in parsed_files {
+        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        for cont in &pf.containments {
+            let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
+            if registry.qualified_map.get(&parent_qn).is_some() {
+                let child = &pf.symbols[cont.child_symbol_idx];
+                edges.push((cont.parent_name.clone(), child.name.clone()));
+            } else {
+                panic!(
+                    "UNRESOLVABLE containment: parent '{}' (qualified '{}') \
+                     not found in registry for child '{}' in file '{}'. \
+                     Available qualified names: {:?}",
+                    cont.parent_name,
+                    parent_qn,
+                    pf.symbols[cont.child_symbol_idx].name,
+                    pf.file_path,
+                    registry
+                        .qualified_map
+                        .keys()
+                        .map(|k: &QualifiedName| k.as_str())
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+    edges
+}
+
+#[test]
+fn test_file_module_containment_flat_file() {
+    // lib.rs declares `mod handlers;` -> handlers.rs has functions
+    // After resolve_file_modules, handlers module should contain process and validate
+    let lib_code = load_testdata("multifile/lib.rs");
+    let handlers_code = load_testdata("multifile/handlers.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&lib_code, "src/lib.rs"),
+        Rust::extract(&handlers_code, "src/handlers.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    assert!(
+        edges.contains(&("handlers".to_string(), "process".to_string())),
+        "handlers should contain 'process', got: {:?}",
+        edges
+    );
+    assert!(
+        edges.contains(&("handlers".to_string(), "validate".to_string())),
+        "handlers should contain 'validate', got: {:?}",
+        edges
+    );
+}
+
+#[test]
+fn test_file_module_containment_mod_rs() {
+    // lib.rs declares `mod config;` -> config/mod.rs has functions
+    // After resolve_file_modules, config module should contain load
+    let lib_code = load_testdata("multifile/lib.rs");
+    let config_code = load_testdata("multifile/config/mod.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&lib_code, "src/lib.rs"),
+        Rust::extract(&config_code, "src/config/mod.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    assert!(
+        edges.contains(&("config".to_string(), "load".to_string())),
+        "config should contain 'load', got: {:?}",
+        edges
+    );
+}
+
+#[test]
+fn test_file_module_containment_nested() {
+    // config/mod.rs declares `mod defaults;` -> config/defaults.rs has items
+    // After resolve_file_modules, defaults module should contain DEFAULT_PORT and default_host
+    let config_code = load_testdata("multifile/config/mod.rs");
+    let defaults_code = load_testdata("multifile/config/defaults.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&config_code, "src/config/mod.rs"),
+        Rust::extract(&defaults_code, "src/config/defaults.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    assert!(
+        edges.contains(&("defaults".to_string(), "DEFAULT_PORT".to_string())),
+        "defaults should contain 'DEFAULT_PORT', got: {:?}",
+        edges
+    );
+    assert!(
+        edges.contains(&("defaults".to_string(), "default_host".to_string())),
+        "defaults should contain 'default_host', got: {:?}",
+        edges
+    );
+}
+
+#[test]
+fn test_file_module_containment_full_tree() {
+    // All 4 files together: lib.rs -> handlers.rs, config/mod.rs -> config/defaults.rs
+    let lib_code = load_testdata("multifile/lib.rs");
+    let handlers_code = load_testdata("multifile/handlers.rs");
+    let config_code = load_testdata("multifile/config/mod.rs");
+    let defaults_code = load_testdata("multifile/config/defaults.rs");
+
+    let mut parsed_files = vec![
+        Rust::extract(&lib_code, "src/lib.rs"),
+        Rust::extract(&handlers_code, "src/handlers.rs"),
+        Rust::extract(&config_code, "src/config/mod.rs"),
+        Rust::extract(&defaults_code, "src/config/defaults.rs"),
+    ];
+    Rust::resolve_file_modules(&mut parsed_files);
+
+    let edges = resolve_containments(&parsed_files);
+
+    // handlers module contains its functions
+    assert!(edges.contains(&("handlers".to_string(), "process".to_string())));
+    assert!(edges.contains(&("handlers".to_string(), "validate".to_string())));
+
+    // config module contains load and the defaults submodule declaration
+    assert!(edges.contains(&("config".to_string(), "load".to_string())));
+    assert!(edges.contains(&("config".to_string(), "defaults".to_string())));
+
+    // defaults module contains its items
+    assert!(edges.contains(&("defaults".to_string(), "DEFAULT_PORT".to_string())));
+    assert!(edges.contains(&("defaults".to_string(), "default_host".to_string())));
+
+    // run in lib.rs should NOT be contained by any file module
+    // (it's a top-level function in the crate root)
+    assert!(
+        !edges.iter().any(|(_, child)| child == "run"),
+        "run should not be contained by any file module (it's in lib.rs crate root)"
     );
 }
