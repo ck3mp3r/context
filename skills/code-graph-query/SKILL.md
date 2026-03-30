@@ -1,327 +1,353 @@
-# Skill: code-graph-query
+---
+name: code-graph-query
+description: Query the code analysis graph to understand codebase structure, find symbols, trace call chains, and explore type hierarchies. Use when analyzing repositories with c5t code analysis.
+license: GPL-2.0
+metadata:
+  author: ck3mp3r
+---
 
-# Querying the Code Graph
+# Code Graph Queries
 
-This skill teaches you how to query the code graph to understand code structure, find relationships, and analyze dependencies.
+c5t analyzes repositories using tree-sitter to extract symbols and relationships into a NanoGraph database. This skill covers how to query that graph.
 
-## Overview
+## Supported Languages
 
-The code graph is stored in NanoGraph and contains:
-- **Nodes**: `Symbol` (functions, structs, traits, impls, etc.)
-- **Edges**: `calls`, `references`, `inherits`, `symbolContains`
+- **Rust** - functions, structs, enums, traits, impls, modules, macros, consts, statics, type aliases, fields
+- **Go** - functions, structs, interfaces, packages, consts, fields, type aliases
+- **Nushell** - commands, modules, aliases
 
-You can write NanoGraph queries to ask ANY question about the code structure.
+## MCP Tools
+
+### `code_analyze`
+
+Triggers analysis for a repository. Requires a `repo_id` from the c5t database.
+
+```json
+{ "repo_id": "7104e891" }
+```
+
+Returns file count, symbol count, and relationship count on completion.
+
+### `code_describe_schema`
+
+Returns the graph schema (node types, edge types, properties) for a repository.
+
+### `code_query`
+
+Executes a NanoGraph query against the code graph. Three modes:
+
+**Run a bundled query by name:**
+```json
+{
+  "repo_id": "7104e891",
+  "query_name": "overview"
+}
+```
+
+**Run a bundled query with parameters:**
+```json
+{
+  "repo_id": "7104e891",
+  "query_name": "file_symbols",
+  "params": { "path": "src/analysis/pipeline.rs" }
+}
+```
+
+**Run an ad-hoc query:**
+```json
+{
+  "repo_id": "7104e891",
+  "query_definition": "query my_query() { match { $s: Symbol } return { $s.kind, count($s) as total } }"
+}
+```
 
 ## Graph Schema
 
-### Symbol Node
+### Node Types
 
+**File**
+```
+File {
+  file_id: String @key
+  repo_id: String @index
+  path: String @index
+  language: String
+  hash: String
+}
+```
+
+**Symbol**
 ```
 Symbol {
-  symbol_id: String    // Unique ID: "symbol:file:name:line"
-  name: String         // Symbol name: "analyze_repository"
-  kind: String         // Symbol type: "function", "struct", "trait", "impl", etc.
-  file_path: String    // Source file: "src/analysis/service.rs"
-  start_line: Int      // Line number where symbol starts
-  end_line: Int        // Line number where symbol ends
+  symbol_id: String @key
+  repo_id: String @index
+  name: String @index
+  kind: String @index        // "function", "struct", "enum", "trait", "module", etc.
+  language: String @index    // "rust", "go", "nushell"
+  file_path: String @index
+  start_line: I32
+  end_line: I32
+  visibility: String? @index // "public", "private", or null
+  signature: String?         // e.g. "fn foo(a: i32) -> String"
+  content: String?           // code snippet
 }
 ```
 
 ### Edge Types
 
-- `calls` - Function A calls function B
-- `references` - Symbol A references type B
-- `inherits` - Type A implements trait B
-- `symbolContains` - Container (impl) contains method
+| Edge | From | To | Description |
+|------|------|----|-------------|
+| `fileContains` | File | Symbol | File contains a symbol |
+| `symbolContains` | Symbol | Symbol | Container (impl/struct) contains member |
+| `calls` | Symbol | Symbol | Function calls function |
+| `import` | Symbol | Symbol | Import relationship |
+| `inherits` | Symbol | Symbol | Implements trait / extends type |
+| `typeAnnotation` | Symbol | Symbol | Type annotation in signature |
+| `fieldType` | Symbol | Symbol | Field type reference |
+| `returns` | Symbol | Symbol | Function return type |
+| `accepts` | Symbol | Symbol | Function parameter type |
+| `uses` | Symbol | Symbol | References a variable/constant |
+
+### Symbol Kinds
+
+| Kind | Languages | Description |
+|------|-----------|-------------|
+| `function` | Rust, Go | Functions and methods |
+| `struct` | Rust, Go | Struct definitions |
+| `enum` | Rust | Enum definitions |
+| `trait` | Rust | Trait definitions |
+| `interface` | Go | Interface definitions |
+| `module` | Rust, Nushell | Module declarations |
+| `package` | Go | Package declarations |
+| `const` | Rust, Go | Constants |
+| `static` | Rust | Static variables |
+| `type` | Rust, Go | Type aliases |
+| `field` | Rust, Go | Struct fields |
+| `macro` | Rust | Macro definitions |
+| `command` | Nushell | Command definitions |
+| `alias` | Nushell | Alias definitions |
+
+## Bundled Queries
+
+These are pre-installed for every analyzed repo. Run them by name.
+
+### No parameters required
+
+| Query | Description |
+|-------|-------------|
+| `overview` | Symbol counts grouped by kind and visibility. **Run this first.** |
+| `public_api` | All public symbols (structs, traits, enums, consts, functions, fields). |
+| `module_map` | Module/package hierarchy showing file locations and visibility. |
+| `hub_symbols` | Top 30 most-called symbols. Core logic lives here. |
+| `type_hierarchy` | All inheritance/implementation relationships between types. |
+
+### Parameterized
+
+| Query | Parameters | Description |
+|-------|------------|-------------|
+| `file_symbols` | `path`: file path | All symbols in a specific file, ordered by line. |
+| `symbol_search` | `name`: symbol name | Find a symbol by exact name across the codebase. |
+| `callers` | `name`: symbol name | Find all functions that call the named function. |
+| `callees` | `name`: symbol name | Find all functions called by the named function. |
 
 ## NanoGraph Query Syntax
 
-### Basic Pattern Matching
+### Structure
 
 ```
-match {
-  $s: Symbol
-  $s.name = "foo"
+query name($param: Type)
+  @description("Human-readable description")
+  @instruction("Usage guidance for agents")
+{
+  match {
+    // node bindings, edge traversals, filters
+  }
+  return {
+    // projections, aggregations
+  }
+  order { $v.prop desc }
+  limit 10
 }
-return { $s.name, $s.kind, $s.file_path }
+```
+
+Annotations are optional. Parameter types: `String`, `I32`, `I64`, `U64`, `F32`, `F64`, `Bool`.
+
+### Node Binding
+
+```
+$s: Symbol
+$s: Symbol { name: "foo" }
+$s: Symbol { kind: "function", visibility: "public" }
+$s: Symbol { name: $param }
+$f: File { path: $p }
 ```
 
 ### Edge Traversal
 
-```
-match {
-  $caller: Symbol
-  $callee: Symbol
-  $caller calls $callee
-}
-return { $caller.name, $callee.name }
-```
-
-### Filtering
+Edge names are camelCase versions of the schema PascalCase names:
 
 ```
-match {
-  $s: Symbol
-  $s.kind = "function"
-  $s.file_path =~ "src/analysis/"
-}
-return { $s.name }
+$f fileContains $s
+$parent symbolContains $child
+$caller calls $callee
+$s import $t
+$s inherits $t
+$s returns $t
+$s accepts $t
+$s uses $t
+$s typeAnnotation $t
+$s fieldType $t
 ```
 
-### Aggregation
+### Filters
 
 ```
-match {
-  $caller: Symbol
-  $callee: Symbol
-  $caller calls $callee
-}
+$s.kind = "function"
+$s.name != "main"
+$s.start_line > 100
+```
+
+### Negation
+
+```
+not { $s calls $_ }
+```
+
+### Return Clause
+
+```
 return {
-  $callee.name
-  count($caller) as times_called
-}
-order { times_called desc }
-limit 10
-```
-
-### Parameters
-
-Use `$param_name` for parameterized queries:
-
-```
-match {
-  $s: Symbol
-  $s.name = $target_name
-}
-return { $s.symbol_id, $s.name, $s.kind }
-```
-
-Pass parameters via MCP tool: `{ target_name: "foo" }`
-
-## Common Query Patterns
-
-### Find a Symbol by Name
-
-```
-match {
-  $s: Symbol
-  $s.name = $target_name
-}
-return {
-  $s.symbol_id
   $s.name
   $s.kind
-  $s.file_path
-  $s.start_line
+  $s.file_path as file
+  count($s) as total
+  min($s.start_line) as first_line
 }
-order { $s.file_path asc }
 ```
 
-### Find Who Calls a Function
+Aggregation functions: `count`, `sum`, `avg`, `min`, `max`.
+
+### Limitations
+
+- No edge property access (cannot filter/return `call_site_line`, `inheritance_type`, etc.)
+- No `or {}` or `maybe {}` (no left joins)
+- CAN filter on node properties in binding syntax
+
+## Exploration Workflow
+
+### 1. Get the lay of the land
+
+Run `overview` to see what's in the codebase.
+
+### 2. Understand the structure
+
+Run `module_map` to see how code is organized.
+
+### 3. Find the important code
+
+Run `hub_symbols` to find the most-called functions.
+
+### 4. Explore a specific file
+
+Run `file_symbols` with a file path to see what's defined there.
+
+### 5. Trace dependencies
+
+Run `callers` or `callees` to understand call chains.
+
+### 6. Understand type relationships
+
+Run `type_hierarchy` to see trait implementations and struct embedding.
+
+### 7. Write custom queries for specific questions
 
 ```
-match {
-  $caller: Symbol
-  $callee: Symbol
-  $caller calls $callee
-  $callee.name = $target_name
-}
-return {
-  $caller.name as caller
-  $caller.file_path as caller_file
-  $callee.name as callee
-}
-order { $caller.name asc }
-```
-
-### Find What a Function Calls
-
-```
-match {
-  $caller: Symbol
-  $callee: Symbol
-  $caller calls $callee
-  $caller.name = $caller_name
-}
-return {
-  $caller.name as caller
-  $callee.name as callee
-  $callee.file_path as callee_file
-}
-order { $callee.name asc }
-```
-
-### Find Trait Implementations
-
-```
-match {
-  $impl: Symbol
-  $trait: Symbol
-  $impl inherits $trait
-  $trait.name = $trait_name
-}
-return {
-  $impl.name as implementor
-  $impl.file_path as impl_file
-  $trait.name as trait_name
-}
-order { $impl.name asc }
-```
-
-### Find Type References
-
-```
-match {
-  $user: Symbol
-  $type: Symbol
-  $user references $type
-  $type.name = $type_name
-}
-return {
-  $user.name as user
-  $user.kind as user_kind
-  $user.file_path as user_file
-  $type.name as referenced_type
-}
-order { $user.file_path asc }
-```
-
-### Find Methods in an Impl Block
-
-```
-match {
-  $impl: Symbol
-  $method: Symbol
-  $impl symbolContains $method
-  $impl.name = $impl_name
-}
-return {
-  $impl.name as impl_block
-  $method.name as method
-  $method.kind as method_kind
-}
-order { $method.name asc }
-```
-
-### Find Most-Called Functions
-
-```
-match {
-  $caller: Symbol
-  $callee: Symbol
-  $caller calls $callee
-}
-return {
-  $callee.name
-  $callee.kind
-  count($caller) as times_called
-}
-order { times_called desc }
-limit 10
-```
-
-### Find Complexity Hotspots
-
-```
-match { $s: Symbol }
-return {
-  $s.file_path
-  count($s) as symbol_count
-}
-order { symbol_count desc }
-limit 20
-```
-
-## Using the MCP Tool
-
-Use `c5t_code_query_graph` to execute queries:
-
-```json
-{
-  "repo_id": "7104e891",
-  "query": "match { $s: Symbol, $s.name = $target_name } return { $s.name, $s.kind, $s.file_path }",
-  "params": {
-    "target_name": "analyze_repository"
+query unused_functions() {
+  match {
+    $s: Symbol { kind: "function", visibility: "private" }
+    not { $_ calls $s }
   }
+  return { $s.name, $s.file_path, $s.start_line }
 }
 ```
 
-The tool:
-1. Writes your query to a temp file
-2. Executes via `nanograph run`
-3. Returns JSON results
+## Example Custom Queries
 
-## Query Development Tips
-
-1. **Start simple** - Match a single node type first
-2. **Add filters incrementally** - Test each filter as you add it
-3. **Use ordering and limits** - Prevent overwhelming result sets
-4. **Leverage aggregation** - Count, group, find patterns
-5. **Explore edges** - Traverse relationships to understand dependencies
-
-## Symbol Kinds
-
-Common symbol kinds you'll encounter:
-- `function` - Standalone functions
-- `struct` - Struct definitions
-- `enum` - Enum definitions
-- `trait` - Trait definitions
-- `impl` - Implementation blocks (may contain methods)
-- `module` - Module definitions
-- `type` - Type aliases
-
-## Example Exploration Workflow
+### Find functions with many dependencies
 
 ```
-# 1. Find all functions in a file
-match {
-  $s: Symbol
-  $s.kind = "function"
-  $s.file_path = "src/analysis/service.rs"
+query complex_functions() {
+  match {
+    $s: Symbol { kind: "function" }
+    $t: Symbol
+    $s calls $t
+  }
+  return { $s.name, $s.file_path, count($t) as dependency_count }
+  order { dependency_count desc }
+  limit 20
 }
-return { $s.name }
+```
 
-# 2. Pick an interesting function and find its callers
-match {
-  $caller: Symbol
-  $callee: Symbol
-  $caller calls $callee
-  $callee.name = "analyze_repository"
-}
-return { $caller.name, $caller.file_path }
+### Find files with the most symbols
 
-# 3. Trace a dependency chain
-match {
-  $a: Symbol
-  $b: Symbol
-  $c: Symbol
-  $a calls $b
-  $b calls $c
-  $a.name = "execute"
+```
+query large_files() {
+  match {
+    $f: File
+    $s: Symbol
+    $f fileContains $s
+  }
+  return { $f.path, count($s) as symbol_count }
+  order { symbol_count desc }
+  limit 20
 }
-return { $a.name, $b.name, $c.name }
+```
+
+### Find all implementations of a trait
+
+```
+query trait_impls($trait_name: String) {
+  match {
+    $impl: Symbol
+    $trait: Symbol { name: $trait_name }
+    $impl inherits $trait
+  }
+  return { $impl.name, $impl.kind, $impl.file_path, $impl.start_line }
+}
+```
+
+### Two-hop call chain
+
+```
+query call_chain($name: String) {
+  match {
+    $a: Symbol { name: $name }
+    $b: Symbol
+    $c: Symbol
+    $a calls $b
+    $b calls $c
+  }
+  return { $a.name, $b.name as via, $c.name as reaches }
+}
+```
+
+### Find symbols by kind in a directory
+
+```
+query structs_in($dir: String) {
+  match {
+    $s: Symbol { kind: "struct" }
+    $s.file_path =~ $dir
+  }
+  return { $s.name, $s.file_path, $s.visibility }
+  order { $s.name asc }
+}
 ```
 
 ## Troubleshooting
 
-**No results returned:**
-- Check if analysis has been run for the repo
-- Verify symbol names (case-sensitive)
-- Try broader patterns first, then narrow down
+**No results:** Check that analysis has been run for the repo. Verify symbol names are exact (case-sensitive).
 
-**Query syntax errors:**
-- Check matching braces `{ }`
-- Ensure variable names start with `$`
-- Verify field names match schema
+**Query syntax errors:** Ensure variable names start with `$`. Check matching braces. Match clause statements are separated by newlines, not commas.
 
-**Performance issues:**
-- Add `limit` to large result sets
-- Use specific filters early in the query
-- Consider using indexed fields (name, kind)
-
-## Related Skills
-
-- **context** - Managing c5t projects and tasks
-- **nushell** - Shell scripting for automation
-
-Base directory for this skill: file:///Users/christian/Projects/ck3mp3r/context/skills/code-graph-query
+**Parameter errors:** Parameter names in `params` JSON must match the `$param` names in the query definition (without the `$` prefix).
