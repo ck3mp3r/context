@@ -152,6 +152,8 @@ These are pre-installed for every analyzed repo. Run them by name.
 
 ## NanoGraph Query Syntax
 
+Full reference: https://nanograph.io/docs/queries
+
 ### Structure
 
 ```
@@ -170,7 +172,9 @@ query name($param: Type)
 }
 ```
 
-Annotations are optional. Parameter types: `String`, `I32`, `I64`, `U64`, `F32`, `F64`, `Bool`.
+Annotations are optional.
+
+Parameter types: `String`, `I32`, `I64`, `U64`, `F32`, `F64`, `Bool`, `Date`, `DateTime`, `Vector(dim)`.
 
 ### Node Binding
 
@@ -181,6 +185,8 @@ $s: Symbol { kind: "function", visibility: "public" }
 $s: Symbol { name: $param }
 $f: File { path: $p }
 ```
+
+Property matches in braces filter at bind time. Variables capture values for use elsewhere.
 
 ### Edge Traversal
 
@@ -199,7 +205,21 @@ $s typeAnnotation $t
 $s fieldType $t
 ```
 
+**Edge binding with `via`:**
+```
+$caller calls $callee via $edge
+```
+Binds the edge itself to `$edge`, allowing access to edge properties in return clauses.
+
+**Bounded multi-hop traversal:**
+```
+$a calls{1,3} $b
+```
+Expands to a finite union of 1-hop, 2-hop, and 3-hop traversals. Bounds: min >= 1, max >= min, max is finite.
+
 ### Filters
+
+Comparison operators: `=`, `!=`, `>`, `<`, `>=`, `<=`.
 
 ```
 $s.kind = "function"
@@ -207,11 +227,27 @@ $s.name != "main"
 $s.start_line > 100
 ```
 
+No regex, prefix, or contains operators exist. For text matching, use search predicates instead.
+
+### Search Predicates
+
+These go in the `match` block and act as filters.
+
+| Predicate | Description |
+|-----------|-------------|
+| `search($s.name, "test")` | Token-based keyword match (all query tokens must be present) |
+| `fuzzy($s.name, "Skywaker")` | Approximate match (tolerates typos) |
+| `match_text($s.name, "main")` | Contiguous token / phrase match |
+
+Use `search()` to find symbols whose name contains certain tokens. Use `fuzzy()` for typo-tolerant lookups.
+
 ### Negation
 
 ```
 not { $s calls $_ }
 ```
+
+At least one variable in the negated block must be bound outside it. `$_` is an anonymous wildcard.
 
 ### Return Clause
 
@@ -227,10 +263,25 @@ return {
 
 Aggregation functions: `count`, `sum`, `avg`, `min`, `max`.
 
+### Literals
+
+| Type | Example |
+|------|---------|
+| String | `"Alice"` |
+| Integer | `42` |
+| Float | `3.14` |
+| Boolean | `true`, `false` |
+| Date | `date("2026-01-15")` |
+| DateTime | `datetime("2026-01-15T10:00:00Z")` |
+| List | `[1, 2, 3]`, `["a", "b"]` |
+
+Built-in: `now()` returns the current UTC timestamp.
+
 ### Limitations
 
 - No edge property access (cannot filter/return `call_site_line`, `inheritance_type`, etc.)
-- No `or {}` or `maybe {}` (no left joins)
+- No `or {}` or `maybe {}` (not implemented despite appearing in the EBNF grammar)
+- No regex, prefix, or glob matching on strings (use `search()` / `fuzzy()` instead)
 - CAN filter on node properties in binding syntax
 
 ## Exploration Workflow
@@ -331,16 +382,27 @@ query call_chain($name: String) {
 }
 ```
 
-### Find symbols by kind in a directory
+### Find symbols by name pattern
 
 ```
-query structs_in($dir: String) {
+query find_test_functions() {
   match {
-    $s: Symbol { kind: "struct" }
-    $s.file_path =~ $dir
+    $s: Symbol { kind: "function" }
+    search($s.name, "test")
   }
-  return { $s.name, $s.file_path, $s.visibility }
-  order { $s.name asc }
+  return { $s.name, $s.file_path, $s.start_line }
+  limit 20
+}
+```
+
+### Find entry points
+
+```
+query main_functions() {
+  match {
+    $s: Symbol { kind: "function", name: "main" }
+  }
+  return { $s.name, $s.file_path, $s.language, $s.start_line }
 }
 ```
 
