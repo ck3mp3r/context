@@ -20,19 +20,7 @@ async fn test_websocket_route_exists() {
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
-
-    let state = AppState::new(
-        db,
-        sync_manager,
-        notifier,
-        temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
-    );
+    let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
     let app = routes::create_router(state, false);
 
     // Create WebSocket upgrade request
@@ -65,19 +53,7 @@ async fn test_websocket_rejects_non_upgrade_requests() {
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
-
-    let state = AppState::new(
-        db,
-        sync_manager,
-        notifier,
-        temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
-    );
+    let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
     let app = routes::create_router(state, false);
 
     // Create regular GET request (no WebSocket headers)

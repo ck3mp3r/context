@@ -19,17 +19,11 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let temp_dir = TempDir::new().unwrap();
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     let app = routes::create_router(state, false);
 

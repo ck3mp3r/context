@@ -20,18 +20,11 @@ async fn test_app() -> axum::Router {
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
-
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     routes::create_router(state, false)
 }
@@ -43,18 +36,11 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
     let notifier = ChangeNotifier::new();
     let temp_dir = TempDir::new().unwrap();
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
-
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     (routes::create_router(state, false), notifier)
 }
@@ -85,18 +71,11 @@ async fn patch_updates_timestamp() {
 
     let temp_dir = TempDir::new().unwrap();
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
-
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     let app = routes::create_router(state, false);
 

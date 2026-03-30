@@ -1,256 +1,289 @@
-// Nushell language parser implementation
+use crate::analysis::types::ParsedFile;
+use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
-use super::types::Kind;
-use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ImportEntry, QualifiedName, ReferenceType, SymbolId, SymbolName};
-use tree_sitter::Node;
-
-/// Nushell language implementation
 pub struct Nushell;
 
-impl Language for Nushell {
-    type Kind = Kind;
+const QUERIES: &str = r#"
+;;; def command
+(decl_def
+    (cmd_identifier) @cmd_name) @cmd_def
 
-    fn grammar() -> tree_sitter::Language {
-        tree_sitter_nu::LANGUAGE.into()
-    }
+;;; module
+(decl_module
+    (cmd_identifier) @module_name) @module_def
 
-    fn parse_symbol(node: Node, code: &str) -> Option<(Self::Kind, String)> {
-        match node.kind() {
-            "decl_def" => extract_def_name(node, code),
-            "decl_module" => extract_decl_name(node, code, Kind::Module),
-            "decl_alias" => extract_decl_name(node, code, Kind::Alias),
-            "decl_extern" => extract_decl_name(node, code, Kind::Extern),
-            "stmt_const" => extract_const_name(node, code),
-            _ => None,
-        }
-    }
+;;; alias
+(decl_alias
+    (cmd_identifier) @alias_name) @alias_def
 
-    fn extract_callee(node: Node, code: &str) -> Option<String> {
-        // In Nushell, the `command` node has a `head` field containing the command name.
-        // The head can be a `cmd_identifier` (most common).
-        for child in node.children(&mut node.walk()) {
-            if child.kind() == "cmd_identifier" {
-                return Some(code[child.byte_range()].to_string());
-            }
-        }
-        None
-    }
+;;; extern
+(decl_extern
+    (cmd_identifier) @extern_name) @extern_def
 
-    fn parse_impl(_node: Node, _code: &str) -> Option<ImplInfo> {
-        // Nushell has no impl blocks
-        None
-    }
+;;; const
+(stmt_const
+    (identifier) @const_name) @const_def
 
-    fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
-        let mut refs = Vec::new();
+;;; command call
+(command
+    (cmd_identifier) @command_call_name) @command_call
 
-        if node.kind() == "decl_use" {
-            // `use <module>` or `use <module> [items]`
-            // The `module` field contains the module being imported
-            if let Some(module_node) = node.child_by_field_name("module") {
-                let name = code[module_node.byte_range()].trim().to_string();
-                if !name.is_empty() {
-                    refs.push((SymbolName::new(name), ReferenceType::Import));
-                }
-            }
-        }
+;;; use statement
+(decl_use) @use_decl
+"#;
 
-        refs
-    }
-
-    fn extract_signature(node: Node, code: &str) -> Option<String> {
-        match node.kind() {
-            "decl_def" => {
-                // Signature = everything before the body block
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "block" {
-                        let sig_end = child.start_byte();
-                        let sig = code[node.start_byte()..sig_end].trim();
-                        return Some(sig.to_string());
-                    }
-                }
-                Some(code[node.byte_range()].trim().to_string())
-            }
-            "decl_extern" => {
-                // Entire extern declaration is the signature
-                let text = code[node.byte_range()].trim();
-                if text.len() > 200 {
-                    Some(format!("{}...", &text[..200]))
-                } else {
-                    Some(text.to_string())
-                }
-            }
-            "decl_alias" => Some(code[node.byte_range()].trim().to_string()),
-            "stmt_const" => Some(code[node.byte_range()].trim().to_string()),
-            "decl_module" => {
-                // Just the header, not the body
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "block" {
-                        let sig_end = child.start_byte();
-                        let sig = code[node.start_byte()..sig_end].trim();
-                        return Some(sig.to_string());
-                    }
-                }
-                Some(code[node.byte_range()].trim().to_string())
-            }
-            _ => None,
-        }
-    }
-
-    fn name() -> &'static str {
+impl Nushell {
+    pub fn name() -> &'static str {
         "nushell"
     }
 
-    fn extensions() -> &'static [&'static str] {
+    pub fn extensions() -> &'static [&'static str] {
         &["nu"]
     }
 
-    fn call_node_kinds() -> &'static [&'static str] {
-        &["command"]
+    pub fn grammar() -> tree_sitter::Language {
+        tree_sitter_nu::LANGUAGE.into()
     }
 
-    fn module_info(node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
-        if node.kind() != "decl_module" {
-            return None;
-        }
-        // Check if the module has an inline body (block child)
-        let has_body = node.children(&mut node.walk()).any(|c| c.kind() == "block");
-
-        if has_body {
-            Some(ModuleInfo {
-                has_body: true,
-                candidate_paths: Vec::new(),
-            })
-        } else {
-            // Nushell file-based modules (use foo.nu) are resolved by
-            // `use` statements, not by the module declaration itself.
-            // A `decl_module` without a block body shouldn't occur in
-            // practice, but handle gracefully.
-            Some(ModuleInfo {
-                has_body: false,
-                candidate_paths: Vec::new(),
-            })
-        }
+    pub fn queries() -> &'static str {
+        QUERIES
     }
 
-    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
-        if node.kind() != "decl_use" {
-            return None;
-        }
+    pub fn extract(code: &str, file_path: &str) -> ParsedFile {
+        let mut parsed = ParsedFile::new(file_path, "nushell");
+        let language = Self::grammar();
 
-        // `use <module>` or `use <module> [items]` or `use <module> *`
-        let module_node = node.child_by_field_name("module")?;
-        let module_path = code[module_node.byte_range()].trim().to_string();
-        if module_path.is_empty() {
-            return None;
-        }
-
-        // Check for import_pattern (contains scope_pattern with command_list or glob)
-        if let Some(import_pattern) = node.child_by_field_name("import_pattern") {
-            // Look for glob (*) or command list [items]
-            let mut is_glob = false;
-            let mut names = Vec::new();
-
-            fn walk_import_pattern(
-                n: Node,
-                code: &str,
-                names: &mut Vec<String>,
-                is_glob: &mut bool,
-            ) {
-                match n.kind() {
-                    "wild_card" => *is_glob = true,
-                    "cmd_identifier" => {
-                        let name = code[n.byte_range()].trim().to_string();
-                        if !name.is_empty() {
-                            names.push(name);
-                        }
-                    }
-                    _ => {
-                        for child in n.children(&mut n.walk()) {
-                            walk_import_pattern(child, code, names, is_glob);
-                        }
-                    }
-                }
-            }
-
-            walk_import_pattern(import_pattern, code, &mut names, &mut is_glob);
-
-            if is_glob {
-                return Some(vec![ImportEntry::glob_import(module_path)]);
-            }
-            if !names.is_empty() {
-                return Some(vec![ImportEntry::named_import(module_path, names)]);
-            }
-        }
-
-        // Simple module import: `use std` — the module name itself is the usable name
-        Some(vec![ImportEntry::named_import(
-            module_path.clone(),
-            vec![module_path],
-        )])
-    }
-
-    fn resolve_import(
-        global: &GlobalSymbolMap,
-        file_path: &str,
-        module_path: &str,
-        imported_name: &str,
-    ) -> Vec<(SymbolId, SymbolId)> {
-        let target_id = match global
-            .qualified_map
-            .get(&QualifiedName::new(module_path, imported_name))
-        {
-            Some(id) => id.clone(),
-            None => return Vec::new(),
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&language).expect("grammar error");
+        let tree = match parser.parse(code, None) {
+            Some(t) => t,
+            None => return parsed,
         };
 
-        match global.file_module_symbol.get(file_path) {
-            Some(mod_id) => vec![(mod_id.clone(), target_id)],
-            None => Vec::new(),
+        let query = match Query::new(&language, QUERIES) {
+            Ok(q) => q,
+            Err(_) => return parsed,
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+        while let Some(m) = matches.next() {
+            Self::process_match(&query, m, code, file_path, &mut parsed);
+        }
+
+        // Extract imports separately (use statements need manual AST walking
+        // because Nushell's use syntax is complex)
+        Self::extract_imports(&tree, code, file_path, &mut parsed);
+
+        parsed
+    }
+
+    fn process_match(
+        query: &Query,
+        m: &tree_sitter::QueryMatch,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::analysis::types::*;
+
+        let capture_name = |idx: u32| -> &str { query.capture_names()[idx as usize] };
+
+        let mut captures: std::collections::HashMap<&str, tree_sitter::Node> =
+            std::collections::HashMap::new();
+        for cap in m.captures {
+            captures.insert(capture_name(cap.index), cap.node);
+        }
+
+        let text = |node: tree_sitter::Node| -> &str { &code[node.byte_range()] };
+
+        // Command definition
+        if let Some(&node) = captures.get("cmd_def")
+            && let Some(&name_node) = captures.get("cmd_name")
+        {
+            let name = text(name_node).trim_matches('"');
+            let is_exported = text(node).starts_with("export");
+            let entry_type = if name == "main" {
+                Some("main".to_string())
+            } else {
+                None
+            };
+            parsed.symbols.push(RawSymbol {
+                name: name.to_string(),
+                kind: "command".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "nushell".to_string(),
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type,
+            });
+            return;
+        }
+
+        // Module
+        if let Some(&node) = captures.get("module_def")
+            && let Some(&name_node) = captures.get("module_name")
+        {
+            let is_exported = text(node).starts_with("export");
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "module".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "nushell".to_string(),
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Alias
+        if let Some(&node) = captures.get("alias_def")
+            && let Some(&name_node) = captures.get("alias_name")
+        {
+            let is_exported = text(node).starts_with("export");
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "alias".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "nushell".to_string(),
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Extern
+        if let Some(&node) = captures.get("extern_def")
+            && let Some(&name_node) = captures.get("extern_name")
+        {
+            let is_exported = text(node).starts_with("export");
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "extern".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "nushell".to_string(),
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Const
+        if let Some(&node) = captures.get("const_def")
+            && let Some(&name_node) = captures.get("const_name")
+        {
+            let is_exported = text(node).starts_with("export");
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "const".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "nushell".to_string(),
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Command call
+        if captures.contains_key("command_call")
+            && let Some(&name_node) = captures.get("command_call_name")
+        {
+            let call_node = captures["command_call"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
         }
     }
-}
 
-/// Extract the name from a `decl_def` node.
-/// The name can be in `unquoted_name` (cmd_identifier) or `quoted_name` (val_string).
-fn extract_def_name(node: Node, code: &str) -> Option<(Kind, String)> {
-    // Check unquoted_name field first
-    if let Some(name_node) = node.child_by_field_name("unquoted_name") {
-        let name = code[name_node.byte_range()].to_string();
-        return Some((Kind::Command, name));
-    }
-    // Then quoted_name (e.g. `def "my command" [...]`)
-    if let Some(name_node) = node.child_by_field_name("quoted_name") {
-        let raw = code[name_node.byte_range()].to_string();
-        // Strip surrounding quotes
-        let name = raw.trim_matches('"').trim_matches('\'').to_string();
-        return Some((Kind::Command, name));
-    }
-    None
-}
+    fn extract_imports(
+        tree: &tree_sitter::Tree,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::analysis::types::*;
 
-/// Extract name from `decl_module`, `decl_alias`, or `decl_extern` nodes.
-/// These all have `unquoted_name` and `quoted_name` fields.
-fn extract_decl_name(node: Node, code: &str, kind: Kind) -> Option<(Kind, String)> {
-    if let Some(name_node) = node.child_by_field_name("unquoted_name") {
-        return Some((kind, code[name_node.byte_range()].to_string()));
-    }
-    if let Some(name_node) = node.child_by_field_name("quoted_name") {
-        let raw = code[name_node.byte_range()].to_string();
-        let name = raw.trim_matches('"').trim_matches('\'').to_string();
-        return Some((kind, name));
-    }
-    None
-}
+        let root = tree.root_node();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() == "decl_use" {
+                let mut walk = child.walk();
+                let children: Vec<_> = child.children(&mut walk).collect();
 
-/// Extract name from `stmt_const` node.
-/// `const FOO = ...` — the name is an identifier child.
-fn extract_const_name(node: Node, code: &str) -> Option<(Kind, String)> {
-    for child in node.children(&mut node.walk()) {
-        if child.kind() == "identifier" {
-            return Some((Kind::Const, code[child.byte_range()].to_string()));
+                // Find module name (first cmd_identifier after "use" keyword)
+                let mut module_name = None;
+                let mut names = Vec::new();
+                let mut is_glob = false;
+
+                for c in &children {
+                    match c.kind() {
+                        "cmd_identifier" | "unquoted" if module_name.is_none() => {
+                            module_name = Some(code[c.byte_range()].to_string());
+                        }
+                        "import_pattern" => {
+                            Self::extract_import_pattern(*c, code, &mut names, &mut is_glob);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some(module) = module_name {
+                    let entry = if is_glob {
+                        ImportEntry::glob_import(&module)
+                    } else if names.is_empty() {
+                        ImportEntry::named_import(&module, vec![module.clone()])
+                    } else {
+                        ImportEntry::named_import(&module, names)
+                    };
+                    parsed.imports.push(RawImport {
+                        file_path: file_path.to_string(),
+                        entry,
+                    });
+                }
+            }
         }
     }
-    None
+
+    fn extract_import_pattern(
+        node: tree_sitter::Node,
+        code: &str,
+        names: &mut Vec<String>,
+        is_glob: &mut bool,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "cmd_identifier" => {
+                    names.push(code[child.byte_range()].to_string());
+                }
+                "wild_card" => {
+                    *is_glob = true;
+                }
+                _ => {
+                    Self::extract_import_pattern(child, code, names, is_glob);
+                }
+            }
+        }
+    }
 }

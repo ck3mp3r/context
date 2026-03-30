@@ -132,20 +132,8 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     // Create change notifier for WebSocket pub/sub
     let notifier = notifier::ChangeNotifier::new();
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
-
     // Create application state
-    let state = AppState::new(
-        db,
-        sync_manager,
-        notifier,
-        config.skills_dir,
-        job_queue,
-        job_executor,
-    );
+    let state = AppState::new(db, sync_manager, notifier, config.skills_dir);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

@@ -18,17 +18,11 @@ async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     routes::create_router(state, false)
 }
@@ -39,17 +33,11 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
     db.migrate().unwrap();
     let notifier = crate::api::notifier::ChangeNotifier::new();
     let temp_dir = TempDir::new().unwrap();
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     (routes::create_router(state, false), notifier)
 }
@@ -296,17 +284,11 @@ async fn crud_and_patch_operations() {
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
     let temp_dir = TempDir::new().unwrap();
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     let app = routes::create_router(state, false);
 

@@ -1,0 +1,9 @@
+query symbol_search($name: String)
+  @description("Find symbols by name across the entire codebase")
+  @instruction("Use for quick lookup when you know a symbol name but not its location")
+{
+  match {
+    $s: Symbol { name: $name }
+  }
+  return { $s.name, $s.kind, $s.visibility, $s.file_path, $s.start_line, $s.signature }
+}

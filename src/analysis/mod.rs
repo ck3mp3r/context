@@ -1,56 +1,41 @@
-// Code Analysis Module
-//
-// This module provides code analysis capabilities using:
-// - Tree-sitter for parsing source code
-// - NanoGraph for storing and querying code graphs
-//
-// Design:
-// - Simple schema: File + Symbol nodes with kind discriminator
-// - Language-agnostic: Same graph model for all languages
-// - Unified CodeParser: parses once, inserts directly into graph
-
-#[cfg(feature = "backend")]
-pub mod store;
+//! Code Analysis Module
+//!
+//! Multi-phase pipeline for analyzing source code into a knowledge graph:
+//!
+//! 1. **Extract** — Tree-sitter queries extract raw data (symbols, calls,
+//!    imports, heritage) from each file into `ParsedFile` structs
+//! 2. **Register** — Build a global symbol map from all extracted symbols
+//! 3. **Resolve imports** — Map import statements to graph symbols
+//! 4. **Resolve heritage** — Resolve inheritance/implementation edges
+//! 5. **Resolve calls** — Resolve function/method calls using import
+//!    tables and symbol map
+//! 6. **Load** — Batch insert all resolved data into NanoGraph
 
 #[cfg(feature = "backend")]
 pub mod types;
 
 #[cfg(feature = "backend")]
+pub mod store;
+
+#[cfg(feature = "backend")]
 pub mod lang;
 
 #[cfg(feature = "backend")]
-pub mod parser;
+pub mod pipeline;
 
 #[cfg(feature = "backend")]
 pub mod service;
 
-// Re-exports for convenience
+#[cfg(feature = "backend")]
+pub mod queries;
+
 #[cfg(feature = "backend")]
 pub use store::CodeGraph;
 
-#[cfg(feature = "backend")]
-pub use parser::{Language, Parser};
-
-#[cfg(feature = "backend")]
-pub use lang::rust::Rust;
-
-#[cfg(feature = "backend")]
-pub use lang::nushell::Nushell;
-
-#[cfg(feature = "backend")]
-pub use lang::golang::Go;
-
 /// Get the analysis directory path for a repository
-///
-/// Uses the XDG-compliant data directory from sync::paths
 #[cfg(feature = "backend")]
 pub fn get_analysis_path(repo_id: &str) -> std::path::PathBuf {
     crate::sync::get_data_dir().join("repos").join(repo_id)
 }
 
 // Tests
-#[cfg(all(test, feature = "backend"))]
-mod store_test;
-
-#[cfg(all(test, feature = "backend"))]
-mod integration_test;

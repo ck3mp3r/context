@@ -1,0 +1,11 @@
+query entry_points()
+  @description("All entry points: main, init, test, benchmark, fuzz, example, and exported functions")
+  @instruction("Shows where execution starts and test/benchmark functions. Use callees query on a specific entry point to trace the startup path")
+{
+  match {
+    $s: Symbol
+    $s.entry_type != ""
+  }
+  return { $s.name, $s.entry_type, $s.kind, $s.file_path, $s.start_line, $s.language }
+  order { $s.entry_type asc }
+}

@@ -1,8 +1,6 @@
-pub mod parser;
-pub mod types;
+mod parser;
 
 pub use parser::Rust;
-pub use types::Kind;
 
 #[cfg(test)]
 #[path = "parser_test.rs"]

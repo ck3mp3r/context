@@ -1,779 +1,609 @@
-// Go language parser implementation
+use crate::analysis::types::ParsedFile;
+use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
-use super::types::Kind;
-use crate::analysis::parser::{GlobalSymbolMap, ImplInfo, Language, ModuleInfo};
-use crate::analysis::types::{ImportEntry, ReferenceType, SymbolId, SymbolName};
-use tree_sitter::Node;
-
-/// Go language implementation
 pub struct Go;
 
-impl Language for Go {
-    type Kind = Kind;
+const QUERIES: &str = r#"
+;;; package_clause
+(package_clause
+    (package_identifier) @pkg_name) @package
 
-    fn grammar() -> tree_sitter::Language {
-        tree_sitter_go::LANGUAGE.into()
-    }
+;;; function_declaration
+(function_declaration
+    name: (identifier) @fn_name) @fn_def
 
-    fn parse_symbol(node: Node, code: &str) -> Option<(Self::Kind, String)> {
-        let result = match node.kind() {
-            "function_declaration" => {
-                let name = node.child_by_field_name("name")?;
-                Some((Kind::Function, node_text(name, code)))
-            }
-            "method_declaration" => {
-                let name = node.child_by_field_name("name")?;
-                Some((Kind::Method, node_text(name, code)))
-            }
-            "type_declaration" => parse_type_declaration(node, code),
-            "const_spec" => {
-                let name = node.child_by_field_name("name")?;
-                Some((Kind::Const, node_text(name, code)))
-            }
-            "var_spec" => {
-                // Skip local variables inside function/method bodies
-                if is_inside_function(node) {
-                    return None;
-                }
-                let name = node.child_by_field_name("name")?;
-                Some((Kind::Var, node_text(name, code)))
-            }
-            "package_clause" => {
-                // Extract package name from `package foo`
-                for child in node.children(&mut node.walk()) {
-                    if child.kind() == "package_identifier" {
-                        return Some((Kind::Package, node_text(child, code)));
-                    }
-                }
-                None
-            }
-            _ => None,
-        };
+;;; method_declaration
+(method_declaration
+    receiver: (parameter_list) @method_receiver
+    name: (field_identifier) @method_name) @method_def
 
-        // Filter out Go's blank identifier `_` (used for interface conformance checks, etc.)
-        result.filter(|(_, name)| name != "_")
-    }
+;;; type_declaration — struct
+(type_declaration
+    (type_spec
+        name: (type_identifier) @struct_name
+        type: (struct_type))) @struct_def
 
-    fn extract_callee(node: Node, code: &str) -> Option<String> {
-        // Go call_expression has a "function" field
-        let func = node.child_by_field_name("function")?;
-        Some(node_text(func, code))
-    }
+;;; type_declaration — interface
+(type_declaration
+    (type_spec
+        name: (type_identifier) @iface_name
+        type: (interface_type))) @iface_def
 
-    fn parse_impl(node: Node, code: &str) -> Option<ImplInfo> {
-        match node.kind() {
-            // Method declaration: func (r *Type) MethodName(...)
-            // The receiver gives us the target type (like a Rust impl block)
-            "method_declaration" => {
-                let receiver = node.child_by_field_name("receiver")?;
-                // receiver is parameter_list, first child is parameter_declaration
-                let param = receiver.child(1)?; // skip '('
-                // Get the type from the parameter — could be *Type or Type
-                let type_node = param.child_by_field_name("type")?;
-                let type_name = extract_type_name(type_node, code)?;
-                Some(ImplInfo {
-                    target_type: type_name,
-                    trait_name: None,
-                })
-            }
-            // Conformance check: var _ Interface = (*Type)(nil)
-            "var_spec" => {
-                // Must be blank identifier
-                let name = node.child_by_field_name("name")?;
-                if node_text(name, code) != "_" {
-                    return None;
-                }
+;;; type_declaration — type alias
+(type_declaration
+    (type_spec
+        name: (type_identifier) @type_alias_name
+        type: (_) @type_alias_value)) @type_alias_def
 
-                // The type field is the interface name
-                let type_node = node.child_by_field_name("type")?;
-                let interface_name = extract_type_name(type_node, code)?;
+;;; const_spec
+(const_declaration
+    (const_spec
+        name: (identifier) @const_name)) @const_def
 
-                // The value field contains the concrete type, wrapped in expression_list
-                let value_node = node.child_by_field_name("value")?;
-                let expr = if value_node.kind() == "expression_list" {
-                    value_node.child(0)?
-                } else {
-                    value_node
-                };
-                let concrete_type = extract_conformance_type(expr, code)?;
+;;; var_spec (top-level only)
+(source_file
+    (var_declaration
+        (var_spec
+            name: (identifier) @var_name))) @var_def
 
-                Some(ImplInfo {
-                    target_type: concrete_type,
-                    trait_name: Some(interface_name),
-                })
-            }
-            _ => None,
-        }
-    }
+;;; struct field declarations (named fields)
+(field_declaration_list
+    (field_declaration
+        name: (field_identifier) @field_name) @field_def)
 
-    fn extract_type_references(node: Node, code: &str) -> Vec<(SymbolName, ReferenceType)> {
-        let mut refs = Vec::new();
-        if node.kind() == "type_declaration" {
-            // Determine if this is a struct or interface to assign correct edge type
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "type_spec"
-                    && let Some(type_body) = child.child_by_field_name("type")
-                {
-                    let ref_kind = match type_body.kind() {
-                        "struct_type" => ReferenceType::FieldType,
-                        "interface_type" => ReferenceType::TypeAnnotation,
-                        _ => ReferenceType::FieldType,
-                    };
-                    collect_type_identifiers_with_kind(child, code, &mut refs, &ref_kind);
-                }
-            }
-        }
-        // function/method type refs are handled by extract_return_types
-        // and extract_param_types — don't duplicate them here
-        refs
-    }
+;;; struct embedding heritage (anonymous fields only — !name excludes named fields)
+(type_declaration
+    (type_spec
+        name: (type_identifier) @heritage_class
+        type: (struct_type
+            (field_declaration_list
+                (field_declaration
+                    !name
+                    type: (type_identifier) @heritage_extends))))) @heritage_def
 
-    fn name() -> &'static str {
+;;; call_expression — plain function call
+(call_expression
+    function: (identifier) @call_free_name) @call_free
+
+;;; call_expression — selector call (pkg.Func() or obj.Method())
+(call_expression
+    function: (selector_expression
+        operand: (_) @call_selector_operand
+        field: (field_identifier) @call_selector_name)) @call_selector
+
+;;; composite_literal — struct instantiation
+(composite_literal
+    type: (type_identifier) @composite_type) @composite_lit
+
+;;; composite_literal — qualified struct instantiation (pkg.Type{})
+(composite_literal
+    type: (qualified_type
+        package: (package_identifier) @composite_pkg
+        name: (type_identifier) @composite_qual_type)) @composite_qual_lit
+
+;;; import_declaration — single import
+(import_declaration
+    (import_spec
+        path: (interpreted_string_literal) @import_path)) @import_decl
+
+;;; import_declaration — grouped imports
+(import_declaration
+    (import_spec_list
+        (import_spec
+            path: (interpreted_string_literal) @import_grouped_path))) @import_grouped_decl
+
+;;; import with alias — single
+(import_declaration
+    (import_spec
+        name: (package_identifier) @import_alias
+        path: (interpreted_string_literal) @import_alias_path)) @import_alias_decl
+
+;;; import with alias — grouped
+(import_declaration
+    (import_spec_list
+        (import_spec
+            name: (package_identifier) @import_grouped_alias
+            path: (interpreted_string_literal) @import_grouped_alias_path))) @import_grouped_alias_decl
+
+;;; write access — field assignment (obj.field = value)
+(assignment_statement
+    left: (expression_list
+        (selector_expression
+            operand: (_) @write_assign_receiver
+            field: (field_identifier) @write_assign_field))
+    right: (_)) @write_assign
+
+;;; write access — field increment (obj.field++)
+(inc_statement
+    (selector_expression
+        operand: (_) @write_inc_receiver
+        field: (field_identifier) @write_inc_field)) @write_inc
+
+;;; write access — field decrement (obj.field--)
+(dec_statement
+    (selector_expression
+        operand: (_) @write_dec_receiver
+        field: (field_identifier) @write_dec_field)) @write_dec
+"#;
+
+impl Go {
+    pub fn name() -> &'static str {
         "go"
     }
 
-    fn extensions() -> &'static [&'static str] {
+    pub fn extensions() -> &'static [&'static str] {
         &["go"]
     }
 
-    fn extract_signature(node: Node, code: &str) -> Option<String> {
-        match node.kind() {
-            "function_declaration" => extract_function_signature(node, code),
-            "method_declaration" => extract_method_signature(node, code),
-            _ => None,
-        }
+    pub fn grammar() -> tree_sitter::Language {
+        tree_sitter_go::LANGUAGE.into()
     }
 
-    fn extract_usages(node: Node, code: &str) -> Vec<(SymbolName, usize)> {
-        // Only extract usages from function/method bodies
-        let body = match node.kind() {
-            "function_declaration" | "method_declaration" => node.child_by_field_name("body"),
-            _ => None,
-        };
-        let Some(body) = body else {
-            return Vec::new();
-        };
-
-        // Collect local declarations to exclude them from usages
-        let mut locals = std::collections::HashSet::new();
-
-        // Collect parameter names
-        if let Some(params) = node.child_by_field_name("parameters") {
-            collect_param_names(params, code, &mut locals);
-        }
-        // Collect receiver name for methods
-        if let Some(receiver) = node.child_by_field_name("receiver") {
-            collect_param_names(receiver, code, &mut locals);
-        }
-
-        // Collect local variable declarations from the body
-        collect_local_declarations(body, code, &mut locals);
-
-        // Scan the body for identifier usages, excluding locals and builtins
-        let mut usages = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        collect_identifier_usages(body, code, &locals, &mut usages, &mut seen);
-        usages
+    pub fn queries() -> &'static str {
+        QUERIES
     }
 
-    fn extract_return_types(node: Node, code: &str) -> Vec<SymbolName> {
-        match node.kind() {
-            "function_declaration" | "method_declaration" => {}
-            _ => return Vec::new(),
-        }
+    pub fn extract(code: &str, file_path: &str) -> ParsedFile {
+        let mut parsed = ParsedFile::new(file_path, "go");
+        let language = Self::grammar();
 
-        let Some(result) = node.child_by_field_name("result") else {
-            return Vec::new();
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&language).expect("grammar error");
+        let tree = match parser.parse(code, None) {
+            Some(t) => t,
+            None => return parsed,
         };
 
-        let mut types = Vec::new();
-        collect_return_type_identifiers(result, code, &mut types);
-        types
-    }
-
-    fn extract_param_types(node: Node, code: &str) -> Vec<SymbolName> {
-        match node.kind() {
-            "function_declaration" | "method_declaration" => {}
-            _ => return Vec::new(),
-        }
-
-        let Some(params) = node.child_by_field_name("parameters") else {
-            return Vec::new();
+        let query = match Query::new(&language, QUERIES) {
+            Ok(q) => q,
+            Err(_) => return parsed,
         };
 
-        let mut types = Vec::new();
-        // Reuse the same collector as return types — it handles
-        // type_identifier, pointer_type, and parameter_declaration
-        collect_return_type_identifiers(params, code, &mut types);
-        types
-    }
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
 
-    fn extract_interface_methods(node: Node, code: &str) -> Option<(String, Vec<String>)> {
-        if node.kind() != "type_declaration" {
-            return None;
-        }
-        for child in node.children(&mut node.walk()) {
-            if child.kind() != "type_spec" {
-                continue;
-            }
-            let name = child.child_by_field_name("name")?;
-            let type_body = child.child_by_field_name("type")?;
-            if type_body.kind() != "interface_type" {
-                return None;
-            }
-            let iface_name = node_text(name, code);
-            let mut methods = Vec::new();
-            for member in type_body.children(&mut type_body.walk()) {
-                if member.kind() == "method_elem" {
-                    // method_elem has a "name" field
-                    if let Some(method_name) = member.child_by_field_name("name") {
-                        methods.push(node_text(method_name, code));
-                    }
-                }
-            }
-            return Some((iface_name, methods));
-        }
-        None
-    }
-
-    fn module_info(node: Node, _code: &str, _file_path: &str) -> Option<ModuleInfo> {
-        if node.kind() != "package_clause" {
-            return None;
-        }
-        // Go packages always have a "body" — the rest of the file's
-        // top-level declarations belong to the package. The package_clause
-        // is a sibling of those declarations in the source_file AST.
-        Some(ModuleInfo {
-            has_body: true,
-            candidate_paths: Vec::new(),
-        })
-    }
-
-    fn extract_import(node: Node, code: &str) -> Option<Vec<ImportEntry>> {
-        if node.kind() != "import_declaration" {
-            return None;
+        while let Some(m) = matches.next() {
+            Self::process_match(&query, m, code, file_path, &mut parsed);
         }
 
-        let mut entries = Vec::new();
-
-        // Go import can be single: `import "fmt"` or grouped: `import (...)`
-        for child in node.children(&mut node.walk()) {
-            match child.kind() {
-                "import_spec" => {
-                    if let Some(entry) = parse_import_spec(child, code) {
-                        entries.push(entry);
-                    }
-                }
-                "import_spec_list" => {
-                    for spec in child.children(&mut child.walk()) {
-                        if spec.kind() == "import_spec"
-                            && let Some(entry) = parse_import_spec(spec, code)
-                        {
-                            entries.push(entry);
-                        }
-                    }
-                }
-                _ => {}
+        for sym in &mut parsed.symbols {
+            sym.visibility = go_visibility(&sym.name);
+            if sym.kind == "function" {
+                sym.entry_type = go_entry_type(&sym.name);
             }
         }
 
-        if entries.is_empty() {
-            None
-        } else {
-            Some(entries)
-        }
+        parsed
     }
 
-    fn resolve_import(
-        global: &GlobalSymbolMap,
+    fn process_match(
+        query: &Query,
+        m: &tree_sitter::QueryMatch,
+        code: &str,
         file_path: &str,
-        _module_path: &str,
-        imported_name: &str,
-    ) -> Vec<(SymbolId, SymbolId)> {
-        let bare = SymbolName::new(imported_name);
-        let candidates = match global.bare_to_qualified.get(&bare) {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        let target_id = match candidates.iter().find_map(|qn| {
-            let id = global.qualified_map.get(qn)?;
-            let kind = global.symbol_kinds.get(id)?;
-            if kind == "package" {
-                Some(id.clone())
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::analysis::types::*;
+
+        let capture_name = |idx: u32| -> &str { query.capture_names()[idx as usize] };
+
+        let mut captures: std::collections::HashMap<&str, tree_sitter::Node> =
+            std::collections::HashMap::new();
+        for cap in m.captures {
+            captures.insert(capture_name(cap.index), cap.node);
+        }
+
+        let text = |node: tree_sitter::Node| -> &str { &code[node.byte_range()] };
+
+        // Package declaration
+        if captures.contains_key("package")
+            && let Some(&name_node) = captures.get("pkg_name")
+        {
+            let node = captures["package"];
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "package".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Function declaration
+        if let Some(&node) = captures.get("fn_def")
+            && let Some(&name_node) = captures.get("fn_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "function".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Method declaration
+        if let Some(&node) = captures.get("method_def")
+            && let Some(&name_node) = captures.get("method_name")
+        {
+            let idx = parsed.symbols.len();
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "function".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+
+            if let Some(&recv_node) = captures.get("method_receiver") {
+                let recv_text = text(recv_node);
+                if let Some(type_name) = extract_go_receiver_type(recv_text) {
+                    parsed.containments.push(RawContainment {
+                        file_path: file_path.to_string(),
+                        parent_name: type_name,
+                        child_symbol_idx: idx,
+                    });
+                }
+            }
+            return;
+        }
+
+        // Struct
+        if let Some(&node) = captures.get("struct_def")
+            && let Some(&name_node) = captures.get("struct_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "struct".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Interface
+        if let Some(&node) = captures.get("iface_def")
+            && let Some(&name_node) = captures.get("iface_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "interface".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Heritage — struct embedding (anonymous fields)
+        if captures.contains_key("heritage_def")
+            && let (Some(&class_node), Some(&extends_node)) = (
+                captures.get("heritage_class"),
+                captures.get("heritage_extends"),
+            )
+        {
+            parsed.heritage.push(RawHeritage {
+                file_path: file_path.to_string(),
+                type_name: text(class_node).to_string(),
+                parent_name: text(extends_node).to_string(),
+                kind: InheritanceType::Extends,
+            });
+            return;
+        }
+
+        // Struct fields (named)
+        if let Some(&node) = captures.get("field_def")
+            && let Some(&name_node) = captures.get("field_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "field".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: None,
+                entry_type: None,
+            });
+            return;
+        }
+
+        // Const
+        if let Some(&node) = captures.get("const_def")
+            && let Some(&name_node) = captures.get("const_name")
+        {
+            let name = text(name_node);
+            if name != "_" {
+                parsed.symbols.push(RawSymbol {
+                    name: name.to_string(),
+                    kind: "const".to_string(),
+                    file_path: file_path.to_string(),
+                    start_line: node.start_position().row + 1,
+                    end_line: node.end_position().row + 1,
+                    signature: None,
+                    language: "go".to_string(),
+                    visibility: None,
+                    entry_type: None,
+                });
+            }
+            return;
+        }
+
+        // Var (top-level only via source_file constraint)
+        if let Some(&node) = captures.get("var_def")
+            && let Some(&name_node) = captures.get("var_name")
+        {
+            let name = text(name_node);
+            if name != "_" {
+                parsed.symbols.push(RawSymbol {
+                    name: name.to_string(),
+                    kind: "var".to_string(),
+                    file_path: file_path.to_string(),
+                    start_line: node.start_position().row + 1,
+                    end_line: node.end_position().row + 1,
+                    signature: None,
+                    language: "go".to_string(),
+                    visibility: None,
+                    entry_type: None,
+                });
+            }
+            return;
+        }
+
+        // Calls — plain
+        if captures.contains_key("call_free")
+            && let Some(&name_node) = captures.get("call_free_name")
+        {
+            let call_node = captures["call_free"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
+            return;
+        }
+
+        // Calls — selector (pkg.Func() or obj.Method())
+        if captures.contains_key("call_selector")
+            && let Some(&name_node) = captures.get("call_selector_name")
+        {
+            let call_node = captures["call_selector"];
+            let operand = captures
+                .get("call_selector_operand")
+                .map(|n| text(*n).to_string());
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Scoped,
+                receiver: operand.clone(),
+                qualifier: operand,
+                enclosing_symbol_idx: None,
+            });
+            return;
+        }
+
+        // Composite literal — struct instantiation as constructor call
+        if captures.contains_key("composite_lit")
+            && let Some(&type_node) = captures.get("composite_type")
+        {
+            let lit_node = captures["composite_lit"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: lit_node.start_position().row + 1,
+                callee_name: text(type_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
+            return;
+        }
+
+        // Qualified composite literal (pkg.Type{})
+        if captures.contains_key("composite_qual_lit")
+            && let Some(&type_node) = captures.get("composite_qual_type")
+        {
+            let lit_node = captures["composite_qual_lit"];
+            let qualifier = captures.get("composite_pkg").map(|n| text(*n).to_string());
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: lit_node.start_position().row + 1,
+                callee_name: text(type_node).to_string(),
+                call_form: CallForm::Scoped,
+                receiver: None,
+                qualifier,
+                enclosing_symbol_idx: None,
+            });
+            return;
+        }
+
+        // Imports — single
+        if captures.contains_key("import_decl")
+            && let Some(&path_node) = captures.get("import_path")
+        {
+            let raw_path = text(path_node).trim_matches('"');
+            let pkg_name = raw_path.rsplit('/').next().unwrap_or(raw_path);
+            parsed.imports.push(RawImport {
+                file_path: file_path.to_string(),
+                entry: ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]),
+            });
+            return;
+        }
+
+        // Imports — grouped
+        if captures.contains_key("import_grouped_decl")
+            && let Some(&path_node) = captures.get("import_grouped_path")
+        {
+            let raw_path = text(path_node).trim_matches('"');
+            let pkg_name = raw_path.rsplit('/').next().unwrap_or(raw_path);
+            parsed.imports.push(RawImport {
+                file_path: file_path.to_string(),
+                entry: ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]),
+            });
+            return;
+        }
+
+        // Import with alias — single
+        if captures.contains_key("import_alias_decl")
+            && let Some(&path_node) = captures.get("import_alias_path")
+        {
+            let raw_path = text(path_node).trim_matches('"');
+            let alias = captures.get("import_alias").map(|n| text(*n).to_string());
+            if let Some(alias_name) = &alias {
+                if alias_name == "_" || alias_name == "." {
+                    return;
+                }
+                let mut entry = ImportEntry::named_import(raw_path, vec![alias_name.clone()]);
+                entry.alias = Some(alias_name.clone());
+                parsed.imports.push(RawImport {
+                    file_path: file_path.to_string(),
+                    entry,
+                });
+            }
+            return;
+        }
+
+        // Import with alias — grouped
+        if captures.contains_key("import_grouped_alias_decl")
+            && let Some(&path_node) = captures.get("import_grouped_alias_path")
+        {
+            let raw_path = text(path_node).trim_matches('"');
+            let alias = captures
+                .get("import_grouped_alias")
+                .map(|n| text(*n).to_string());
+            if let Some(alias_name) = &alias {
+                if alias_name == "_" || alias_name == "." {
+                    return;
+                }
+                let mut entry = ImportEntry::named_import(raw_path, vec![alias_name.clone()]);
+                entry.alias = Some(alias_name.clone());
+                parsed.imports.push(RawImport {
+                    file_path: file_path.to_string(),
+                    entry,
+                });
+            }
+            return;
+        }
+
+        // Write access — field assignment
+        if captures.contains_key("write_assign")
+            && let Some(&recv_node) = captures.get("write_assign_receiver")
+            && let Some(&field_node) = captures.get("write_assign_field")
+        {
+            let assign_node = captures["write_assign"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: assign_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
+            return;
+        }
+
+        // Write access — increment
+        if captures.contains_key("write_inc")
+            && let Some(&recv_node) = captures.get("write_inc_receiver")
+            && let Some(&field_node) = captures.get("write_inc_field")
+        {
+            let inc_node = captures["write_inc"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: inc_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
+            return;
+        }
+
+        // Write access — decrement
+        if captures.contains_key("write_dec")
+            && let Some(&recv_node) = captures.get("write_dec_receiver")
+            && let Some(&field_node) = captures.get("write_dec_field")
+        {
+            let dec_node = captures["write_dec"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: dec_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
+        }
+    }
+}
+
+fn extract_go_receiver_type(receiver_text: &str) -> Option<String> {
+    let inner = receiver_text.trim_start_matches('(').trim_end_matches(')');
+    let parts: Vec<&str> = inner.split_whitespace().collect();
+    let type_part = parts.last()?;
+    Some(type_part.trim_start_matches('*').to_string())
+}
+
+fn go_visibility(name: &str) -> Option<String> {
+    name.chars()
+        .next()
+        .map(|c| {
+            if c.is_uppercase() {
+                "public"
             } else {
-                None
+                "private"
             }
-        }) {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        match global.file_module_symbol.get(file_path) {
-            Some(source_id) => vec![(source_id.clone(), target_id)],
-            None => Vec::new(),
-        }
-    }
+        })
+        .map(|s| s.to_string())
 }
 
-/// Parse a single Go import_spec into an ImportEntry.
-/// import_spec has optional `name` field (alias) and required `path` field (string literal).
-fn parse_import_spec(node: Node, code: &str) -> Option<ImportEntry> {
-    // Extract the path (required) — it's an interpreted_string_literal
-    let path_node = node.child_by_field_name("path")?;
-    let raw_path = node_text(path_node, code);
-    // Strip surrounding quotes
-    let module_path = raw_path.trim_matches('"').to_string();
-    if module_path.is_empty() {
-        return None;
-    }
-
-    // Extract optional alias (package_identifier, dot, or blank_identifier)
-    let alias = node.child_by_field_name("name").map(|n| {
-        let text = node_text(n, code);
-        text.trim().to_string()
-    });
-
-    // Go convention: the usable package name is the last segment of the import path.
-    // `import "myapp/cache"` makes `cache` available as the package name.
-    // If aliased (`import foo "myapp/cache"`), the alias overrides.
-    let package_name = if let Some(ref a) = alias {
-        if a == "." || a == "_" {
-            // dot import or blank import — no single usable name
-            None
-        } else {
-            Some(a.clone())
+fn go_entry_type(name: &str) -> Option<String> {
+    match name {
+        "main" => Some("main".to_string()),
+        "init" => Some("init".to_string()),
+        n if n.starts_with("Test")
+            && n.len() > 4
+            && n[4..].starts_with(|c: char| c.is_uppercase()) =>
+        {
+            Some("test".to_string())
         }
-    } else {
-        module_path.rsplit('/').next().map(|s| s.to_string())
-    };
-
-    Some(ImportEntry {
-        module_path,
-        imported_names: package_name.into_iter().collect(),
-        alias,
-        is_glob: false,
-    })
-}
-
-/// Extract text from a node
-fn node_text(node: Node, code: &str) -> String {
-    code[node.byte_range()].to_string()
-}
-
-/// Parse a type_declaration to determine if it's a struct, interface, or type alias.
-/// type_declaration contains one or more type_spec children.
-fn parse_type_declaration(node: Node, code: &str) -> Option<(Kind, String)> {
-    // type_declaration wraps type_spec(s)
-    // For single declarations: type Foo struct { ... }
-    // For grouped declarations: type ( Foo struct { ... }; Bar int )
-    // We handle type_spec at the child level, but tree-sitter gives us
-    // type_declaration as the top node. Look for the first type_spec.
-    for child in node.children(&mut node.walk()) {
-        if child.kind() == "type_spec" {
-            return parse_type_spec(child, code);
+        "TestMain" => Some("test".to_string()),
+        n if n.starts_with("Benchmark")
+            && n.len() > 9
+            && n[9..].starts_with(|c: char| c.is_uppercase()) =>
+        {
+            Some("benchmark".to_string())
         }
-    }
-    None
-}
-
-/// Parse a single type_spec: `name type_body`
-fn parse_type_spec(node: Node, code: &str) -> Option<(Kind, String)> {
-    let name = node.child_by_field_name("name")?;
-    let name_str = node_text(name, code);
-
-    let type_node = node.child_by_field_name("type")?;
-    let kind = match type_node.kind() {
-        "struct_type" => Kind::Struct,
-        "interface_type" => Kind::Interface,
-        _ => Kind::TypeAlias,
-    };
-
-    Some((kind, name_str))
-}
-
-/// Extract a type name from a type node (type_identifier or pointer_type or qualified_type)
-fn extract_type_name(node: Node, code: &str) -> Option<String> {
-    match node.kind() {
-        "type_identifier" => Some(node_text(node, code)),
-        "pointer_type" => {
-            // *Type — recurse into the inner type
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "type_identifier" {
-                    return Some(node_text(child, code));
-                }
-            }
-            None
+        n if n.starts_with("Fuzz")
+            && n.len() > 4
+            && n[4..].starts_with(|c: char| c.is_uppercase()) =>
+        {
+            Some("fuzz".to_string())
         }
-        "qualified_type" => {
-            // pkg.Type — extract the type part
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "type_identifier" {
-                    return Some(node_text(child, code));
-                }
-            }
-            None
-        }
+        n if n.starts_with("Example") => Some("example".to_string()),
         _ => None,
     }
-}
-
-/// Extract the concrete type from a conformance check value expression.
-/// Handles:
-///   (*Type)(nil)  — call_expression wrapping parenthesized unary_expression (*Type)
-///   &Type{}       — unary_expression with address-of composite literal
-fn extract_conformance_type(node: Node, code: &str) -> Option<String> {
-    match node.kind() {
-        // (*FileBasedCache)(nil) is a call_expression
-        "call_expression" => {
-            let func = node.child_by_field_name("function")?;
-            extract_conformance_type(func, code)
-        }
-        // (*FileBasedCache) is a parenthesized_expression containing unary_expression *Type
-        "parenthesized_expression" => {
-            for child in node.children(&mut node.walk()) {
-                match child.kind() {
-                    // tree-sitter-go represents *Type in expressions as unary_expression
-                    "unary_expression" => {
-                        if let Some(operand) = child.child_by_field_name("operand")
-                            && operand.kind() == "identifier"
-                        {
-                            return Some(node_text(operand, code));
-                        }
-                    }
-                    "type_identifier" | "identifier" => {
-                        return Some(node_text(child, code));
-                    }
-                    _ => {}
-                }
-            }
-            None
-        }
-        // &FileBasedCache{} is a unary_expression with & operator
-        "unary_expression" => {
-            if let Some(operand) = node.child_by_field_name("operand")
-                && operand.kind() == "composite_literal"
-            {
-                // composite_literal has a type field
-                if let Some(type_node) = operand.child_by_field_name("type") {
-                    return extract_type_name(type_node, code);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-/// Recursively collect type_identifier nodes from a Go return type subtree.
-/// Handles single types, pointer types, and parameter_list (multiple/named returns).
-/// Skips builtin types.
-fn collect_return_type_identifiers(node: Node, code: &str, types: &mut Vec<SymbolName>) {
-    match node.kind() {
-        "type_identifier" => {
-            let name = node_text(node, code);
-            if !is_builtin_type(&name) {
-                types.push(SymbolName::new(name));
-            }
-        }
-        "pointer_type" => {
-            // *Config — recurse to get the inner type
-            for child in node.children(&mut node.walk()) {
-                collect_return_type_identifiers(child, code, types);
-            }
-        }
-        "parameter_list" => {
-            // (Config, error) or (result Config, err error)
-            for child in node.children(&mut node.walk()) {
-                collect_return_type_identifiers(child, code, types);
-            }
-        }
-        "parameter_declaration" => {
-            // Named return: `result Config` — extract from type field
-            if let Some(type_node) = node.child_by_field_name("type") {
-                collect_return_type_identifiers(type_node, code, types);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Extract function signature: `func name(params) return_type`
-fn extract_function_signature(node: Node, code: &str) -> Option<String> {
-    let name = node.child_by_field_name("name")?;
-    let params = node.child_by_field_name("parameters")?;
-
-    let mut sig = format!("func {}{}", node_text(name, code), node_text(params, code));
-
-    if let Some(result) = node.child_by_field_name("result") {
-        sig.push(' ');
-        sig.push_str(&node_text(result, code));
-    }
-
-    Some(sig)
-}
-
-/// Extract method signature: `func (receiver) name(params) return_type`
-fn extract_method_signature(node: Node, code: &str) -> Option<String> {
-    let name = node.child_by_field_name("name")?;
-    let params = node.child_by_field_name("parameters")?;
-
-    // Receiver is the first parameter_list before the name
-    let receiver = node.child_by_field_name("receiver")?;
-
-    let mut sig = format!(
-        "func {} {}{}",
-        node_text(receiver, code),
-        node_text(name, code),
-        node_text(params, code),
-    );
-
-    if let Some(result) = node.child_by_field_name("result") {
-        sig.push(' ');
-        sig.push_str(&node_text(result, code));
-    }
-
-    Some(sig)
-}
-
-/// Recursively collect type_identifier references from a node's subtree,
-/// assigning the given reference kind.
-/// Skips the "name" field of type_spec to avoid self-references.
-fn collect_type_identifiers_with_kind(
-    node: Node,
-    code: &str,
-    refs: &mut Vec<(SymbolName, ReferenceType)>,
-    ref_kind: &ReferenceType,
-) {
-    if node.kind() == "type_identifier" {
-        let name = node_text(node, code);
-        // Skip built-in types
-        if !is_builtin_type(&name) {
-            refs.push((SymbolName::new(name), ref_kind.clone()));
-        }
-        return;
-    }
-
-    for child in node.children(&mut node.walk()) {
-        // Skip the "name" field of type_spec declarations to avoid self-refs
-        if node.kind() == "type_spec"
-            && let Some(name_node) = node.child_by_field_name("name")
-            && child.id() == name_node.id()
-        {
-            continue;
-        }
-        collect_type_identifiers_with_kind(child, code, refs, ref_kind);
-    }
-}
-
-/// Check if a type name is a Go built-in type
-fn is_builtin_type(name: &str) -> bool {
-    matches!(
-        name,
-        "bool"
-            | "byte"
-            | "complex64"
-            | "complex128"
-            | "error"
-            | "float32"
-            | "float64"
-            | "int"
-            | "int8"
-            | "int16"
-            | "int32"
-            | "int64"
-            | "rune"
-            | "string"
-            | "uint"
-            | "uint8"
-            | "uint16"
-            | "uint32"
-            | "uint64"
-            | "uintptr"
-            | "any"
-            | "comparable"
-    )
-}
-
-/// Check if an identifier is a Go built-in function or value
-fn is_builtin_identifier(name: &str) -> bool {
-    matches!(
-        name,
-        "append"
-            | "cap"
-            | "clear"
-            | "close"
-            | "complex"
-            | "copy"
-            | "delete"
-            | "imag"
-            | "len"
-            | "make"
-            | "max"
-            | "min"
-            | "new"
-            | "panic"
-            | "print"
-            | "println"
-            | "real"
-            | "recover"
-            | "true"
-            | "false"
-            | "nil"
-            | "iota"
-    )
-}
-
-/// Collect parameter names from a parameter_list node
-fn collect_param_names(
-    param_list: Node,
-    code: &str,
-    locals: &mut std::collections::HashSet<String>,
-) {
-    for child in param_list.children(&mut param_list.walk()) {
-        if child.kind() == "parameter_declaration" {
-            for param_child in child.children(&mut child.walk()) {
-                if param_child.kind() == "identifier" {
-                    locals.insert(node_text(param_child, code));
-                }
-            }
-        }
-    }
-}
-
-/// Recursively collect local variable/constant declarations from a block
-fn collect_local_declarations(
-    node: Node,
-    code: &str,
-    locals: &mut std::collections::HashSet<String>,
-) {
-    match node.kind() {
-        // short_var_declaration: `x, y := expr`
-        "short_var_declaration" => {
-            if let Some(left) = node.child_by_field_name("left") {
-                for child in left.children(&mut left.walk()) {
-                    if child.kind() == "identifier" {
-                        locals.insert(node_text(child, code));
-                    }
-                }
-            }
-            return;
-        }
-        // var_spec inside a function: `var x int = 5`
-        "var_spec" => {
-            if let Some(name) = node.child_by_field_name("name") {
-                locals.insert(node_text(name, code));
-            }
-            return;
-        }
-        // range clause: `for k, v := range items`
-        "range_clause" => {
-            if let Some(left) = node.child_by_field_name("left") {
-                for child in left.children(&mut left.walk()) {
-                    if child.kind() == "identifier" {
-                        locals.insert(node_text(child, code));
-                    }
-                }
-            }
-            return;
-        }
-        _ => {}
-    }
-
-    for child in node.children(&mut node.walk()) {
-        if child.kind() != "func_literal" {
-            collect_local_declarations(child, code, locals);
-        }
-    }
-}
-
-/// Collect identifier usages from a function body, excluding locals and builtins.
-/// Only collects `identifier` nodes (not `type_identifier` — those are types).
-/// Deduplicates by name (one usage edge per referenced symbol, not per occurrence).
-fn collect_identifier_usages(
-    node: Node,
-    code: &str,
-    locals: &std::collections::HashSet<String>,
-    usages: &mut Vec<(SymbolName, usize)>,
-    seen: &mut std::collections::HashSet<String>,
-) {
-    if node.kind() == "identifier" {
-        let name = node_text(node, code);
-        if !locals.contains(&name)
-            && !is_builtin_identifier(&name)
-            && !is_builtin_type(&name)
-            && !seen.contains(&name)
-            && name.len() > 1
-            && !is_definition_position(node)
-        {
-            seen.insert(name.clone());
-            let line = node.start_position().row + 1;
-            usages.push((SymbolName::new(name), line));
-        }
-        return;
-    }
-
-    // Don't recurse into nested function literals
-    if node.kind() == "func_literal" {
-        return;
-    }
-
-    for child in node.children(&mut node.walk()) {
-        collect_identifier_usages(child, code, locals, usages, seen);
-    }
-}
-
-/// Check if an identifier is in a definition/assignment position
-fn is_definition_position(node: Node) -> bool {
-    let Some(parent) = node.parent() else {
-        return false;
-    };
-    match parent.kind() {
-        "assignment_statement" => {
-            if let Some(left) = parent.child_by_field_name("left") {
-                is_ancestor_of(left, node)
-            } else {
-                false
-            }
-        }
-        "selector_expression" => {
-            if let Some(field) = parent.child_by_field_name("field") {
-                node.id() == field.id()
-            } else {
-                false
-            }
-        }
-        "labeled_statement" => {
-            if let Some(label) = parent.child_by_field_name("label") {
-                node.id() == label.id()
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
-/// Check if `ancestor` is an ancestor of (or is) `node`
-fn is_ancestor_of(ancestor: Node, node: Node) -> bool {
-    if ancestor.id() == node.id() {
-        return true;
-    }
-    for child in ancestor.children(&mut ancestor.walk()) {
-        if is_ancestor_of(child, node) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Returns true if the given node is inside a function or method body.
-fn is_inside_function(node: Node) -> bool {
-    let mut current = node;
-    while let Some(parent) = current.parent() {
-        match parent.kind() {
-            "function_declaration" | "method_declaration" | "func_literal" => return true,
-            _ => current = parent,
-        }
-    }
-    false
 }

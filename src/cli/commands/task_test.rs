@@ -73,25 +73,19 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 
     let temp_dir = TempDir::new().unwrap();
     let project_id = sqlx::query_scalar::<_, String>(
-        "INSERT INTO project (id, title, description, tags, created_at, updated_at) 
-         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now')) 
+        "INSERT INTO project (id, title, description, tags, created_at, updated_at)
+         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now'))
          RETURNING id"
     )
     .fetch_one(db.pool())
     .await
     .expect("Failed to create test project");
 
-    // Create job infrastructure
-    let job_queue = crate::jobs::JobQueue::new();
-    let job_registry = crate::jobs::JobRegistry::new();
-    let job_executor = crate::jobs::JobExecutor::new(job_queue.clone(), job_registry);
     let state = crate::api::AppState::new(
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        job_queue,
-        job_executor,
     );
     let app = crate::api::routes::create_router(state, false);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

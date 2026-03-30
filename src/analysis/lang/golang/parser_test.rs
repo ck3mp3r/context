@@ -1,1453 +1,413 @@
-// Tests for Go language parser
+use super::parser::Go;
+use crate::analysis::types::*;
 
-use crate::analysis::lang::golang::{Go, Kind};
-use crate::analysis::parser::Language;
-use crate::analysis::types::{ImportEntry, ReferenceType};
-use tree_sitter::{Node, Parser};
-
-/// Helper: parse code and find first node of given kind
-fn parse_and_find<'a>(tree: &'a tree_sitter::Tree, node_kind: &str) -> Option<Node<'a>> {
-    fn find_node<'b>(node: Node<'b>, kind: &str) -> Option<Node<'b>> {
-        if node.kind() == kind {
-            return Some(node);
-        }
-        for child in node.children(&mut node.walk()) {
-            if let Some(found) = find_node(child, kind) {
-                return Some(found);
-            }
-        }
-        None
-    }
-    find_node(tree.root_node(), node_kind)
+fn load_testdata(name: &str) -> String {
+    let path = format!(
+        "{}/src/analysis/lang/golang/testdata/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    );
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e))
 }
-
-/// Helper: parse code and collect all symbols
-fn extract_all_symbols(code: &str) -> Vec<(Kind, String)> {
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let mut symbols = Vec::new();
-    fn collect(node: Node, code: &str, symbols: &mut Vec<(Kind, String)>) {
-        if let Some(sym) = Go::parse_symbol(node, code) {
-            symbols.push(sym);
-        }
-        for child in node.children(&mut node.walk()) {
-            collect(child, code, symbols);
-        }
-    }
-    collect(tree.root_node(), code, &mut symbols);
-    symbols
-}
-
-// ============================================================================
-// Symbol extraction tests
-// ============================================================================
 
 #[test]
-fn test_parse_function() {
-    let code = r#"
-package main
-
-func hello(name string) string {
-    return "Hello, " + name
+fn test_query_compiles() {
+    let language = Go::grammar();
+    assert!(tree_sitter::Query::new(&language, Go::queries()).is_ok());
 }
-"#;
-    let symbols = extract_all_symbols(code);
-    let funcs: Vec<_> = symbols
+
+// --- cache.go ---
+
+#[test]
+fn test_cache_symbols() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    let sym = |name: &str| parsed.symbols.iter().find(|s| s.name == name);
+
+    assert!(sym("cache").is_some_and(|s| s.kind == "package"));
+    assert!(sym("Cache").is_some_and(|s| s.kind == "struct"));
+    assert!(sym("Item").is_some_and(|s| s.kind == "struct"));
+    assert!(sym("Cacher").is_some_and(|s| s.kind == "interface"));
+    assert!(sym("New").is_some_and(|s| s.kind == "function"));
+    assert!(sym("DefaultTTL").is_some_and(|s| s.kind == "const"));
+}
+
+#[test]
+fn test_cache_methods_containment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    let cache_methods: Vec<&str> = parsed
+        .containments
         .iter()
-        .filter(|(k, _)| *k == Kind::Function)
+        .filter(|c| c.parent_name == "Cache")
+        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
         .collect();
-    assert_eq!(funcs.len(), 1);
-    assert_eq!(funcs[0].1, "hello");
+
+    assert!(cache_methods.contains(&"Get"));
+    assert!(cache_methods.contains(&"Set"));
+    assert!(cache_methods.contains(&"Delete"));
+    assert!(cache_methods.contains(&"Cleanup"));
 }
 
 #[test]
-fn test_parse_method() {
-    let code = r#"
-package main
+fn test_cache_imports() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-type Person struct {
-    Name string
-}
-
-func (p Person) Greet() string {
-    return "Hi, " + p.Name
-}
-
-func (p *Person) SetName(name string) {
-    p.Name = name
-}
-"#;
-    let symbols = extract_all_symbols(code);
-    let methods: Vec<_> = symbols.iter().filter(|(k, _)| *k == Kind::Method).collect();
-    assert_eq!(methods.len(), 2);
-    assert_eq!(methods[0].1, "Greet");
-    assert_eq!(methods[1].1, "SetName");
+    assert!(
+        parsed.imports.iter().any(|i| i.entry.module_path == "sync"),
+        "should extract 'sync' import from grouped import block, got: {:?}",
+        parsed
+            .imports
+            .iter()
+            .map(|i| &i.entry.module_path)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        parsed.imports.iter().any(|i| i.entry.module_path == "time"),
+        "should extract 'time' import from grouped import block"
+    );
 }
 
 #[test]
-fn test_parse_struct() {
-    let code = r#"
-package main
+fn test_cache_selector_calls() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-type User struct {
-    Name  string
-    Email string
-    Age   int
-}
-"#;
-    let symbols = extract_all_symbols(code);
-    let structs: Vec<_> = symbols.iter().filter(|(k, _)| *k == Kind::Struct).collect();
-    assert_eq!(structs.len(), 1);
-    assert_eq!(structs[0].1, "User");
-}
-
-#[test]
-fn test_parse_interface() {
-    let code = r#"
-package main
-
-type Reader interface {
-    Read(p []byte) (n int, err error)
-}
-"#;
-    let symbols = extract_all_symbols(code);
-    let ifaces: Vec<_> = symbols
+    let scoped: Vec<(&str, Option<&str>)> = parsed
+        .calls
         .iter()
-        .filter(|(k, _)| *k == Kind::Interface)
+        .filter(|c| c.call_form == CallForm::Scoped)
+        .map(|c| (c.callee_name.as_str(), c.qualifier.as_deref()))
         .collect();
-    assert_eq!(ifaces.len(), 1);
-    assert_eq!(ifaces[0].1, "Reader");
+
+    assert!(
+        scoped.iter().any(|(name, _)| *name == "Now"),
+        "should capture time.Now() selector call, got: {:?}",
+        scoped
+    );
 }
 
 #[test]
-fn test_parse_type_alias() {
-    let code = r#"
-package main
+fn test_cache_composite_literals() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-type StringSlice []string
-type MyInt int
-"#;
-    let symbols = extract_all_symbols(code);
-    let aliases: Vec<_> = symbols
+    assert!(
+        parsed
+            .calls
+            .iter()
+            .any(|c| c.callee_name == "Cache" || c.callee_name == "Item"),
+        "should capture composite literals as constructor calls, got calls: {:?}",
+        parsed
+            .calls
+            .iter()
+            .map(|c| &c.callee_name)
+            .collect::<Vec<_>>()
+    );
+}
+
+// --- server.go ---
+
+#[test]
+fn test_server_aliased_import() {
+    let code = load_testdata("server.go");
+    let parsed = Go::extract(&code, "server/server.go");
+
+    let aliased = parsed.imports.iter().find(|i| i.entry.alias.is_some());
+
+    assert!(
+        aliased.is_some(),
+        "should extract aliased import, got: {:?}",
+        parsed
+            .imports
+            .iter()
+            .map(|i| (&i.entry.module_path, &i.entry.alias))
+            .collect::<Vec<_>>()
+    );
+
+    let imp = aliased.unwrap();
+    assert_eq!(imp.entry.module_path, "github.com/sirupsen/logrus");
+    assert_eq!(imp.entry.alias.as_deref(), Some("log"));
+    assert!(imp.entry.imported_names.contains(&"log".to_string()));
+}
+
+#[test]
+fn test_server_all_imports() {
+    let code = load_testdata("server.go");
+    let parsed = Go::extract(&code, "server/server.go");
+
+    assert!(
+        parsed.imports.iter().any(|i| i.entry.module_path == "fmt"),
+        "should extract 'fmt' from grouped imports"
+    );
+    assert!(
+        parsed
+            .imports
+            .iter()
+            .any(|i| i.entry.module_path == "net/http"),
+        "should extract 'net/http' from grouped imports"
+    );
+}
+
+#[test]
+fn test_server_selector_calls() {
+    let code = load_testdata("server.go");
+    let parsed = Go::extract(&code, "server/server.go");
+
+    let scoped: Vec<(&str, Option<&str>)> = parsed
+        .calls
         .iter()
-        .filter(|(k, _)| *k == Kind::TypeAlias)
+        .filter(|c| c.call_form == CallForm::Scoped)
+        .map(|c| (c.callee_name.as_str(), c.qualifier.as_deref()))
         .collect();
-    assert_eq!(aliases.len(), 2);
-    assert_eq!(aliases[0].1, "StringSlice");
-    assert_eq!(aliases[1].1, "MyInt");
+
+    assert!(
+        scoped
+            .iter()
+            .any(|(name, qual)| *name == "Sprintf" && *qual == Some("fmt")),
+        "should capture fmt.Sprintf(), got: {:?}",
+        scoped
+    );
+    assert!(
+        scoped
+            .iter()
+            .any(|(name, qual)| *name == "ListenAndServe" && *qual == Some("http")),
+        "should capture http.ListenAndServe(), got: {:?}",
+        scoped
+    );
 }
 
 #[test]
-fn test_parse_const() {
-    let code = r#"
-package main
+fn test_cache_struct_fields() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-const MaxSize = 100
-const (
-    A = 1
-    B = 2
-)
-"#;
-    let symbols = extract_all_symbols(code);
-    let consts: Vec<_> = symbols.iter().filter(|(k, _)| *k == Kind::Const).collect();
-    assert_eq!(consts.len(), 3);
-    assert_eq!(consts[0].1, "MaxSize");
-    assert_eq!(consts[1].1, "A");
-    assert_eq!(consts[2].1, "B");
-}
-
-#[test]
-fn test_parse_var() {
-    let code = r#"
-package main
-
-var GlobalName = "world"
-var (
-    X int
-    Y = 42
-)
-"#;
-    let symbols = extract_all_symbols(code);
-    let vars: Vec<_> = symbols.iter().filter(|(k, _)| *k == Kind::Var).collect();
-    assert_eq!(vars.len(), 3);
-    assert_eq!(vars[0].1, "GlobalName");
-    assert_eq!(vars[1].1, "X");
-    assert_eq!(vars[2].1, "Y");
-}
-
-#[test]
-fn test_parse_var_excludes_local_vars() {
-    let code = r#"
-package main
-
-var GlobalVar = "hello"
-
-func doWork() {
-    var localVar int = 42
-    localVar2 := "local"
-    _ = localVar
-    _ = localVar2
-}
-
-func anotherFunc() {
-    var wg sync.WaitGroup
-    var mutex sync.Mutex
-    _ = wg
-    _ = mutex
-}
-"#;
-    let symbols = extract_all_symbols(code);
-    let var_names: Vec<&str> = symbols
+    let fields: Vec<&str> = parsed
+        .symbols
         .iter()
-        .filter(|(k, _)| *k == Kind::Var)
-        .map(|(_, n)| n.as_str())
+        .filter(|s| s.kind == "field")
+        .map(|s| s.name.as_str())
         .collect();
+
     assert!(
-        var_names.contains(&"GlobalVar"),
-        "Should include package-level var, got: {:?}",
-        var_names
+        fields.contains(&"mu"),
+        "should extract Cache.mu field, got: {:?}",
+        fields
     );
     assert!(
-        !var_names.contains(&"localVar"),
-        "Should NOT include local var inside function, got: {:?}",
-        var_names
+        fields.contains(&"items"),
+        "should extract Cache.items field, got: {:?}",
+        fields
     );
     assert!(
-        !var_names.contains(&"wg"),
-        "Should NOT include local var inside function, got: {:?}",
-        var_names
+        fields.contains(&"Value"),
+        "should extract Item.Value field, got: {:?}",
+        fields
     );
     assert!(
-        !var_names.contains(&"mutex"),
-        "Should NOT include local var inside function, got: {:?}",
-        var_names
-    );
-}
-
-#[test]
-fn test_parse_mixed_file() {
-    let code = r#"
-package main
-
-import "fmt"
-
-const Version = "1.0"
-
-type Server struct {
-    Host string
-    Port int
-}
-
-type Handler interface {
-    Handle(req Request) Response
-}
-
-var DefaultServer = &Server{Host: "localhost", Port: 8080}
-
-func NewServer(host string, port int) *Server {
-    return &Server{Host: host, Port: port}
-}
-
-func (s *Server) Start() error {
-    fmt.Println("Starting server")
-    return nil
-}
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<_> = symbols.iter().map(|s| s.1.as_str()).collect();
-    assert!(names.contains(&"Version"), "Should find const Version");
-    assert!(names.contains(&"Server"), "Should find struct Server");
-    assert!(names.contains(&"Handler"), "Should find interface Handler");
-    assert!(
-        names.contains(&"DefaultServer"),
-        "Should find var DefaultServer"
-    );
-    assert!(names.contains(&"NewServer"), "Should find func NewServer");
-    assert!(names.contains(&"Start"), "Should find method Start");
-}
-
-// ============================================================================
-// Callee extraction tests
-// ============================================================================
-
-#[test]
-fn test_extract_callee_simple() {
-    let code = r#"
-package main
-
-func main() {
-    fmt.Println("hello")
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let call_node = parse_and_find(&tree, "call_expression").unwrap();
-    let callee = Go::extract_callee(call_node, code);
-    assert!(callee.is_some(), "Should extract callee");
-    assert_eq!(callee.unwrap(), "fmt.Println");
-}
-
-#[test]
-fn test_extract_callee_function() {
-    let code = r#"
-package main
-
-func main() {
-    doWork()
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let call_node = parse_and_find(&tree, "call_expression").unwrap();
-    let callee = Go::extract_callee(call_node, code);
-    assert!(callee.is_some(), "Should extract callee");
-    assert_eq!(callee.unwrap(), "doWork");
-}
-
-// ============================================================================
-// Signature extraction tests
-// ============================================================================
-
-#[test]
-fn test_extract_function_signature() {
-    let code = r#"
-package main
-
-func greet(name string, age int) (string, error) {
-    return fmt.Sprintf("Hello %s, age %d", name, age), nil
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
-    let sig = Go::extract_signature(fn_node, code);
-    assert!(sig.is_some(), "Should extract signature");
-    let sig = sig.unwrap();
-    assert!(
-        sig.contains("func greet"),
-        "Sig should contain 'func greet', got: {}",
-        sig
-    );
-    assert!(
-        sig.contains("name string"),
-        "Sig should contain params, got: {}",
-        sig
-    );
-    // Should NOT contain body
-    assert!(
-        !sig.contains("Sprintf"),
-        "Sig should not contain body, got: {}",
-        sig
+        fields.contains(&"Expires"),
+        "should extract Item.Expires field, got: {:?}",
+        fields
     );
 }
 
 #[test]
-fn test_extract_method_signature() {
-    let code = r#"
-package main
+fn test_cache_struct_embedding_heritage() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-type Server struct{}
-
-func (s *Server) Listen(addr string) error {
-    return nil
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let method_node = parse_and_find(&tree, "method_declaration").unwrap();
-    let sig = Go::extract_signature(method_node, code);
-    assert!(sig.is_some(), "Should extract method signature");
-    let sig = sig.unwrap();
     assert!(
-        sig.contains("func (s *Server) Listen"),
-        "Sig should contain receiver and name, got: {}",
-        sig
-    );
-}
-
-// ============================================================================
-// Type reference extraction tests
-// ============================================================================
-
-#[test]
-fn test_extract_type_references_from_function_is_empty() {
-    // Function type refs are now handled by extract_return_types and extract_param_types.
-    // extract_type_references should return empty for function nodes.
-    let code = r#"
-package main
-
-func process(r *Reader, w Writer) error {
-    return nil
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
-    let refs = Go::extract_type_references(fn_node, code);
-    assert!(
-        refs.is_empty(),
-        "Function type refs should be empty, got: {:?}",
-        refs
+        parsed
+            .heritage
+            .iter()
+            .any(|h| h.type_name == "ReadWriteCache" && h.parent_name == "Cache"),
+        "should extract ReadWriteCache embeds Cache as heritage, got: {:?}",
+        parsed.heritage
     );
 }
 
 #[test]
-fn test_blank_identifier_filtered() {
-    let code = r#"
-package cache
+fn test_cache_write_access_assignment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-var _ ICache = (*FileBasedCache)(nil)
-
-var validVar = "hello"
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<&str> = symbols.iter().map(|(_, n)| n.as_str()).collect();
     assert!(
-        !names.contains(&"_"),
-        "Blank identifier should be filtered out, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"validVar"),
-        "Regular vars should still be parsed, got: {:?}",
-        names
-    );
-}
-
-// ============================================================================
-// Usage extraction tests
-// ============================================================================
-
-/// Helper: parse Go code as a function_declaration and extract usages
-fn extract_usages_from_func(code: &str) -> Vec<(String, usize)> {
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node =
-        parse_and_find(&tree, "function_declaration").expect("should find function_declaration");
-    Go::extract_usages(fn_node, code)
-        .into_iter()
-        .map(|(name, line)| (name.as_str().to_string(), line))
-        .collect()
-}
-
-/// Helper: parse Go code as a method_declaration and extract usages
-fn extract_usages_from_method(code: &str) -> Vec<(String, usize)> {
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node =
-        parse_and_find(&tree, "method_declaration").expect("should find method_declaration");
-    Go::extract_usages(fn_node, code)
-        .into_iter()
-        .map(|(name, line)| (name.as_str().to_string(), line))
-        .collect()
-}
-
-#[test]
-fn test_extract_usages_simple_var_reference() {
-    let code = r#"
-package main
-
-func doWork() {
-    fmt.Println(MaxRetries)
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        names.contains(&"MaxRetries"),
-        "Should detect usage of MaxRetries, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"fmt"),
-        "Should detect usage of fmt, got: {:?}",
-        names
+        parsed
+            .write_accesses
+            .iter()
+            .any(|w| w.property == "maxSize" && w.receiver == "rwc"),
+        "should capture rwc.maxSize = size write access, got: {:?}",
+        parsed.write_accesses
     );
 }
 
 #[test]
-fn test_extract_usages_excludes_local_vars() {
-    let code = r#"
-package main
+fn test_cache_write_access_increment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-func doWork() {
-    localVar := 42
-    fmt.Println(localVar)
-    fmt.Println(GlobalVar)
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
     assert!(
-        !names.contains(&"localVar"),
-        "Should NOT include local var, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"GlobalVar"),
-        "Should include package-level var, got: {:?}",
-        names
+        parsed
+            .write_accesses
+            .iter()
+            .any(|w| w.property == "hits" && w.receiver == "rwc"),
+        "should capture rwc.hits++ write access, got: {:?}",
+        parsed.write_accesses
     );
 }
 
 #[test]
-fn test_extract_usages_excludes_parameters() {
-    let code = r#"
-package main
+fn test_go_visibility() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
 
-func doWork(config Config, count int) {
-    fmt.Println(config)
-    fmt.Println(GlobalVar)
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        !names.contains(&"config"),
-        "Should NOT include parameter, got: {:?}",
-        names
-    );
-    assert!(
-        !names.contains(&"count"),
-        "Should NOT include parameter, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"GlobalVar"),
-        "Should include package-level var, got: {:?}",
-        names
-    );
-}
+    let vis = |name: &str| -> Option<String> {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.visibility.clone())
+    };
 
-#[test]
-fn test_extract_usages_excludes_builtins() {
-    let code = r#"
-package main
-
-func doWork() {
-    x := make([]int, len(items))
-    copy(x, items)
-    println(x)
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        !names.contains(&"make"),
-        "Should NOT include builtin make, got: {:?}",
-        names
-    );
-    assert!(
-        !names.contains(&"len"),
-        "Should NOT include builtin len, got: {:?}",
-        names
-    );
-    assert!(
-        !names.contains(&"copy"),
-        "Should NOT include builtin copy, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"items"),
-        "Should include non-local identifier items, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_extract_usages_method_excludes_receiver() {
-    let code = r#"
-package main
-
-func (s *Server) handleRequest() {
-    fmt.Println(DefaultTimeout)
-}
-"#;
-    let usages = extract_usages_from_method(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        !names.contains(&"s"),
-        "Should NOT include receiver, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"DefaultTimeout"),
-        "Should include package-level var, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_extract_usages_deduplicates() {
-    let code = r#"
-package main
-
-func doWork() {
-    fmt.Println(MaxRetries)
-    fmt.Println(MaxRetries)
-    fmt.Println(MaxRetries)
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let max_count = usages.iter().filter(|(n, _)| n == "MaxRetries").count();
+    // Exported (uppercase first letter)
     assert_eq!(
-        max_count, 1,
-        "Should deduplicate — one usage edge per symbol, got {} occurrences",
-        max_count
+        vis("Cache"),
+        Some("public".to_string()),
+        "uppercase struct should be public"
     );
-}
-
-#[test]
-fn test_extract_usages_excludes_short_var_decl_lhs() {
-    let code = r#"
-package main
-
-func doWork() {
-    result, err := SomeFunction()
-    fmt.Println(result, err)
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        !names.contains(&"result"),
-        "Should NOT include short var decl LHS, got: {:?}",
-        names
-    );
-    assert!(
-        !names.contains(&"err"),
-        "Should NOT include short var decl LHS, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"SomeFunction"),
-        "Should include the called function name if it appears as identifier, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_extract_usages_non_symbol_nodes_return_empty() {
-    let code = r#"
-package main
-
-var MaxRetries = 3
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    // Try extracting from a var_spec — should return empty
-    let var_node = parse_and_find(&tree, "var_spec").expect("should find var_spec");
-    let usages = Go::extract_usages(var_node, code);
-    assert!(
-        usages.is_empty(),
-        "Should return empty for non-function nodes, got: {:?}",
-        usages
-    );
-}
-
-#[test]
-fn test_extract_usages_range_loop_vars_excluded() {
-    let code = r#"
-package main
-
-func doWork() {
-    for key, value := range GlobalMap {
-        fmt.Println(key, value)
-    }
-}
-"#;
-    let usages = extract_usages_from_func(code);
-    let names: Vec<&str> = usages.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        !names.contains(&"key"),
-        "Should NOT include range variable, got: {:?}",
-        names
-    );
-    assert!(
-        !names.contains(&"value"),
-        "Should NOT include range variable, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"GlobalMap"),
-        "Should include the iterated collection, got: {:?}",
-        names
-    );
-}
-
-// ============================================================================
-// Implements edge tests (interface conformance checks)
-// ============================================================================
-
-#[test]
-fn test_parse_impl_conformance_check() {
-    // Go pattern: var _ ICache = (*FileBasedCache)(nil)
-    let code = r#"
-package main
-
-type ICache interface {
-    Get(key string) string
-}
-
-type FileBasedCache struct{}
-
-var _ ICache = (*FileBasedCache)(nil)
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    // Find the var_spec for the conformance check
-    let var_node = parse_and_find(&tree, "var_spec");
-    assert!(var_node.is_some(), "Should find the var_spec");
-    let var_node = var_node.unwrap();
-
-    let info = Go::parse_impl(var_node, code);
-    assert!(
-        info.is_some(),
-        "Should extract ImplInfo from conformance check"
-    );
-
-    let info = info.unwrap();
-    assert_eq!(info.target_type, "FileBasedCache");
-    assert_eq!(info.trait_name, Some("ICache".to_string()));
-}
-
-#[test]
-fn test_parse_impl_conformance_check_ampersand() {
-    // Alternative pattern: var _ ICache = &FileBasedCache{}
-    let code = r#"
-package main
-
-type ICache interface {
-    Get(key string) string
-}
-
-type FileBasedCache struct{}
-
-var _ ICache = &FileBasedCache{}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let var_node = parse_and_find(&tree, "var_spec");
-    assert!(var_node.is_some(), "Should find the var_spec");
-
-    let info = Go::parse_impl(var_node.unwrap(), code);
-    assert!(
-        info.is_some(),
-        "Should extract ImplInfo from &Type conformance check"
-    );
-
-    let info = info.unwrap();
-    assert_eq!(info.target_type, "FileBasedCache");
-    assert_eq!(info.trait_name, Some("ICache".to_string()));
-}
-
-#[test]
-fn test_parse_impl_not_conformance_regular_var() {
-    // Regular var declarations should NOT return ImplInfo
-    let code = r#"
-package main
-
-var myCache ICache = NewCache()
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let var_node = parse_and_find(&tree, "var_spec");
-    assert!(var_node.is_some());
-
-    let info = Go::parse_impl(var_node.unwrap(), code);
-    assert!(
-        info.is_none(),
-        "Regular var declarations should not be conformance checks"
-    );
-}
-
-#[test]
-fn test_parse_impl_blank_var_still_filtered_from_symbols() {
-    // The `_` var should still be filtered from symbols
-    let code = r#"
-package main
-
-type ICache interface {
-    Get(key string) string
-}
-
-type FileBasedCache struct{}
-
-var _ ICache = (*FileBasedCache)(nil)
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<&str> = symbols.iter().map(|(_, n)| n.as_str()).collect();
-    assert!(
-        !names.contains(&"_"),
-        "Blank identifier should be filtered from symbols, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"ICache"),
-        "Interface should still be a symbol, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"FileBasedCache"),
-        "Struct should still be a symbol, got: {:?}",
-        names
-    );
-}
-
-// ============================================================================
-// Return type extraction tests
-// ============================================================================
-
-/// Helper: extract return types from the first function/method in code
-fn extract_return_types_from_func(code: &str) -> Vec<String> {
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    // Try function_declaration first, then method_declaration
-    let fn_node = parse_and_find(&tree, "function_declaration")
-        .or_else(|| parse_and_find(&tree, "method_declaration"))
-        .expect("should find function or method declaration");
-    Go::extract_return_types(fn_node, code)
-        .into_iter()
-        .map(|n| n.as_str().to_string())
-        .collect()
-}
-
-#[test]
-fn test_extract_return_type_simple() {
-    let code = r#"
-package main
-
-func NewConfig() Config {
-    return Config{}
-}
-"#;
-    let types = extract_return_types_from_func(code);
-    assert_eq!(types, vec!["Config"]);
-}
-
-#[test]
-fn test_extract_return_type_pointer() {
-    let code = r#"
-package main
-
-func NewConfig() *Config {
-    return &Config{}
-}
-"#;
-    let types = extract_return_types_from_func(code);
-    assert_eq!(types, vec!["Config"], "Should unwrap pointer to get Config");
-}
-
-#[test]
-fn test_extract_return_type_multiple() {
-    let code = r#"
-package main
-
-func Open() (*Connection, error) {
-    return nil, nil
-}
-"#;
-    let types = extract_return_types_from_func(code);
-    assert!(
-        types.contains(&"Connection".to_string()),
-        "Should extract Connection, got: {:?}",
-        types
-    );
-    assert!(
-        !types.contains(&"error".to_string()),
-        "Should skip builtin error, got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_return_type_named_returns() {
-    let code = r#"
-package main
-
-func Parse() (result Config, err error) {
-    return
-}
-"#;
-    let types = extract_return_types_from_func(code);
-    assert!(
-        types.contains(&"Config".to_string()),
-        "Should extract Config from named return, got: {:?}",
-        types
-    );
-    assert!(
-        !types.contains(&"error".to_string()),
-        "Should skip builtin error, got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_return_type_builtin_only() {
-    let code = r#"
-package main
-
-func Count() int {
-    return 0
-}
-"#;
-    let types = extract_return_types_from_func(code);
-    assert!(
-        types.is_empty(),
-        "Should skip builtin return types, got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_return_type_no_return() {
-    let code = r#"
-package main
-
-func DoWork() {
-}
-"#;
-    let types = extract_return_types_from_func(code);
-    assert!(
-        types.is_empty(),
-        "Function with no return type should return empty, got: {:?}",
-        types
-    );
-}
-
-// ============================================================================
-// Parameter type extraction tests
-// ============================================================================
-
-/// Helper: extract param types from the first function/method in code
-fn extract_param_types_from_func(code: &str) -> Vec<String> {
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node = parse_and_find(&tree, "function_declaration")
-        .or_else(|| parse_and_find(&tree, "method_declaration"))
-        .expect("should find function or method declaration");
-    Go::extract_param_types(fn_node, code)
-        .into_iter()
-        .map(|n| n.as_str().to_string())
-        .collect()
-}
-
-#[test]
-fn test_extract_param_type_simple() {
-    let code = r#"
-package main
-
-func Process(config Config) {
-}
-"#;
-    let types = extract_param_types_from_func(code);
-    assert_eq!(types, vec!["Config"]);
-}
-
-#[test]
-fn test_extract_param_type_pointer() {
-    let code = r#"
-package main
-
-func Process(config *Config) {
-}
-"#;
-    let types = extract_param_types_from_func(code);
-    assert!(
-        types.contains(&"Config".to_string()),
-        "Should unwrap pointer to get Config, got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_param_type_multiple() {
-    let code = r#"
-package main
-
-func Process(config Config, conn *Connection) {
-}
-"#;
-    let types = extract_param_types_from_func(code);
-    assert!(types.contains(&"Config".to_string()), "got: {:?}", types);
-    assert!(
-        types.contains(&"Connection".to_string()),
-        "got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_param_type_builtin_only() {
-    let code = r#"
-package main
-
-func Process(name string, count int) {
-}
-"#;
-    let types = extract_param_types_from_func(code);
-    assert!(
-        types.is_empty(),
-        "Should skip builtin param types, got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_param_type_no_params() {
-    let code = r#"
-package main
-
-func DoWork() {
-}
-"#;
-    let types = extract_param_types_from_func(code);
-    assert!(
-        types.is_empty(),
-        "Function with no params should return empty, got: {:?}",
-        types
-    );
-}
-
-#[test]
-fn test_extract_param_type_method_skips_receiver() {
-    let code = r#"
-package main
-
-type Server struct{}
-
-func (s *Server) Handle(req Request) {
-}
-"#;
-    let types = extract_param_types_from_func(code);
     assert_eq!(
-        types,
-        vec!["Request"],
-        "Should extract Request but not receiver type, got: {:?}",
-        types
+        vis("Item"),
+        Some("public".to_string()),
+        "uppercase struct should be public"
     );
-}
-
-// ============================================================================
-// Type reference edge kind tests (FieldType vs TypeAnnotation)
-// ============================================================================
-
-#[test]
-fn test_struct_field_types_produce_field_type_edges() {
-    let code = r#"
-package main
-
-type Server struct {
-    config Config
-    logger *Logger
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
-    let refs = Go::extract_type_references(type_decl, code);
-    for (name, ref_kind) in &refs {
-        assert_eq!(
-            *ref_kind,
-            ReferenceType::FieldType,
-            "Struct field type '{}' should produce FieldType edge, got {:?}",
-            name.as_str(),
-            ref_kind
-        );
-    }
-    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        names.contains(&"Config"),
-        "Should contain Config, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"Logger"),
-        "Should contain Logger, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_interface_method_types_produce_type_annotation_edges() {
-    let code = r#"
-package main
-
-type Repository interface {
-    Get(id string) (*Entity, error)
-    Save(entity *Entity) error
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
-    let refs = Go::extract_type_references(type_decl, code);
-    for (name, ref_kind) in &refs {
-        assert_eq!(
-            *ref_kind,
-            ReferenceType::TypeAnnotation,
-            "Interface method type '{}' should produce TypeAnnotation edge, got {:?}",
-            name.as_str(),
-            ref_kind
-        );
-    }
-    let names: Vec<_> = refs.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(
-        names.contains(&"Entity"),
-        "Should contain Entity, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_function_type_refs_excluded_from_extract_type_references() {
-    // extract_type_references on function/method nodes should return empty
-    // because extract_return_types and extract_param_types handle those separately
-    let code = r#"
-package main
-
-func process(r *Reader, w Writer) Status {
-    return Status{}
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
-    let refs = Go::extract_type_references(fn_node, code);
-    assert!(
-        refs.is_empty(),
-        "Function type refs should be empty (handled by extract_return_types/extract_param_types), got: {:?}",
-        refs
-    );
-}
-
-// ============================================================================
-// Interface method extraction tests
-// ============================================================================
-
-#[test]
-fn test_extract_interface_methods() {
-    let code = r#"
-package main
-
-type Reader interface {
-    Read(data []byte) (int, error)
-    Close() error
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
-    let result = Go::extract_interface_methods(type_decl, code);
-    assert!(result.is_some(), "Should extract interface methods");
-    let (name, methods) = result.unwrap();
-    assert_eq!(name, "Reader");
-    assert_eq!(methods, vec!["Read", "Close"]);
-}
-
-#[test]
-fn test_extract_interface_methods_empty_interface() {
-    let code = r#"
-package main
-
-type Empty interface {}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
-    let result = Go::extract_interface_methods(type_decl, code);
-    assert!(result.is_some(), "Should return Some for empty interface");
-    let (name, methods) = result.unwrap();
-    assert_eq!(name, "Empty");
-    assert!(methods.is_empty(), "Empty interface should have no methods");
-}
-
-#[test]
-fn test_extract_interface_methods_struct_returns_none() {
-    let code = r#"
-package main
-
-type Server struct {
-    port int
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let type_decl = parse_and_find(&tree, "type_declaration").unwrap();
-    let result = Go::extract_interface_methods(type_decl, code);
-    assert!(
-        result.is_none(),
-        "Struct should not return interface methods"
-    );
-}
-
-#[test]
-fn test_parse_impl_method_declaration() {
-    let code = r#"
-package main
-
-func (s *Server) Start() error {
-    return nil
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let method = parse_and_find(&tree, "method_declaration").unwrap();
-    let result = Go::parse_impl(method, code);
-    assert!(
-        result.is_some(),
-        "Should extract impl info from method_declaration"
-    );
-    let info = result.unwrap();
-    assert_eq!(info.target_type, "Server");
-    assert!(
-        info.trait_name.is_none(),
-        "Method declarations have no trait"
-    );
-}
-
-// ============================================================================
-// Package symbol extraction tests
-// ============================================================================
-
-#[test]
-fn test_parse_package_clause() {
-    let code = r#"
-package cache
-
-func Get() {}
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<_> = symbols.iter().map(|s| (&s.0, s.1.as_str())).collect();
-    assert!(
-        names.contains(&(&Kind::Package, "cache")),
-        "Should extract package as Package symbol, got: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&(&Kind::Function, "Get")),
-        "Should still extract function, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_parse_package_main() {
-    let code = r#"
-package main
-
-func main() {}
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<_> = symbols.iter().map(|s| (&s.0, s.1.as_str())).collect();
-    assert!(
-        names.contains(&(&Kind::Package, "main")),
-        "Should extract 'main' package, got: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_module_info_package_clause() {
-    let code = r#"
-package cache
-
-func Get() {}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let pkg_node = parse_and_find(&tree, "package_clause").unwrap();
-    let info = Go::module_info(pkg_node, code, "pkg/cache/cache.go");
-    assert!(info.is_some(), "package_clause should return ModuleInfo");
-    let info = info.unwrap();
-    assert!(info.has_body, "Go package always has body (rest of file)");
-    assert!(
-        info.candidate_paths.is_empty(),
-        "Go package has no candidate paths (children are in same file)"
-    );
-}
-
-#[test]
-fn test_module_info_non_package_node() {
-    let code = r#"
-package main
-
-func Get() {}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let fn_node = parse_and_find(&tree, "function_declaration").unwrap();
-    let info = Go::module_info(fn_node, code, "main.go");
-    assert!(info.is_none(), "Non-package node should return None");
-}
-
-// ============================================================================
-// Import extraction tests
-// ============================================================================
-
-/// Helper: parse code and collect all imports from top-level nodes
-fn extract_all_imports(code: &str) -> Vec<ImportEntry> {
-    let mut parser = Parser::new();
-    parser.set_language(&Go::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let mut imports = Vec::new();
-    let root = tree.root_node();
-    for child in root.children(&mut root.walk()) {
-        if let Some(entries) = Go::extract_import(child, code) {
-            imports.extend(entries);
-        }
-    }
-    imports
-}
-
-#[test]
-fn test_extract_import_single() {
-    let code = r#"
-package main
-
-import "fmt"
-"#;
-    let imports = extract_all_imports(code);
-    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
-    assert_eq!(imports[0].module_path, "fmt");
-    assert_eq!(imports[0].imported_names, vec!["fmt"]);
-    assert!(imports[0].alias.is_none());
-}
-
-#[test]
-fn test_extract_import_grouped() {
-    let code = r#"
-package main
-
-import (
-    "fmt"
-    "os"
-    "strings"
-)
-"#;
-    let imports = extract_all_imports(code);
     assert_eq!(
-        imports.len(),
-        3,
-        "Should find 3 imports, got: {:?}",
-        imports
+        vis("Cacher"),
+        Some("public".to_string()),
+        "uppercase interface should be public"
     );
-    let paths: Vec<&str> = imports.iter().map(|i| i.module_path.as_str()).collect();
-    assert!(
-        paths.contains(&"fmt"),
-        "Should contain fmt, got: {:?}",
-        paths
-    );
-    assert!(paths.contains(&"os"), "Should contain os, got: {:?}", paths);
-    assert!(
-        paths.contains(&"strings"),
-        "Should contain strings, got: {:?}",
-        paths
-    );
-}
-
-#[test]
-fn test_extract_import_with_alias() {
-    let code = r#"
-package main
-
-import (
-    myio "io"
-    . "testing"
-    _ "net/http/pprof"
-)
-"#;
-    let imports = extract_all_imports(code);
     assert_eq!(
-        imports.len(),
-        3,
-        "Should find 3 imports, got: {:?}",
-        imports
+        vis("New"),
+        Some("public".to_string()),
+        "uppercase function should be public"
+    );
+    assert_eq!(
+        vis("DefaultTTL"),
+        Some("public".to_string()),
+        "uppercase const should be public"
     );
 
-    let myio_import = imports.iter().find(|i| i.module_path == "io").unwrap();
-    assert_eq!(myio_import.alias, Some("myio".to_string()));
-
-    let dot_import = imports.iter().find(|i| i.module_path == "testing").unwrap();
-    assert_eq!(dot_import.alias, Some(".".to_string()));
-
-    let blank_import = imports
-        .iter()
-        .find(|i| i.module_path == "net/http/pprof")
-        .unwrap();
-    assert_eq!(blank_import.alias, Some("_".to_string()));
+    // Unexported (lowercase first letter)
+    assert_eq!(
+        vis("mu"),
+        Some("private".to_string()),
+        "lowercase field should be private"
+    );
+    assert_eq!(
+        vis("items"),
+        Some("private".to_string()),
+        "lowercase field should be private"
+    );
 }
 
 #[test]
-fn test_extract_import_full_path() {
-    let code = r#"
-package main
+fn test_entry_type_init() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache.go");
 
-import "github.com/stretchr/testify/assert"
-"#;
-    let imports = extract_all_imports(code);
-    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
-    assert_eq!(imports[0].module_path, "github.com/stretchr/testify/assert");
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name && s.kind == "function")
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("init"),
+        Some("init".to_string()),
+        "func init() should have entry_type 'init'"
+    );
 }
 
 #[test]
-fn test_extract_import_non_import_node() {
-    let code = r#"
-package main
+fn test_entry_type_test_function() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache_test.go");
 
-func main() {}
-"#;
-    let imports = extract_all_imports(code);
-    assert!(
-        imports.is_empty(),
-        "Non-import node should not produce imports, got: {:?}",
-        imports
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("TestCacheGet"),
+        Some("test".to_string()),
+        "func TestXxx should have entry_type 'test'"
+    );
+}
+
+#[test]
+fn test_entry_type_benchmark() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache_test.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("BenchmarkCacheSet"),
+        Some("benchmark".to_string()),
+        "func BenchmarkXxx should have entry_type 'benchmark'"
+    );
+}
+
+#[test]
+fn test_entry_type_example() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache_test.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("ExampleNew"),
+        Some("example".to_string()),
+        "func ExampleXxx should have entry_type 'example'"
+    );
+}
+
+#[test]
+fn test_entry_type_regular_function_is_none() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name && s.kind == "function")
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("New"),
+        None,
+        "regular function should not have entry_type"
     );
 }

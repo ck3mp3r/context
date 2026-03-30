@@ -1,348 +1,200 @@
-// Tests for Nushell language parser
+use super::parser::Nushell;
 
-use crate::analysis::lang::nushell::{Kind, Nushell};
-use crate::analysis::parser::Language;
-use crate::analysis::types::ImportEntry;
-use tree_sitter::{Node, Parser};
-
-/// Helper: parse code and find first node of given kind
-fn parse_and_find<'a>(tree: &'a tree_sitter::Tree, node_kind: &str) -> Option<Node<'a>> {
-    fn find_node<'b>(node: Node<'b>, kind: &str) -> Option<Node<'b>> {
-        if node.kind() == kind {
-            return Some(node);
-        }
-        for child in node.children(&mut node.walk()) {
-            if let Some(found) = find_node(child, kind) {
-                return Some(found);
-            }
-        }
-        None
-    }
-    find_node(tree.root_node(), node_kind)
+fn load_testdata(name: &str) -> String {
+    let path = format!(
+        "{}/src/analysis/lang/nushell/testdata/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    );
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e))
 }
-
-/// Helper: parse code and collect all symbols
-fn extract_all_symbols(code: &str) -> Vec<(Kind, String)> {
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let mut symbols = Vec::new();
-    fn collect(node: Node, code: &str, symbols: &mut Vec<(Kind, String)>) {
-        if let Some(sym) = Nushell::parse_symbol(node, code) {
-            symbols.push(sym);
-        }
-        for child in node.children(&mut node.walk()) {
-            collect(child, code, symbols);
-        }
-    }
-    collect(tree.root_node(), code, &mut symbols);
-    symbols
-}
-
-// ============================================================================
-// Symbol extraction tests
-// ============================================================================
 
 #[test]
-fn test_parse_simple_def() {
+fn test_query_compiles() {
+    let language = Nushell::grammar();
+    assert!(
+        tree_sitter::Query::new(&language, Nushell::queries()).is_ok(),
+        "Nushell .scm queries must compile against the grammar"
+    );
+}
+
+#[test]
+fn test_extracts_command() {
     let code = r#"
 def greet [name: string] {
-    print $"Hello, ($name)!"
+    $"Hello, ($name)!"
 }
 "#;
-    let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Command, "greet".to_string()));
+    let parsed = Nushell::extract(code, "utils.nu");
+    assert_eq!(parsed.symbols.len(), 1);
+    assert_eq!(parsed.symbols[0].name, "greet");
+    assert_eq!(parsed.symbols[0].kind, "command");
+    assert_eq!(parsed.symbols[0].language, "nushell");
 }
 
 #[test]
-fn test_parse_quoted_def() {
+fn test_extracts_module() {
     let code = r#"
-def "my command" [arg: string] {
-    print $arg
+module network {
+    export def ping [host: string] { }
 }
 "#;
-    let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Command, "my command".to_string()));
-}
-
-#[test]
-fn test_parse_module() {
-    let code = r#"
-module utils {
-    export def helper [] { "help" }
-}
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<_> = symbols.iter().map(|s| s.1.as_str()).collect();
-    assert!(names.contains(&"utils"), "Should find module 'utils'");
+    let parsed = Nushell::extract(code, "lib.nu");
     assert!(
-        names.contains(&"helper"),
-        "Should find exported def 'helper'"
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "network" && s.kind == "module")
     );
 }
 
 #[test]
-fn test_parse_alias() {
-    let code = r#"
-alias ll = ls -l
-"#;
-    let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Alias, "ll".to_string()));
-}
-
-#[test]
-fn test_parse_const() {
-    let code = r#"
-const MY_VALUE = 42
-"#;
-    let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Const, "MY_VALUE".to_string()));
-}
-
-#[test]
-fn test_parse_extern() {
-    let code = r#"
-extern "git" [
-    command: string
-]
-"#;
-    let symbols = extract_all_symbols(code);
-    assert_eq!(symbols.len(), 1);
-    assert_eq!(symbols[0], (Kind::Extern, "git".to_string()));
-}
-
-#[test]
-fn test_parse_mixed_file() {
-    let code = r#"
-const VERSION = "1.0.0"
-
-module core {
-    export def run [] { "running" }
-}
-
-def main [] {
-    print $VERSION
-}
-
-alias v = print $VERSION
-"#;
-    let symbols = extract_all_symbols(code);
-    let names: Vec<_> = symbols.iter().map(|s| s.1.as_str()).collect();
-    assert!(names.contains(&"VERSION"), "Should find const VERSION");
-    assert!(names.contains(&"core"), "Should find module core");
-    assert!(names.contains(&"run"), "Should find def run");
-    assert!(names.contains(&"main"), "Should find def main");
-    assert!(names.contains(&"v"), "Should find alias v");
-}
-
-// ============================================================================
-// Signature extraction tests
-// ============================================================================
-
-#[test]
-fn test_extract_command_signature() {
-    let code = r#"
-def greet [name: string, --loud(-l)] -> string {
-    if $loud {
-        $"HELLO, ($name)!"
-    } else {
-        $"Hello, ($name)!"
-    }
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let def_node = parse_and_find(&tree, "decl_def").unwrap();
-    let sig = Nushell::extract_signature(def_node, code);
-    assert!(sig.is_some(), "Should extract signature");
-    let sig = sig.unwrap();
+fn test_extracts_const() {
+    let code = "const MAX_RETRIES = 5";
+    let parsed = Nushell::extract(code, "config.nu");
     assert!(
-        sig.contains("def greet"),
-        "Sig should contain 'def greet', got: {}",
-        sig
-    );
-    assert!(
-        sig.contains("name: string"),
-        "Sig should contain param types, got: {}",
-        sig
-    );
-    // Signature should NOT contain the body
-    assert!(
-        !sig.contains("HELLO"),
-        "Sig should not contain body, got: {}",
-        sig
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "MAX_RETRIES" && s.kind == "const")
     );
 }
 
-// ============================================================================
-// Callee extraction tests
-// ============================================================================
+#[test]
+fn test_extracts_alias() {
+    let code = "alias ll = ls -l";
+    let parsed = Nushell::extract(code, "aliases.nu");
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "ll" && s.kind == "alias")
+    );
+}
 
 #[test]
-fn test_extract_callee() {
+fn test_extracts_command_calls() {
     let code = r#"
 def main [] {
-    greet "world"
+    let files = ls
+    $files | length
 }
 "#;
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let cmd_node = parse_and_find(&tree, "command").unwrap();
-    let callee = Nushell::extract_callee(cmd_node, code);
-    assert!(callee.is_some(), "Should extract callee");
-    assert_eq!(callee.unwrap(), "greet");
-}
-
-// ============================================================================
-// Module containment tests
-// ============================================================================
-
-#[test]
-fn test_module_info_inline_module() {
-    let code = r#"
-module utils {
-    export def helper [] { "help" }
-}
-"#;
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let mod_node = parse_and_find(&tree, "decl_module").unwrap();
-    let info = Nushell::module_info(mod_node, code, "main.nu");
-    assert!(info.is_some(), "Inline module should return ModuleInfo");
-    let info = info.unwrap();
-    assert!(info.has_body, "Inline module should have a body");
-    assert!(
-        info.candidate_paths.is_empty(),
-        "Inline module should have no candidate paths"
-    );
+    let parsed = Nushell::extract(code, "main.nu");
+    assert!(parsed.calls.iter().any(|c| c.callee_name == "ls"));
 }
 
 #[test]
-fn test_module_info_file_based_use() {
-    // `use utils.nu` is not a module declaration — module_info should
-    // only fire on `decl_module` nodes, not `use` statements.
-    // File-based modules are handled by the file that IS the module.
-    // So module_info returns None for non-module nodes.
-    let code = "use utils.nu";
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    // There should be no decl_module node
-    let mod_node = parse_and_find(&tree, "decl_module");
-    assert!(
-        mod_node.is_none(),
-        "use statement is not a module declaration"
-    );
-}
-
-#[test]
-fn test_module_info_non_module_node() {
-    let code = "def greet [] { 'hello' }";
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let def_node = parse_and_find(&tree, "decl_def").unwrap();
-    let info = Nushell::module_info(def_node, code, "main.nu");
-    assert!(info.is_none(), "Non-module node should return None");
-}
-
-// ============================================================================
-// Import extraction tests
-// ============================================================================
-
-/// Helper: parse code and collect all imports from top-level nodes
-fn extract_all_imports(code: &str) -> Vec<ImportEntry> {
-    let mut parser = Parser::new();
-    parser.set_language(&Nushell::grammar()).unwrap();
-    let tree = parser.parse(code, None).unwrap();
-
-    let mut imports = Vec::new();
-    let root = tree.root_node();
-    for child in root.children(&mut root.walk()) {
-        if let Some(entries) = Nushell::extract_import(child, code) {
-            imports.extend(entries);
-        }
-    }
-    imports
-}
-
-#[test]
-fn test_extract_import_simple_use() {
-    // `use std` — import entire module
+fn test_extracts_use_import() {
     let code = "use std";
-    let imports = extract_all_imports(code);
-    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
-    assert_eq!(imports[0].module_path, "std");
-    assert_eq!(imports[0].imported_names, vec!["std"]);
-    assert!(!imports[0].is_glob);
+    let parsed = Nushell::extract(code, "main.nu");
+    assert_eq!(parsed.imports.len(), 1);
+    assert_eq!(parsed.imports[0].entry.module_path, "std");
 }
 
 #[test]
-fn test_extract_import_with_members() {
-    // `use std [log warn]` — import specific members
-    let code = "use std [log warn]";
-    let imports = extract_all_imports(code);
-    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
-    assert_eq!(imports[0].module_path, "std");
-    let mut names = imports[0].imported_names.clone();
-    names.sort();
-    assert_eq!(names, vec!["log", "warn"]);
-}
-
-#[test]
-fn test_extract_import_glob() {
-    // `use std *` — glob import
-    let code = "use std *";
-    let imports = extract_all_imports(code);
-    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
-    assert_eq!(imports[0].module_path, "std");
-    assert!(imports[0].is_glob);
-}
-
-#[test]
-fn test_extract_import_file_module() {
-    // `use utils.nu` — file-based module import
-    let code = "use utils.nu";
-    let imports = extract_all_imports(code);
-    assert_eq!(imports.len(), 1, "Should find 1 import, got: {:?}", imports);
-    assert_eq!(imports[0].module_path, "utils.nu");
-}
-
-#[test]
-fn test_extract_import_multiple() {
+fn test_combined_nushell_extraction() {
     let code = r#"
 use std
-use utils.nu [helper]
+
+const VERSION = "1.0.0"
+
+module utils {
+    export def process [input: string] {
+        $input | str trim
+    }
+}
+
+def main [] {
+    let result = utils process "hello  "
+    print $result
+}
+
+alias p = print
 "#;
-    let imports = extract_all_imports(code);
+    let parsed = Nushell::extract(code, "app.nu");
+
+    // Symbols
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "VERSION" && s.kind == "const")
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "utils" && s.kind == "module")
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "main" && s.kind == "command")
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "p" && s.kind == "alias")
+    );
+
+    // Imports
+    assert!(parsed.imports.iter().any(|i| i.entry.module_path == "std"));
+
+    // Calls
+    assert!(!parsed.calls.is_empty());
+}
+
+#[test]
+fn test_entry_type_main() {
+    let code = load_testdata("app.nu");
+    let parsed = Nushell::extract(&code, "app.nu");
+
+    let main_sym = parsed.symbols.iter().find(|s| s.name == "main");
+    assert!(main_sym.is_some(), "main should be in symbols");
     assert_eq!(
-        imports.len(),
-        2,
-        "Should find 2 imports, got: {:?}",
-        imports
+        main_sym.unwrap().entry_type,
+        Some("main".to_string()),
+        "def main should have entry_type 'main'"
+    );
+
+    let helper_sym = parsed.symbols.iter().find(|s| s.name == "process-items");
+    assert!(helper_sym.is_some(), "process-items should be in symbols");
+    assert_eq!(
+        helper_sym.unwrap().entry_type,
+        None,
+        "regular command should not have entry_type"
     );
 }
 
 #[test]
-fn test_extract_import_non_use_node() {
-    let code = "def greet [] { 'hello' }";
-    let imports = extract_all_imports(code);
-    assert!(
-        imports.is_empty(),
-        "Non-use node should not produce imports, got: {:?}",
-        imports
+fn test_nushell_visibility() {
+    let code = load_testdata("app.nu");
+    let parsed = Nushell::extract(&code, "app.nu");
+
+    let vis = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.visibility.clone())
+    };
+
+    assert_eq!(
+        vis("ping"),
+        Some("public".to_string()),
+        "export def should be public"
+    );
+    assert_eq!(
+        vis("process-items"),
+        Some("private".to_string()),
+        "def without export should be private"
+    );
+    assert_eq!(
+        vis("main"),
+        Some("private".to_string()),
+        "def main without export should be private"
     );
 }
