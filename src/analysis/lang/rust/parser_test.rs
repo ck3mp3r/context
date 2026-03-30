@@ -571,7 +571,6 @@ fn test_trait_method_containment() {
 }
 
 #[test]
-#[test]
 fn test_module_children_containment() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
