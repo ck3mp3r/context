@@ -168,6 +168,9 @@ impl Go {
 
         for sym in &mut parsed.symbols {
             sym.visibility = go_visibility(&sym.name);
+            if sym.kind == "function" {
+                sym.entry_type = go_entry_type(&sym.name);
+            }
         }
 
         parsed
@@ -206,6 +209,7 @@ impl Go {
                 signature: None,
                 language: "go".to_string(),
                 visibility: None,
+                entry_type: None,
             });
             return;
         }
@@ -223,6 +227,7 @@ impl Go {
                 signature: None,
                 language: "go".to_string(),
                 visibility: None,
+                entry_type: None,
             });
             return;
         }
@@ -241,6 +246,7 @@ impl Go {
                 signature: None,
                 language: "go".to_string(),
                 visibility: None,
+                entry_type: None,
             });
 
             if let Some(&recv_node) = captures.get("method_receiver") {
@@ -269,6 +275,7 @@ impl Go {
                 signature: None,
                 language: "go".to_string(),
                 visibility: None,
+                entry_type: None,
             });
             return;
         }
@@ -286,6 +293,7 @@ impl Go {
                 signature: None,
                 language: "go".to_string(),
                 visibility: None,
+                entry_type: None,
             });
             return;
         }
@@ -319,6 +327,7 @@ impl Go {
                 signature: None,
                 language: "go".to_string(),
                 visibility: None,
+                entry_type: None,
             });
             return;
         }
@@ -338,6 +347,7 @@ impl Go {
                     signature: None,
                     language: "go".to_string(),
                     visibility: None,
+                    entry_type: None,
                 });
             }
             return;
@@ -358,6 +368,7 @@ impl Go {
                     signature: None,
                     language: "go".to_string(),
                     visibility: None,
+                    entry_type: None,
                 });
             }
             return;
@@ -567,4 +578,32 @@ fn go_visibility(name: &str) -> Option<String> {
             }
         })
         .map(|s| s.to_string())
+}
+
+fn go_entry_type(name: &str) -> Option<String> {
+    match name {
+        "main" => Some("main".to_string()),
+        "init" => Some("init".to_string()),
+        n if n.starts_with("Test")
+            && n.len() > 4
+            && n[4..].starts_with(|c: char| c.is_uppercase()) =>
+        {
+            Some("test".to_string())
+        }
+        "TestMain" => Some("test".to_string()),
+        n if n.starts_with("Benchmark")
+            && n.len() > 9
+            && n[9..].starts_with(|c: char| c.is_uppercase()) =>
+        {
+            Some("benchmark".to_string())
+        }
+        n if n.starts_with("Fuzz")
+            && n.len() > 4
+            && n[4..].starts_with(|c: char| c.is_uppercase()) =>
+        {
+            Some("fuzz".to_string())
+        }
+        n if n.starts_with("Example") => Some("example".to_string()),
+        _ => None,
+    }
 }

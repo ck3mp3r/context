@@ -1,5 +1,14 @@
 use super::parser::Nushell;
 
+fn load_testdata(name: &str) -> String {
+    let path = format!(
+        "{}/src/analysis/lang/nushell/testdata/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    );
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e))
+}
+
 #[test]
 fn test_query_compiles() {
     let language = Nushell::grammar();
@@ -136,4 +145,56 @@ alias p = print
 
     // Calls
     assert!(!parsed.calls.is_empty());
+}
+
+#[test]
+fn test_entry_type_main() {
+    let code = load_testdata("app.nu");
+    let parsed = Nushell::extract(&code, "app.nu");
+
+    let main_sym = parsed.symbols.iter().find(|s| s.name == "main");
+    assert!(main_sym.is_some(), "main should be in symbols");
+    assert_eq!(
+        main_sym.unwrap().entry_type,
+        Some("main".to_string()),
+        "def main should have entry_type 'main'"
+    );
+
+    let helper_sym = parsed.symbols.iter().find(|s| s.name == "process-items");
+    assert!(helper_sym.is_some(), "process-items should be in symbols");
+    assert_eq!(
+        helper_sym.unwrap().entry_type,
+        None,
+        "regular command should not have entry_type"
+    );
+}
+
+#[test]
+fn test_nushell_visibility() {
+    let code = load_testdata("app.nu");
+    let parsed = Nushell::extract(&code, "app.nu");
+
+    let vis = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.visibility.clone())
+    };
+
+    assert_eq!(
+        vis("ping"),
+        Some("public".to_string()),
+        "export def should be public"
+    );
+    assert_eq!(
+        vis("process-items"),
+        Some("private".to_string()),
+        "def without export should be private"
+    );
+    assert_eq!(
+        vis("main"),
+        Some("private".to_string()),
+        "def main without export should be private"
+    );
 }

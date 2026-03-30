@@ -311,3 +311,103 @@ fn test_go_visibility() {
         "lowercase field should be private"
     );
 }
+
+#[test]
+fn test_entry_type_init() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name && s.kind == "function")
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("init"),
+        Some("init".to_string()),
+        "func init() should have entry_type 'init'"
+    );
+}
+
+#[test]
+fn test_entry_type_test_function() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache_test.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("TestCacheGet"),
+        Some("test".to_string()),
+        "func TestXxx should have entry_type 'test'"
+    );
+}
+
+#[test]
+fn test_entry_type_benchmark() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache_test.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("BenchmarkCacheSet"),
+        Some("benchmark".to_string()),
+        "func BenchmarkXxx should have entry_type 'benchmark'"
+    );
+}
+
+#[test]
+fn test_entry_type_example() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache_test.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("ExampleNew"),
+        Some("example".to_string()),
+        "func ExampleXxx should have entry_type 'example'"
+    );
+}
+
+#[test]
+fn test_entry_type_regular_function_is_none() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "pkg/cache/cache.go");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name && s.kind == "function")
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("New"),
+        None,
+        "regular function should not have entry_type"
+    );
+}

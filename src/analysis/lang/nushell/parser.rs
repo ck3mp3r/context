@@ -103,6 +103,12 @@ impl Nushell {
             && let Some(&name_node) = captures.get("cmd_name")
         {
             let name = text(name_node).trim_matches('"');
+            let is_exported = text(node).starts_with("export");
+            let entry_type = if name == "main" {
+                Some("main".to_string())
+            } else {
+                None
+            };
             parsed.symbols.push(RawSymbol {
                 name: name.to_string(),
                 kind: "command".to_string(),
@@ -111,7 +117,8 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
-                visibility: None,
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type,
             });
             return;
         }
@@ -120,6 +127,7 @@ impl Nushell {
         if let Some(&node) = captures.get("module_def")
             && let Some(&name_node) = captures.get("module_name")
         {
+            let is_exported = text(node).starts_with("export");
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "module".to_string(),
@@ -128,7 +136,8 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
-                visibility: None,
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
             });
             return;
         }
@@ -137,6 +146,7 @@ impl Nushell {
         if let Some(&node) = captures.get("alias_def")
             && let Some(&name_node) = captures.get("alias_name")
         {
+            let is_exported = text(node).starts_with("export");
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "alias".to_string(),
@@ -145,7 +155,8 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
-                visibility: None,
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
             });
             return;
         }
@@ -154,6 +165,7 @@ impl Nushell {
         if let Some(&node) = captures.get("extern_def")
             && let Some(&name_node) = captures.get("extern_name")
         {
+            let is_exported = text(node).starts_with("export");
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "extern".to_string(),
@@ -162,7 +174,8 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
-                visibility: None,
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
             });
             return;
         }
@@ -171,6 +184,7 @@ impl Nushell {
         if let Some(&node) = captures.get("const_def")
             && let Some(&name_node) = captures.get("const_name")
         {
+            let is_exported = text(node).starts_with("export");
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "const".to_string(),
@@ -179,7 +193,8 @@ impl Nushell {
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "nushell".to_string(),
-                visibility: None,
+                visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
+                entry_type: None,
             });
             return;
         }

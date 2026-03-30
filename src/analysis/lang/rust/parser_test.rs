@@ -379,3 +379,83 @@ fn test_rust_visibility() {
         "non-pub mod should be private"
     );
 }
+
+#[test]
+fn test_entry_type_test_attribute() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("test_server_creation"),
+        Some("test".to_string()),
+        "#[test] function should have entry_type 'test'"
+    );
+}
+
+#[test]
+fn test_entry_type_tokio_main() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("main"),
+        Some("main".to_string()),
+        "#[tokio::main] function should have entry_type 'main'"
+    );
+}
+
+#[test]
+fn test_entry_type_no_mangle() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("exported_function"),
+        Some("export".to_string()),
+        "#[no_mangle] function should have entry_type 'export'"
+    );
+}
+
+#[test]
+fn test_entry_type_regular_function_is_none() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    assert_eq!(
+        entry("create_default_config"),
+        None,
+        "regular function should not have entry_type"
+    );
+}

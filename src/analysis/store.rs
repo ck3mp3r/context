@@ -143,6 +143,7 @@ impl CodeGraph {
                 "start_line": symbol.start_line,
                 "end_line": symbol.end_line,
                 "visibility": symbol.visibility.as_deref(),
+                "entry_type": symbol.entry_type.as_deref(),
                 "signature": symbol.signature.as_deref().unwrap_or(""),
                 "repo_id": &self.repo_id,
             }
@@ -394,6 +395,7 @@ impl CodeGraph {
                     }
                 }),
                 visibility: row["visibility"].as_str().map(|s| s.to_string()),
+                entry_type: row["entry_type"].as_str().map(|s| s.to_string()),
             });
         }
 

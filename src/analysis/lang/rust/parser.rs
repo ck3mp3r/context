@@ -174,6 +174,18 @@ const QUERIES: &str = r#"
 (static_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
 (type_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
 (field_declaration (visibility_modifier) @vis name: (field_identifier) @vis_name) @vis_def
+
+;;; attribute — simple (#[test], #[no_mangle])
+(attribute_item
+    (attribute
+        (identifier) @attr_simple_name)) @attr_simple
+
+;;; attribute — scoped (#[tokio::main], #[tokio::test])
+(attribute_item
+    (attribute
+        (scoped_identifier
+            path: (_) @attr_scope
+            name: (identifier) @attr_scoped_name))) @attr_scoped
 "#;
 
 impl Rust {
@@ -214,9 +226,19 @@ impl Rust {
 
         let mut public_symbols: std::collections::HashSet<(String, usize)> =
             std::collections::HashSet::new();
+        // (attr_end_line, entry_type) — correlate with functions by line proximity
+        let mut attr_entry_types: Vec<(usize, String)> = Vec::new();
 
         while let Some(m) = matches.next() {
-            Self::process_match(&query, m, code, file_path, &mut parsed, &mut public_symbols);
+            Self::process_match(
+                &query,
+                m,
+                code,
+                file_path,
+                &mut parsed,
+                &mut public_symbols,
+                &mut attr_entry_types,
+            );
         }
 
         for sym in &mut parsed.symbols {
@@ -224,6 +246,22 @@ impl Rust {
                 sym.visibility = Some("public".to_string());
             } else {
                 sym.visibility = Some("private".to_string());
+            }
+
+            // Correlate attributes: attribute's end line should be just before the symbol's start line
+            if sym.kind == "function" {
+                for (attr_end_line, entry_type) in &attr_entry_types {
+                    if *attr_end_line >= sym.start_line.saturating_sub(2)
+                        && *attr_end_line < sym.start_line
+                    {
+                        sym.entry_type = Some(entry_type.clone());
+                        break;
+                    }
+                }
+                // fn main() without any attribute is still a main entry point
+                if sym.entry_type.is_none() && sym.name == "main" {
+                    sym.entry_type = Some("main".to_string());
+                }
             }
         }
 
@@ -237,6 +275,7 @@ impl Rust {
         file_path: &str,
         parsed: &mut ParsedFile,
         public_symbols: &mut std::collections::HashSet<(String, usize)>,
+        attr_entry_types: &mut Vec<(usize, String)>,
     ) {
         use crate::analysis::types::*;
 
@@ -264,6 +303,7 @@ impl Rust {
                 signature: Some(sig),
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("struct_def")
             && let Some(&name_node) = captures.get("struct_name")
@@ -277,6 +317,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("enum_def")
             && let Some(&name_node) = captures.get("enum_name")
@@ -290,6 +331,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("trait_def")
             && let Some(&name_node) = captures.get("trait_name")
@@ -303,6 +345,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("mod_def")
             && let Some(&name_node) = captures.get("mod_name")
@@ -316,6 +359,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("const_def")
             && let Some(&name_node) = captures.get("const_name")
@@ -329,6 +373,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("static_def")
             && let Some(&name_node) = captures.get("static_name")
@@ -342,6 +387,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("type_alias_def")
             && let Some(&name_node) = captures.get("type_alias_name")
@@ -355,6 +401,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         } else if let Some(&node) = captures.get("macro_def")
             && let Some(&name_node) = captures.get("macro_def_name")
@@ -368,6 +415,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         }
 
@@ -435,6 +483,7 @@ impl Rust {
                 signature: Some(sig),
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
 
             if let Some(&type_node) = captures.get("method_impl_type") {
@@ -459,6 +508,7 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
+                entry_type: None,
             });
         }
 
@@ -621,6 +671,33 @@ impl Rust {
                 text(name_node).to_string(),
                 def_node.start_position().row + 1,
             ));
+        }
+
+        // Attributes — record entry types for post-processing
+        if let Some(&attr_node) = captures.get("attr_simple")
+            && let Some(&name_node) = captures.get("attr_simple_name")
+        {
+            let attr_name = text(name_node);
+            let entry_type = match attr_name {
+                "test" => Some("test"),
+                "no_mangle" => Some("export"),
+                _ => None,
+            };
+            if let Some(et) = entry_type {
+                attr_entry_types.push((attr_node.end_position().row + 1, et.to_string()));
+            }
+        } else if let Some(&attr_node) = captures.get("attr_scoped")
+            && let Some(&name_node) = captures.get("attr_scoped_name")
+        {
+            let scoped_name = text(name_node);
+            let entry_type = match scoped_name {
+                "main" => Some("main"),
+                "test" => Some("test"),
+                _ => None,
+            };
+            if let Some(et) = entry_type {
+                attr_entry_types.push((attr_node.end_position().row + 1, et.to_string()));
+            }
         }
     }
 }

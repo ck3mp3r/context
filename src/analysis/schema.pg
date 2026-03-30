@@ -29,6 +29,7 @@ node Symbol {
     start_line: I32
     end_line: I32
     visibility: String? @index  // "public", "private", "pub_crate" (null = unknown)
+    entry_type: String? @index  // "main", "init", "test", "benchmark", "fuzz", "example", "export" (null = not an entry point)
     signature: String?  // For functions/methods: "fn foo(a: i32) -> String"
     content: String?    // Code snippet with context (±2 lines)
     // Phase 2: embedding: Vector(384)? @embed(content)

@@ -85,3 +85,31 @@ func (rwc *ReadWriteCache) RecordHit() {
 	// Write access — increment via selector
 	rwc.hits++
 }
+
+// --- Entry point patterns ---
+
+func init() {
+	_ = DefaultTTL
+}
+
+func TestCacheGet(t *testing.T) {
+	c := New()
+	c.Set("key", "value", DefaultTTL)
+	val, ok := c.Get("key")
+	if !ok {
+		t.Fatal("expected key to exist")
+	}
+	_ = val
+}
+
+func BenchmarkCacheSet(b *testing.B) {
+	c := New()
+	for i := 0; i < b.N; i++ {
+		c.Set("key", "value", DefaultTTL)
+	}
+}
+
+func ExampleNew() {
+	c := New()
+	c.Set("hello", "world", DefaultTTL)
+}

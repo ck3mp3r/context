@@ -270,6 +270,7 @@ pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
     pub content: String,
     pub signature: Option<String>,
     pub visibility: Option<String>,
+    pub entry_type: Option<String>,
 }
 
 // ============================================================================
@@ -334,6 +335,7 @@ pub struct RawSymbol {
     pub signature: Option<String>,
     pub language: String,
     pub visibility: Option<String>,
+    pub entry_type: Option<String>,
 }
 
 impl RawSymbol {

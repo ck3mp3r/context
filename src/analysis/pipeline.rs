@@ -138,6 +138,7 @@ pub fn run(
                 content: String::new(),
                 signature: sym.signature.clone(),
                 visibility: sym.visibility.clone(),
+                entry_type: sym.entry_type.clone(),
             })?;
             graph.insert_contains(&file_id, &sid, 1.0)?;
             total_symbols += 1;

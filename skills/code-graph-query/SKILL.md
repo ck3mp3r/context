@@ -88,6 +88,7 @@ Symbol {
   start_line: I32
   end_line: I32
   visibility: String? @index // "public", "private", or null
+  entry_type: String? @index // "main", "init", "test", "benchmark", "fuzz", "example", "export" (null = not an entry point)
   signature: String?         // e.g. "fn foo(a: i32) -> String"
   content: String?           // code snippet
 }
@@ -140,6 +141,7 @@ These are pre-installed for every analyzed repo. Run them by name.
 | `module_map` | Module/package hierarchy showing file locations and visibility. |
 | `hub_symbols` | Top 30 most-called symbols. Core logic lives here. |
 | `type_hierarchy` | All inheritance/implementation relationships between types. |
+| `entry_points` | All entry points: main, init, test, benchmark, fuzz, example, export. |
 
 ### Parameterized
 

@@ -158,3 +158,22 @@ pub fn update_server(server: &mut Server) {
 }
 
 pub type HandlerMap = HashMap<String, Box<dyn Handler>>;
+
+// --- Entry point patterns ---
+
+#[test]
+fn test_server_creation() {
+    let server = Server::new("localhost".to_string(), 8080);
+    assert_eq!(server.port, 8080);
+}
+
+#[tokio::main]
+async fn main() {
+    let server = Server::new("0.0.0.0".to_string(), 3000);
+    server.start().unwrap();
+}
+
+#[no_mangle]
+pub extern "C" fn exported_function() -> i32 {
+    42
+}
