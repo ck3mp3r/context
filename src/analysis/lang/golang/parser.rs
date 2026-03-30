@@ -46,6 +46,21 @@ const QUERIES: &str = r#"
         (var_spec
             name: (identifier) @var_name))) @var_def
 
+;;; struct field declarations (named fields)
+(field_declaration_list
+    (field_declaration
+        name: (field_identifier) @field_name) @field_def)
+
+;;; struct embedding heritage (anonymous fields only — !name excludes named fields)
+(type_declaration
+    (type_spec
+        name: (type_identifier) @heritage_class
+        type: (struct_type
+            (field_declaration_list
+                (field_declaration
+                    !name
+                    type: (type_identifier) @heritage_extends))))) @heritage_def
+
 ;;; call_expression — plain function call
 (call_expression
     function: (identifier) @call_free_name) @call_free
@@ -89,6 +104,26 @@ const QUERIES: &str = r#"
         (import_spec
             name: (package_identifier) @import_grouped_alias
             path: (interpreted_string_literal) @import_grouped_alias_path))) @import_grouped_alias_decl
+
+;;; write access — field assignment (obj.field = value)
+(assignment_statement
+    left: (expression_list
+        (selector_expression
+            operand: (_) @write_assign_receiver
+            field: (field_identifier) @write_assign_field))
+    right: (_)) @write_assign
+
+;;; write access — field increment (obj.field++)
+(inc_statement
+    (selector_expression
+        operand: (_) @write_inc_receiver
+        field: (field_identifier) @write_inc_field)) @write_inc
+
+;;; write access — field decrement (obj.field--)
+(dec_statement
+    (selector_expression
+        operand: (_) @write_dec_receiver
+        field: (field_identifier) @write_dec_field)) @write_dec
 "#;
 
 impl Go {
@@ -237,6 +272,38 @@ impl Go {
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "interface".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+            });
+            return;
+        }
+
+        // Heritage — struct embedding (anonymous fields)
+        if captures.contains_key("heritage_def")
+            && let (Some(&class_node), Some(&extends_node)) = (
+                captures.get("heritage_class"),
+                captures.get("heritage_extends"),
+            )
+        {
+            parsed.heritage.push(RawHeritage {
+                file_path: file_path.to_string(),
+                type_name: text(class_node).to_string(),
+                parent_name: text(extends_node).to_string(),
+                kind: InheritanceType::Extends,
+            });
+            return;
+        }
+
+        // Struct fields (named)
+        if let Some(&node) = captures.get("field_def")
+            && let Some(&name_node) = captures.get("field_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "field".to_string(),
                 file_path: file_path.to_string(),
                 start_line: node.start_position().row + 1,
                 end_line: node.end_position().row + 1,
@@ -421,6 +488,51 @@ impl Go {
                     entry,
                 });
             }
+            return;
+        }
+
+        // Write access — field assignment
+        if captures.contains_key("write_assign")
+            && let Some(&recv_node) = captures.get("write_assign_receiver")
+            && let Some(&field_node) = captures.get("write_assign_field")
+        {
+            let assign_node = captures["write_assign"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: assign_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
+            return;
+        }
+
+        // Write access — increment
+        if captures.contains_key("write_inc")
+            && let Some(&recv_node) = captures.get("write_inc_receiver")
+            && let Some(&field_node) = captures.get("write_inc_field")
+        {
+            let inc_node = captures["write_inc"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: inc_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
+            return;
+        }
+
+        // Write access — decrement
+        if captures.contains_key("write_dec")
+            && let Some(&recv_node) = captures.get("write_dec_receiver")
+            && let Some(&field_node) = captures.get("write_dec_field")
+        {
+            let dec_node = captures["write_dec"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: dec_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
         }
     }
 }

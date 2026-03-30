@@ -66,3 +66,22 @@ func (c *Cache) Cleanup() {
 		}
 	}
 }
+
+// --- Patterns for gap coverage ---
+
+// Struct embedding heritage — ReadWriteCache embeds Cache (anonymous field = extends)
+type ReadWriteCache struct {
+	Cache
+	maxSize int
+	hits    int
+}
+
+func (rwc *ReadWriteCache) Resize(size int) {
+	// Write access — field assignment via selector
+	rwc.maxSize = size
+}
+
+func (rwc *ReadWriteCache) RecordHit() {
+	// Write access — increment via selector
+	rwc.hits++
+}

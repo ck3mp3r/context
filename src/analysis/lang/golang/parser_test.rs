@@ -179,3 +179,82 @@ fn test_server_selector_calls() {
         scoped
     );
 }
+
+#[test]
+fn test_cache_struct_fields() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    let fields: Vec<&str> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "field")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    assert!(
+        fields.contains(&"mu"),
+        "should extract Cache.mu field, got: {:?}",
+        fields
+    );
+    assert!(
+        fields.contains(&"items"),
+        "should extract Cache.items field, got: {:?}",
+        fields
+    );
+    assert!(
+        fields.contains(&"Value"),
+        "should extract Item.Value field, got: {:?}",
+        fields
+    );
+    assert!(
+        fields.contains(&"Expires"),
+        "should extract Item.Expires field, got: {:?}",
+        fields
+    );
+}
+
+#[test]
+fn test_cache_struct_embedding_heritage() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    assert!(
+        parsed
+            .heritage
+            .iter()
+            .any(|h| h.type_name == "ReadWriteCache" && h.parent_name == "Cache"),
+        "should extract ReadWriteCache embeds Cache as heritage, got: {:?}",
+        parsed.heritage
+    );
+}
+
+#[test]
+fn test_cache_write_access_assignment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    assert!(
+        parsed
+            .write_accesses
+            .iter()
+            .any(|w| w.property == "maxSize" && w.receiver == "rwc"),
+        "should capture rwc.maxSize = size write access, got: {:?}",
+        parsed.write_accesses
+    );
+}
+
+#[test]
+fn test_cache_write_access_increment() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    assert!(
+        parsed
+            .write_accesses
+            .iter()
+            .any(|w| w.property == "hits" && w.receiver == "rwc"),
+        "should capture rwc.hits++ write access, got: {:?}",
+        parsed.write_accesses
+    );
+}

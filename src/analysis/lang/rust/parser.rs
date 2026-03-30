@@ -47,23 +47,68 @@ const QUERIES: &str = r#"
 (type_item
     name: (type_identifier) @type_alias_name) @type_alias_def
 
-;;; impl_item — trait impl
+;;; macro_definition
+(macro_definition
+    name: (identifier) @macro_def_name) @macro_def
+
+;;; impl_item — trait impl (concrete trait, concrete type)
 (impl_item
     trait: (type_identifier) @impl_trait
     type: (type_identifier) @impl_type) @impl_trait_def
 
-;;; impl_item — inherent impl (no trait)
+;;; impl_item — trait impl (generic trait, concrete type)
+(impl_item
+    trait: (generic_type
+        type: (type_identifier) @impl_generic_trait_name)
+    type: (type_identifier) @impl_generic_trait_type) @impl_generic_trait_def
+
+;;; impl_item — trait impl (concrete trait, generic type)
+(impl_item
+    trait: (type_identifier) @impl_concrete_trait_generic_type_trait
+    type: (generic_type
+        type: (type_identifier) @impl_concrete_trait_generic_type_type)) @impl_concrete_trait_generic_type_def
+
+;;; impl_item — trait impl (generic trait, generic type)
+(impl_item
+    trait: (generic_type
+        type: (type_identifier) @impl_both_generic_trait)
+    type: (generic_type
+        type: (type_identifier) @impl_both_generic_type)) @impl_both_generic_def
+
+;;; impl_item — inherent impl (no trait, concrete type)
 (impl_item
     !trait
     type: (type_identifier) @inherent_impl_type) @impl_inherent_def
 
-;;; method inside impl
+;;; impl_item — inherent impl (no trait, generic type)
 (impl_item
+    !trait
+    type: (generic_type
+        type: (type_identifier) @inherent_generic_impl_type)) @impl_inherent_generic_def
+
+;;; method inside impl — concrete impl type
+(impl_item
+    type: (type_identifier) @method_impl_type
     body: (declaration_list
         (function_item
             name: (identifier) @method_name
             parameters: (parameters) @method_params
             return_type: (_)? @method_ret) @method_def))
+
+;;; method inside impl — generic impl type
+(impl_item
+    type: (generic_type
+        type: (type_identifier) @method_impl_type)
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_name
+            parameters: (parameters) @method_params
+            return_type: (_)? @method_ret) @method_def))
+
+;;; struct field declarations
+(field_declaration_list
+    (field_declaration
+        name: (field_identifier) @field_name) @field_def)
 
 ;;; call_expression — plain function
 (call_expression
@@ -81,6 +126,22 @@ const QUERIES: &str = r#"
         path: (_) @call_scoped_path
         name: (identifier) @call_scoped_name)) @call_scoped
 
+;;; call_expression — generic function call (collect::<Vec<_>>())
+(call_expression
+    function: (generic_function
+        function: (identifier) @call_generic_fn_name)) @call_generic_fn
+
+;;; call_expression — generic method call (iter.collect::<Vec<_>>())
+(call_expression
+    function: (generic_function
+        function: (field_expression
+            value: (_) @call_generic_method_receiver
+            field: (field_identifier) @call_generic_method_name))) @call_generic_method
+
+;;; struct_expression — struct literal construction (Config { port: 8080 })
+(struct_expression
+    name: (type_identifier) @struct_expr_name) @struct_expr
+
 ;;; use_declaration
 (use_declaration
     argument: (_) @use_path) @use_decl
@@ -88,6 +149,20 @@ const QUERIES: &str = r#"
 ;;; macro_invocation
 (macro_invocation
     macro: (identifier) @macro_name) @macro_call
+
+;;; write access — field assignment (obj.field = value)
+(assignment_expression
+    left: (field_expression
+        value: (_) @write_assign_receiver
+        field: (field_identifier) @write_assign_field)
+    right: (_)) @write_assign
+
+;;; write access — compound assignment (obj.field += value)
+(compound_assignment_expr
+    left: (field_expression
+        value: (_) @write_compound_receiver
+        field: (field_identifier) @write_compound_field)
+    right: (_)) @write_compound
 "#;
 
 impl Rust {
@@ -250,9 +325,21 @@ impl Rust {
                 signature: None,
                 language: "rust".to_string(),
             });
+        } else if let Some(&node) = captures.get("macro_def")
+            && let Some(&name_node) = captures.get("macro_def_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "macro".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
         }
 
-        // Heritage (impl blocks)
+        // Heritage — all 4 trait impl combinations
         if captures.contains_key("impl_trait_def")
             && let (Some(&trait_node), Some(&type_node)) =
                 (captures.get("impl_trait"), captures.get("impl_type"))
@@ -263,9 +350,45 @@ impl Rust {
                 parent_name: text(trait_node).to_string(),
                 kind: InheritanceType::Implements,
             });
+        } else if captures.contains_key("impl_generic_trait_def")
+            && let (Some(&trait_node), Some(&type_node)) = (
+                captures.get("impl_generic_trait_name"),
+                captures.get("impl_generic_trait_type"),
+            )
+        {
+            parsed.heritage.push(RawHeritage {
+                file_path: file_path.to_string(),
+                type_name: text(type_node).to_string(),
+                parent_name: text(trait_node).to_string(),
+                kind: InheritanceType::Implements,
+            });
+        } else if captures.contains_key("impl_concrete_trait_generic_type_def")
+            && let (Some(&trait_node), Some(&type_node)) = (
+                captures.get("impl_concrete_trait_generic_type_trait"),
+                captures.get("impl_concrete_trait_generic_type_type"),
+            )
+        {
+            parsed.heritage.push(RawHeritage {
+                file_path: file_path.to_string(),
+                type_name: text(type_node).to_string(),
+                parent_name: text(trait_node).to_string(),
+                kind: InheritanceType::Implements,
+            });
+        } else if captures.contains_key("impl_both_generic_def")
+            && let (Some(&trait_node), Some(&type_node)) = (
+                captures.get("impl_both_generic_trait"),
+                captures.get("impl_both_generic_type"),
+            )
+        {
+            parsed.heritage.push(RawHeritage {
+                file_path: file_path.to_string(),
+                type_name: text(type_node).to_string(),
+                parent_name: text(trait_node).to_string(),
+                kind: InheritanceType::Implements,
+            });
         }
 
-        // Methods inside impl blocks — containment
+        // Methods inside impl blocks — containment from query capture
         if let Some(&node) = captures.get("method_def")
             && let Some(&name_node) = captures.get("method_name")
         {
@@ -281,52 +404,64 @@ impl Rust {
                 language: "rust".to_string(),
             });
 
-            // Find the impl type this method belongs to
-            if let Some(impl_node) = find_ancestor(node, "impl_item")
-                && let Some(type_node) = impl_node.child_by_field_name("type")
-            {
+            if let Some(&type_node) = captures.get("method_impl_type") {
                 parsed.containments.push(RawContainment {
                     file_path: file_path.to_string(),
-                    parent_name: code[type_node.byte_range()].to_string(),
+                    parent_name: text(type_node).to_string(),
                     child_symbol_idx: idx,
                 });
             }
         }
 
+        // Struct fields
+        if let Some(&node) = captures.get("field_def")
+            && let Some(&name_node) = captures.get("field_name")
+        {
+            parsed.symbols.push(RawSymbol {
+                name: text(name_node).to_string(),
+                kind: "field".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "rust".to_string(),
+            });
+        }
+
         // Calls
-        if captures.contains_key("call_free") {
-            if let Some(&name_node) = captures.get("call_free_name") {
-                let call_node = captures.get("call_free").unwrap();
-                parsed.calls.push(RawCall {
-                    file_path: file_path.to_string(),
-                    call_site_line: call_node.start_position().row + 1,
-                    callee_name: text(name_node).to_string(),
-                    call_form: CallForm::Free,
-                    receiver: None,
-                    qualifier: None,
-                    enclosing_symbol_idx: None,
-                });
-            }
-        } else if captures.contains_key("call_method") {
-            if let Some(&name_node) = captures.get("call_method_name") {
-                let call_node = captures.get("call_method").unwrap();
-                let receiver = captures
-                    .get("call_method_receiver")
-                    .map(|n| text(*n).to_string());
-                parsed.calls.push(RawCall {
-                    file_path: file_path.to_string(),
-                    call_site_line: call_node.start_position().row + 1,
-                    callee_name: text(name_node).to_string(),
-                    call_form: CallForm::Method,
-                    receiver,
-                    qualifier: None,
-                    enclosing_symbol_idx: None,
-                });
-            }
+        if captures.contains_key("call_free")
+            && let Some(&name_node) = captures.get("call_free_name")
+        {
+            let call_node = captures["call_free"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
+        } else if captures.contains_key("call_method")
+            && let Some(&name_node) = captures.get("call_method_name")
+        {
+            let call_node = captures["call_method"];
+            let receiver = captures
+                .get("call_method_receiver")
+                .map(|n| text(*n).to_string());
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Method,
+                receiver,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
         } else if captures.contains_key("call_scoped")
             && let Some(&name_node) = captures.get("call_scoped_name")
         {
-            let call_node = captures.get("call_scoped").unwrap();
+            let call_node = captures["call_scoped"];
             let qualifier = captures
                 .get("call_scoped_path")
                 .map(|n| text(*n).to_string());
@@ -337,6 +472,51 @@ impl Rust {
                 call_form: CallForm::Scoped,
                 receiver: None,
                 qualifier,
+                enclosing_symbol_idx: None,
+            });
+        } else if captures.contains_key("call_generic_fn")
+            && let Some(&name_node) = captures.get("call_generic_fn_name")
+        {
+            let call_node = captures["call_generic_fn"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
+        } else if captures.contains_key("call_generic_method")
+            && let Some(&name_node) = captures.get("call_generic_method_name")
+        {
+            let call_node = captures["call_generic_method"];
+            let receiver = captures
+                .get("call_generic_method_receiver")
+                .map(|n| text(*n).to_string());
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Method,
+                receiver,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
+        }
+
+        // Struct expression — constructor-like
+        if captures.contains_key("struct_expr")
+            && let Some(&name_node) = captures.get("struct_expr_name")
+        {
+            let expr_node = captures["struct_expr"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: expr_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
                 enclosing_symbol_idx: None,
             });
         }
@@ -369,17 +549,35 @@ impl Rust {
                 enclosing_symbol_idx: None,
             });
         }
-    }
-}
 
-fn find_ancestor<'a>(mut node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
-    while let Some(parent) = node.parent() {
-        if parent.kind() == kind {
-            return Some(parent);
+        // Write access — assignment
+        if captures.contains_key("write_assign")
+            && let Some(&recv_node) = captures.get("write_assign_receiver")
+            && let Some(&field_node) = captures.get("write_assign_field")
+        {
+            let assign_node = captures["write_assign"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: assign_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
         }
-        node = parent;
+
+        // Write access — compound assignment
+        if captures.contains_key("write_compound")
+            && let Some(&recv_node) = captures.get("write_compound_receiver")
+            && let Some(&field_node) = captures.get("write_compound_field")
+        {
+            let compound_node = captures["write_compound"];
+            parsed.write_accesses.push(RawWriteAccess {
+                file_path: file_path.to_string(),
+                write_site_line: compound_node.start_position().row + 1,
+                receiver: text(recv_node).to_string(),
+                property: text(field_node).to_string(),
+            });
+        }
     }
-    None
 }
 
 fn build_rust_fn_signature(

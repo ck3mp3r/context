@@ -403,6 +403,14 @@ pub struct RawTypeRef {
     pub ref_kind: ReferenceType,
 }
 
+#[derive(Debug, Clone)]
+pub struct RawWriteAccess {
+    pub file_path: String,
+    pub write_site_line: usize,
+    pub receiver: String,
+    pub property: String,
+}
+
 #[derive(Debug)]
 pub struct ParsedFile {
     pub file_path: String,
@@ -413,6 +421,7 @@ pub struct ParsedFile {
     pub heritage: Vec<RawHeritage>,
     pub containments: Vec<RawContainment>,
     pub type_refs: Vec<RawTypeRef>,
+    pub write_accesses: Vec<RawWriteAccess>,
 }
 
 impl ParsedFile {
@@ -426,6 +435,7 @@ impl ParsedFile {
             heritage: Vec::new(),
             containments: Vec::new(),
             type_refs: Vec::new(),
+            write_accesses: Vec::new(),
         }
     }
 }

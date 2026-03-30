@@ -80,3 +80,81 @@ mod internal {
         "internal".to_string()
     }
 }
+
+// --- Patterns for gap coverage ---
+
+macro_rules! log {
+    ($msg:expr) => {
+        println!("{}", $msg);
+    };
+}
+
+pub struct Container<T> {
+    items: Vec<T>,
+    label: String,
+}
+
+impl<T> Container<T> {
+    pub fn new(label: String) -> Self {
+        Self {
+            items: Vec::new(),
+            label,
+        }
+    }
+
+    pub fn add(&mut self, item: T) {
+        self.items.push(item);
+    }
+
+    pub fn labels(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .map(|_| self.label.clone())
+            .collect::<Vec<_>>()
+    }
+}
+
+pub trait Serializer<F> {
+    fn serialize(&self) -> F;
+}
+
+// Generic trait, concrete type
+impl Serializer<String> for Server {
+    fn serialize(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
+// Concrete trait, generic type
+impl<T> Handler for Container<T> {
+    fn handle(&self, _request: &Request) -> Response {
+        Response {
+            status: 200,
+            body: "ok".to_string(),
+        }
+    }
+}
+
+// Generic trait, generic type
+impl<T> Serializer<Vec<T>> for Container<T> {
+    fn serialize(&self) -> Vec<T> {
+        Vec::new()
+    }
+}
+
+pub fn create_default_config() -> Response {
+    // Struct expression — constructor-like usage
+    let resp = Response {
+        status: 200,
+        body: "OK".to_string(),
+    };
+    resp
+}
+
+pub fn update_server(server: &mut Server) {
+    // Write access — field assignment
+    server.port = 9090;
+    // Write access — compound assignment (not valid for port, use a different example)
+}
+
+pub type HandlerMap = HashMap<String, Box<dyn Handler>>;
