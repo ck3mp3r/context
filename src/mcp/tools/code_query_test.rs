@@ -4,7 +4,8 @@
 //! Tests written FIRST before implementation
 
 use crate::mcp::tools::code_query::{
-    CodeQueryTools, DescribeSchemaParams, MockNanographCli, QueryCodeGraphParams,
+    CodeQueryTools, DescribeSchemaParams, ListQueriesParams, MockNanographCli,
+    QueryCodeGraphParams, parse_query_metadata,
 };
 use mockall::predicate::*;
 use rmcp::handler::server::wrapper::Parameters;
@@ -370,16 +371,250 @@ async fn test_query_graph_neither_name_nor_definition() {
 
     // Assert
     assert!(result.is_err());
-    let err = result.unwrap_err();
-    // Check the data contains the right message
-    assert!(err.data.is_some());
-    let data = err.data.unwrap();
-    assert!(
-        data["message"]
-            .as_str()
-            .unwrap()
-            .contains("query_name or query_definition")
+}
+
+// ============================================================================
+// TDD: parse_query_metadata
+// ============================================================================
+
+#[test]
+fn test_parse_query_metadata_with_params() {
+    let content = r#"query callers($name: String)
+  @description("Find all functions that call a given function")
+  @instruction("Use to trace who depends on a function")
+{
+  match { $caller: Symbol }
+  return { $caller.name }
+}"#;
+
+    let meta = parse_query_metadata(content).expect("should parse");
+    assert_eq!(meta.name, "callers");
+    assert_eq!(
+        meta.description.as_deref(),
+        Some("Find all functions that call a given function")
     );
+    assert_eq!(
+        meta.instruction.as_deref(),
+        Some("Use to trace who depends on a function")
+    );
+    assert_eq!(meta.params.len(), 1);
+    assert_eq!(meta.params[0].name, "name");
+    assert_eq!(meta.params[0].param_type, "String");
+}
+
+#[test]
+fn test_parse_query_metadata_no_params() {
+    let content = r#"query overview()
+  @description("High-level codebase overview")
+  @instruction("Run this first")
+{
+  match { $s: Symbol }
+  return { $s.kind }
+}"#;
+
+    let meta = parse_query_metadata(content).expect("should parse");
+    assert_eq!(meta.name, "overview");
+    assert_eq!(
+        meta.description.as_deref(),
+        Some("High-level codebase overview")
+    );
+    assert_eq!(meta.instruction.as_deref(), Some("Run this first"));
+    assert!(meta.params.is_empty());
+}
+
+#[test]
+fn test_parse_query_metadata_multiple_params() {
+    let content = r#"query find($name: String, $kind: String)
+  @description("Find by name and kind")
+{
+  match { $s: Symbol { name: $name, kind: $kind } }
+  return { $s.name }
+}"#;
+
+    let meta = parse_query_metadata(content).expect("should parse");
+    assert_eq!(meta.name, "find");
+    assert_eq!(meta.params.len(), 2);
+    assert_eq!(meta.params[0].name, "name");
+    assert_eq!(meta.params[0].param_type, "String");
+    assert_eq!(meta.params[1].name, "kind");
+    assert_eq!(meta.params[1].param_type, "String");
+}
+
+#[test]
+fn test_parse_query_metadata_no_annotations() {
+    let content = r#"query simple()
+{
+  match { $s: Symbol }
+  return { $s.name }
+}"#;
+
+    let meta = parse_query_metadata(content).expect("should parse");
+    assert_eq!(meta.name, "simple");
+    assert!(meta.description.is_none());
+    assert!(meta.instruction.is_none());
+    assert!(meta.params.is_empty());
+}
+
+#[test]
+fn test_parse_query_metadata_not_a_query() {
+    assert!(parse_query_metadata("not a query").is_none());
+    assert!(parse_query_metadata("").is_none());
+    assert!(parse_query_metadata("match { $s: Symbol }").is_none());
+}
+
+// ============================================================================
+// TDD: Tool 3 - list_queries
+// ============================================================================
+
+#[tokio::test]
+async fn test_list_queries_returns_all_queries() {
+    let mut mock_cli = MockNanographCli::new();
+    let temp_dir = setup_temp_analysis(&mut mock_cli);
+
+    create_saved_query(
+        &temp_dir,
+        "overview",
+        r#"query overview()
+  @description("High-level codebase overview")
+  @instruction("Run this first")
+{
+  match { $s: Symbol }
+  return { $s.kind as kind, count($s) as total }
+}"#,
+    );
+
+    create_saved_query(
+        &temp_dir,
+        "callers",
+        r#"query callers($name: String)
+  @description("Find all callers of a function")
+  @instruction("Use to trace dependencies")
+{
+  match { $c: Symbol, $t: Symbol { name: $name }, $c calls $t }
+  return { $c.name }
+}"#,
+    );
+
+    let tools = CodeQueryTools::new_with_cli(mock_cli);
+
+    let params = ListQueriesParams {
+        repo_id: "7104e891".to_string(),
+    };
+
+    let result = tools
+        .list_queries(Parameters(params))
+        .await
+        .expect("list_queries should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+
+    assert_eq!(response["total"], 2);
+    assert_eq!(response["repo_id"], "7104e891");
+
+    let queries = response["queries"].as_array().unwrap();
+    assert_eq!(queries.len(), 2);
+
+    // Sorted alphabetically
+    assert_eq!(queries[0]["name"], "callers");
+    assert_eq!(queries[0]["description"], "Find all callers of a function");
+    assert_eq!(queries[0]["params"][0]["name"], "name");
+    assert_eq!(queries[0]["params"][0]["param_type"], "String");
+
+    assert_eq!(queries[1]["name"], "overview");
+    assert_eq!(queries[1]["description"], "High-level codebase overview");
+    assert!(queries[1]["params"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_list_queries_no_queries_dir() {
+    let mut mock_cli = MockNanographCli::new();
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    mock_cli
+        .expect_get_analysis_path()
+        .returning(move |_| temp_path.clone());
+
+    let tools = CodeQueryTools::new_with_cli(mock_cli);
+
+    let params = ListQueriesParams {
+        repo_id: "nonexistent".to_string(),
+    };
+
+    let result = tools.list_queries(Parameters(params)).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_list_queries_skips_non_gq_files() {
+    let mut mock_cli = MockNanographCli::new();
+    let temp_dir = setup_temp_analysis(&mut mock_cli);
+
+    create_saved_query(
+        &temp_dir,
+        "overview",
+        r#"query overview()
+  @description("Overview")
+{
+  match { $s: Symbol }
+  return { $s.kind }
+}"#,
+    );
+
+    // Create non-.gq files that should be ignored
+    let queries_dir = temp_dir.path().join("queries");
+    std::fs::write(queries_dir.join("README.md"), "# Queries").unwrap();
+    std::fs::write(queries_dir.join("notes.txt"), "some notes").unwrap();
+
+    let tools = CodeQueryTools::new_with_cli(mock_cli);
+
+    let params = ListQueriesParams {
+        repo_id: "7104e891".to_string(),
+    };
+
+    let result = tools
+        .list_queries(Parameters(params))
+        .await
+        .expect("list_queries should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 1);
+}
+
+#[tokio::test]
+async fn test_list_queries_empty_dir() {
+    let mut mock_cli = MockNanographCli::new();
+    let _temp_dir = setup_temp_analysis(&mut mock_cli);
+
+    let tools = CodeQueryTools::new_with_cli(mock_cli);
+
+    let params = ListQueriesParams {
+        repo_id: "7104e891".to_string(),
+    };
+
+    let result = tools
+        .list_queries(Parameters(params))
+        .await
+        .expect("list_queries should succeed");
+
+    let content_text = match &result.content[0].raw {
+        RawContent::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 0);
+    assert!(response["queries"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

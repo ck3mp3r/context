@@ -400,6 +400,17 @@ impl<D: Database + 'static> McpServer<D> {
     ) -> Result<CallToolResult, McpError> {
         self.code_query_tools.query_graph(params).await
     }
+
+    #[tool(
+        name = "code_list_queries",
+        description = "List available queries with their parameters, descriptions, and usage instructions"
+    )]
+    pub async fn code_list_queries(
+        &self,
+        params: Parameters<super::tools::code_query::ListQueriesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.code_query_tools.list_queries(params).await
+    }
 }
 
 #[tool_handler]

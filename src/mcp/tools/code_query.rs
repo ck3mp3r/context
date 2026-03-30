@@ -80,6 +80,12 @@ pub struct DescribeSchemaParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListQueriesParams {
+    #[schemars(description = "Repository ID from c5t database")]
+    pub repo_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct QueryCodeGraphParams {
     #[schemars(description = "Repository ID")]
     pub repo_id: String,
@@ -612,6 +618,170 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
 
         Ok(CallToolResult::success(vec![Content::text(content)]))
     }
+
+    /// List available queries for a repository's code graph
+    #[tool(
+        description = "List available queries with their parameters, descriptions, and usage instructions"
+    )]
+    pub async fn list_queries(
+        &self,
+        params: Parameters<ListQueriesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let db_path = self.cli.get_analysis_path(&params.0.repo_id);
+        let queries_dir = db_path.join("queries");
+
+        if !queries_dir.exists() {
+            return Err(McpError::invalid_params(
+                "queries_not_found",
+                Some(json!({
+                    "message": format!("No queries directory found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
+                    "repo_id": params.0.repo_id
+                })),
+            ));
+        }
+
+        let mut queries: Vec<QueryMetadata> = Vec::new();
+
+        let entries = std::fs::read_dir(&queries_dir).map_err(|e| {
+            McpError::internal_error(
+                "fs_error",
+                Some(json!({
+                    "message": format!("Failed to read queries directory: {}", e)
+                })),
+            )
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                McpError::internal_error(
+                    "fs_error",
+                    Some(json!({
+                        "message": format!("Failed to read directory entry: {}", e)
+                    })),
+                )
+            })?;
+
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("gq") {
+                continue;
+            }
+
+            let content = std::fs::read_to_string(&path).map_err(|e| {
+                McpError::internal_error(
+                    "fs_error",
+                    Some(json!({
+                        "message": format!("Failed to read query file {}: {}", path.display(), e)
+                    })),
+                )
+            })?;
+
+            if let Some(metadata) = parse_query_metadata(&content) {
+                queries.push(metadata);
+            }
+        }
+
+        queries.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let response = json!({
+            "repo_id": params.0.repo_id,
+            "total": queries.len(),
+            "queries": queries,
+        });
+
+        let content = serde_json::to_string_pretty(&response).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(json!({
+                    "message": e.to_string()
+                })),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::text(content)]))
+    }
+}
+
+// ============================================================================
+// Query metadata parsing
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryParam {
+    pub name: String,
+    pub param_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryMetadata {
+    pub name: String,
+    pub description: Option<String>,
+    pub instruction: Option<String>,
+    pub params: Vec<QueryParam>,
+}
+
+pub fn parse_query_metadata(content: &str) -> Option<QueryMetadata> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with("query ") {
+        return None;
+    }
+
+    let after_query = &trimmed[6..];
+
+    let paren_open = after_query.find('(')?;
+    let name = after_query[..paren_open].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    let paren_close = after_query.find(')')?;
+    let params_str = after_query[paren_open + 1..paren_close].trim();
+
+    let params = if params_str.is_empty() {
+        Vec::new()
+    } else {
+        params_str
+            .split(',')
+            .filter_map(|p| {
+                let p = p.trim();
+                let parts: Vec<&str> = p.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    let param_name = parts[0].trim().trim_start_matches('$').to_string();
+                    let param_type = parts[1].trim().to_string();
+                    Some(QueryParam {
+                        name: param_name,
+                        param_type,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
+    let mut description = None;
+    let mut instruction = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(desc) = line
+            .strip_prefix("@description(\"")
+            .and_then(|r| r.strip_suffix("\")"))
+        {
+            description = Some(desc.to_string());
+        } else if let Some(inst) = line
+            .strip_prefix("@instruction(\"")
+            .and_then(|r| r.strip_suffix("\")"))
+        {
+            instruction = Some(inst.to_string());
+        }
+    }
+
+    Some(QueryMetadata {
+        name,
+        description,
+        instruction,
+        params,
+    })
 }
 
 // ============================================================================

@@ -1,5 +1,4 @@
 // Code Analysis Schema
-// Purpose-built for c5t - NOT copying GitNexus
 //
 // Design philosophy:
 // - Simple: 2 node types (File, Symbol) instead of 30+
