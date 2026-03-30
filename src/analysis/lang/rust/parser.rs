@@ -4,11 +4,20 @@ use tree_sitter::{Query, QueryCursor, StreamingIterator};
 pub struct Rust;
 
 const QUERIES: &str = r#"
-;;; function_item
-(function_item
-    name: (identifier) @fn_name
-    parameters: (parameters) @fn_params
-    return_type: (_)? @fn_ret) @fn_def
+;;; top-level function (not inside impl/trait blocks)
+(source_file
+    (function_item
+        name: (identifier) @fn_name
+        parameters: (parameters) @fn_params
+        return_type: (_)? @fn_ret) @fn_def)
+
+;;; function inside mod block
+(mod_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @fn_name
+            parameters: (parameters) @fn_params
+            return_type: (_)? @fn_ret) @fn_def))
 
 ;;; struct_item
 (struct_item
@@ -49,11 +58,12 @@ const QUERIES: &str = r#"
     type: (type_identifier) @inherent_impl_type) @impl_inherent_def
 
 ;;; method inside impl
-(declaration_list
-    (function_item
-        name: (identifier) @method_name
-        parameters: (parameters) @method_params
-        return_type: (_)? @method_ret) @method_def)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_name
+            parameters: (parameters) @method_params
+            return_type: (_)? @method_ret) @method_def))
 
 ;;; call_expression — plain function
 (call_expression

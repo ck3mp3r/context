@@ -35,6 +35,18 @@ fn test_server_symbols() {
 }
 
 #[test]
+fn test_no_duplicate_symbols() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let mut seen = std::collections::HashSet::new();
+    for sym in &parsed.symbols {
+        let key = format!("{}:{}:{}", sym.file_path, sym.name, sym.start_line);
+        assert!(seen.insert(key.clone()), "duplicate symbol: {}", key);
+    }
+}
+
+#[test]
 fn test_server_methods_and_containment() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
