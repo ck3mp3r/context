@@ -1,201 +1,10 @@
-use crate::analysis::types::{ParsedFile, RawContainment};
+use crate::analysis::types::{ParsedFile, RawContainment, RawTypeRef, ReferenceType};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Rust;
 
-const QUERIES: &str = r#"
-;;; top-level function (not inside impl/trait blocks)
-(source_file
-    (function_item
-        name: (identifier) @fn_name
-        parameters: (parameters) @fn_params
-        return_type: (_)? @fn_ret) @fn_def)
-
-;;; function inside mod block
-(mod_item
-    body: (declaration_list
-        (function_item
-            name: (identifier) @fn_name
-            parameters: (parameters) @fn_params
-            return_type: (_)? @fn_ret) @fn_def))
-
-;;; struct_item
-(struct_item
-    name: (type_identifier) @struct_name) @struct_def
-
-;;; enum_item
-(enum_item
-    name: (type_identifier) @enum_name) @enum_def
-
-;;; trait_item
-(trait_item
-    name: (type_identifier) @trait_name) @trait_def
-
-;;; mod_item
-(mod_item
-    name: (identifier) @mod_name) @mod_def
-
-;;; const_item
-(const_item
-    name: (identifier) @const_name) @const_def
-
-;;; static_item
-(static_item
-    name: (identifier) @static_name) @static_def
-
-;;; type_item (type alias)
-(type_item
-    name: (type_identifier) @type_alias_name) @type_alias_def
-
-;;; macro_definition
-(macro_definition
-    name: (identifier) @macro_def_name) @macro_def
-
-;;; impl_item — trait impl (concrete trait, concrete type)
-(impl_item
-    trait: (type_identifier) @impl_trait
-    type: (type_identifier) @impl_type) @impl_trait_def
-
-;;; impl_item — trait impl (generic trait, concrete type)
-(impl_item
-    trait: (generic_type
-        type: (type_identifier) @impl_generic_trait_name)
-    type: (type_identifier) @impl_generic_trait_type) @impl_generic_trait_def
-
-;;; impl_item — trait impl (concrete trait, generic type)
-(impl_item
-    trait: (type_identifier) @impl_concrete_trait_generic_type_trait
-    type: (generic_type
-        type: (type_identifier) @impl_concrete_trait_generic_type_type)) @impl_concrete_trait_generic_type_def
-
-;;; impl_item — trait impl (generic trait, generic type)
-(impl_item
-    trait: (generic_type
-        type: (type_identifier) @impl_both_generic_trait)
-    type: (generic_type
-        type: (type_identifier) @impl_both_generic_type)) @impl_both_generic_def
-
-;;; impl_item — inherent impl (no trait, concrete type)
-(impl_item
-    !trait
-    type: (type_identifier) @inherent_impl_type) @impl_inherent_def
-
-;;; impl_item — inherent impl (no trait, generic type)
-(impl_item
-    !trait
-    type: (generic_type
-        type: (type_identifier) @inherent_generic_impl_type)) @impl_inherent_generic_def
-
-;;; method inside impl — concrete impl type
-(impl_item
-    type: (type_identifier) @method_impl_type
-    body: (declaration_list
-        (function_item
-            name: (identifier) @method_name
-            parameters: (parameters) @method_params
-            return_type: (_)? @method_ret) @method_def))
-
-;;; method inside impl — generic impl type
-(impl_item
-    type: (generic_type
-        type: (type_identifier) @method_impl_type)
-    body: (declaration_list
-        (function_item
-            name: (identifier) @method_name
-            parameters: (parameters) @method_params
-            return_type: (_)? @method_ret) @method_def))
-
-;;; struct field declarations (with parent struct for containment)
-(struct_item
-    name: (type_identifier) @field_parent
-    body: (field_declaration_list
-        (field_declaration
-            name: (field_identifier) @field_name) @field_def))
-
-;;; trait method signatures (function_signature_item inside trait body)
-(trait_item
-    name: (type_identifier) @trait_sig_parent
-    body: (declaration_list
-        (function_signature_item
-            name: (identifier) @trait_sig_name) @trait_sig_def))
-
-;;; attribute — simple (#[test], #[no_mangle])
-(attribute_item
-    (attribute
-        (identifier) @attr_simple_name)) @attr_simple
-
-;;; attribute — scoped (#[tokio::main], #[tokio::test])
-(attribute_item
-    (attribute
-        (scoped_identifier
-            path: (_) @attr_scope
-            name: (identifier) @attr_scoped_name))) @attr_scoped
-
-;;; call_expression — plain function
-(call_expression
-    function: (identifier) @call_free_name) @call_free
-
-;;; call_expression — method call (obj.method())
-(call_expression
-    function: (field_expression
-        value: (_) @call_method_receiver
-        field: (field_identifier) @call_method_name)) @call_method
-
-;;; call_expression — scoped call (Foo::bar())
-(call_expression
-    function: (scoped_identifier
-        path: (_) @call_scoped_path
-        name: (identifier) @call_scoped_name)) @call_scoped
-
-;;; call_expression — generic function call (collect::<Vec<_>>())
-(call_expression
-    function: (generic_function
-        function: (identifier) @call_generic_fn_name)) @call_generic_fn
-
-;;; call_expression — generic method call (iter.collect::<Vec<_>>())
-(call_expression
-    function: (generic_function
-        function: (field_expression
-            value: (_) @call_generic_method_receiver
-            field: (field_identifier) @call_generic_method_name))) @call_generic_method
-
-;;; struct_expression — struct literal construction (Config { port: 8080 })
-(struct_expression
-    name: (type_identifier) @struct_expr_name) @struct_expr
-
-;;; use_declaration
-(use_declaration
-    argument: (_) @use_path) @use_decl
-
-;;; macro_invocation
-(macro_invocation
-    macro: (identifier) @macro_name) @macro_call
-
-;;; write access — field assignment (obj.field = value)
-(assignment_expression
-    left: (field_expression
-        value: (_) @write_assign_receiver
-        field: (field_identifier) @write_assign_field)
-    right: (_)) @write_assign
-
-;;; write access — compound assignment (obj.field += value)
-(compound_assignment_expr
-    left: (field_expression
-        value: (_) @write_compound_receiver
-        field: (field_identifier) @write_compound_field)
-    right: (_)) @write_compound
-
-;;; visibility — public items (captures name + start line to correlate with symbols)
-(function_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
-(struct_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
-(enum_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
-(trait_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
-(mod_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
-(const_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
-(static_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
-(type_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
-(field_declaration (visibility_modifier) @vis name: (field_identifier) @vis_name) @vis_def
-"#;
+const QUERIES: &str = include_str!("queries/symbols.scm");
+const TYPE_REF_QUERIES: &str = include_str!("queries/type_refs.scm");
 
 impl Rust {
     pub fn name() -> &'static str {
@@ -314,7 +123,207 @@ impl Rust {
             }
         }
 
+        // Second pass: extract type references using separate queries
+        Self::extract_type_refs(&tree, code, file_path, &mut parsed);
+
         parsed
+    }
+
+    fn extract_type_refs(
+        tree: &tree_sitter::Tree,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        let language = Self::grammar();
+        let query = match Query::new(&language, TYPE_REF_QUERIES) {
+            Ok(q) => q,
+            Err(_) => return,
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+        let capture_name = |idx: u32| -> &str { query.capture_names()[idx as usize] };
+        let text = |node: tree_sitter::Node| -> &str { &code[node.byte_range()] };
+
+        let param_patterns: &[(&str, &str, &str)] = &[
+            ("param_type_def", "param_type_fn", "param_type_name"),
+            (
+                "param_ref_type_def",
+                "param_ref_type_fn",
+                "param_ref_type_name",
+            ),
+            (
+                "method_param_type_def",
+                "method_param_type_fn",
+                "method_param_type_name",
+            ),
+            (
+                "method_param_ref_type_def",
+                "method_param_ref_type_fn",
+                "method_param_ref_type_name",
+            ),
+            (
+                "trait_param_type_def",
+                "trait_param_type_fn",
+                "trait_param_type_name",
+            ),
+            (
+                "trait_param_ref_type_def",
+                "trait_param_ref_type_fn",
+                "trait_param_ref_type_name",
+            ),
+        ];
+        let ret_patterns: &[(&str, &str, &str)] = &[
+            ("ret_type_def", "ret_type_fn", "ret_type_name"),
+            (
+                "ret_generic_type_def",
+                "ret_generic_type_fn",
+                "ret_generic_type_name",
+            ),
+            (
+                "method_ret_type_def",
+                "method_ret_type_fn",
+                "method_ret_type_name",
+            ),
+            (
+                "method_ret_generic_type_def",
+                "method_ret_generic_type_fn",
+                "method_ret_generic_type_name",
+            ),
+            (
+                "trait_ret_type_def",
+                "trait_ret_type_fn",
+                "trait_ret_type_name",
+            ),
+            (
+                "trait_ret_generic_type_def",
+                "trait_ret_generic_type_fn",
+                "trait_ret_generic_type_name",
+            ),
+        ];
+        let field_patterns: &[(&str, &str, &str)] = &[
+            ("field_type_def", "field_type_field", "field_type_name"),
+            (
+                "field_generic_type_def",
+                "field_generic_type_field",
+                "field_generic_type_arg",
+            ),
+            (
+                "field_ref_type_def",
+                "field_ref_type_field",
+                "field_ref_type_name",
+            ),
+            (
+                "field_dyn_type_def",
+                "field_dyn_type_field",
+                "field_dyn_type_name",
+            ),
+        ];
+
+        while let Some(m) = matches.next() {
+            let mut captures: std::collections::HashMap<&str, tree_sitter::Node> =
+                std::collections::HashMap::new();
+            for cap in m.captures {
+                captures.insert(capture_name(cap.index), cap.node);
+            }
+
+            for &(def_key, fn_key, type_key) in param_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if type_name != "Self"
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ParamType,
+                        });
+                    }
+                }
+            }
+
+            for &(def_key, fn_key, type_key) in ret_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if type_name != "Self"
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ReturnType,
+                        });
+                    }
+                }
+            }
+
+            for &(def_key, field_key, type_key) in field_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&field_node) = captures.get(field_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if type_name != "Self"
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(field_node),
+                            field_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::FieldType,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Post-processing: scoped call qualifiers as type references
+        // e.g. Cli::parse() -> Usage ref from enclosing function to Cli
+        for call in &parsed.calls.clone() {
+            if call.call_form != crate::analysis::types::CallForm::Scoped {
+                continue;
+            }
+            let qualifier = match &call.qualifier {
+                Some(q) => q,
+                None => continue,
+            };
+            if !qualifier.starts_with(|c: char| c.is_ascii_uppercase()) {
+                continue;
+            }
+            if qualifier == "Self" {
+                continue;
+            }
+            if let Some(caller_idx) = Self::find_enclosing_symbol_idx(parsed, call.call_site_line) {
+                parsed.type_refs.push(RawTypeRef {
+                    file_path: file_path.to_string(),
+                    from_symbol_idx: caller_idx,
+                    type_name: qualifier.clone(),
+                    ref_kind: ReferenceType::Usage,
+                });
+            }
+        }
     }
 
     /// Resolve cross-file module containment for Rust.
@@ -911,6 +920,23 @@ impl Rust {
                 attr_entry_types.push((attr_node.end_position().row + 1, et.to_string()));
             }
         }
+    }
+
+    fn find_symbol_idx(parsed: &ParsedFile, name: &str, line: usize) -> Option<usize> {
+        parsed
+            .symbols
+            .iter()
+            .position(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+    }
+
+    fn find_enclosing_symbol_idx(parsed: &ParsedFile, line: usize) -> Option<usize> {
+        parsed
+            .symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.start_line <= line && s.end_line >= line)
+            .min_by_key(|(_, s)| s.end_line - s.start_line)
+            .map(|(i, _)| i)
     }
 }
 
