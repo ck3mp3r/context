@@ -52,6 +52,28 @@
     return edgeColors[edgeType] || defaultEdgeColor;
   }
 
+  // N-hop BFS from a node
+  function bfsNeighbors(graph, startNode, depth) {
+    var visited = new Set();
+    visited.add(startNode);
+    var frontier = [startNode];
+    for (var d = 0; d < depth; d++) {
+      var nextFrontier = [];
+      for (var i = 0; i < frontier.length; i++) {
+        var neighbors = graph.neighbors(frontier[i]);
+        for (var j = 0; j < neighbors.length; j++) {
+          if (!visited.has(neighbors[j])) {
+            visited.add(neighbors[j]);
+            nextFrontier.push(neighbors[j]);
+          }
+        }
+      }
+      frontier = nextFrontier;
+      if (frontier.length === 0) break;
+    }
+    return visited;
+  }
+
   /**
    * Initialize a graph in a container element.
    * @param {string} containerId - DOM element ID for the graph canvas
@@ -93,6 +115,7 @@
       });
 
       // Add edges with type-specific colors
+      var edgeStats = { added: 0, skipped: 0, errors: {} };
       (data.edges || []).forEach(function(edge) {
         try {
           var label = (edge.type || "").toLowerCase();
@@ -102,10 +125,17 @@
             color: edgeColor(edge.type),
             size: 1,
           });
+          edgeStats.added++;
         } catch (e) {
-          // Skip edges with missing nodes
+          edgeStats.skipped++;
+          var msg = e.message || String(e);
+          edgeStats.errors[msg] = (edgeStats.errors[msg] || 0) + 1;
         }
       });
+      console.log("[graph-bridge] Edge loading:", edgeStats.added, "added,", edgeStats.skipped, "skipped");
+      if (edgeStats.skipped > 0) {
+        console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
+      }
 
       // Create renderer
       var renderer = new Sigma(graph, container, {
@@ -216,28 +246,6 @@
         renderer.refresh();
       });
 
-      // N-hop BFS from a node
-      function bfsNeighbors(startNode, depth) {
-        var visited = new Set();
-        visited.add(startNode);
-        var frontier = [startNode];
-        for (var d = 0; d < depth; d++) {
-          var nextFrontier = [];
-          for (var i = 0; i < frontier.length; i++) {
-            var neighbors = graph.neighbors(frontier[i]);
-            for (var j = 0; j < neighbors.length; j++) {
-              if (!visited.has(neighbors[j])) {
-                visited.add(neighbors[j]);
-                nextFrontier.push(neighbors[j]);
-              }
-            }
-          }
-          frontier = nextFrontier;
-          if (frontier.length === 0) break;
-        }
-        return visited;
-      }
-
       // Single click: select node (for info bar)
       renderer.on("clickNode", function(event) {
         if (inst.onSelectCallback) {
@@ -259,7 +267,7 @@
       // Double-click: focus on node and its N-hop neighbors
       renderer.on("doubleClickNode", function(event) {
         var node = event.node;
-        var neighbors = bfsNeighbors(node, inst.focusDepth);
+        var neighbors = bfsNeighbors(graph, node, inst.focusDepth);
 
         // Save camera state before focusing
         var camera = renderer.getCamera();
@@ -421,6 +429,9 @@
       });
 
       instances[containerId] = inst;
+
+      // Log initial graph stats
+      console.log("[graph-bridge] Graph loaded:", graph.order, "nodes,", graph.size, "edges");
 
       // Compute node sizes from edge degree
       graph.forEachNode(function(node) {
@@ -715,6 +726,13 @@
     var inst = instances[containerId];
     if (!inst) return;
     inst.focusDepth = Math.max(1, Math.min(depth, 5));
+    if (inst.focusedNode) {
+      inst.focusedNeighbors = bfsNeighbors(inst.graph, inst.focusedNode, inst.focusDepth);
+      inst.renderer.refresh();
+      setTimeout(function() {
+        window.graphZoomToFit(containerId);
+      }, 50);
+    }
   };
 
   /**
@@ -737,5 +755,49 @@
     var inst = instances[containerId];
     if (!inst) return;
     inst.onSelectCallback = callback;
+  };
+
+  /**
+   * Diagnostic: report graph stats and filter state.
+   * Call from browser console: graphDiagnostics("graph-container")
+   * @param {string} containerId
+   */
+  window.graphDiagnostics = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) { console.log("No graph instance for", containerId); return; }
+    var graph = inst.graph;
+    var totalNodes = graph.order;
+    var totalEdges = graph.size;
+
+    var testNodes = 0, testEdges = 0;
+    graph.forEachNode(function(node, attrs) {
+      if (attrs.isTest) testNodes++;
+    });
+    graph.forEachEdge(function(edge, attrs, source, target) {
+      var sTest = graph.getNodeAttribute(source, "isTest");
+      var tTest = graph.getNodeAttribute(target, "isTest");
+      if (sTest || tTest) testEdges++;
+    });
+
+    var edgesByType = {};
+    graph.forEachEdge(function(edge, attrs) {
+      var et = attrs.edgeType || "unknown";
+      edgesByType[et] = (edgesByType[et] || 0) + 1;
+    });
+
+    console.log("=== Graph Diagnostics ===");
+    console.log("Total nodes:", totalNodes, "| Total edges:", totalEdges);
+    console.log("Test nodes:", testNodes, "| Test-touching edges:", testEdges);
+    console.log("Non-test edges:", totalEdges - testEdges);
+    console.log("Edges by type:", edgesByType);
+    console.log("Filter state:", {
+      hideTests: inst.hideTests,
+      filteredLanguage: inst.filteredLanguage,
+      filteredKinds: Array.from(inst.filteredKinds),
+      filteredEdgeTypes: Array.from(inst.filteredEdgeTypes),
+      focusedNode: inst.focusedNode,
+      searchMatches: inst.searchMatches ? inst.searchMatches.size : null,
+    });
+    console.log("========================");
   };
 })();

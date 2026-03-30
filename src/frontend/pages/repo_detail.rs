@@ -4,7 +4,7 @@ use leptos_router::hooks::use_params_map;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{ApiClientError, graph, projects, repos};
-use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId, PillColor, PillToggle};
+use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId};
 use crate::models::{Project, Repo, UpdateMessage};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
@@ -413,12 +413,12 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
 
     view! {
         <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6">
-            // Controls row
+            // Controls wrapper
             <div class="flex flex-col gap-3 mb-4">
+                // Row 1: title + search | depth + fit
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
-                        // Search input
                         <div class="relative">
                             <input
                                 type="text"
@@ -430,7 +430,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                                 }
                                 prop:value=move || search_query.get()
                             />
-                            // Search icon
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
@@ -439,7 +438,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             >
                                 <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
                             </svg>
-                            // Match count + clear button
                             {move || {
                                 let q = search_query.get();
                                 let count = search_count.get();
@@ -466,9 +464,8 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             }}
                         </div>
                     </div>
-                    // Depth + Fit controls
                     <div class="flex items-center gap-2">
-                        <span class="text-xs text-ctp-overlay0">"Depth:"</span>
+                        <span class="text-xs text-ctp-overlay0" title="Double-click a node to focus. Depth controls how many hops of neighbors to include.">"Depth:"</span>
                         {[1u32, 2, 3].into_iter().map(|d| {
                             let is_active = Signal::derive(move || focus_depth.get() == d);
                             view! {
@@ -495,6 +492,56 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             </svg>
                         </button>
                     </div>
+                </div>
+                // Row 2: test toggle + language pills
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        class="text-xs px-2 py-0.5 rounded-md border border-ctp-surface2 transition-colors"
+                        class:bg-ctp-surface1=move || hide_tests.get()
+                        class:text-ctp-subtext0=move || hide_tests.get()
+                        class:bg-ctp-base=move || !hide_tests.get()
+                        class:text-ctp-overlay0=move || !hide_tests.get()
+                        on:click=move |_| set_hide_tests.set(!hide_tests.get_untracked())
+                        title="Toggle test symbol visibility"
+                    >
+                        {move || if hide_tests.get() { "Tests hidden" } else { "Tests shown" }}
+                    </button>
+                    <span class="w-px h-4 bg-ctp-surface2"></span>
+                    {move || {
+                        let langs = available_languages.get();
+                        langs
+                            .into_iter()
+                            .map(|lang| {
+                                let lang_for_click = lang.clone();
+                                let is_selected = {
+                                    let lang_check = lang.clone();
+                                    Signal::derive(move || selected_language.get() == lang_check)
+                                };
+
+                                view! {
+                                    <button
+                                        class="text-xs px-2 py-0.5 rounded-md border transition-colors capitalize"
+                                        class:bg-ctp-surface1=move || is_selected.get()
+                                        class:text-ctp-text=move || is_selected.get()
+                                        class:border-ctp-overlay0=move || is_selected.get()
+                                        class:bg-ctp-base=move || !is_selected.get()
+                                        class:text-ctp-overlay0=move || !is_selected.get()
+                                        class:border-ctp-surface2=move || !is_selected.get()
+                                        on:click=move |_| {
+                                            let current = selected_language.get_untracked();
+                                            if current == lang_for_click {
+                                                set_selected_language.set(String::new());
+                                            } else {
+                                                set_selected_language.set(lang_for_click.clone());
+                                            }
+                                        }
+                                    >
+                                        {lang}
+                                    </button>
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }}
                 </div>
             </div>
 
@@ -611,22 +658,51 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         .collect::<Vec<_>>()
                 }}
             </div>
-            // Legend: edge types
+            // Legend: edge types (clickable for filtering)
             <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-ctp-subtext0">
                 <span class="text-ctp-overlay0 font-medium">"Edges:"</span>
                 {move || {
-                    legend_edge_types.get()
+                    let edge_types = legend_edge_types.get();
+                    let total = edge_types.len();
+                    edge_types
                         .into_iter()
                         .map(|ei| {
+                            let kind = ei.kind.clone();
                             let color = ei.color.clone();
+                            let kind_for_check = kind.clone();
+                            let kind_for_click = kind.clone();
+
+                            let is_active = {
+                                let kind_check = kind_for_check.clone();
+                                move || {
+                                    let active = active_edges.get();
+                                    active.is_empty() || active.contains(&kind_check)
+                                }
+                            };
+
                             view! {
-                                <span class="flex items-center gap-1.5">
+                                <button
+                                    class="flex items-center gap-1.5 cursor-pointer transition-opacity"
+                                    style:opacity=move || if is_active() { "1" } else { "0.3" }
+                                    on:click=move |_| {
+                                        let mut edges = active_edges.get();
+                                        if edges.contains(&kind_for_click) {
+                                            edges.remove(&kind_for_click);
+                                        } else {
+                                            edges.insert(kind_for_click.clone());
+                                        }
+                                        if edges.len() == total {
+                                            edges.clear();
+                                        }
+                                        set_active_edges.set(edges);
+                                    }
+                                >
                                     <span
                                         class="inline-block w-4 h-0.5 rounded"
                                         style:background-color=color
                                     />
-                                    {ei.kind}
-                                </span>
+                                    {kind}
+                                </button>
                             }
                         })
                         .collect::<Vec<_>>()
