@@ -75,27 +75,29 @@
       var data = JSON.parse(graphDataJson);
       var graph = new graphology.Graph({ multi: true, type: "directed" });
 
-      // Add nodes with pre-computed positions from backend
+      // Add nodes with random initial positions (layout done client-side)
       (data.nodes || []).forEach(function(node) {
         graph.addNode(node.id, {
           label: node.label,
           qualifiedName: node.qualified_name || node.label,
-          size: node.size || 5,
+          size: 3,
           color: kindColor(node.kind),
           kind: node.kind,
           language: node.language || "unknown",
           filePath: node.file_path,
           startLine: node.start_line,
-          x: node.x || 0,
-          y: node.y || 0,
+          isTest: node.is_test || false,
+          x: (Math.random() - 0.5) * 100,
+          y: (Math.random() - 0.5) * 100,
         });
       });
 
       // Add edges with type-specific colors
       (data.edges || []).forEach(function(edge) {
         try {
+          var label = (edge.type || "").toLowerCase();
           graph.addEdge(edge.source, edge.target, {
-            label: edge.label,
+            label: label,
             edgeType: edge.type,
             color: edgeColor(edge.type),
             size: 1,
@@ -192,10 +194,14 @@
         renderer: renderer,
         filteredKinds: filteredKinds,
         filteredLanguage: null,
+        filteredEdgeTypes: new Set(),  // empty = show all
+        hideTests: false,
         focusedNode: null,        // double-click focus
         focusedNeighbors: null,   // Set of neighbor IDs when focused
+        focusDepth: 1,            // BFS depth for double-click focus
         savedCameraState: null,   // camera state before focus
         searchMatches: null,      // Set of matched node IDs from search, null = no active search
+        onSelectCallback: null,   // callback for node selection events
       };
 
       renderer.on("enterNode", function(event) {
@@ -210,11 +216,50 @@
         renderer.refresh();
       });
 
-      // Double-click: focus on node and its neighbors
+      // N-hop BFS from a node
+      function bfsNeighbors(startNode, depth) {
+        var visited = new Set();
+        visited.add(startNode);
+        var frontier = [startNode];
+        for (var d = 0; d < depth; d++) {
+          var nextFrontier = [];
+          for (var i = 0; i < frontier.length; i++) {
+            var neighbors = graph.neighbors(frontier[i]);
+            for (var j = 0; j < neighbors.length; j++) {
+              if (!visited.has(neighbors[j])) {
+                visited.add(neighbors[j]);
+                nextFrontier.push(neighbors[j]);
+              }
+            }
+          }
+          frontier = nextFrontier;
+          if (frontier.length === 0) break;
+        }
+        return visited;
+      }
+
+      // Single click: select node (for info bar)
+      renderer.on("clickNode", function(event) {
+        if (inst.onSelectCallback) {
+          var node = event.node;
+          var attrs = graph.getNodeAttributes(node);
+          var info = JSON.stringify({
+            id: node,
+            label: attrs.label || "",
+            qualifiedName: attrs.qualifiedName || attrs.label || "",
+            kind: attrs.kind || "unknown",
+            language: attrs.language || "unknown",
+            filePath: attrs.filePath || "",
+            startLine: attrs.startLine || 0,
+          });
+          inst.onSelectCallback(info);
+        }
+      });
+
+      // Double-click: focus on node and its N-hop neighbors
       renderer.on("doubleClickNode", function(event) {
         var node = event.node;
-        var neighbors = new Set(graph.neighbors(node));
-        neighbors.add(node);
+        var neighbors = bfsNeighbors(node, inst.focusDepth);
 
         // Save camera state before focusing
         var camera = renderer.getCamera();
@@ -240,16 +285,27 @@
           camera.animate(inst.savedCameraState, { duration: 300 });
           inst.savedCameraState = null;
         }
+        // Clear selection
+        if (inst.onSelectCallback) {
+          inst.onSelectCallback("");
+        }
       });
 
-      // Node reducer: handles focus, hover dimming, kind filtering, and language filtering
+      // Node reducer: handles focus, hover dimming, kind/language/test filtering
       renderer.setSetting("nodeReducer", function(node, data) {
         var res = Object.assign({}, data);
         var nodeKind = graph.getNodeAttribute(node, "kind");
         var nodeLang = graph.getNodeAttribute(node, "language");
+        var nodeIsTest = graph.getNodeAttribute(node, "isTest");
 
         // Focus filter: hide nodes not in focused subgraph
         if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) {
+          res.hidden = true;
+          return res;
+        }
+
+        // Test filter: hide test symbols
+        if (inst.hideTests && nodeIsTest) {
           res.hidden = true;
           return res;
         }
@@ -292,15 +348,32 @@
         return res;
       });
 
-      // Edge reducer: handles focus, hover dimming, kind filtering, and language filtering
+      // Edge reducer: handles focus, hover dimming, edge type/kind/language/test filtering
       renderer.setSetting("edgeReducer", function(edge, data) {
         var res = Object.assign({}, data);
         var source = graph.source(edge);
         var target = graph.target(edge);
+        var edgeType = graph.getEdgeAttribute(edge, "edgeType");
 
         // Focus filter: hide edges not in focused subgraph
         if (inst.focusedNode && inst.focusedNeighbors) {
           if (!inst.focusedNeighbors.has(source) || !inst.focusedNeighbors.has(target)) {
+            res.hidden = true;
+            return res;
+          }
+        }
+
+        // Edge type filter: hide edges not in filteredEdgeTypes
+        if (inst.filteredEdgeTypes.size > 0 && !inst.filteredEdgeTypes.has(edgeType)) {
+          res.hidden = true;
+          return res;
+        }
+
+        // Test filter: hide edges where either endpoint is a test symbol
+        if (inst.hideTests) {
+          var sourceIsTest = graph.getNodeAttribute(source, "isTest");
+          var targetIsTest = graph.getNodeAttribute(target, "isTest");
+          if (sourceIsTest || targetIsTest) {
             res.hidden = true;
             return res;
           }
@@ -348,6 +421,38 @@
       });
 
       instances[containerId] = inst;
+
+      // Compute node sizes from edge degree
+      graph.forEachNode(function(node) {
+        var degree = graph.degree(node);
+        graph.setNodeAttribute(node, "size", 3 + Math.sqrt(degree) * 2);
+      });
+
+      // Run ForceAtlas2 layout in animated batches
+      if (typeof ForceAtlas2Layout === "function" && graph.order > 0) {
+        var settings = ForceAtlas2Layout.inferSettings(graph);
+        var totalIterations = Math.min(300, 100 + Math.floor(graph.order / 5));
+        var batchSize = 5;
+        var currentIteration = 0;
+        inst.layoutRunning = true;
+
+        function runBatch() {
+          if (!inst.layoutRunning || currentIteration >= totalIterations) {
+            inst.layoutRunning = false;
+            renderer.refresh();
+            // Fit to view after layout completes
+            window.graphZoomToFit(containerId);
+            return;
+          }
+          var iters = Math.min(batchSize, totalIterations - currentIteration);
+          ForceAtlas2Layout(graph, { iterations: iters, settings: settings });
+          currentIteration += iters;
+          renderer.refresh();
+          setTimeout(runBatch, 0);
+        }
+        runBatch();
+      }
+
       return true;
     } catch (e) {
       console.error("Failed to initialize graph:", e);
@@ -361,6 +466,7 @@
    */
   window.destroyGraph = function(containerId) {
     if (instances[containerId]) {
+      instances[containerId].layoutRunning = false;
       instances[containerId].renderer.kill();
       delete instances[containerId];
     }
@@ -381,6 +487,7 @@
     var visibleNodes = [];
     inst.graph.forEachNode(function(node, attrs) {
       if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) return;
+      if (inst.hideTests && attrs.isTest) return;
       if (inst.filteredLanguage && attrs.language !== inst.filteredLanguage) return;
       if (inst.filteredKinds.size > 0 && !inst.filteredKinds.has(attrs.kind)) return;
       visibleNodes.push(node);
@@ -516,6 +623,36 @@
   };
 
   /**
+   * Filter graph to show only specified edge types.
+   * @param {string} containerId
+   * @param {string} typesJson - JSON array of edge type strings, e.g. '["Calls","Uses"]'. Empty array = show all.
+   */
+  window.graphFilterEdgeTypes = function(containerId, typesJson) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    try {
+      var types = JSON.parse(typesJson);
+      inst.filteredEdgeTypes.clear();
+      types.forEach(function(t) { inst.filteredEdgeTypes.add(t); });
+      inst.renderer.refresh();
+    } catch (e) {
+      console.error("graphFilterEdgeTypes error:", e);
+    }
+  };
+
+  /**
+   * Toggle test symbol visibility.
+   * @param {string} containerId
+   * @param {boolean} hide - true to hide test symbols, false to show them
+   */
+  window.graphFilterTests = function(containerId, hide) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.hideTests = !!hide;
+    inst.renderer.refresh();
+  };
+
+  /**
    * Get unique edge types and their colors from the current graph.
    * @param {string} containerId
    * @returns {string} JSON array of {kind, color} objects sorted by kind, or "[]"
@@ -567,5 +704,38 @@
     inst.searchMatches = matches.size > 0 ? matches : null;
     inst.renderer.refresh();
     return matches.size;
+  };
+
+  /**
+   * Set the BFS depth for double-click focus.
+   * @param {string} containerId
+   * @param {number} depth - Number of hops (1 = direct neighbors, 2 = neighbors of neighbors, etc.)
+   */
+  window.graphSetFocusDepth = function(containerId, depth) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.focusDepth = Math.max(1, Math.min(depth, 5));
+  };
+
+  /**
+   * Check if layout is currently running.
+   * @param {string} containerId
+   * @returns {boolean}
+   */
+  window.graphIsLayoutRunning = function(containerId) {
+    var inst = instances[containerId];
+    return inst ? !!inst.layoutRunning : false;
+  };
+
+  /**
+   * Register a callback for node selection (click) events.
+   * Callback receives a JSON string with node info, or empty string on deselect.
+   * @param {string} containerId
+   * @param {function} callback
+   */
+  window.graphOnNodeSelect = function(containerId, callback) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.onSelectCallback = callback;
   };
 })();

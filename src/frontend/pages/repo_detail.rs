@@ -47,7 +47,6 @@ pub fn RepoDetail() -> impl IntoView {
                         repo_id: deleted_id,
                     } if *deleted_id == current_id => {
                         let navigate = leptos_router::hooks::use_navigate();
-                        // Navigate back to project repos tab or standalone repos list
                         if let Some(proj_id) = project_id() {
                             navigate(&format!("/projects/{}/repos", proj_id), Default::default());
                         } else {
@@ -82,7 +81,6 @@ pub fn RepoDetail() -> impl IntoView {
                         let display_name = extract_repo_name(&repo.remote);
 
                         let items = if let Some(Ok(ref project)) = project_data.get() {
-                            // Project context: Projects > Project > Repos > repo-name
                             vec![
                                 BreadcrumbItem::new("Projects")
                                     .with_href("/")
@@ -95,10 +93,8 @@ pub fn RepoDetail() -> impl IntoView {
                                     .with_id(repo.id.clone()),
                             ]
                         } else if project_id().is_some() {
-                            // Project context but project not loaded yet - show minimal
                             return None;
                         } else {
-                            // Standalone: Repos > repo-name
                             vec![
                                 BreadcrumbItem::new("Repos")
                                     .with_href("/repos")
@@ -242,6 +238,24 @@ extern "C" {
 
     #[wasm_bindgen(js_name = graphSearchNodes)]
     fn search_nodes(container_id: &str, query: &str) -> u32;
+
+    #[wasm_bindgen(js_name = graphFilterEdgeTypes)]
+    fn filter_edge_types(container_id: &str, types_json: &str);
+
+    #[wasm_bindgen(js_name = graphFilterTests)]
+    fn filter_tests(container_id: &str, hide: bool);
+
+    #[wasm_bindgen(js_name = graphFilterLanguage)]
+    fn filter_language(container_id: &str, language: &str);
+
+    #[wasm_bindgen(js_name = graphSetFocusDepth)]
+    fn js_set_focus_depth(container_id: &str, depth: u32);
+
+    #[wasm_bindgen(js_name = graphOnNodeSelect)]
+    fn on_node_select(container_id: &str, callback: &Closure<dyn Fn(String)>);
+
+    #[wasm_bindgen(js_name = graphIsLayoutRunning)]
+    fn is_layout_running(container_id: &str) -> bool;
 }
 
 // =============================================================================
@@ -252,42 +266,25 @@ extern "C" {
 fn GraphViewer(repo_id: String) -> impl IntoView {
     let container_id = "graph-canvas";
     let (graph_state, set_graph_state) = signal(GraphState::Loading);
-    let (active_edges, set_active_edges) = signal(std::collections::HashSet::<String>::new()); // empty = all
-    let (include_tests, set_include_tests) = signal(false);
     let (active_kinds, set_active_kinds) = signal(std::collections::HashSet::<String>::new());
+    let (active_edges, set_active_edges) = signal(std::collections::HashSet::<String>::new());
+    let (hide_tests, set_hide_tests) = signal(true);
+    let (selected_language, set_selected_language) = signal(String::new());
     let (legend_kinds, set_legend_kinds) = signal(Vec::<KindInfo>::new());
     let (legend_edge_types, set_legend_edge_types) = signal(Vec::<KindInfo>::new());
     let (available_languages, set_available_languages) = signal(Vec::<String>::new());
-    let (selected_language, set_selected_language) = signal(String::new()); // empty = all
-    let (is_fetching, set_is_fetching) = signal(false);
     let (search_query, set_search_query) = signal(String::new());
     let (search_count, set_search_count) = signal(0u32);
+    let (focus_depth, set_focus_depth) = signal(1u32);
+    let (selected_node, set_selected_node) = signal(None::<SelectedNodeInfo>);
+    let (layout_running, set_layout_running) = signal(false);
 
+    // Fetch graph data once
     let repo_id_for_fetch = repo_id.clone();
-
-    // Fetch graph data and initialize Sigma.js
     Effect::new(move || {
-        let edges = active_edges.get();
-        let tests = include_tests.get();
-        let lang = selected_language.get();
         let repo_id = repo_id_for_fetch.clone();
-        let lang_param = if lang.is_empty() { None } else { Some(lang) };
-        let edges_param = if edges.is_empty() {
-            None
-        } else {
-            Some(edges.into_iter().collect::<Vec<_>>().join(","))
-        };
-
-        set_is_fetching.set(true);
         spawn_local(async move {
-            match graph::get_repo_graph(
-                &repo_id,
-                edges_param.as_deref(),
-                tests,
-                lang_param.as_deref(),
-            )
-            .await
-            {
+            match graph::get_repo_graph(&repo_id).await {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
@@ -308,35 +305,59 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
             set_timeout(
                 move || {
                     if init_graph(container_id, &data) {
-                        // Extract kinds from the graph for the dynamic legend
                         let kinds_json = get_kinds(container_id);
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
                         }
-                        // Extract edge types from the graph for the edge legend
                         let edge_types_json = get_edge_types(container_id);
                         if let Ok(edge_types) =
                             serde_json::from_str::<Vec<KindInfo>>(&edge_types_json)
                         {
                             set_legend_edge_types.set(edge_types);
                         }
-                        // Extract available languages (only when unfiltered)
-                        if selected_language.get_untracked().is_empty() {
-                            let langs_json = get_languages(container_id);
-                            if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
-                                set_available_languages.set(langs);
-                            }
+                        let langs_json = get_languages(container_id);
+                        if let Ok(langs) = serde_json::from_str::<Vec<String>>(&langs_json) {
+                            set_available_languages.set(langs);
                         }
-                        // Reset active filter on new data
                         set_active_kinds.set(std::collections::HashSet::new());
+                        set_active_edges.set(std::collections::HashSet::new());
                         set_search_query.set(String::new());
+                        // Apply initial test filter
+                        filter_tests(container_id, hide_tests.get_untracked());
+                        // Register node selection callback
+                        let select_closure = Closure::new(move |json: String| {
+                            if json.is_empty() {
+                                set_selected_node.set(None);
+                            } else if let Ok(info) = serde_json::from_str::<SelectedNodeInfo>(&json)
+                            {
+                                set_selected_node.set(Some(info));
+                            }
+                        });
+                        on_node_select(container_id, &select_closure);
+                        select_closure.forget();
+                        set_layout_running.set(true);
                         set_graph_state.set(GraphState::Loaded);
-                        set_is_fetching.set(false);
+                        // Poll layout status via recursive setTimeout
+                        fn poll_layout(
+                            container_id: &'static str,
+                            set_layout_running: WriteSignal<bool>,
+                        ) {
+                            set_timeout(
+                                move || {
+                                    let running = is_layout_running(container_id);
+                                    set_layout_running.set(running);
+                                    if running {
+                                        poll_layout(container_id, set_layout_running);
+                                    }
+                                },
+                                std::time::Duration::from_millis(200),
+                            );
+                        }
+                        poll_layout(container_id, set_layout_running);
                     } else {
                         set_graph_state.set(GraphState::Error(
                             "Failed to initialize graph renderer".to_string(),
                         ));
-                        set_is_fetching.set(false);
                     }
                 },
                 std::time::Duration::ZERO,
@@ -355,7 +376,26 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         let kinds_vec: Vec<&str> = kinds.iter().map(|s| s.as_str()).collect();
         let json = serde_json::to_string(&kinds_vec).unwrap_or_else(|_| "[]".to_string());
         filter_kinds(container_id, &json);
-        zoom_to_fit(container_id);
+    });
+
+    // Push edge type filter to JS when active_edges changes
+    Effect::new(move || {
+        let edges = active_edges.get();
+        let edges_vec: Vec<&str> = edges.iter().map(|s| s.as_str()).collect();
+        let json = serde_json::to_string(&edges_vec).unwrap_or_else(|_| "[]".to_string());
+        filter_edge_types(container_id, &json);
+    });
+
+    // Push test filter to JS when hide_tests changes
+    Effect::new(move || {
+        let hide = hide_tests.get();
+        filter_tests(container_id, hide);
+    });
+
+    // Push language filter to JS when selected_language changes
+    Effect::new(move || {
+        let lang = selected_language.get();
+        filter_language(container_id, &lang);
     });
 
     // Push search query to JS when it changes
@@ -365,18 +405,14 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         set_search_count.set(count);
     });
 
-    let is_visible = move || {
-        !matches!(
-            graph_state.get(),
-            GraphState::NoAnalysis | GraphState::Loading
-        )
-    };
+    // Push focus depth to JS when it changes
+    Effect::new(move || {
+        let depth = focus_depth.get();
+        js_set_focus_depth(container_id, depth);
+    });
 
     view! {
-        <div
-            class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6"
-            style:display=move || if is_visible() { "" } else { "none" }
-        >
+        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6">
             // Controls row
             <div class="flex flex-col gap-3 mb-4">
                 <div class="flex items-center justify-between">
@@ -430,122 +466,62 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             }}
                         </div>
                     </div>
-                    // Fit button — icon with subtle background
-                    <button
-                        class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors flex-shrink-0"
-                        on:click=move |_| zoom_to_fit(container_id)
-                        title="Fit to canvas"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
-                        </svg>
-                    </button>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                    // Edge type toggle pills
-                    <span class="text-xs text-ctp-overlay0">"Edges:"</span>
-                    {[
-                        ("Calls", "Calls", PillColor::Blue, "Function/method call relationships"),
-                        ("Uses", "Uses", PillColor::Yellow, "Symbol usage references (e.g. constants, types)"),
-                        ("Returns", "Ret", PillColor::Green, "Function return type relationships"),
-                        ("Accepts", "Acc", PillColor::Teal, "Function parameter type relationships"),
-                        ("FieldType", "Field", PillColor::Pink, "Struct/type field type relationships"),
-                        ("TypeAnnotation", "Type", PillColor::Peach, "Type annotation references (e.g. interface methods)"),
-                        ("Inherits", "Inh", PillColor::Mauve, "Trait/interface implementation relationships"),
-                        ("Import", "Imp", PillColor::Sapphire, "Import/use dependencies between modules"),
-                        ("Contains", "Cont", PillColor::Blue, "Parent-child containment (e.g. struct contains method)"),
-                    ].into_iter().map(|(value, label, color, tooltip)| {
-                        let value = value.to_string();
-                        let value_for_click = value.clone();
-                        let is_active = Signal::derive({
-                            let v = value.clone();
-                            move || {
-                                let edges = active_edges.get();
-                                edges.is_empty() || edges.contains(&v)
-                            }
-                        });
-                        view! {
-                            <PillToggle
-                                label=label
-                                active=is_active
-                                color=color
-                                tooltip=tooltip.to_string()
-                                on_click=move |_| {
-                                    let mut edges = active_edges.get();
-                                    if edges.is_empty() {
-                                        // All are shown — click one to solo it
-                                        edges.insert(value_for_click.clone());
-                                    } else if edges.contains(&value_for_click) && edges.len() == 1 {
-                                        // Already solo — reset to all
-                                        edges.clear();
-                                    } else if edges.contains(&value_for_click) {
-                                        // Remove this edge type
-                                        edges.remove(&value_for_click);
-                                    } else {
-                                        // Add this edge type
-                                        edges.insert(value_for_click.clone());
-                                    }
-                                    set_active_edges.set(edges);
-                                }
-                            />
-                        }
-                    }).collect::<Vec<_>>()}
-
-                    // Tests toggle pill
-                    <PillToggle
-                        label="Tests"
-                        active=Signal::derive(move || include_tests.get())
-                        color=PillColor::Mauve
-                        on_click=move |_| set_include_tests.set(!include_tests.get_untracked())
-                    />
-
-                    // Language pills (only if multiple languages)
-                    {move || {
-                        let langs = available_languages.get();
-                        if langs.len() > 1 {
-                            let mut items = vec![("".to_string(), "All".to_string())];
-                            items.extend(langs.into_iter().map(|l| (l.clone(), l)));
+                    // Depth + Fit controls
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-ctp-overlay0">"Depth:"</span>
+                        {[1u32, 2, 3].into_iter().map(|d| {
+                            let is_active = Signal::derive(move || focus_depth.get() == d);
                             view! {
-                                <span class="text-xs text-ctp-overlay0 ml-1">"Lang:"</span>
-                                {items.into_iter().map(|(value, label)| {
-                                    let value_for_click = value.clone();
-                                    let is_active = Signal::derive({
-                                        let v = value.clone();
-                                        move || selected_language.get() == v
-                                    });
-                                    view! {
-                                        <PillToggle
-                                            label=label
-                                            active=is_active
-                                            color=PillColor::Green
-                                            on_click=move |_| set_selected_language.set(value_for_click.clone())
-                                        />
-                                    }
-                                }).collect::<Vec<_>>()}
-                            }.into_any()
-                        } else {
-                            view! { <span></span> }.into_any()
-                        }
-                    }}
+                                <button
+                                    class="text-xs px-1.5 py-0.5 rounded transition-colors"
+                                    class:bg-ctp-blue=move || is_active.get()
+                                    class:text-ctp-base=move || is_active.get()
+                                    class:bg-ctp-surface1=move || !is_active.get()
+                                    class:text-ctp-subtext0=move || !is_active.get()
+                                    class:hover:bg-ctp-surface2=move || !is_active.get()
+                                    on:click=move |_| set_focus_depth.set(d)
+                                >
+                                    {d.to_string()}
+                                </button>
+                            }
+                        }).collect::<Vec<_>>()}
+                        <button
+                            class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors flex-shrink-0"
+                            on:click=move |_| zoom_to_fit(container_id)
+                            title="Fit to canvas"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            // Graph canvas container (always in DOM so initGraph can find it)
+            // Graph canvas container (always in DOM)
             <div
                 id=container_id
                 class="w-full bg-ctp-mantle rounded-lg relative"
                 style="height: 500px;"
             >
-                // Activity indicator
-                <div
-                    class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
-                    style:opacity=move || if is_fetching.get() { "1" } else { "0" }
-                    style:pointer-events="none"
-                >
-                    <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
-                    "Loading..."
-                </div>
                 {move || match graph_state.get() {
+                    GraphState::Loading => {
+                        view! {
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <div class="flex items-center gap-2 text-ctp-subtext0">
+                                    <span class="inline-block w-3 h-3 rounded-full bg-ctp-blue animate-pulse"></span>
+                                    <span class="text-sm">"Loading graph..."</span>
+                                </div>
+                            </div>
+                        }.into_any()
+                    }
+                    GraphState::NoAnalysis => {
+                        view! {
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <p class="text-ctp-overlay0 text-sm">"No analysis available. Run analysis first."</p>
+                            </div>
+                        }.into_any()
+                    }
                     GraphState::Error(ref msg) => {
                         view! {
                             <div class="absolute inset-0 flex items-center justify-center">
@@ -560,7 +536,30 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         view! { <span></span> }.into_any()
                     }
                 }}
+                // Layout running indicator
+                <div
+                    class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
+                    style:opacity=move || if layout_running.get() { "1" } else { "0" }
+                    style:pointer-events="none"
+                >
+                    <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
+                    "Layouting..."
+                </div>
             </div>
+
+            // Selected node info bar
+            {move || {
+                selected_node.get().map(|info| {
+                    view! {
+                        <div class="flex items-center gap-3 mt-3 px-3 py-2 bg-ctp-base border border-ctp-surface2 rounded text-xs text-ctp-subtext1 font-mono">
+                            <span class="text-ctp-blue font-semibold">{info.kind}</span>
+                            <span class="text-ctp-text">{info.qualified_name}</span>
+                            <span class="text-ctp-overlay0">{format!("{}:{}", info.file_path, info.start_line)}</span>
+                            <span class="text-ctp-overlay0">{info.language}</span>
+                        </div>
+                    }
+                })
+            }}
 
             // Legend: node kinds
             <div class="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-ctp-subtext0">
@@ -650,4 +649,18 @@ enum GraphState {
 struct KindInfo {
     kind: String,
     color: String,
+}
+
+#[derive(Clone, serde::Deserialize)]
+struct SelectedNodeInfo {
+    #[allow(dead_code)]
+    label: String,
+    #[serde(rename = "qualifiedName")]
+    qualified_name: String,
+    kind: String,
+    language: String,
+    #[serde(rename = "filePath")]
+    file_path: String,
+    #[serde(rename = "startLine")]
+    start_line: i64,
 }
