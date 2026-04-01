@@ -223,6 +223,9 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     let mut all_edges: Vec<(String, String, String)> = Vec::new();
     let mut symbol_map: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
+    // Map from child symbol_id -> parent name (for building qualified names)
+    let mut parent_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
 
     for &(edge_name, edge_label) in EDGE_TYPES {
         let query_name = format!("{}_edges", edge_label.to_lowercase());
@@ -254,6 +257,14 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
 
             symbol_map.entry(src_id.clone()).or_insert(src_sym);
             symbol_map.entry(dst_id.clone()).or_insert(dst_sym);
+
+            // Build parent map from SymbolContains edges
+            if edge_name == "symbolContains"
+                && let Some(parent_name) = row["src_name"].as_str()
+            {
+                parent_map.insert(dst_id.clone(), parent_name.to_string());
+            }
+
             all_edges.push((src_id, dst_id, edge_label.to_string()));
         }
     }
@@ -262,8 +273,8 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     let total_edges = all_edges.len();
 
     let nodes: Vec<GraphNode> = symbol_map
-        .into_values()
-        .filter_map(|s| {
+        .into_iter()
+        .filter_map(|(symbol_id, s)| {
             let id = s["symbol_id"].as_str()?.to_string();
             let kind = s["kind"].as_str().unwrap_or("unknown");
             let name = s["name"].as_str().unwrap_or("?");
@@ -273,10 +284,13 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
             let module_path = Analyser::for_language(language)
                 .map(|a| a.derive_module_path(file_path))
                 .unwrap_or_default();
-            let qualified_name = if module_path.is_empty() {
-                name.to_string()
-            } else {
-                format!("{}::{}", module_path, name)
+
+            // Include parent type in qualified name for contained symbols (methods)
+            let qualified_name = match (module_path.is_empty(), parent_map.get(&symbol_id)) {
+                (true, None) => name.to_string(),
+                (true, Some(parent)) => format!("{}::{}", parent, name),
+                (false, None) => format!("{}::{}", module_path, name),
+                (false, Some(parent)) => format!("{}::{}::{}", module_path, parent, name),
             };
 
             Some(GraphNode {
