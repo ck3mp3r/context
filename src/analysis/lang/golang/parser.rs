@@ -1,9 +1,36 @@
-use crate::analysis::types::ParsedFile;
+use crate::analysis::types::{ParsedFile, RawTypeRef, ReferenceType};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Go;
 
 const QUERIES: &str = include_str!("queries/symbols.scm");
+const TYPE_REF_QUERIES: &str = include_str!("queries/type_refs.scm");
+
+/// Go built-in types that should not produce type reference edges.
+const GO_BUILTINS: &[&str] = &[
+    "string",
+    "int",
+    "int8",
+    "int16",
+    "int32",
+    "int64",
+    "uint",
+    "uint8",
+    "uint16",
+    "uint32",
+    "uint64",
+    "uintptr",
+    "float32",
+    "float64",
+    "complex64",
+    "complex128",
+    "bool",
+    "byte",
+    "rune",
+    "error",
+    "any",
+    "comparable",
+];
 
 impl Go {
     pub fn name() -> &'static str {
@@ -51,6 +78,9 @@ impl Go {
                 sym.entry_type = go_entry_type(&sym.name);
             }
         }
+
+        // Second pass: extract type references
+        Self::extract_type_refs(&tree, code, file_path, &mut parsed);
 
         parsed
     }
@@ -470,6 +500,413 @@ impl Go {
             });
         }
     }
+
+    /// Extract type references from function params, returns, and struct fields.
+    fn extract_type_refs(
+        tree: &tree_sitter::Tree,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        let language = Self::grammar();
+        let query = match Query::new(&language, TYPE_REF_QUERIES) {
+            Ok(q) => q,
+            Err(e) => {
+                eprintln!("Go type_refs.scm query error: {:?}", e);
+                return;
+            }
+        };
+
+        let capture_name = |idx: u32| -> &str { query.capture_names()[idx as usize] };
+        let text = |node: tree_sitter::Node| -> &str { &code[node.byte_range()] };
+
+        // Pattern tables: (def_key, fn_key, type_key)
+        // Function parameter patterns
+        let fn_param_patterns: &[(&str, &str, &str)] = &[
+            (
+                "fn_param_direct_def",
+                "fn_param_direct_fn",
+                "fn_param_direct_type",
+            ),
+            ("fn_param_ptr_def", "fn_param_ptr_fn", "fn_param_ptr_type"),
+            (
+                "fn_param_slice_def",
+                "fn_param_slice_fn",
+                "fn_param_slice_type",
+            ),
+            (
+                "fn_param_slice_ptr_def",
+                "fn_param_slice_ptr_fn",
+                "fn_param_slice_ptr_type",
+            ),
+            ("fn_param_map_def", "fn_param_map_fn", "fn_param_map_type"),
+            (
+                "fn_param_map_key_def",
+                "fn_param_map_key_fn",
+                "fn_param_map_key_type",
+            ),
+            (
+                "fn_param_qual_def",
+                "fn_param_qual_fn",
+                "fn_param_qual_type",
+            ),
+            (
+                "fn_param_chan_def",
+                "fn_param_chan_fn",
+                "fn_param_chan_type",
+            ),
+            (
+                "fn_param_generic_def",
+                "fn_param_generic_fn",
+                "fn_param_generic_outer",
+            ),
+            // ("fn_param_generic_inner_def", "fn_param_generic_inner_fn", "fn_param_generic_inner_type"), // TODO: fix query
+            (
+                "fn_param_variadic_def",
+                "fn_param_variadic_fn",
+                "fn_param_variadic_type",
+            ),
+            (
+                "fn_param_variadic_ptr_def",
+                "fn_param_variadic_ptr_fn",
+                "fn_param_variadic_ptr_type",
+            ),
+        ];
+
+        // Method parameter patterns
+        let method_param_patterns: &[(&str, &str, &str)] = &[
+            (
+                "method_param_direct_def",
+                "method_param_direct_fn",
+                "method_param_direct_type",
+            ),
+            (
+                "method_param_ptr_def",
+                "method_param_ptr_fn",
+                "method_param_ptr_type",
+            ),
+            (
+                "method_param_slice_def",
+                "method_param_slice_fn",
+                "method_param_slice_type",
+            ),
+            (
+                "method_param_qual_def",
+                "method_param_qual_fn",
+                "method_param_qual_type",
+            ),
+            (
+                "method_param_chan_def",
+                "method_param_chan_fn",
+                "method_param_chan_type",
+            ),
+            // ("method_param_generic_inner_def", "method_param_generic_inner_fn", "method_param_generic_inner_type"), // TODO: fix query
+        ];
+
+        // Function return patterns
+        let fn_ret_patterns: &[(&str, &str, &str)] = &[
+            (
+                "fn_ret_direct_def",
+                "fn_ret_direct_fn",
+                "fn_ret_direct_type",
+            ),
+            ("fn_ret_ptr_def", "fn_ret_ptr_fn", "fn_ret_ptr_type"),
+            ("fn_ret_slice_def", "fn_ret_slice_fn", "fn_ret_slice_type"),
+            ("fn_ret_qual_def", "fn_ret_qual_fn", "fn_ret_qual_type"),
+            ("fn_ret_tuple_def", "fn_ret_tuple_fn", "fn_ret_tuple_type"),
+            (
+                "fn_ret_tuple_ptr_def",
+                "fn_ret_tuple_ptr_fn",
+                "fn_ret_tuple_ptr_type",
+            ),
+            (
+                "fn_ret_generic_def",
+                "fn_ret_generic_fn",
+                "fn_ret_generic_outer",
+            ),
+            // ("fn_ret_generic_inner_def", "fn_ret_generic_inner_fn", "fn_ret_generic_inner_type"), // TODO: fix query
+        ];
+
+        // Method return patterns
+        let method_ret_patterns: &[(&str, &str, &str)] = &[
+            (
+                "method_ret_direct_def",
+                "method_ret_direct_fn",
+                "method_ret_direct_type",
+            ),
+            (
+                "method_ret_ptr_def",
+                "method_ret_ptr_fn",
+                "method_ret_ptr_type",
+            ),
+            (
+                "method_ret_slice_def",
+                "method_ret_slice_fn",
+                "method_ret_slice_type",
+            ),
+            (
+                "method_ret_qual_def",
+                "method_ret_qual_fn",
+                "method_ret_qual_type",
+            ),
+            (
+                "method_ret_tuple_def",
+                "method_ret_tuple_fn",
+                "method_ret_tuple_type",
+            ),
+            (
+                "method_ret_tuple_ptr_def",
+                "method_ret_tuple_ptr_fn",
+                "method_ret_tuple_ptr_type",
+            ),
+            // ("method_ret_generic_inner_def", "method_ret_generic_inner_fn", "method_ret_generic_inner_type"), // TODO: fix query
+        ];
+
+        // Field type patterns (def_key, field_key, type_key)
+        let field_patterns: &[(&str, &str, &str)] = &[
+            ("field_direct_def", "field_direct_name", "field_direct_type"),
+            ("field_ptr_def", "field_ptr_name", "field_ptr_type"),
+            ("field_slice_def", "field_slice_name", "field_slice_type"),
+            (
+                "field_slice_ptr_def",
+                "field_slice_ptr_name",
+                "field_slice_ptr_type",
+            ),
+            ("field_map_def", "field_map_name", "field_map_type"),
+            ("field_qual_def", "field_qual_name", "field_qual_type"),
+            ("field_chan_def", "field_chan_name", "field_chan_type"),
+            // ("field_generic_def", "field_generic_name", "field_generic_type"), // TODO: fix query
+        ];
+
+        // Interface method param patterns
+        let iface_param_patterns: &[(&str, &str, &str)] = &[
+            (
+                "iface_param_direct_def",
+                "iface_param_direct_fn",
+                "iface_param_direct_type",
+            ),
+            (
+                "iface_param_ptr_def",
+                "iface_param_ptr_fn",
+                "iface_param_ptr_type",
+            ),
+            (
+                "iface_param_slice_def",
+                "iface_param_slice_fn",
+                "iface_param_slice_type",
+            ),
+        ];
+
+        // Interface method return patterns
+        let iface_ret_patterns: &[(&str, &str, &str)] = &[
+            (
+                "iface_ret_direct_def",
+                "iface_ret_direct_fn",
+                "iface_ret_direct_type",
+            ),
+            (
+                "iface_ret_ptr_def",
+                "iface_ret_ptr_fn",
+                "iface_ret_ptr_type",
+            ),
+            (
+                "iface_ret_slice_def",
+                "iface_ret_slice_fn",
+                "iface_ret_slice_type",
+            ),
+        ];
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+        while let Some(m) = matches.next() {
+            let mut captures: std::collections::HashMap<&str, tree_sitter::Node> =
+                std::collections::HashMap::new();
+            for cap in m.captures {
+                captures.insert(capture_name(cap.index), cap.node);
+            }
+
+            // Process function parameter types
+            for &(def_key, fn_key, type_key) in fn_param_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ParamType,
+                        });
+                    }
+                }
+            }
+
+            // Process method parameter types
+            for &(def_key, fn_key, type_key) in method_param_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ParamType,
+                        });
+                    }
+                }
+            }
+
+            // Process function return types
+            for &(def_key, fn_key, type_key) in fn_ret_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ReturnType,
+                        });
+                    }
+                }
+            }
+
+            // Process method return types
+            for &(def_key, fn_key, type_key) in method_ret_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ReturnType,
+                        });
+                    }
+                }
+            }
+
+            // Process struct field types
+            for &(def_key, field_key, type_key) in field_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&field_node) = captures.get(field_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(field_node),
+                            field_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::FieldType,
+                        });
+                    }
+                }
+            }
+
+            // Process interface method parameter types
+            for &(def_key, fn_key, type_key) in iface_param_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ParamType,
+                        });
+                    }
+                }
+            }
+
+            // Process interface method return types
+            for &(def_key, fn_key, type_key) in iface_ret_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ReturnType,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// Find symbol index by name and line (symbol must contain the line).
+    fn find_symbol_idx(parsed: &ParsedFile, name: &str, line: usize) -> Option<usize> {
+        parsed
+            .symbols
+            .iter()
+            .position(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+    }
+}
+
+fn is_go_builtin(name: &str) -> bool {
+    GO_BUILTINS.contains(&name)
 }
 
 fn extract_go_receiver_type(receiver_text: &str) -> Option<String> {

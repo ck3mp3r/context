@@ -543,3 +543,737 @@ fn test_server_struct_field_containment() {
         server_fields
     );
 }
+
+// ============================================================================
+// Type Reference Tests (TDD RED phase)
+// ============================================================================
+// These tests define the expected behavior for type reference extraction.
+// They will FAIL until the Go parser implements extract_type_refs().
+
+// --- Parameter Type References ---
+
+#[test]
+fn test_go_param_type_slice() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessItems(items []Item) should produce ParamType ref to Item
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessItems" && s.kind == "function")
+        .expect("ProcessItems should exist");
+
+    let has_item_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Item"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_item_param,
+        "ProcessItems should accept Item (from []Item), got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_param_type_pointer() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessConfig(config *Config) should produce ParamType ref to Config
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessConfig" && s.kind == "function")
+        .expect("ProcessConfig should exist");
+
+    let has_config_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config_param,
+        "ProcessConfig should accept Config (from *Config), got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_param_type_direct() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessDirect(config Config) should produce ParamType ref to Config
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessDirect" && s.kind == "function")
+        .expect("ProcessDirect should exist");
+
+    let has_config_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config_param,
+        "ProcessDirect should accept Config, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_param_type_multiple() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessMultiple(items []Item, config *Config, cache Cache)
+    // should produce ParamType refs to Item, Config, and Cache
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessMultiple" && s.kind == "function")
+        .expect("ProcessMultiple should exist");
+
+    let param_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        param_refs.contains(&"Item"),
+        "ProcessMultiple should accept Item, got: {:?}",
+        param_refs
+    );
+    assert!(
+        param_refs.contains(&"Config"),
+        "ProcessMultiple should accept Config, got: {:?}",
+        param_refs
+    );
+    assert!(
+        param_refs.contains(&"Cache"),
+        "ProcessMultiple should accept Cache, got: {:?}",
+        param_refs
+    );
+}
+
+#[test]
+fn test_go_param_type_filters_builtins() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Built-in types (string, int, error, bool, etc.) should NOT produce type refs
+    let builtin_refs: Vec<_> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| {
+            tr.ref_kind == ReferenceType::ParamType
+                && matches!(
+                    tr.type_name.as_str(),
+                    "string" | "int" | "int64" | "bool" | "error" | "byte" | "rune" | "any"
+                )
+        })
+        .collect();
+
+    assert!(
+        builtin_refs.is_empty(),
+        "Built-in types should be filtered out, but found: {:?}",
+        builtin_refs
+            .iter()
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+}
+
+// --- Return Type References ---
+
+#[test]
+fn test_go_return_type_pointer() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // NewConfig() *Config should produce ReturnType ref to Config
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "NewConfig" && s.kind == "function")
+        .expect("NewConfig should exist");
+
+    let has_config_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_config_return,
+        "NewConfig should return Config, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_return_type_direct() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // GetCache() Cache should produce ReturnType ref to Cache
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetCache" && s.kind == "function")
+        .expect("GetCache should exist");
+
+    let has_cache_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Cache"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_cache_return,
+        "GetCache should return Cache, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_return_type_tuple() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // LoadConfigAndError(path string) (*Config, error)
+    // should produce ReturnType ref to Config but NOT error
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "LoadConfigAndError" && s.kind == "function")
+        .expect("LoadConfigAndError should exist");
+
+    let return_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ReturnType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        return_refs.contains(&"Config"),
+        "LoadConfigAndError should return Config, got: {:?}",
+        return_refs
+    );
+    assert!(
+        !return_refs.contains(&"error"),
+        "LoadConfigAndError should NOT have error in return refs (it's a builtin), got: {:?}",
+        return_refs
+    );
+}
+
+#[test]
+fn test_go_return_type_slice() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // GetItems() []Item should produce ReturnType ref to Item
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetItems" && s.kind == "function")
+        .expect("GetItems should exist");
+
+    let has_item_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Item"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_item_return,
+        "GetItems should return Item (from []Item), got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+// --- Method Parameter and Return Type References ---
+
+#[test]
+fn test_go_method_param_and_return() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // func (c *Config) Process(req Request) Response
+    // should produce ParamType ref to Request AND ReturnType ref to Response
+    let method_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "Process" && s.kind == "function")
+        .expect("Process method should exist");
+
+    let has_request_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "Request"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_request_param,
+        "Process method should accept Request, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .collect::<Vec<_>>()
+    );
+
+    let has_response_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "Response"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_response_return,
+        "Process method should return Response, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_method_return_interface() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // func (c *Config) GetHandler() Handler
+    let method_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetHandler" && s.kind == "function")
+        .expect("GetHandler method should exist");
+
+    let has_handler_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "Handler"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_handler_return,
+        "GetHandler should return Handler, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+// --- Field Type References ---
+
+#[test]
+fn test_go_field_type_direct() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Config.Handler Handler (direct type)
+    let field_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "Handler" && s.kind == "field")
+        .expect("Handler field should exist");
+
+    let has_handler_ref = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == field_idx
+            && tr.type_name == "Handler"
+            && tr.ref_kind == ReferenceType::FieldType
+    });
+    assert!(
+        has_handler_ref,
+        "Handler field should have FieldType ref to Handler, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == field_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_field_type_pointer() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Config.Cache *Cache (pointer type)
+    // Find the Cache field (not the Cache struct)
+    let field_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "Cache" && s.kind == "field")
+        .expect("Cache field should exist");
+
+    let has_cache_ref = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == field_idx
+            && tr.type_name == "Cache"
+            && tr.ref_kind == ReferenceType::FieldType
+    });
+    assert!(
+        has_cache_ref,
+        "Cache field should have FieldType ref to Cache, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == field_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_field_type_slice() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Config.Items []Item (slice type)
+    let field_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "Items" && s.kind == "field")
+        .expect("Items field should exist");
+
+    let has_item_ref = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == field_idx
+            && tr.type_name == "Item"
+            && tr.ref_kind == ReferenceType::FieldType
+    });
+    assert!(
+        has_item_ref,
+        "Items field should have FieldType ref to Item, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == field_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_field_type_map_value() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Config.Meta map[string]Value (map value type)
+    let field_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "Meta" && s.kind == "field")
+        .expect("Meta field should exist");
+
+    let has_value_ref = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == field_idx
+            && tr.type_name == "Value"
+            && tr.ref_kind == ReferenceType::FieldType
+    });
+    assert!(
+        has_value_ref,
+        "Meta field should have FieldType ref to Value, got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == field_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_field_type_filters_string() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Config.Name string should NOT produce a FieldType ref
+    let name_field_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "Name" && s.kind == "field");
+
+    if let Some(idx) = name_field_idx {
+        let has_string_ref = parsed.type_refs.iter().any(|tr| {
+            tr.from_symbol_idx == idx
+                && tr.type_name == "string"
+                && tr.ref_kind == ReferenceType::FieldType
+        });
+        assert!(
+            !has_string_ref,
+            "Name field should NOT have FieldType ref to string (builtin)"
+        );
+    }
+}
+
+// --- Variadic Parameter Types ---
+
+#[test]
+fn test_go_variadic_param_type() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessMany(items ...Item) should produce ParamType ref to Item
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessMany" && s.kind == "function")
+        .expect("ProcessMany should exist");
+
+    let has_item_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Item"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_item_param,
+        "ProcessMany should accept Item (from ...Item), got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+// --- Interface Method Signatures ---
+
+#[test]
+fn test_go_interface_method_types() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // Processor.Process(req Request) Response
+    // Find the Process method inside Processor interface
+    let process_idx = parsed.symbols.iter().position(|s| {
+        s.name == "Process"
+            && s.kind == "function"
+            && parsed.containments.iter().any(|c| {
+                c.parent_name == "Processor"
+                    && c.child_symbol_idx
+                        == parsed
+                            .symbols
+                            .iter()
+                            .position(|x| std::ptr::eq(x, s))
+                            .unwrap_or(usize::MAX)
+            })
+    });
+
+    if let Some(idx) = process_idx {
+        let has_request_param = parsed.type_refs.iter().any(|tr| {
+            tr.from_symbol_idx == idx
+                && tr.type_name == "Request"
+                && tr.ref_kind == ReferenceType::ParamType
+        });
+        let has_response_return = parsed.type_refs.iter().any(|tr| {
+            tr.from_symbol_idx == idx
+                && tr.type_name == "Response"
+                && tr.ref_kind == ReferenceType::ReturnType
+        });
+        assert!(has_request_param, "Processor.Process should accept Request");
+        assert!(
+            has_response_return,
+            "Processor.Process should return Response"
+        );
+    }
+}
+
+// --- Generic Types (Go 1.18+) ---
+
+#[test]
+fn test_go_generic_param_inner_type() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessGeneric(c Container[Item]) should produce ParamType refs to:
+    // - Container (the outer type)
+    // - Item (the inner type argument)
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessGeneric" && s.kind == "function")
+        .expect("ProcessGeneric should exist");
+
+    let param_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        param_refs.contains(&"Item"),
+        "ProcessGeneric should accept Item (from Container[Item]), got: {:?}",
+        param_refs
+    );
+}
+
+#[test]
+fn test_go_generic_return_inner_type() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // GetContainer() Container[Config] should produce ReturnType ref to Config
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetContainer" && s.kind == "function")
+        .expect("GetContainer should exist");
+
+    let return_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ReturnType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        return_refs.contains(&"Config"),
+        "GetContainer should return Config (from Container[Config]), got: {:?}",
+        return_refs
+    );
+}
+
+// --- Channel Types ---
+
+#[test]
+fn test_go_channel_param_type() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // SendItems(ch chan Item) should produce ParamType ref to Item
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "SendItems" && s.kind == "function")
+        .expect("SendItems should exist");
+
+    let has_item_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Item"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_item_param,
+        "SendItems should accept Item (from chan Item), got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_go_receive_channel_param_type() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ReceiveConfigs(ch <-chan Config) should produce ParamType ref to Config
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ReceiveConfigs" && s.kind == "function")
+        .expect("ReceiveConfigs should exist");
+
+    let has_config_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config_param,
+        "ReceiveConfigs should accept Config (from <-chan Config), got type_refs: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .collect::<Vec<_>>()
+    );
+}
+
+// --- Summary count test for verification ---
+
+#[test]
+fn test_go_type_refs_summary() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    let param_count = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.ref_kind == ReferenceType::ParamType)
+        .count();
+    let return_count = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.ref_kind == ReferenceType::ReturnType)
+        .count();
+    let field_count = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.ref_kind == ReferenceType::FieldType)
+        .count();
+
+    // These are minimum counts based on types.go content
+    // Exact counts will be verified once implementation is complete
+    assert!(
+        param_count >= 15,
+        "Expected at least 15 ParamType refs, got {}. All type_refs: {:?}",
+        param_count,
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.ref_kind == ReferenceType::ParamType)
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        return_count >= 8,
+        "Expected at least 8 ReturnType refs, got {}. All type_refs: {:?}",
+        return_count,
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.ref_kind == ReferenceType::ReturnType)
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        field_count >= 5,
+        "Expected at least 5 FieldType refs, got {}. All type_refs: {:?}",
+        field_count,
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.ref_kind == ReferenceType::FieldType)
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+}
