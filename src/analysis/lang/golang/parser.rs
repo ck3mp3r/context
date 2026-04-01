@@ -560,7 +560,11 @@ impl Go {
                 "fn_param_generic_fn",
                 "fn_param_generic_outer",
             ),
-            // ("fn_param_generic_inner_def", "fn_param_generic_inner_fn", "fn_param_generic_inner_type"), // TODO: fix query
+            (
+                "fn_param_generic_inner_def",
+                "fn_param_generic_inner_fn",
+                "fn_param_generic_inner_type",
+            ),
             (
                 "fn_param_variadic_def",
                 "fn_param_variadic_fn",
@@ -600,7 +604,11 @@ impl Go {
                 "method_param_chan_fn",
                 "method_param_chan_type",
             ),
-            // ("method_param_generic_inner_def", "method_param_generic_inner_fn", "method_param_generic_inner_type"), // TODO: fix query
+            (
+                "method_param_generic_inner_def",
+                "method_param_generic_inner_fn",
+                "method_param_generic_inner_type",
+            ),
         ];
 
         // Function return patterns
@@ -624,7 +632,11 @@ impl Go {
                 "fn_ret_generic_fn",
                 "fn_ret_generic_outer",
             ),
-            // ("fn_ret_generic_inner_def", "fn_ret_generic_inner_fn", "fn_ret_generic_inner_type"), // TODO: fix query
+            (
+                "fn_ret_generic_inner_def",
+                "fn_ret_generic_inner_fn",
+                "fn_ret_generic_inner_type",
+            ),
         ];
 
         // Method return patterns
@@ -659,7 +671,11 @@ impl Go {
                 "method_ret_tuple_ptr_fn",
                 "method_ret_tuple_ptr_type",
             ),
-            // ("method_ret_generic_inner_def", "method_ret_generic_inner_fn", "method_ret_generic_inner_type"), // TODO: fix query
+            (
+                "method_ret_generic_inner_def",
+                "method_ret_generic_inner_fn",
+                "method_ret_generic_inner_type",
+            ),
         ];
 
         // Field type patterns (def_key, field_key, type_key)
@@ -675,7 +691,11 @@ impl Go {
             ("field_map_def", "field_map_name", "field_map_type"),
             ("field_qual_def", "field_qual_name", "field_qual_type"),
             ("field_chan_def", "field_chan_name", "field_chan_type"),
-            // ("field_generic_def", "field_generic_name", "field_generic_type"), // TODO: fix query
+            (
+                "field_generic_def",
+                "field_generic_name",
+                "field_generic_type",
+            ),
         ];
 
         // Interface method param patterns

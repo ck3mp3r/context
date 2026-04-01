@@ -81,14 +81,15 @@
                 type: (type_identifier) @fn_param_generic_outer)))) @fn_param_generic_def
 
 ;;; parameter — generic type inner argument (func foo(x Container[Item]))
-;;; TODO: type_arguments structure issue - need to verify Go grammar
-;;; (function_declaration
-;;;     name: (identifier) @fn_param_generic_inner_fn
-;;;     parameters: (parameter_list
-;;;         (parameter_declaration
-;;;             type: (generic_type
-;;;                 type_arguments: (type_arguments
-;;;                     (type_identifier) @fn_param_generic_inner_type))))) @fn_param_generic_inner_def
+;;; Note: type_arguments contains type_elem which contains the actual type
+(function_declaration
+    name: (identifier) @fn_param_generic_inner_fn
+    parameters: (parameter_list
+        (parameter_declaration
+            type: (generic_type
+                type_arguments: (type_arguments
+                    (type_elem
+                        (type_identifier) @fn_param_generic_inner_type)))))) @fn_param_generic_inner_def
 
 ;;; parameter — variadic type (func foo(x ...Foo))
 (function_declaration
@@ -149,14 +150,14 @@
                 value: (type_identifier) @method_param_chan_type)))) @method_param_chan_def
 
 ;;; method parameter — generic inner type
-;;; TODO: type_arguments structure issue - need to verify Go grammar
-;;; (method_declaration
-;;;     name: (field_identifier) @method_param_generic_inner_fn
-;;;     parameters: (parameter_list
-;;;         (parameter_declaration
-;;;             type: (generic_type
-;;;                 type_arguments: (type_arguments
-;;;                     (type_identifier) @method_param_generic_inner_type))))) @method_param_generic_inner_def
+(method_declaration
+    name: (field_identifier) @method_param_generic_inner_fn
+    parameters: (parameter_list
+        (parameter_declaration
+            type: (generic_type
+                type_arguments: (type_arguments
+                    (type_elem
+                        (type_identifier) @method_param_generic_inner_type)))))) @method_param_generic_inner_def
 
 ;;; ==========================================================================
 ;;; FUNCTION RETURN TYPES
@@ -207,12 +208,12 @@
         type: (type_identifier) @fn_ret_generic_outer)) @fn_ret_generic_def
 
 ;;; return — generic type inner argument (func foo() Container[Item])
-;;; TODO: type_arguments structure issue - need to verify Go grammar
-;;; (function_declaration
-;;;     name: (identifier) @fn_ret_generic_inner_fn
-;;;     result: (generic_type
-;;;         type_arguments: (type_arguments
-;;;             (type_identifier) @fn_ret_generic_inner_type))) @fn_ret_generic_inner_def
+(function_declaration
+    name: (identifier) @fn_ret_generic_inner_fn
+    result: (generic_type
+        type_arguments: (type_arguments
+            (type_elem
+                (type_identifier) @fn_ret_generic_inner_type)))) @fn_ret_generic_inner_def
 
 ;;; ==========================================================================
 ;;; METHOD RETURN TYPES
@@ -257,12 +258,12 @@
                 (type_identifier) @method_ret_tuple_ptr_type)))) @method_ret_tuple_ptr_def
 
 ;;; method return — generic inner type
-;;; TODO: type_arguments structure issue - need to verify Go grammar
-;;; (method_declaration
-;;;     name: (field_identifier) @method_ret_generic_inner_fn
-;;;     result: (generic_type
-;;;         type_arguments: (type_arguments
-;;;             (type_identifier) @method_ret_generic_inner_type))) @method_ret_generic_inner_def
+(method_declaration
+    name: (field_identifier) @method_ret_generic_inner_fn
+    result: (generic_type
+        type_arguments: (type_arguments
+            (type_elem
+                (type_identifier) @method_ret_generic_inner_type)))) @method_ret_generic_inner_def
 
 ;;; ==========================================================================
 ;;; STRUCT FIELD TYPES
@@ -346,17 +347,17 @@
                         value: (type_identifier) @field_chan_type)))))) @field_chan_def
 
 ;;; field — generic type inner (Value Container[T])
-;;; TODO: type_arguments structure issue - need to verify Go grammar
-;;; (type_declaration
-;;;     (type_spec
-;;;         name: (type_identifier) @field_generic_struct
-;;;         type: (struct_type
-;;;             (field_declaration_list
-;;;                 (field_declaration
-;;;                     name: (field_identifier) @field_generic_name
-;;;                     type: (generic_type
-;;;                         type_arguments: (type_arguments
-;;;                             (type_identifier) @field_generic_type))))))) @field_generic_def
+(type_declaration
+    (type_spec
+        name: (type_identifier) @field_generic_struct
+        type: (struct_type
+            (field_declaration_list
+                (field_declaration
+                    name: (field_identifier) @field_generic_name
+                    type: (generic_type
+                        type_arguments: (type_arguments
+                            (type_elem
+                                (type_identifier) @field_generic_type)))))))) @field_generic_def
 
 ;;; ==========================================================================
 ;;; INTERFACE METHOD TYPES
