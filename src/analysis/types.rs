@@ -121,68 +121,6 @@ impl std::fmt::Display for QualifiedName {
 }
 
 // ============================================================================
-// Module path derivation
-// ============================================================================
-
-pub fn derive_module_path(file_path: &str, language: &str) -> String {
-    match language {
-        "rust" => derive_rust_module_path(file_path),
-        "nushell" => derive_nushell_module_path(file_path),
-        _ => String::new(),
-    }
-}
-
-fn derive_rust_module_path(file_path: &str) -> String {
-    use std::path::Path;
-
-    let path = Path::new(file_path);
-    let path = path
-        .strip_prefix("src/")
-        .or_else(|_| path.strip_prefix("src"))
-        .unwrap_or(path);
-
-    let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-    let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
-
-    let module_part = match file_name {
-        "lib.rs" | "main.rs" => parent.to_string(),
-        "mod.rs" => parent.to_string(),
-        _ => {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if parent.is_empty() {
-                stem.to_string()
-            } else {
-                format!("{}/{}", parent, stem)
-            }
-        }
-    };
-
-    module_part.replace('/', "::")
-}
-
-fn derive_nushell_module_path(file_path: &str) -> String {
-    use std::path::Path;
-
-    let path = Path::new(file_path);
-    let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-    let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
-
-    let module_part = match file_name {
-        "mod.nu" => parent.to_string(),
-        _ => {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if parent.is_empty() {
-                stem.to_string()
-            } else {
-                format!("{}/{}", parent, stem)
-            }
-        }
-    };
-
-    module_part.replace('/', "::")
-}
-
-// ============================================================================
 // Relationship enums
 // ============================================================================
 

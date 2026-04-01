@@ -15,7 +15,7 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::analysis::get_analysis_path;
-use crate::analysis::types::derive_module_path;
+use crate::analysis::lang::{Analyser, LanguageAnalyser};
 use crate::api::AppState;
 use crate::db::{Database, RepoRepository};
 use crate::sync::GitOps;
@@ -270,17 +270,9 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
             let file_path = s["file_path"].as_str().unwrap_or("");
             let language = s["language"].as_str().unwrap_or("unknown");
 
-            let module_path = derive_module_path(file_path, language);
-            let module_path = if module_path.is_empty() && language == "go" {
-                file_path
-                    .rfind('/')
-                    .map(|i| &file_path[..i])
-                    .and_then(|dir| dir.rfind('/').map(|j| &dir[j + 1..]).or(Some(dir)))
-                    .unwrap_or("")
-                    .to_string()
-            } else {
-                module_path
-            };
+            let module_path = Analyser::for_language(language)
+                .map(|a| a.derive_module_path(file_path))
+                .unwrap_or_default();
             let qualified_name = if module_path.is_empty() {
                 name.to_string()
             } else {

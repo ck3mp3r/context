@@ -1,7 +1,7 @@
-mod parser;
+mod analyser;
 
-pub use parser::Go;
+pub use analyser::Go;
 
 #[cfg(test)]
-#[path = "parser_test.rs"]
-mod parser_test;
+#[path = "analyser_test.rs"]
+mod analyser_test;

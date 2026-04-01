@@ -1,4 +1,5 @@
-use super::parser::Nushell;
+use super::analyser::Nushell;
+use crate::analysis::lang::LanguageAnalyser;
 
 fn load_testdata(name: &str) -> String {
     let path = format!(
@@ -344,7 +345,7 @@ fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
     let mut registry = SymbolRegistry::new();
 
     for pf in parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let module_path = Nushell.derive_module_path(&pf.file_path);
         for sym in &pf.symbols {
             let sid = sym.symbol_id();
             let qn = QualifiedName::new(&module_path, &sym.name);
@@ -354,7 +355,7 @@ fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
 
     let mut edges = Vec::new();
     for pf in parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let module_path = Nushell.derive_module_path(&pf.file_path);
         for cont in &pf.containments {
             let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
             if registry.qualified_map.get(&parent_qn).is_some() {

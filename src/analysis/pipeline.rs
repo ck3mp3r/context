@@ -2,7 +2,7 @@
 //!
 //! Orchestrates: extract -> register -> resolve -> load
 
-use crate::analysis::lang::{golang::Go, nushell::Nushell, rust::Rust};
+use crate::analysis::lang::{Analyser, LanguageAnalyser, supported_extensions};
 use crate::analysis::store::CodeGraph;
 use crate::analysis::types::*;
 use std::collections::HashMap;
@@ -132,7 +132,11 @@ pub fn run(
     let mut total_rels = 0;
 
     for pf in &parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let analyser = match Analyser::for_language(&pf.language) {
+            Some(a) => a,
+            None => continue,
+        };
+        let module_path = analyser.derive_module_path(&pf.file_path);
         let file_id = graph.insert_file(&pf.file_path, &pf.language, "todo")?;
 
         for sym in &pf.symbols {
@@ -160,14 +164,14 @@ pub fn run(
         let mut import_table = ImportTable::default();
         for imp in &pf.imports {
             if imp.entry.is_glob {
-                import_table
-                    .glob_modules
-                    .push(imp.entry.module_path.clone());
+                let internal_module = analyser.normalise_import_path(&imp.entry.module_path);
+                import_table.glob_modules.push(internal_module);
             } else {
                 for name in &imp.entry.imported_names {
+                    let internal_module = analyser.normalise_import_path(&imp.entry.module_path);
                     import_table
                         .name_to_module
-                        .insert(name.clone(), imp.entry.module_path.clone());
+                        .insert(name.clone(), internal_module);
                 }
             }
         }
@@ -178,7 +182,11 @@ pub fn run(
 
     // Phase 3: Resolve containments
     for pf in &parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let analyser = match Analyser::for_language(&pf.language) {
+            Some(a) => a,
+            None => continue,
+        };
+        let module_path = analyser.derive_module_path(&pf.file_path);
         for cont in &pf.containments {
             let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
             if let Some(parent_id) = registry.qualified_map.get(&parent_qn) {
@@ -192,7 +200,11 @@ pub fn run(
 
     // Phase 4: Resolve heritage
     for pf in &parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let analyser = match Analyser::for_language(&pf.language) {
+            Some(a) => a,
+            None => continue,
+        };
+        let module_path = analyser.derive_module_path(&pf.file_path);
         for h in &pf.heritage {
             let type_id = registry.resolve_with_imports(
                 &h.type_name,
@@ -215,38 +227,41 @@ pub fn run(
 
     // Phase 5: Resolve imports
     for pf in &parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
-        // Find or create module symbol for this file as import source
-        let source_qn = if module_path.is_empty() {
-            let stem = Path::new(&pf.file_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(&pf.file_path);
-            QualifiedName::new("", stem)
-        } else {
-            let mod_name = module_path.rsplit("::").next().unwrap_or(&module_path);
-            QualifiedName::new(
-                module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or(""),
-                mod_name,
-            )
+        let analyser = match Analyser::for_language(&pf.language) {
+            Some(a) => a,
+            None => continue,
         };
+        let module_path = analyser.derive_module_path(&pf.file_path);
 
-        if let Some(source_id) = registry.qualified_map.get(&source_qn) {
+        // Use trait method to find import source symbol
+        let source_id = analyser.find_import_source(
+            &pf.symbols,
+            &pf.file_path,
+            &module_path,
+            &registry.qualified_map,
+        );
+
+        if let Some(source_id) = source_id {
             for imp in &pf.imports {
-                if imp.entry.is_glob {
-                    continue;
-                }
-                for name in &imp.entry.imported_names {
-                    let target_qn = QualifiedName::new(&imp.entry.module_path, name);
-                    if let Some(target_id) = registry.qualified_map.get(&target_qn) {
-                        graph.insert_references_edge(
-                            source_id,
-                            target_id,
-                            &ReferenceType::Import,
-                            1.0,
-                        )?;
-                        total_rels += 1;
-                    }
+                // Use trait method to resolve import targets
+                // For Go (is_glob=true): resolve_import_targets finds matching package
+                // For Rust/others: resolve_import_targets uses imported_names
+                let targets = analyser.resolve_import_targets(
+                    &imp.entry.module_path,
+                    &imp.entry.imported_names,
+                    &registry.qualified_map,
+                    &registry.symbol_languages,
+                    &registry.symbol_kinds,
+                );
+
+                for target_id in targets {
+                    graph.insert_references_edge(
+                        &source_id,
+                        &target_id,
+                        &ReferenceType::Import,
+                        1.0,
+                    )?;
+                    total_rels += 1;
                 }
             }
         }
@@ -254,7 +269,11 @@ pub fn run(
 
     // Phase 6: Resolve calls
     for pf in &parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let analyser = match Analyser::for_language(&pf.language) {
+            Some(a) => a,
+            None => continue,
+        };
+        let module_path = analyser.derive_module_path(&pf.file_path);
         for call in &pf.calls {
             // Find enclosing symbol (caller)
             let caller_id = call
@@ -305,7 +324,11 @@ pub fn run(
 
     // Phase 7: Resolve type refs
     for pf in &parsed_files {
-        let module_path = derive_module_path(&pf.file_path, &pf.language);
+        let analyser = match Analyser::for_language(&pf.language) {
+            Some(a) => a,
+            None => continue,
+        };
+        let module_path = analyser.derive_module_path(&pf.file_path);
         for tr in &pf.type_refs {
             let from_sym = &pf.symbols[tr.from_symbol_idx];
             let from_id = from_sym.symbol_id();
@@ -337,6 +360,9 @@ fn find_enclosing_symbol(symbols: &[RawSymbol], line: usize) -> Option<SymbolId>
 }
 
 fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {
+    use crate::analysis::lang::nushell::Nushell;
+    use crate::analysis::lang::rust::Rust;
+
     let mut results = Vec::new();
 
     for file_path in files {
@@ -352,17 +378,16 @@ fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {
 
         let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        let parsed = match ext {
-            "rs" => Rust::extract(&content, &relative),
-            "go" => Go::extract(&content, &relative),
-            "nu" => Nushell::extract(&content, &relative),
-            _ => continue,
+        let analyser = match Analyser::for_extension(ext) {
+            Some(a) => a,
+            None => continue,
         };
 
-        results.push(parsed);
+        results.push(analyser.extract(&content, &relative));
     }
 
     // Language-specific multi-file resolution
+    // These are static methods that operate on all files at once
     Nushell::resolve_file_modules(&mut results);
     Rust::resolve_file_modules(&mut results);
 
@@ -377,7 +402,7 @@ fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, PipelineError>
         .git_exclude(true)
         .build();
 
-    let supported_extensions = ["rs", "go", "nu"];
+    let exts = supported_extensions();
 
     for entry in walker {
         match entry {
@@ -385,7 +410,7 @@ fn scan_supported_files(repo_path: &Path) -> Result<Vec<PathBuf>, PipelineError>
                 let path = entry.path();
                 if path.is_file()
                     && let Some(ext) = path.extension().and_then(|e| e.to_str())
-                    && supported_extensions.contains(&ext)
+                    && exts.contains(&ext)
                 {
                     files.push(path.to_path_buf());
                 }

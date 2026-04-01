@@ -201,6 +201,33 @@
             type: (pointer_type
                 (type_identifier) @fn_ret_tuple_ptr_type)))) @fn_ret_tuple_ptr_def
 
+;;; return — tuple with slice types (func foo() ([]Foo, error))
+(function_declaration
+    name: (identifier) @fn_ret_tuple_slice_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (slice_type
+                element: (type_identifier) @fn_ret_tuple_slice_type)))) @fn_ret_tuple_slice_def
+
+;;; return — tuple with slice of pointer types (func foo() ([]*Foo, error))
+(function_declaration
+    name: (identifier) @fn_ret_tuple_slice_ptr_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (slice_type
+                element: (pointer_type
+                    (type_identifier) @fn_ret_tuple_slice_ptr_type))))) @fn_ret_tuple_slice_ptr_def
+
+;;; return — tuple with slice of qualified types (func foo() ([]pkg.Type, error))
+(function_declaration
+    name: (identifier) @fn_ret_tuple_slice_qual_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (slice_type
+                element: (qualified_type
+                    package: (package_identifier) @fn_ret_tuple_slice_qual_pkg
+                    name: (type_identifier) @fn_ret_tuple_slice_qual_type))))) @fn_ret_tuple_slice_qual_def
+
 ;;; return — generic type outer (func foo() Container[T])
 (function_declaration
     name: (identifier) @fn_ret_generic_fn
@@ -256,6 +283,33 @@
         (parameter_declaration
             type: (pointer_type
                 (type_identifier) @method_ret_tuple_ptr_type)))) @method_ret_tuple_ptr_def
+
+;;; method return — tuple with slice types (func (r R) M() ([]Foo, error))
+(method_declaration
+    name: (field_identifier) @method_ret_tuple_slice_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (slice_type
+                element: (type_identifier) @method_ret_tuple_slice_type)))) @method_ret_tuple_slice_def
+
+;;; method return — tuple with slice of pointer types (func (r R) M() ([]*Foo, error))
+(method_declaration
+    name: (field_identifier) @method_ret_tuple_slice_ptr_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (slice_type
+                element: (pointer_type
+                    (type_identifier) @method_ret_tuple_slice_ptr_type))))) @method_ret_tuple_slice_ptr_def
+
+;;; method return — tuple with slice of qualified types (func (r R) M() ([]pkg.Type, error))
+(method_declaration
+    name: (field_identifier) @method_ret_tuple_slice_qual_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (slice_type
+                element: (qualified_type
+                    package: (package_identifier) @method_ret_tuple_slice_qual_pkg
+                    name: (type_identifier) @method_ret_tuple_slice_qual_type))))) @method_ret_tuple_slice_qual_def
 
 ;;; method return — generic inner type
 (method_declaration

@@ -1,4 +1,7 @@
-use crate::analysis::types::{ParsedFile, RawTypeRef, ReferenceType};
+use crate::analysis::lang::LanguageAnalyser;
+use crate::analysis::types::{
+    ParsedFile, QualifiedName, RawSymbol, RawTypeRef, ReferenceType, SymbolId,
+};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Go;
@@ -31,6 +34,9 @@ const GO_BUILTINS: &[&str] = &[
     "any",
     "comparable",
 ];
+
+/// Known Go project directory prefixes that indicate local code.
+const GO_LOCAL_DIRS: &[&str] = &["pkg", "internal", "cmd", "api", "app", "lib", "src"];
 
 impl Go {
     pub fn name() -> &'static str {
@@ -389,14 +395,19 @@ impl Go {
         }
 
         // Imports — single
+        // Go imports are wildcards: import "pkg/common" makes all exported symbols available
         if captures.contains_key("import_decl")
             && let Some(&path_node) = captures.get("import_path")
         {
             let raw_path = text(path_node).trim_matches('"');
             let pkg_name = raw_path.rsplit('/').next().unwrap_or(raw_path);
+            // Use named_import with package name so import edges work,
+            // but also mark as glob for type resolution
+            let mut entry = ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]);
+            entry.is_glob = true;
             parsed.imports.push(RawImport {
                 file_path: file_path.to_string(),
-                entry: ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]),
+                entry,
             });
             return;
         }
@@ -407,14 +418,17 @@ impl Go {
         {
             let raw_path = text(path_node).trim_matches('"');
             let pkg_name = raw_path.rsplit('/').next().unwrap_or(raw_path);
+            let mut entry = ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]);
+            entry.is_glob = true;
             parsed.imports.push(RawImport {
                 file_path: file_path.to_string(),
-                entry: ImportEntry::named_import(raw_path, vec![pkg_name.to_string()]),
+                entry,
             });
             return;
         }
 
         // Import with alias — single
+        // Aliased imports are also wildcards, alias is the package prefix used in code
         if captures.contains_key("import_alias_decl")
             && let Some(&path_node) = captures.get("import_alias_path")
         {
@@ -426,6 +440,7 @@ impl Go {
                 }
                 let mut entry = ImportEntry::named_import(raw_path, vec![alias_name.clone()]);
                 entry.alias = Some(alias_name.clone());
+                entry.is_glob = true;
                 parsed.imports.push(RawImport {
                     file_path: file_path.to_string(),
                     entry,
@@ -448,6 +463,7 @@ impl Go {
                 }
                 let mut entry = ImportEntry::named_import(raw_path, vec![alias_name.clone()]);
                 entry.alias = Some(alias_name.clone());
+                entry.is_glob = true;
                 parsed.imports.push(RawImport {
                     file_path: file_path.to_string(),
                     entry,
@@ -628,6 +644,16 @@ impl Go {
                 "fn_ret_tuple_ptr_type",
             ),
             (
+                "fn_ret_tuple_slice_def",
+                "fn_ret_tuple_slice_fn",
+                "fn_ret_tuple_slice_type",
+            ),
+            (
+                "fn_ret_tuple_slice_ptr_def",
+                "fn_ret_tuple_slice_ptr_fn",
+                "fn_ret_tuple_slice_ptr_type",
+            ),
+            (
                 "fn_ret_generic_def",
                 "fn_ret_generic_fn",
                 "fn_ret_generic_outer",
@@ -670,6 +696,16 @@ impl Go {
                 "method_ret_tuple_ptr_def",
                 "method_ret_tuple_ptr_fn",
                 "method_ret_tuple_ptr_type",
+            ),
+            (
+                "method_ret_tuple_slice_def",
+                "method_ret_tuple_slice_fn",
+                "method_ret_tuple_slice_type",
+            ),
+            (
+                "method_ret_tuple_slice_ptr_def",
+                "method_ret_tuple_slice_ptr_fn",
+                "method_ret_tuple_slice_ptr_type",
             ),
             (
                 "method_ret_generic_inner_def",
@@ -842,6 +878,49 @@ impl Go {
                 }
             }
 
+            // Process qualified return types (function and method) - tuple with slice of qualified types
+            // e.g., func foo() ([]common.Result, error) -> captures pkg="common", type="Result"
+            let qual_ret_patterns: &[(&str, &str, &str, &str)] = &[
+                (
+                    "fn_ret_tuple_slice_qual_def",
+                    "fn_ret_tuple_slice_qual_fn",
+                    "fn_ret_tuple_slice_qual_pkg",
+                    "fn_ret_tuple_slice_qual_type",
+                ),
+                (
+                    "method_ret_tuple_slice_qual_def",
+                    "method_ret_tuple_slice_qual_fn",
+                    "method_ret_tuple_slice_qual_pkg",
+                    "method_ret_tuple_slice_qual_type",
+                ),
+            ];
+
+            for &(def_key, fn_key, _pkg_key, type_key) in qual_ret_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    // Extract just the type name, not the package qualifier
+                    // e.g., common.Result -> Result (GitNexus pattern: take last segment)
+                    // Glob import resolution will find it via pkg::common::Result
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ReturnType,
+                        });
+                    }
+                }
+            }
+
             // Process struct field types
             for &(def_key, field_key, type_key) in field_patterns {
                 if captures.contains_key(def_key)
@@ -922,6 +1001,110 @@ impl Go {
             .symbols
             .iter()
             .position(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+    }
+}
+
+// ============================================================================
+// LanguageAnalyser trait implementation
+// ============================================================================
+
+impl LanguageAnalyser for Go {
+    fn name(&self) -> &'static str {
+        "go"
+    }
+
+    fn extensions(&self) -> &'static [&'static str] {
+        &["go"]
+    }
+
+    fn grammar(&self) -> tree_sitter::Language {
+        tree_sitter_go::LANGUAGE.into()
+    }
+
+    fn queries(&self) -> &'static str {
+        QUERIES
+    }
+
+    fn extract(&self, code: &str, file_path: &str) -> ParsedFile {
+        // Delegate to static method for backwards compatibility
+        Go::extract(code, file_path)
+    }
+
+    fn derive_module_path(&self, file_path: &str) -> String {
+        use std::path::Path;
+
+        let path = Path::new(file_path);
+        // Go module path is the directory containing the file
+        let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
+
+        // Convert path separators to ::
+        parent.replace(['/', '\\'], "::")
+    }
+
+    fn normalise_import_path(&self, import_path: &str) -> String {
+        // Convert Go import path to internal module format.
+        // "github.com/acme/myapp/pkg/common" → "pkg::common"
+        let parts: Vec<&str> = import_path.split('/').collect();
+
+        for (i, part) in parts.iter().enumerate() {
+            if GO_LOCAL_DIRS.contains(part) {
+                return parts[i..].join("::");
+            }
+        }
+
+        // No known local dir - just convert slashes to ::
+        import_path.replace('/', "::")
+    }
+
+    fn find_import_source(
+        &self,
+        symbols: &[RawSymbol],
+        _file_path: &str,
+        _module_path: &str,
+        _registry: &std::collections::HashMap<QualifiedName, SymbolId>,
+    ) -> Option<SymbolId> {
+        // For Go, the import source is the package symbol
+        symbols
+            .iter()
+            .find(|s| s.kind == "package")
+            .map(|s| s.symbol_id())
+    }
+
+    fn resolve_import_targets(
+        &self,
+        import_path: &str,
+        _imported_names: &[String],
+        registry: &std::collections::HashMap<QualifiedName, SymbolId>,
+        symbol_languages: &std::collections::HashMap<SymbolId, String>,
+        symbol_kinds: &std::collections::HashMap<SymbolId, String>,
+    ) -> Vec<SymbolId> {
+        // For Go: find target package by matching import path suffix
+        // Import path like "github.com/foo/bar/pkg/analyzer" should match
+        // a package symbol in a directory like "pkg/analyzer"
+        let import_suffix = import_path.replace('/', "::");
+        let pkg_name = import_path.rsplit('/').next().unwrap_or(import_path);
+
+        for (qn, target_id) in registry {
+            // Skip if not Go
+            if symbol_languages.get(target_id).is_some_and(|l| l != "go") {
+                continue;
+            }
+            // Skip if not a package
+            if symbol_kinds.get(target_id).is_some_and(|k| k != "package") {
+                continue;
+            }
+
+            let qn_str = qn.as_str();
+            // Check if the qualified name ends with the import suffix
+            if qn_str.ends_with(&import_suffix)
+                || qn_str.ends_with(&format!("::{}", pkg_name))
+                || qn_str == pkg_name
+            {
+                return vec![target_id.clone()];
+            }
+        }
+
+        Vec::new()
     }
 }
 

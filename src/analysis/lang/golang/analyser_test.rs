@@ -1,4 +1,4 @@
-use super::parser::Go;
+use super::analyser::Go;
 use crate::analysis::types::*;
 
 fn load_testdata(name: &str) -> String {
@@ -131,7 +131,9 @@ fn test_server_aliased_import() {
     let imp = aliased.unwrap();
     assert_eq!(imp.entry.module_path, "github.com/sirupsen/logrus");
     assert_eq!(imp.entry.alias.as_deref(), Some("log"));
+    // Go imports store pkg name in imported_names AND set is_glob for type resolution
     assert!(imp.entry.imported_names.contains(&"log".to_string()));
+    assert!(imp.entry.is_glob);
 }
 
 #[test]
@@ -819,6 +821,37 @@ fn test_go_return_type_slice() {
     );
 }
 
+#[test]
+fn test_go_return_type_tuple_slice() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // GetItemsAndError() ([]Item, error) should produce ReturnType ref to Item, NOT error
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetItemsAndError" && s.kind == "function")
+        .expect("GetItemsAndError should exist");
+
+    let return_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ReturnType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        return_refs.contains(&"Item"),
+        "GetItemsAndError should return Item (from []Item), got: {:?}",
+        return_refs
+    );
+    assert!(
+        !return_refs.contains(&"error"),
+        "GetItemsAndError should NOT have error in return refs (it's a builtin), got: {:?}",
+        return_refs
+    );
+}
+
 // --- Method Parameter and Return Type References ---
 
 #[test]
@@ -1275,5 +1308,84 @@ fn test_go_type_refs_summary() {
             .filter(|tr| tr.ref_kind == ReferenceType::FieldType)
             .map(|tr| &tr.type_name)
             .collect::<Vec<_>>()
+    );
+}
+
+// --- normalise_import_path tests ---
+
+#[test]
+fn test_normalise_import_path_pkg_prefix() {
+    use crate::analysis::lang::LanguageAnalyser;
+
+    let go = super::analyser::Go;
+
+    assert_eq!(
+        go.normalise_import_path("github.com/acme/myapp/pkg/common"),
+        "pkg::common",
+        "Should extract pkg/common suffix and convert to internal format"
+    );
+
+    assert_eq!(
+        go.normalise_import_path("github.com/acme/myapp/pkg/service"),
+        "pkg::service",
+        "Should extract pkg/service suffix"
+    );
+}
+
+#[test]
+fn test_normalise_import_path_internal_prefix() {
+    use crate::analysis::lang::LanguageAnalyser;
+
+    let go = super::analyser::Go;
+
+    assert_eq!(
+        go.normalise_import_path("github.com/acme/myapp/internal/cache"),
+        "internal::cache",
+        "Should handle internal packages"
+    );
+}
+
+#[test]
+fn test_normalise_import_path_cmd_prefix() {
+    use crate::analysis::lang::LanguageAnalyser;
+
+    let go = super::analyser::Go;
+
+    assert_eq!(
+        go.normalise_import_path("github.com/acme/myapp/cmd/server"),
+        "cmd::server",
+        "Should extract cmd/server suffix"
+    );
+}
+
+#[test]
+fn test_normalise_import_path_nested() {
+    use crate::analysis::lang::LanguageAnalyser;
+
+    let go = super::analyser::Go;
+
+    assert_eq!(
+        go.normalise_import_path("github.com/acme/myapp/pkg/api/v1"),
+        "pkg::api::v1",
+        "Should handle nested packages"
+    );
+}
+
+#[test]
+fn test_normalise_import_path_stdlib() {
+    use crate::analysis::lang::LanguageAnalyser;
+
+    let go = super::analyser::Go;
+
+    assert_eq!(
+        go.normalise_import_path("fmt"),
+        "fmt",
+        "Standard library imports stay as-is"
+    );
+
+    assert_eq!(
+        go.normalise_import_path("net/http"),
+        "net::http",
+        "Standard library with path converts slashes"
     );
 }

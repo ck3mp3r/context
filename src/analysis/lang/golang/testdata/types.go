@@ -93,6 +93,11 @@ func GetItems() []Item {
 	return nil
 }
 
+// GetItemsAndError returns a slice with error tuple (should extract Item, NOT error).
+func GetItemsAndError() ([]Item, error) {
+	return nil, nil
+}
+
 // GetQualified returns a qualified type.
 func GetQualified() http.Handler {
 	return nil

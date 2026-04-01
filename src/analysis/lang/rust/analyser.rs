@@ -1,4 +1,7 @@
-use crate::analysis::types::{ParsedFile, RawContainment, RawTypeRef, ReferenceType};
+use crate::analysis::lang::LanguageAnalyser;
+use crate::analysis::types::{
+    ParsedFile, QualifiedName, RawContainment, RawSymbol, RawTypeRef, ReferenceType, SymbolId,
+};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Rust;
@@ -937,6 +940,81 @@ impl Rust {
             .filter(|(_, s)| s.start_line <= line && s.end_line >= line)
             .min_by_key(|(_, s)| s.end_line - s.start_line)
             .map(|(i, _)| i)
+    }
+}
+
+impl LanguageAnalyser for Rust {
+    fn name(&self) -> &'static str {
+        "rust"
+    }
+
+    fn extensions(&self) -> &'static [&'static str] {
+        &["rs"]
+    }
+
+    fn grammar(&self) -> tree_sitter::Language {
+        tree_sitter_rust::LANGUAGE.into()
+    }
+
+    fn queries(&self) -> &'static str {
+        QUERIES
+    }
+
+    fn extract(&self, code: &str, file_path: &str) -> ParsedFile {
+        Rust::extract(code, file_path)
+    }
+
+    fn derive_module_path(&self, file_path: &str) -> String {
+        use std::path::Path;
+
+        let path = Path::new(file_path);
+        let path = path
+            .strip_prefix("src/")
+            .or_else(|_| path.strip_prefix("src"))
+            .unwrap_or(path);
+
+        let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
+
+        let module_part = match file_name {
+            "lib.rs" | "main.rs" | "mod.rs" => parent.to_string(),
+            _ => {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if parent.is_empty() {
+                    stem.to_string()
+                } else {
+                    format!("{}/{}", parent, stem)
+                }
+            }
+        };
+
+        module_part.replace('/', "::")
+    }
+
+    fn find_import_source(
+        &self,
+        _symbols: &[RawSymbol],
+        file_path: &str,
+        module_path: &str,
+        registry: &std::collections::HashMap<QualifiedName, SymbolId>,
+    ) -> Option<SymbolId> {
+        use std::path::Path;
+
+        // For Rust, find the module symbol from the registry
+        let source_qn = if module_path.is_empty() {
+            let stem = Path::new(file_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(file_path);
+            QualifiedName::new("", stem)
+        } else {
+            let mod_name = module_path.rsplit("::").next().unwrap_or(module_path);
+            QualifiedName::new(
+                module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or(""),
+                mod_name,
+            )
+        };
+        registry.get(&source_qn).cloned()
     }
 }
 

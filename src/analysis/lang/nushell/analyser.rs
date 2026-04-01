@@ -1,4 +1,5 @@
-use crate::analysis::types::{ParsedFile, RawContainment, RawSymbol};
+use crate::analysis::lang::LanguageAnalyser;
+use crate::analysis::types::{ParsedFile, QualifiedName, RawContainment, RawSymbol, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Nushell;
@@ -444,5 +445,75 @@ impl Nushell {
                 }
             }
         }
+    }
+}
+
+impl LanguageAnalyser for Nushell {
+    fn name(&self) -> &'static str {
+        "nushell"
+    }
+
+    fn extensions(&self) -> &'static [&'static str] {
+        &["nu"]
+    }
+
+    fn grammar(&self) -> tree_sitter::Language {
+        tree_sitter_nu::LANGUAGE.into()
+    }
+
+    fn queries(&self) -> &'static str {
+        QUERIES
+    }
+
+    fn extract(&self, code: &str, file_path: &str) -> ParsedFile {
+        Nushell::extract(code, file_path)
+    }
+
+    fn derive_module_path(&self, file_path: &str) -> String {
+        use std::path::Path;
+
+        let path = Path::new(file_path);
+        let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
+
+        let module_part = match file_name {
+            "mod.nu" => parent.to_string(),
+            _ => {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if parent.is_empty() {
+                    stem.to_string()
+                } else {
+                    format!("{}/{}", parent, stem)
+                }
+            }
+        };
+
+        module_part.replace('/', "::")
+    }
+
+    fn find_import_source(
+        &self,
+        _symbols: &[RawSymbol],
+        file_path: &str,
+        module_path: &str,
+        registry: &std::collections::HashMap<QualifiedName, SymbolId>,
+    ) -> Option<SymbolId> {
+        use std::path::Path;
+
+        // For Nushell, find the module symbol from the registry
+        let source_qn = if module_path.is_empty() {
+            let stem = Path::new(file_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(file_path);
+            QualifiedName::new("", stem)
+        } else {
+            let mod_name = module_path.rsplit("::").next().unwrap_or(module_path);
+            QualifiedName::new(
+                module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or(""),
+                mod_name,
+            )
+        };
+        registry.get(&source_qn).cloned()
     }
 }
