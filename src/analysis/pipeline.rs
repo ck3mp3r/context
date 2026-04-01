@@ -163,16 +163,19 @@ pub fn run(
         // Build import table
         let mut import_table = ImportTable::default();
         for imp in &pf.imports {
+            let internal_module = analyser.normalise_import_path(&imp.entry.module_path);
+
             if imp.entry.is_glob {
-                let internal_module = analyser.normalise_import_path(&imp.entry.module_path);
-                import_table.glob_modules.push(internal_module);
-            } else {
-                for name in &imp.entry.imported_names {
-                    let internal_module = analyser.normalise_import_path(&imp.entry.module_path);
-                    import_table
-                        .name_to_module
-                        .insert(name.clone(), internal_module);
-                }
+                import_table.glob_modules.push(internal_module.clone());
+            }
+
+            // Map imported names to their module path.
+            // For glob imports with package names (e.g., Go: import "pkg/common"),
+            // this enables scoped call resolution: common.Failure → pkg::common::Failure
+            for name in &imp.entry.imported_names {
+                import_table
+                    .name_to_module
+                    .insert(name.clone(), internal_module.clone());
             }
         }
         registry
@@ -296,7 +299,15 @@ pub fn run(
                 ),
                 CallForm::Scoped => {
                     if let Some(qualifier) = &call.qualifier {
-                        let qn = QualifiedName::new(qualifier, &call.callee_name);
+                        // Translate qualifier via import table (e.g., "common" → "pkg::common")
+                        let resolved_module = registry
+                            .import_tables
+                            .get(&pf.file_path)
+                            .and_then(|t| t.name_to_module.get(qualifier))
+                            .map(|s| s.as_str())
+                            .unwrap_or(qualifier);
+
+                        let qn = QualifiedName::new(resolved_module, &call.callee_name);
                         registry.qualified_map.get(&qn)
                     } else {
                         registry.resolve_with_imports(
