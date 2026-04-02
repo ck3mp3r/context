@@ -113,3 +113,35 @@ func ExampleNew() {
 	c := New()
 	c.Set("hello", "world", DefaultTTL)
 }
+
+// --- Function references / callbacks ---
+
+// RegisterHook accepts a function reference as callback
+type HookFunc func()
+
+func RegisterHook(hook HookFunc) {
+	// store hook
+}
+
+func myHookHandler() {
+	// handler implementation
+}
+
+func initCallbacks() {
+	// Function reference passed as argument - should create call edge
+	RegisterHook(myHookHandler)
+}
+
+// OnInit accepts a function reference
+func OnInit(fn func()) {
+	fn()
+}
+
+func setupConfig() {
+	// config setup
+}
+
+func initApp() {
+	// Another function reference pattern
+	OnInit(setupConfig)
+}

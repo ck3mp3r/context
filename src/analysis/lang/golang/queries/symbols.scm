@@ -87,6 +87,11 @@
         package: (package_identifier) @composite_pkg
         name: (type_identifier) @composite_qual_type)) @composite_qual_lit
 
+;;; function reference passed as argument (callback)
+(call_expression
+    arguments: (argument_list
+        (identifier) @func_ref_name)) @func_ref_call
+
 ;;; import_declaration — single import
 (import_declaration
     (import_spec

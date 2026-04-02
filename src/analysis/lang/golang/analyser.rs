@@ -421,6 +421,24 @@ impl Go {
             return;
         }
 
+        // Function reference passed as argument (callback)
+        // e.g., RegisterHook(myHandler) or OnInit(setupConfig)
+        if captures.contains_key("func_ref_call")
+            && let Some(&name_node) = captures.get("func_ref_name")
+        {
+            let call_node = captures["func_ref_call"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Free,
+                receiver: None,
+                qualifier: None,
+                enclosing_symbol_idx: None,
+            });
+            return;
+        }
+
         // Imports — single
         // Go imports are wildcards: import "pkg/common" makes all exported symbols available
         if captures.contains_key("import_decl")

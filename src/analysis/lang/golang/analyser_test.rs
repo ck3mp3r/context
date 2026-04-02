@@ -1495,3 +1495,36 @@ fn test_go_type_alias_visibility() {
         "Duration should be public (uppercase)"
     );
 }
+
+// --- Function reference / callback tests ---
+
+#[test]
+fn test_go_func_ref_as_argument() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    // RegisterHook(myHookHandler) should create a call to myHookHandler
+    let call_to_hook = parsed
+        .calls
+        .iter()
+        .find(|c| c.callee_name == "myHookHandler");
+
+    assert!(
+        call_to_hook.is_some(),
+        "myHookHandler passed as argument should create a call edge"
+    );
+}
+
+#[test]
+fn test_go_func_ref_multiple() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    // OnInit(setupConfig) should create a call to setupConfig
+    let call_to_setup = parsed.calls.iter().find(|c| c.callee_name == "setupConfig");
+
+    assert!(
+        call_to_setup.is_some(),
+        "setupConfig passed as argument should create a call edge"
+    );
+}
