@@ -612,6 +612,11 @@ impl Go {
                 "fn_param_qual_type",
             ),
             (
+                "fn_param_ptr_qual_def",
+                "fn_param_ptr_qual_fn",
+                "fn_param_ptr_qual_type",
+            ),
+            (
                 "fn_param_chan_def",
                 "fn_param_chan_fn",
                 "fn_param_chan_type",
@@ -661,6 +666,11 @@ impl Go {
                 "method_param_qual_type",
             ),
             (
+                "method_param_ptr_qual_def",
+                "method_param_ptr_qual_fn",
+                "method_param_ptr_qual_type",
+            ),
+            (
                 "method_param_chan_def",
                 "method_param_chan_fn",
                 "method_param_chan_type",
@@ -682,6 +692,11 @@ impl Go {
             ("fn_ret_ptr_def", "fn_ret_ptr_fn", "fn_ret_ptr_type"),
             ("fn_ret_slice_def", "fn_ret_slice_fn", "fn_ret_slice_type"),
             ("fn_ret_qual_def", "fn_ret_qual_fn", "fn_ret_qual_type"),
+            (
+                "fn_ret_ptr_qual_def",
+                "fn_ret_ptr_qual_fn",
+                "fn_ret_ptr_qual_type",
+            ),
             ("fn_ret_tuple_def", "fn_ret_tuple_fn", "fn_ret_tuple_type"),
             (
                 "fn_ret_tuple_ptr_def",
@@ -697,6 +712,11 @@ impl Go {
                 "fn_ret_tuple_slice_ptr_def",
                 "fn_ret_tuple_slice_ptr_fn",
                 "fn_ret_tuple_slice_ptr_type",
+            ),
+            (
+                "fn_ret_tuple_ptr_qual_def",
+                "fn_ret_tuple_ptr_qual_fn",
+                "fn_ret_tuple_ptr_qual_type",
             ),
             (
                 "fn_ret_generic_def",
@@ -733,6 +753,11 @@ impl Go {
                 "method_ret_qual_type",
             ),
             (
+                "method_ret_ptr_qual_def",
+                "method_ret_ptr_qual_fn",
+                "method_ret_ptr_qual_type",
+            ),
+            (
                 "method_ret_tuple_def",
                 "method_ret_tuple_fn",
                 "method_ret_tuple_type",
@@ -753,6 +778,11 @@ impl Go {
                 "method_ret_tuple_slice_ptr_type",
             ),
             (
+                "method_ret_tuple_ptr_qual_def",
+                "method_ret_tuple_ptr_qual_fn",
+                "method_ret_tuple_ptr_qual_type",
+            ),
+            (
                 "method_ret_generic_inner_def",
                 "method_ret_generic_inner_fn",
                 "method_ret_generic_inner_type",
@@ -771,6 +801,11 @@ impl Go {
             ),
             ("field_map_def", "field_map_name", "field_map_type"),
             ("field_qual_def", "field_qual_name", "field_qual_type"),
+            (
+                "field_ptr_qual_def",
+                "field_ptr_qual_name",
+                "field_ptr_qual_type",
+            ),
             ("field_chan_def", "field_chan_name", "field_chan_type"),
             (
                 "field_generic_def",

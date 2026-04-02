@@ -728,6 +728,32 @@ fn test_go_param_type_map_key() {
 }
 
 #[test]
+fn test_go_param_type_ptr_qualified() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessPtrQualified(req *http.Request) should extract Request as param type
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessPtrQualified" && s.kind == "function")
+        .expect("ProcessPtrQualified should exist");
+
+    let param_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        param_refs.contains(&"Request"),
+        "ProcessPtrQualified should accept Request (*http.Request), got: {:?}",
+        param_refs
+    );
+}
+
+#[test]
 fn test_go_param_type_filters_builtins() {
     let code = load_testdata("types.go");
     let parsed = Go::extract(&code, "testdata/types.go");
@@ -900,6 +926,32 @@ fn test_go_return_type_tuple_slice() {
     assert!(
         !return_refs.contains(&"error"),
         "GetItemsAndError should NOT have error in return refs (it's a builtin), got: {:?}",
+        return_refs
+    );
+}
+
+#[test]
+fn test_go_return_type_ptr_qualified() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // GetPtrQualified() *http.Handler should produce ReturnType ref to Handler
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetPtrQualified" && s.kind == "function")
+        .expect("GetPtrQualified should exist");
+
+    let return_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ReturnType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        return_refs.contains(&"Handler"),
+        "GetPtrQualified should return Handler (*http.Handler), got: {:?}",
         return_refs
     );
 }

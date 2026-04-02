@@ -67,6 +67,10 @@ func ProcessDirect(config Config) {
 func ProcessQualified(req http.Request) {
 }
 
+// ProcessPtrQualified accepts a pointer to qualified type (should extract Request from http).
+func ProcessPtrQualified(req *http.Request) {
+}
+
 // ProcessMultiple accepts multiple typed parameters.
 func ProcessMultiple(items []Item, config *Config, cache Cache) {
 }
@@ -108,6 +112,11 @@ func GetItemsAndError() ([]Item, error) {
 
 // GetQualified returns a qualified type.
 func GetQualified() http.Handler {
+	return nil
+}
+
+// GetPtrQualified returns a pointer to qualified type.
+func GetPtrQualified() *http.Handler {
 	return nil
 }
 

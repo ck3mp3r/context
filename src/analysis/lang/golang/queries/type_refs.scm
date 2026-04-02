@@ -64,6 +64,15 @@
             type: (qualified_type
                 name: (type_identifier) @fn_param_qual_type)))) @fn_param_qual_def
 
+;;; parameter — pointer to qualified type (func foo(x *pkg.Type))
+(function_declaration
+    name: (identifier) @fn_param_ptr_qual_fn
+    parameters: (parameter_list
+        (parameter_declaration
+            type: (pointer_type
+                (qualified_type
+                    name: (type_identifier) @fn_param_ptr_qual_type))))) @fn_param_ptr_qual_def
+
 ;;; parameter — channel type (func foo(x chan Foo))
 (function_declaration
     name: (identifier) @fn_param_chan_fn
@@ -141,6 +150,15 @@
             type: (qualified_type
                 name: (type_identifier) @method_param_qual_type)))) @method_param_qual_def
 
+;;; method parameter — pointer to qualified type
+(method_declaration
+    name: (field_identifier) @method_param_ptr_qual_fn
+    parameters: (parameter_list
+        (parameter_declaration
+            type: (pointer_type
+                (qualified_type
+                    name: (type_identifier) @method_param_ptr_qual_type))))) @method_param_ptr_qual_def
+
 ;;; method parameter — channel type
 (method_declaration
     name: (field_identifier) @method_param_chan_fn
@@ -186,6 +204,13 @@
     result: (qualified_type
         name: (type_identifier) @fn_ret_qual_type)) @fn_ret_qual_def
 
+;;; return — pointer to qualified type (func foo() *pkg.Type)
+(function_declaration
+    name: (identifier) @fn_ret_ptr_qual_fn
+    result: (pointer_type
+        (qualified_type
+            name: (type_identifier) @fn_ret_ptr_qual_type))) @fn_ret_ptr_qual_def
+
 ;;; return — tuple with direct types (func foo() (Foo, Bar))
 (function_declaration
     name: (identifier) @fn_ret_tuple_fn
@@ -228,6 +253,15 @@
                     package: (package_identifier) @fn_ret_tuple_slice_qual_pkg
                     name: (type_identifier) @fn_ret_tuple_slice_qual_type))))) @fn_ret_tuple_slice_qual_def
 
+;;; return — tuple with pointer to qualified types (func foo() (*pkg.Type, error))
+(function_declaration
+    name: (identifier) @fn_ret_tuple_ptr_qual_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (pointer_type
+                (qualified_type
+                    name: (type_identifier) @fn_ret_tuple_ptr_qual_type))))) @fn_ret_tuple_ptr_qual_def
+
 ;;; return — generic type outer (func foo() Container[T])
 (function_declaration
     name: (identifier) @fn_ret_generic_fn
@@ -268,6 +302,13 @@
     name: (field_identifier) @method_ret_qual_fn
     result: (qualified_type
         name: (type_identifier) @method_ret_qual_type)) @method_ret_qual_def
+
+;;; method return — pointer to qualified type
+(method_declaration
+    name: (field_identifier) @method_ret_ptr_qual_fn
+    result: (pointer_type
+        (qualified_type
+            name: (type_identifier) @method_ret_ptr_qual_type))) @method_ret_ptr_qual_def
 
 ;;; method return — tuple with direct types
 (method_declaration
@@ -310,6 +351,15 @@
                 element: (qualified_type
                     package: (package_identifier) @method_ret_tuple_slice_qual_pkg
                     name: (type_identifier) @method_ret_tuple_slice_qual_type))))) @method_ret_tuple_slice_qual_def
+
+;;; method return — tuple with pointer to qualified types (func (r R) M() (*pkg.Type, error))
+(method_declaration
+    name: (field_identifier) @method_ret_tuple_ptr_qual_fn
+    result: (parameter_list
+        (parameter_declaration
+            type: (pointer_type
+                (qualified_type
+                    name: (type_identifier) @method_ret_tuple_ptr_qual_type))))) @method_ret_tuple_ptr_qual_def
 
 ;;; method return — generic inner type
 (method_declaration
@@ -388,6 +438,18 @@
                     name: (field_identifier) @field_qual_name
                     type: (qualified_type
                         name: (type_identifier) @field_qual_type)))))) @field_qual_def
+
+;;; field — pointer to qualified type (Server *http.Server)
+(type_declaration
+    (type_spec
+        name: (type_identifier) @field_ptr_qual_struct
+        type: (struct_type
+            (field_declaration_list
+                (field_declaration
+                    name: (field_identifier) @field_ptr_qual_name
+                    type: (pointer_type
+                        (qualified_type
+                            name: (type_identifier) @field_ptr_qual_type))))))) @field_ptr_qual_def
 
 ;;; field — channel type (Events chan Event)
 (type_declaration
