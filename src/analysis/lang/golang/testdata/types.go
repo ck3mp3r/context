@@ -71,6 +71,14 @@ func ProcessQualified(req http.Request) {
 func ProcessMultiple(items []Item, config *Config, cache Cache) {
 }
 
+// ProcessMap accepts a map with user-defined value type.
+func ProcessMap(data map[string]Config) {
+}
+
+// ProcessMapKey accepts a map with user-defined key type.
+func ProcessMapKey(data map[Item]string) {
+}
+
 // --- Function return type references ---
 
 // NewConfig returns a pointer to Config (should extract Config).

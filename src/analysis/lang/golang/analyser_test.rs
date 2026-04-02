@@ -676,6 +676,58 @@ fn test_go_param_type_multiple() {
 }
 
 #[test]
+fn test_go_param_type_map_value() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessMap(data map[string]Config) should extract Config as param type
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessMap" && s.kind == "function")
+        .expect("ProcessMap should exist");
+
+    let param_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        param_refs.contains(&"Config"),
+        "ProcessMap should accept Config (map value), got: {:?}",
+        param_refs
+    );
+}
+
+#[test]
+fn test_go_param_type_map_key() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // ProcessMapKey(data map[Item]string) should extract Item as param type
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "ProcessMapKey" && s.kind == "function")
+        .expect("ProcessMapKey should exist");
+
+    let param_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        param_refs.contains(&"Item"),
+        "ProcessMapKey should accept Item (map key), got: {:?}",
+        param_refs
+    );
+}
+
+#[test]
 fn test_go_param_type_filters_builtins() {
     let code = load_testdata("types.go");
     let parsed = Go::extract(&code, "testdata/types.go");
