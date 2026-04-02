@@ -168,3 +168,20 @@ func SendItems(ch chan Item) {
 // ReceiveConfigs receives configs from a channel.
 func ReceiveConfigs(ch <-chan Config) {
 }
+
+// --- Type aliases ---
+
+// Duration is an alias for int64 (primitive).
+type Duration int64
+
+// HandlerFunc is a function type alias.
+type HandlerFunc func(http.ResponseWriter, *http.Request)
+
+// ItemSlice is an alias for a slice of Item.
+type ItemSlice []Item
+
+// ConfigPtr is an alias for pointer to Config.
+type ConfigPtr *Config
+
+// CacheMap is an alias for a map type.
+type CacheMap map[string]Cache

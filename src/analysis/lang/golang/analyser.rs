@@ -213,6 +213,33 @@ impl Go {
             return;
         }
 
+        // Type alias (but NOT struct or interface - those are handled above)
+        if let Some(&node) = captures.get("type_alias_def")
+            && let Some(&name_node) = captures.get("type_alias_name")
+            && let Some(&value_node) = captures.get("type_alias_value")
+        {
+            // Skip if the underlying type is a struct or interface
+            // (those are already handled by struct_def and iface_def)
+            let value_kind = value_node.kind();
+            if value_kind == "struct_type" || value_kind == "interface_type" {
+                return;
+            }
+
+            let name = text(name_node);
+            parsed.symbols.push(RawSymbol {
+                name: name.to_string(),
+                kind: "type".to_string(),
+                file_path: file_path.to_string(),
+                start_line: node.start_position().row + 1,
+                end_line: node.end_position().row + 1,
+                signature: None,
+                language: "go".to_string(),
+                visibility: go_visibility(name),
+                entry_type: None,
+            });
+            return;
+        }
+
         // Heritage — struct embedding (anonymous fields)
         if captures.contains_key("heritage_def")
             && let (Some(&class_node), Some(&extends_node)) = (

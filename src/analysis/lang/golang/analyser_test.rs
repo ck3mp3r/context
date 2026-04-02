@@ -1389,3 +1389,109 @@ fn test_normalise_import_path_stdlib() {
         "Standard library with path converts slashes"
     );
 }
+
+// --- Type alias tests ---
+
+#[test]
+fn test_go_type_alias_primitive() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "types/types.go");
+
+    let sym = parsed.symbols.iter().find(|s| s.name == "Duration");
+    assert!(
+        sym.is_some_and(|s| s.kind == "type"),
+        "Duration type alias should be extracted with kind 'type'"
+    );
+}
+
+#[test]
+fn test_go_type_alias_function() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "types/types.go");
+
+    let sym = parsed.symbols.iter().find(|s| s.name == "HandlerFunc");
+    assert!(
+        sym.is_some_and(|s| s.kind == "type"),
+        "HandlerFunc function type alias should be extracted with kind 'type'"
+    );
+}
+
+#[test]
+fn test_go_type_alias_slice() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "types/types.go");
+
+    let sym = parsed.symbols.iter().find(|s| s.name == "ItemSlice");
+    assert!(
+        sym.is_some_and(|s| s.kind == "type"),
+        "ItemSlice slice type alias should be extracted with kind 'type'"
+    );
+}
+
+#[test]
+fn test_go_type_alias_no_duplicate_struct() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "types/types.go");
+
+    // Config is a struct, NOT a type alias - should only appear once as struct
+    let config_syms: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.name == "Config")
+        .collect();
+    assert_eq!(
+        config_syms.len(),
+        1,
+        "Config should appear exactly once (as struct, not also as type alias)"
+    );
+    assert_eq!(
+        config_syms[0].kind, "struct",
+        "Config should be kind 'struct', not 'type'"
+    );
+}
+
+#[test]
+fn test_go_type_alias_no_duplicate_interface() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "types/types.go");
+
+    // Handler interface should only appear once as kind="interface", not also as kind="type"
+    // (Note: there's also a field named Handler at line 11, but that's kind="field")
+    let handler_interface_syms: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.name == "Handler" && s.kind == "interface")
+        .collect();
+
+    assert_eq!(
+        handler_interface_syms.len(),
+        1,
+        "Handler interface should appear exactly once"
+    );
+
+    // Make sure there's no type alias for Handler
+    let handler_type_syms: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.name == "Handler" && s.kind == "type")
+        .collect();
+
+    assert_eq!(
+        handler_type_syms.len(),
+        0,
+        "Handler should NOT appear as kind='type' (type alias)"
+    );
+}
+
+#[test]
+fn test_go_type_alias_visibility() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "types/types.go");
+
+    // Duration starts with uppercase - public
+    let duration = parsed.symbols.iter().find(|s| s.name == "Duration");
+    assert!(
+        duration.is_some_and(|s| s.visibility == Some("public".to_string())),
+        "Duration should be public (uppercase)"
+    );
+}
