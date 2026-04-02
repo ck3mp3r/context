@@ -1,5 +1,4 @@
 pub mod note_components;
-pub mod pill_toggle;
 pub mod repo_components;
 pub mod search_input;
 pub mod skill_components;
@@ -9,7 +8,6 @@ pub mod theme_switcher;
 pub mod ui_components;
 
 pub use note_components::{MarkdownContent, NoteCard, NoteStackSidebar};
-pub use pill_toggle::{PillColor, PillToggle};
 pub use repo_components::RepoCard;
 pub use search_input::SearchInput;
 pub use skill_components::{SkillCard, SkillDetailModal};
