@@ -149,22 +149,25 @@ fn RepoDetailContent(repo: Repo) -> impl IntoView {
                 <div class="flex items-start gap-3">
                     <CopyableId id=repo.id.clone()/>
                     <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-3 mb-2">
-                            <h2 class="text-2xl font-bold text-ctp-text truncate">
-                                {display_name}
-                            </h2>
-                            <a
-                                href=remote_for_link
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="flex-shrink-0 text-ctp-overlay0 hover:text-ctp-blue transition-colors"
-                                title="Open remote"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
-                                    <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
-                                </svg>
-                            </a>
+                        <div class="flex items-start justify-between mb-2">
+                            <div class="flex items-center gap-3">
+                                <h2 class="text-2xl font-bold text-ctp-text truncate">
+                                    {display_name}
+                                </h2>
+                                <a
+                                    href=remote_for_link
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="flex-shrink-0 text-ctp-overlay0 hover:text-ctp-blue transition-colors"
+                                    title="Open remote"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
+                                        <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
+                                    </svg>
+                                </a>
+                            </div>
+                            <span class="text-xs text-ctp-overlay0 flex-shrink-0">{repo.created_at}</span>
                         </div>
 
                         <p class="text-ctp-subtext0 text-sm font-mono mb-3">{remote_url}</p>
@@ -196,10 +199,6 @@ fn RepoDetailContent(repo: Repo) -> impl IntoView {
                                     </div>
                                 }
                             })}
-
-                        <div class="text-xs text-ctp-overlay0 mt-4">
-                            <span>"Created: " {repo.created_at}</span>
-                        </div>
                     </div>
                 </div>
             </div>
