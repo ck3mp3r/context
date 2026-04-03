@@ -11,10 +11,10 @@ pub fn extract_repo_name(remote: &str) -> String {
     let stripped = remote.trim_end_matches('/').trim_end_matches(".git");
 
     // SSH shorthand: git@host:org/repo
-    if let Some(path) = stripped.strip_prefix("git@") {
-        if let Some((_host, path)) = path.split_once(':') {
-            return path.to_string();
-        }
+    if let Some(path) = stripped.strip_prefix("git@")
+        && let Some((_host, path)) = path.split_once(':')
+    {
+        return path.to_string();
     }
 
     // URL-style: https://host/org/repo or ssh://git@host/org/repo
