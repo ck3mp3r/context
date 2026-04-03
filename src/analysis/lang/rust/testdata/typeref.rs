@@ -81,6 +81,29 @@ impl AppState {
     }
 }
 
+// =============================================================================
+// Abstract type (impl Trait) patterns
+// =============================================================================
+
+pub trait Handler {}
+pub trait Service {}
+
+// Return type with impl Trait — should extract Handler
+pub fn get_handler() -> impl Handler {
+    struct H;
+    impl Handler for H {}
+    H
+}
+
+// impl method with impl Trait return — should extract Service
+impl AppState {
+    pub fn get_service(&self) -> impl Service {
+        struct S;
+        impl Service for S {}
+        S
+    }
+}
+
 // Placeholder types for compilation
 pub struct Json<T>(T);
 pub struct Error;

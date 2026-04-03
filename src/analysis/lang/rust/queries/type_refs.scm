@@ -213,6 +213,28 @@
                         type_arguments: (type_arguments
                             (type_identifier) @trait_ret_nested_inner_name))))))) @trait_ret_nested_inner_def
 
+;;; return types — top-level functions (abstract_type: impl Trait)
+(function_item
+    name: (identifier) @ret_abstract_fn
+    return_type: (abstract_type
+        trait: (type_identifier) @ret_abstract_name)) @ret_abstract_def
+
+;;; return types — methods inside impl (abstract_type: impl Trait)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_ret_abstract_fn
+            return_type: (abstract_type
+                trait: (type_identifier) @method_ret_abstract_name)))) @method_ret_abstract_def
+
+;;; return types — trait method signatures (abstract_type: impl Trait)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_ret_abstract_fn
+            return_type: (abstract_type
+                trait: (type_identifier) @trait_ret_abstract_name)))) @trait_ret_abstract_def
+
 ;;; struct field types — direct (field: Foo)
 (struct_item
     name: (type_identifier) @field_type_struct

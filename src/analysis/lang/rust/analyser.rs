@@ -274,6 +274,18 @@ impl Rust {
                 "trait_ret_nested_inner_fn",
                 "trait_ret_nested_inner_name",
             ),
+            // Abstract type patterns (impl Trait)
+            ("ret_abstract_def", "ret_abstract_fn", "ret_abstract_name"),
+            (
+                "method_ret_abstract_def",
+                "method_ret_abstract_fn",
+                "method_ret_abstract_name",
+            ),
+            (
+                "trait_ret_abstract_def",
+                "trait_ret_abstract_fn",
+                "trait_ret_abstract_name",
+            ),
         ];
         let field_patterns: &[(&str, &str, &str)] = &[
             ("field_type_def", "field_type_field", "field_type_name"),

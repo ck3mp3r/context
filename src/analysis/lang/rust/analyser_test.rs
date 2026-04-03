@@ -1268,3 +1268,65 @@ fn test_impl_method_generic_return_type_inner_arg() {
             .collect::<Vec<_>>()
     );
 }
+
+// =============================================================================
+// Abstract type (impl Trait) tests
+// =============================================================================
+
+#[test]
+fn test_abstract_type_return() {
+    // fn get_handler() -> impl Handler should extract Handler
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "get_handler")
+        .expect("get_handler function should exist");
+
+    let has_handler = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Handler"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_handler,
+        "get_handler() -> impl Handler should extract Handler as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_impl_method_abstract_type_return() {
+    // impl AppState { fn get_service(&self) -> impl Service } should extract Service
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let method_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "get_service" && s.kind == "function")
+        .expect("get_service method should exist");
+
+    let has_service = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "Service"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_service,
+        "AppState::get_service() -> impl Service should extract Service as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
