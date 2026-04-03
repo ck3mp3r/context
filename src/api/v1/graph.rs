@@ -93,12 +93,14 @@ fn edge_query(edge_name: &str, query_name: &str) -> String {
         $from.language as src_language
         $from.file_path as src_file_path
         $from.start_line as src_start_line
+        $from.entry_type as src_entry_type
         $to.symbol_id as dst_id
         $to.name as dst_name
         $to.kind as dst_kind
         $to.language as dst_language
         $to.file_path as dst_file_path
         $to.start_line as dst_start_line
+        $to.entry_type as dst_entry_type
     }}
 }}"#
     )
@@ -210,15 +212,6 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
     Ok(Json(result).into_response())
 }
 
-fn is_test_symbol(file_path: &str, name: &str) -> bool {
-    file_path.contains("_test.rs")
-        || file_path.contains("/tests/")
-        || file_path.contains("/test/")
-        || file_path.ends_with("_test.go")
-        || name.starts_with("test_")
-        || name == "tests"
-}
-
 fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> {
     let mut all_edges: Vec<(String, String, String)> = Vec::new();
     let mut symbol_map: std::collections::HashMap<String, serde_json::Value> =
@@ -245,6 +238,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
                 "language": row["src_language"],
                 "file_path": row["src_file_path"],
                 "start_line": row["src_start_line"],
+                "entry_type": row["src_entry_type"],
             });
             let dst_sym = serde_json::json!({
                 "symbol_id": row["dst_id"],
@@ -253,6 +247,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
                 "language": row["dst_language"],
                 "file_path": row["dst_file_path"],
                 "start_line": row["dst_start_line"],
+                "entry_type": row["dst_entry_type"],
             });
 
             symbol_map.entry(src_id.clone()).or_insert(src_sym);
@@ -280,6 +275,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
             let name = s["name"].as_str().unwrap_or("?");
             let file_path = s["file_path"].as_str().unwrap_or("");
             let language = s["language"].as_str().unwrap_or("unknown");
+            let entry_type = s["entry_type"].as_str().unwrap_or("");
 
             let module_path = Analyser::for_language(language)
                 .map(|a| a.derive_module_path(file_path))
@@ -301,7 +297,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
                 language: language.to_string(),
                 file_path: file_path.to_string(),
                 start_line: s["start_line"].as_i64().unwrap_or(0),
-                is_test: is_test_symbol(file_path, name),
+                is_test: entry_type == "test",
             })
         })
         .collect();
