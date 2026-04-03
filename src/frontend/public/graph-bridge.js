@@ -152,7 +152,7 @@
         console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
       }
 
-      // Create renderer with custom node program for borders
+      // Create renderer
       var renderer = new Sigma(graph, container, {
         renderLabels: true,
         labelSize: 11,
@@ -166,11 +166,6 @@
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
         stagePadding: 40,
-        // Use border program for nodes with entry types
-        nodeProgramClasses: {
-          circle: Sigma.NodeCircleProgram,
-          border: Sigma.NodeCircleBorderProgram || Sigma.NodeCircleProgram,
-        },
         defaultDrawNodeLabel: function(context, data, settings) {
           if (!data.label) return;
           var size = settings.labelSize;
@@ -387,14 +382,8 @@
           }
         }
 
-        // Entry type styling: add border for entry points and pass entryType for label rendering
+        // Entry type styling: pass entryType for label rendering
         if (nodeEntryType) {
-          var borderColor = entryTypeBorderColor(nodeEntryType);
-          if (borderColor) {
-            res.borderColor = borderColor;
-            res.borderSize = 2;
-            res.type = "border";
-          }
           res.entryType = nodeEntryType;
         }
 
