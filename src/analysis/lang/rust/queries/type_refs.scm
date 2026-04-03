@@ -13,6 +13,25 @@
             type: (reference_type
                 type: (type_identifier) @param_ref_type_name)))) @param_ref_type_def
 
+;;; parameter types — top-level functions (generic, e.g. Vec<Config>)
+(function_item
+    name: (identifier) @param_generic_type_fn
+    parameters: (parameters
+        (parameter
+            type: (generic_type
+                type_arguments: (type_arguments
+                    (type_identifier) @param_generic_type_name))))) @param_generic_type_def
+
+;;; parameter types — top-level functions (reference to generic, e.g. &Vec<Config>)
+(function_item
+    name: (identifier) @param_ref_generic_type_fn
+    parameters: (parameters
+        (parameter
+            type: (reference_type
+                type: (generic_type
+                    type_arguments: (type_arguments
+                        (type_identifier) @param_ref_generic_type_name)))))) @param_ref_generic_type_def
+
 ;;; parameter types — methods inside impl (direct)
 (impl_item
     body: (declaration_list
@@ -31,6 +50,29 @@
                 (parameter
                     type: (reference_type
                         type: (type_identifier) @method_param_ref_type_name)))))) @method_param_ref_type_def
+
+;;; parameter types — methods inside impl (generic)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_param_generic_type_fn
+            parameters: (parameters
+                (parameter
+                    type: (generic_type
+                        type_arguments: (type_arguments
+                            (type_identifier) @method_param_generic_type_name))))))) @method_param_generic_type_def
+
+;;; parameter types — methods inside impl (reference to generic)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_param_ref_generic_type_fn
+            parameters: (parameters
+                (parameter
+                    type: (reference_type
+                        type: (generic_type
+                            type_arguments: (type_arguments
+                                (type_identifier) @method_param_ref_generic_type_name)))))))) @method_param_ref_generic_type_def
 
 ;;; parameter types — trait method signatures (direct)
 (trait_item
@@ -51,6 +93,29 @@
                     type: (reference_type
                         type: (type_identifier) @trait_param_ref_type_name)))))) @trait_param_ref_type_def
 
+;;; parameter types — trait method signatures (generic)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_param_generic_type_fn
+            parameters: (parameters
+                (parameter
+                    type: (generic_type
+                        type_arguments: (type_arguments
+                            (type_identifier) @trait_param_generic_type_name))))))) @trait_param_generic_type_def
+
+;;; parameter types — trait method signatures (reference to generic)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_param_ref_generic_type_fn
+            parameters: (parameters
+                (parameter
+                    type: (reference_type
+                        type: (generic_type
+                            type_arguments: (type_arguments
+                                (type_identifier) @trait_param_ref_generic_type_name)))))))) @trait_param_ref_generic_type_def
+
 ;;; return types — top-level functions (direct)
 (function_item
     name: (identifier) @ret_type_fn
@@ -61,6 +126,22 @@
     name: (identifier) @ret_generic_type_fn
     return_type: (generic_type
         type: (type_identifier) @ret_generic_type_name)) @ret_generic_type_def
+
+;;; return types — top-level functions (generic INNER arg, e.g. Json<HealthResponse> -> HealthResponse)
+(function_item
+    name: (identifier) @ret_generic_inner_fn
+    return_type: (generic_type
+        type_arguments: (type_arguments
+            (type_identifier) @ret_generic_inner_name))) @ret_generic_inner_def
+
+;;; return types — top-level functions (nested generic INNER arg, e.g. Arc<Mutex<Database>> -> Database)
+(function_item
+    name: (identifier) @ret_nested_inner_fn
+    return_type: (generic_type
+        type_arguments: (type_arguments
+            (generic_type
+                type_arguments: (type_arguments
+                    (type_identifier) @ret_nested_inner_name))))) @ret_nested_inner_def
 
 ;;; return types — methods inside impl (direct)
 (impl_item
@@ -77,6 +158,26 @@
             return_type: (generic_type
                 type: (type_identifier) @method_ret_generic_type_name)))) @method_ret_generic_type_def
 
+;;; return types — methods inside impl (generic INNER arg)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_ret_generic_inner_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (type_identifier) @method_ret_generic_inner_name))))) @method_ret_generic_inner_def
+
+;;; return types — methods inside impl (nested generic INNER arg)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_ret_nested_inner_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (generic_type
+                        type_arguments: (type_arguments
+                            (type_identifier) @method_ret_nested_inner_name))))))) @method_ret_nested_inner_def
+
 ;;; return types — trait method signatures (direct)
 (trait_item
     body: (declaration_list
@@ -91,6 +192,26 @@
             name: (identifier) @trait_ret_generic_type_fn
             return_type: (generic_type
                 type: (type_identifier) @trait_ret_generic_type_name)))) @trait_ret_generic_type_def
+
+;;; return types — trait method signatures (generic INNER arg)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_ret_generic_inner_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (type_identifier) @trait_ret_generic_inner_name))))) @trait_ret_generic_inner_def
+
+;;; return types — trait method signatures (nested generic INNER arg)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_ret_nested_inner_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (generic_type
+                        type_arguments: (type_arguments
+                            (type_identifier) @trait_ret_nested_inner_name))))))) @trait_ret_nested_inner_def
 
 ;;; struct field types — direct (field: Foo)
 (struct_item

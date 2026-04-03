@@ -157,6 +157,17 @@ impl Rust {
                 "param_ref_type_fn",
                 "param_ref_type_name",
             ),
+            // Generic inner arg patterns
+            (
+                "param_generic_type_def",
+                "param_generic_type_fn",
+                "param_generic_type_name",
+            ),
+            (
+                "param_ref_generic_type_def",
+                "param_ref_generic_type_fn",
+                "param_ref_generic_type_name",
+            ),
             (
                 "method_param_type_def",
                 "method_param_type_fn",
@@ -166,6 +177,17 @@ impl Rust {
                 "method_param_ref_type_def",
                 "method_param_ref_type_fn",
                 "method_param_ref_type_name",
+            ),
+            // Method generic inner arg patterns
+            (
+                "method_param_generic_type_def",
+                "method_param_generic_type_fn",
+                "method_param_generic_type_name",
+            ),
+            (
+                "method_param_ref_generic_type_def",
+                "method_param_ref_generic_type_fn",
+                "method_param_ref_generic_type_name",
             ),
             (
                 "trait_param_type_def",
@@ -177,6 +199,17 @@ impl Rust {
                 "trait_param_ref_type_fn",
                 "trait_param_ref_type_name",
             ),
+            // Trait generic inner arg patterns
+            (
+                "trait_param_generic_type_def",
+                "trait_param_generic_type_fn",
+                "trait_param_generic_type_name",
+            ),
+            (
+                "trait_param_ref_generic_type_def",
+                "trait_param_ref_generic_type_fn",
+                "trait_param_ref_generic_type_name",
+            ),
         ];
         let ret_patterns: &[(&str, &str, &str)] = &[
             ("ret_type_def", "ret_type_fn", "ret_type_name"),
@@ -184,6 +217,18 @@ impl Rust {
                 "ret_generic_type_def",
                 "ret_generic_type_fn",
                 "ret_generic_type_name",
+            ),
+            // Generic INNER arg patterns (e.g. Json<HealthResponse> -> HealthResponse)
+            (
+                "ret_generic_inner_def",
+                "ret_generic_inner_fn",
+                "ret_generic_inner_name",
+            ),
+            // Nested generic INNER arg patterns (e.g. Arc<Mutex<Database>> -> Database)
+            (
+                "ret_nested_inner_def",
+                "ret_nested_inner_fn",
+                "ret_nested_inner_name",
             ),
             (
                 "method_ret_type_def",
@@ -195,6 +240,18 @@ impl Rust {
                 "method_ret_generic_type_fn",
                 "method_ret_generic_type_name",
             ),
+            // Method generic INNER arg patterns
+            (
+                "method_ret_generic_inner_def",
+                "method_ret_generic_inner_fn",
+                "method_ret_generic_inner_name",
+            ),
+            // Method nested generic INNER arg patterns
+            (
+                "method_ret_nested_inner_def",
+                "method_ret_nested_inner_fn",
+                "method_ret_nested_inner_name",
+            ),
             (
                 "trait_ret_type_def",
                 "trait_ret_type_fn",
@@ -204,6 +261,18 @@ impl Rust {
                 "trait_ret_generic_type_def",
                 "trait_ret_generic_type_fn",
                 "trait_ret_generic_type_name",
+            ),
+            // Trait generic INNER arg patterns
+            (
+                "trait_ret_generic_inner_def",
+                "trait_ret_generic_inner_fn",
+                "trait_ret_generic_inner_name",
+            ),
+            // Trait nested generic INNER arg patterns
+            (
+                "trait_ret_nested_inner_def",
+                "trait_ret_nested_inner_fn",
+                "trait_ret_nested_inner_name",
             ),
         ];
         let field_patterns: &[(&str, &str, &str)] = &[

@@ -1032,3 +1032,239 @@ fn test_scoped_call_qualifier_filters_self() {
         "Self::method() should not produce a Usage ref"
     );
 }
+
+// =============================================================================
+// Generic inner type argument extraction tests
+// =============================================================================
+
+#[test]
+fn test_generic_return_type_inner_arg() {
+    // fn health() -> Json<HealthResponse> should extract HealthResponse
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "health")
+        .expect("health function should exist");
+
+    let has_health_response = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "HealthResponse"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_health_response,
+        "health() -> Json<HealthResponse> should extract HealthResponse as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_result_return_type_inner_arg() {
+    // fn load_config() -> Result<Config, Error> should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "load_config")
+        .expect("load_config function should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_config,
+        "load_config() -> Result<Config, Error> should extract Config as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_option_return_type_inner_arg() {
+    // fn find_config() -> Option<Config> should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "find_config")
+        .expect("find_config function should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_config,
+        "find_config() -> Option<Config> should extract Config as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_generic_param_type_inner_arg() {
+    // fn process_items(items: Vec<Config>) should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "process_items")
+        .expect("process_items function should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config,
+        "process_items(items: Vec<Config>) should extract Config as ParamType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_ref_generic_param_type_inner_arg() {
+    // fn process_items_ref(items: &Vec<Config>) should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "process_items_ref")
+        .expect("process_items_ref function should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config,
+        "process_items_ref(items: &Vec<Config>) should extract Config as ParamType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_generic_field_type_inner_arg() {
+    // struct AppState { db: Arc<Database> } should extract Database
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let field_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "db" && s.kind == "field")
+        .expect("db field should exist");
+
+    let has_database = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == field_idx
+            && tr.type_name == "Database"
+            && tr.ref_kind == ReferenceType::FieldType
+    });
+    assert!(
+        has_database,
+        "AppState.db: Arc<Database> should extract Database as FieldType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == field_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_nested_generic_return_type_inner_arg() {
+    // fn get_shared_db() -> Arc<Mutex<Database>> should extract Database
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "get_shared_db")
+        .expect("get_shared_db function should exist");
+
+    let has_database = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Database"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_database,
+        "get_shared_db() -> Arc<Mutex<Database>> should extract Database as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_impl_method_generic_return_type_inner_arg() {
+    // impl AppState { fn get_config(&self) -> Option<Config> } should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let method_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "get_config" && s.kind == "function")
+        .expect("get_config method should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_config,
+        "AppState::get_config() -> Option<Config> should extract Config as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}

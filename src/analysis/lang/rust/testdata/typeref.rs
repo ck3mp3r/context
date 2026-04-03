@@ -20,3 +20,70 @@ impl Server {
 
 pub struct Request {}
 pub struct Response {}
+
+// =============================================================================
+// Generic inner type argument patterns
+// =============================================================================
+
+pub struct Config {
+    pub name: String,
+}
+
+pub struct HealthResponse {
+    pub status: String,
+}
+
+pub struct Database;
+
+// Return type with wrapper generic — should extract HealthResponse
+pub fn health() -> Json<HealthResponse> {
+    todo!()
+}
+
+// Return type with Result — should extract Config
+pub fn load_config() -> Result<Config, Error> {
+    todo!()
+}
+
+// Return type with Option — should extract Config
+pub fn find_config() -> Option<Config> {
+    todo!()
+}
+
+// Param with generic — should extract Config
+pub fn process_items(items: Vec<Config>) {}
+
+// Param with reference to generic — should extract Config
+pub fn process_items_ref(items: &Vec<Config>) {}
+
+// Param with slice — should extract Config
+pub fn process_slice(items: &[Config]) {}
+
+// Field with generic — should extract Database
+pub struct AppState {
+    pub db: Arc<Database>,
+    pub cache: HashMap<String, Config>,
+}
+
+// Nested generics — should extract Database
+pub fn get_shared_db() -> Arc<Mutex<Database>> {
+    todo!()
+}
+
+// impl method with generic return — should extract Config
+impl AppState {
+    pub fn get_config(&self) -> Option<Config> {
+        todo!()
+    }
+
+    pub fn get_items(&self) -> Vec<Config> {
+        todo!()
+    }
+}
+
+// Placeholder types for compilation
+pub struct Json<T>(T);
+pub struct Error;
+pub struct Arc<T>(T);
+pub struct Mutex<T>(T);
+pub struct HashMap<K, V>(K, V);
