@@ -1,7 +1,5 @@
 use crate::analysis::lang::LanguageAnalyser;
-use crate::analysis::types::{
-    ParsedFile, QualifiedName, RawContainment, RawSymbol, RawTypeRef, ReferenceType, SymbolId,
-};
+use crate::analysis::types::{EdgeKind, ParsedFile, QualifiedName, RawEdge, RawSymbol, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 /// Rust built-in types that should not produce type reference edges.
@@ -120,41 +118,52 @@ impl Rust {
         }
 
         // Post-processing: module → children containment via line ranges
-        let containers: Vec<(usize, &str, usize, usize)> = parsed
+        // Emit HasMember edges for symbols contained in modules/traits
+        let containers: Vec<(&str, usize, usize)> = parsed
             .symbols
             .iter()
-            .enumerate()
-            .filter(|(_, s)| s.kind == "module" || s.kind == "trait")
-            .map(|(i, s)| (i, s.name.as_str(), s.start_line, s.end_line))
+            .filter(|s| s.kind == "module" || s.kind == "trait")
+            .map(|s| (s.name.as_str(), s.start_line, s.end_line))
             .collect();
 
-        for (child_idx, child) in parsed.symbols.iter().enumerate() {
+        // Build set of children that already have edges from query processing
+        let children_with_edges: std::collections::HashSet<SymbolId> = parsed
+            .edges
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    EdgeKind::HasField | EdgeKind::HasMethod | EdgeKind::HasMember
+                )
+            })
+            .map(|e| e.to.clone())
+            .collect();
+
+        for child in parsed.symbols.iter() {
             if child.kind == "module" || child.kind == "trait" {
                 continue;
             }
-            // Already has containment from query (impl methods, struct fields)?
-            if parsed
-                .containments
-                .iter()
-                .any(|c| c.child_symbol_idx == child_idx)
-            {
+            let child_id = child.symbol_id();
+            // Already has containment edge from query (impl methods, struct fields)?
+            if children_with_edges.contains(&child_id) {
                 continue;
             }
             // Find the tightest containing module or trait
-            let mut best: Option<(usize, &str, usize)> = None;
-            for &(_, name, start, end) in &containers {
+            let mut best: Option<(&str, usize, usize)> = None; // (name, start_line, span)
+            for &(name, start, end) in &containers {
                 if child.start_line > start
                     && child.end_line <= end
                     && best.is_none_or(|(_, _, span)| (end - start) < span)
                 {
-                    best = Some((end - start, name, end - start));
+                    best = Some((name, start, end - start));
                 }
             }
-            if let Some((_, parent_name, _)) = best {
-                parsed.containments.push(RawContainment {
-                    file_path: file_path.to_string(),
-                    parent_name: parent_name.to_string(),
-                    child_symbol_idx: child_idx,
+            if let Some((parent_name, parent_start_line, _)) = best {
+                let parent_id = SymbolId::new(file_path, parent_name, parent_start_line);
+                parsed.edges.push(RawEdge {
+                    from: parent_id,
+                    to: child_id,
+                    kind: EdgeKind::HasMember,
                 });
             }
         }
@@ -454,17 +463,17 @@ impl Rust {
                     let type_name = text(type_node);
                     if type_name != "Self"
                         && !is_rust_builtin(type_name)
-                        && let Some(idx) = Self::find_symbol_idx(
+                        && let Some(from_id) = Self::find_symbol_id(
                             parsed,
                             text(fn_node),
                             fn_node.start_position().row + 1,
                         )
                     {
-                        parsed.type_refs.push(RawTypeRef {
-                            file_path: file_path.to_string(),
-                            from_symbol_idx: idx,
-                            type_name: type_name.to_string(),
-                            ref_kind: ReferenceType::ParamType,
+                        let to_id = SymbolId::new(file_path, type_name, 0);
+                        parsed.edges.push(RawEdge {
+                            from: from_id,
+                            to: to_id,
+                            kind: EdgeKind::ParamType,
                         });
                     }
                 }
@@ -478,17 +487,17 @@ impl Rust {
                     let type_name = text(type_node);
                     if type_name != "Self"
                         && !is_rust_builtin(type_name)
-                        && let Some(idx) = Self::find_symbol_idx(
+                        && let Some(from_id) = Self::find_symbol_id(
                             parsed,
                             text(fn_node),
                             fn_node.start_position().row + 1,
                         )
                     {
-                        parsed.type_refs.push(RawTypeRef {
-                            file_path: file_path.to_string(),
-                            from_symbol_idx: idx,
-                            type_name: type_name.to_string(),
-                            ref_kind: ReferenceType::ReturnType,
+                        let to_id = SymbolId::new(file_path, type_name, 0);
+                        parsed.edges.push(RawEdge {
+                            from: from_id,
+                            to: to_id,
+                            kind: EdgeKind::ReturnType,
                         });
                     }
                 }
@@ -502,46 +511,20 @@ impl Rust {
                     let type_name = text(type_node);
                     if type_name != "Self"
                         && !is_rust_builtin(type_name)
-                        && let Some(idx) = Self::find_symbol_idx(
+                        && let Some(from_id) = Self::find_symbol_id(
                             parsed,
                             text(field_node),
                             field_node.start_position().row + 1,
                         )
                     {
-                        parsed.type_refs.push(RawTypeRef {
-                            file_path: file_path.to_string(),
-                            from_symbol_idx: idx,
-                            type_name: type_name.to_string(),
-                            ref_kind: ReferenceType::FieldType,
+                        let to_id = SymbolId::new(file_path, type_name, 0);
+                        parsed.edges.push(RawEdge {
+                            from: from_id,
+                            to: to_id,
+                            kind: EdgeKind::FieldType,
                         });
                     }
                 }
-            }
-        }
-
-        // Post-processing: scoped call qualifiers as type references
-        // e.g. Cli::parse() -> Usage ref from enclosing function to Cli
-        for call in &parsed.calls.clone() {
-            if call.call_form != crate::analysis::types::CallForm::Scoped {
-                continue;
-            }
-            let qualifier = match &call.qualifier {
-                Some(q) => q,
-                None => continue,
-            };
-            if !qualifier.starts_with(|c: char| c.is_ascii_uppercase()) {
-                continue;
-            }
-            if qualifier == "Self" {
-                continue;
-            }
-            if let Some(caller_idx) = Self::find_enclosing_symbol_idx(parsed, call.call_site_line) {
-                parsed.type_refs.push(RawTypeRef {
-                    file_path: file_path.to_string(),
-                    from_symbol_idx: caller_idx,
-                    type_name: qualifier.clone(),
-                    ref_kind: ReferenceType::Usage,
-                });
             }
         }
     }
@@ -550,8 +533,8 @@ impl Rust {
     ///
     /// In Rust, `mod foo;` in a parent file references symbols in `foo.rs` or
     /// `foo/mod.rs`. This method finds body-less mod declarations (single-line
-    /// `mod foo;`), resolves the target file, and injects `RawContainment`
-    /// entries so Phase 3 creates `SymbolContains` edges.
+    /// `mod foo;`), resolves the target file, and emits `HasMember` edges so
+    /// Phase 2b creates `SymbolContains` edges in the graph.
     pub fn resolve_file_modules(parsed_files: &mut [ParsedFile]) {
         use std::collections::HashSet;
 
@@ -596,16 +579,6 @@ impl Rust {
             .map(|(i, pf)| (pf.file_path.clone(), i))
             .collect();
 
-        // Collect mutations to apply
-        struct Containment {
-            target_file_idx: usize,
-            mod_name: String,
-            orphan_idxs: Vec<usize>,
-            is_test: bool,
-        }
-
-        let mut containments: Vec<Containment> = Vec::new();
-
         for decl in &decls {
             // Resolve target file: dir/mod_name.rs or dir/mod_name/mod.rs
             let flat_path = if decl.declaring_dir.is_empty() {
@@ -622,74 +595,68 @@ impl Rust {
             let target_idx = file_idx.get(&flat_path).or_else(|| file_idx.get(&dir_path));
 
             if let Some(&tidx) = target_idx {
-                let pf = &parsed_files[tidx];
-                let contained: HashSet<usize> =
-                    pf.containments.iter().map(|c| c.child_symbol_idx).collect();
+                let pf = &mut parsed_files[tidx];
 
-                let orphan_idxs: Vec<usize> = pf
-                    .symbols
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| !contained.contains(i))
-                    .map(|(i, _)| i)
-                    .collect();
-
-                if !orphan_idxs.is_empty() {
-                    containments.push(Containment {
-                        target_file_idx: tidx,
-                        mod_name: decl.mod_name.clone(),
-                        orphan_idxs,
-                        is_test: decl.is_test,
-                    });
-                }
-            }
-        }
-
-        // Apply mutations: add module symbol to target file + containment edges
-        // Also propagate test status to all symbols in test modules
-        for cont in containments {
-            let pf = &mut parsed_files[cont.target_file_idx];
-
-            // If this is a test module, tag all symbols in the file as test
-            if cont.is_test {
-                for sym in &mut pf.symbols {
-                    if sym.entry_type.is_none() {
-                        sym.entry_type = Some("test".to_string());
+                // If this is a test module, tag all symbols in the file as test
+                if decl.is_test {
+                    for sym in &mut pf.symbols {
+                        if sym.entry_type.is_none() {
+                            sym.entry_type = Some("test".to_string());
+                        }
                     }
                 }
-            }
 
-            // Ensure the target file has a module symbol so Phase 3 can
-            // resolve the parent via this file's module path
-            if !pf
-                .symbols
-                .iter()
-                .any(|s| s.kind == "module" && s.name == cont.mod_name)
-            {
-                pf.symbols.push(crate::analysis::types::RawSymbol {
-                    name: cont.mod_name.clone(),
-                    kind: "module".to_string(),
-                    file_path: pf.file_path.clone(),
-                    start_line: 1,
-                    end_line: pf.symbols.iter().map(|s| s.end_line).max().unwrap_or(1),
-                    signature: None,
-                    language: "rust".to_string(),
-                    visibility: Some("public".to_string()),
-                    entry_type: if cont.is_test {
-                        Some("test".to_string())
-                    } else {
-                        None
-                    },
-                });
-            }
+                // Ensure the target file has a module symbol
+                let module_line = if let Some(existing) = pf
+                    .symbols
+                    .iter()
+                    .find(|s| s.kind == "module" && s.name == decl.mod_name)
+                {
+                    existing.start_line
+                } else {
+                    pf.symbols.push(crate::analysis::types::RawSymbol {
+                        name: decl.mod_name.clone(),
+                        kind: "module".to_string(),
+                        file_path: pf.file_path.clone(),
+                        start_line: 1,
+                        end_line: pf.symbols.iter().map(|s| s.end_line).max().unwrap_or(1),
+                        signature: None,
+                        language: "rust".to_string(),
+                        visibility: Some("public".to_string()),
+                        entry_type: if decl.is_test {
+                            Some("test".to_string())
+                        } else {
+                            None
+                        },
+                    });
+                    1
+                };
 
-            let file_path = pf.file_path.clone();
-            for idx in cont.orphan_idxs {
-                pf.containments.push(RawContainment {
-                    file_path: file_path.clone(),
-                    parent_name: cont.mod_name.clone(),
-                    child_symbol_idx: idx,
-                });
+                // Build set of symbols that already have containment edges
+                let contained: HashSet<SymbolId> = pf
+                    .edges
+                    .iter()
+                    .filter(|e| {
+                        matches!(
+                            e.kind,
+                            EdgeKind::HasField | EdgeKind::HasMethod | EdgeKind::HasMember
+                        )
+                    })
+                    .map(|e| e.to.clone())
+                    .collect();
+
+                // Emit HasMember edges for orphan symbols
+                let file_path = pf.file_path.clone();
+                let parent_id = SymbolId::new(&file_path, &decl.mod_name, module_line);
+                for sym in &pf.symbols {
+                    if !contained.contains(&sym.symbol_id()) {
+                        pf.edges.push(RawEdge {
+                            from: parent_id.clone(),
+                            to: sym.symbol_id(),
+                            kind: EdgeKind::HasMember,
+                        });
+                    }
+                }
             }
         }
     }
@@ -845,51 +812,74 @@ impl Rust {
         }
 
         // Heritage — all 4 trait impl combinations
+        // Emit Implements edges
+        // Both from and to use line 0 since we need resolution to find the actual symbols
         if captures.contains_key("impl_trait_def")
+            && let Some(&_impl_node) = captures.get("impl_trait_def")
             && let (Some(&trait_node), Some(&type_node)) =
                 (captures.get("impl_trait"), captures.get("impl_type"))
         {
-            parsed.heritage.push(RawHeritage {
-                file_path: file_path.to_string(),
-                type_name: text(type_node).to_string(),
-                parent_name: text(trait_node).to_string(),
-                kind: InheritanceType::Implements,
+            let type_name = text(type_node).to_string();
+            let trait_name = text(trait_node).to_string();
+
+            // Both need resolution - use line 0
+            let from_id = SymbolId::new(file_path, &type_name, 0);
+            let to_id = SymbolId::new(file_path, &trait_name, 0);
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::Implements,
             });
         } else if captures.contains_key("impl_generic_trait_def")
+            && let Some(&_impl_node) = captures.get("impl_generic_trait_def")
             && let (Some(&trait_node), Some(&type_node)) = (
                 captures.get("impl_generic_trait_name"),
                 captures.get("impl_generic_trait_type"),
             )
         {
-            parsed.heritage.push(RawHeritage {
-                file_path: file_path.to_string(),
-                type_name: text(type_node).to_string(),
-                parent_name: text(trait_node).to_string(),
-                kind: InheritanceType::Implements,
+            let type_name = text(type_node).to_string();
+            let trait_name = text(trait_node).to_string();
+
+            let from_id = SymbolId::new(file_path, &type_name, 0);
+            let to_id = SymbolId::new(file_path, &trait_name, 0);
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::Implements,
             });
         } else if captures.contains_key("impl_concrete_trait_generic_type_def")
+            && let Some(&_impl_node) = captures.get("impl_concrete_trait_generic_type_def")
             && let (Some(&trait_node), Some(&type_node)) = (
                 captures.get("impl_concrete_trait_generic_type_trait"),
                 captures.get("impl_concrete_trait_generic_type_type"),
             )
         {
-            parsed.heritage.push(RawHeritage {
-                file_path: file_path.to_string(),
-                type_name: text(type_node).to_string(),
-                parent_name: text(trait_node).to_string(),
-                kind: InheritanceType::Implements,
+            let type_name = text(type_node).to_string();
+            let trait_name = text(trait_node).to_string();
+
+            let from_id = SymbolId::new(file_path, &type_name, 0);
+            let to_id = SymbolId::new(file_path, &trait_name, 0);
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::Implements,
             });
         } else if captures.contains_key("impl_both_generic_def")
+            && let Some(&_impl_node) = captures.get("impl_both_generic_def")
             && let (Some(&trait_node), Some(&type_node)) = (
                 captures.get("impl_both_generic_trait"),
                 captures.get("impl_both_generic_type"),
             )
         {
-            parsed.heritage.push(RawHeritage {
-                file_path: file_path.to_string(),
-                type_name: text(type_node).to_string(),
-                parent_name: text(trait_node).to_string(),
-                kind: InheritanceType::Implements,
+            let type_name = text(type_node).to_string();
+            let trait_name = text(trait_node).to_string();
+
+            let from_id = SymbolId::new(file_path, &type_name, 0);
+            let to_id = SymbolId::new(file_path, &trait_name, 0);
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::Implements,
             });
         }
 
@@ -898,12 +888,14 @@ impl Rust {
             && let Some(&name_node) = captures.get("method_name")
         {
             let sig = build_rust_method_signature(&captures, code);
-            let idx = parsed.symbols.len();
+            let method_name = text(name_node).to_string();
+            let method_start_line = node.start_position().row + 1;
+
             parsed.symbols.push(RawSymbol {
-                name: text(name_node).to_string(),
+                name: method_name.clone(),
                 kind: "function".to_string(),
                 file_path: file_path.to_string(),
-                start_line: node.start_position().row + 1,
+                start_line: method_start_line,
                 end_line: node.end_position().row + 1,
                 signature: Some(sig),
                 language: "rust".to_string(),
@@ -911,11 +903,20 @@ impl Rust {
                 entry_type: None,
             });
 
-            if let Some(&type_node) = captures.get("method_impl_type") {
-                parsed.containments.push(RawContainment {
-                    file_path: file_path.to_string(),
-                    parent_name: text(type_node).to_string(),
-                    child_symbol_idx: idx,
+            // Emit HasMethod edge: impl -> method
+            // Use line 0 for the type since we need to resolve to the actual struct/enum definition
+            if let Some(&_impl_node) = captures.get("method_impl")
+                && let Some(&type_node) = captures.get("method_impl_type")
+            {
+                let impl_type_name = text(type_node).to_string();
+
+                let from_id = SymbolId::new(file_path, &impl_type_name, 0);
+                let to_id = SymbolId::new(file_path, &method_name, method_start_line);
+
+                parsed.edges.push(RawEdge {
+                    from: from_id,
+                    to: to_id,
+                    kind: EdgeKind::HasMethod,
                 });
             }
         }
@@ -924,12 +925,14 @@ impl Rust {
         if let Some(&node) = captures.get("field_def")
             && let Some(&name_node) = captures.get("field_name")
         {
-            let idx = parsed.symbols.len();
+            let field_name = text(name_node).to_string();
+            let field_start_line = node.start_position().row + 1;
+
             parsed.symbols.push(RawSymbol {
-                name: text(name_node).to_string(),
+                name: field_name.clone(),
                 kind: "field".to_string(),
                 file_path: file_path.to_string(),
-                start_line: node.start_position().row + 1,
+                start_line: field_start_line,
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
@@ -937,11 +940,20 @@ impl Rust {
                 entry_type: None,
             });
 
-            if let Some(&parent_node) = captures.get("field_parent") {
-                parsed.containments.push(RawContainment {
-                    file_path: file_path.to_string(),
-                    parent_name: text(parent_node).to_string(),
-                    child_symbol_idx: idx,
+            // Emit HasField edge: struct -> field
+            if let Some(&struct_node) = captures.get("field_struct")
+                && let Some(&parent_node) = captures.get("field_parent")
+            {
+                let struct_start_line = struct_node.start_position().row + 1;
+                let struct_name = text(parent_node).to_string();
+
+                let from_id = SymbolId::new(file_path, &struct_name, struct_start_line);
+                let to_id = SymbolId::new(file_path, &field_name, field_start_line);
+
+                parsed.edges.push(RawEdge {
+                    from: from_id,
+                    to: to_id,
+                    kind: EdgeKind::HasField,
                 });
             }
         }
@@ -950,101 +962,120 @@ impl Rust {
         if let Some(&node) = captures.get("trait_sig_def")
             && let Some(&name_node) = captures.get("trait_sig_name")
             && let Some(&parent_node) = captures.get("trait_sig_parent")
+            && let Some(&trait_node) = captures.get("trait_sig_trait")
         {
-            let idx = parsed.symbols.len();
+            let method_name = text(name_node).to_string();
+            let method_start_line = node.start_position().row + 1;
+            let trait_name = text(parent_node).to_string();
+            let trait_start_line = trait_node.start_position().row + 1;
+
             parsed.symbols.push(RawSymbol {
-                name: text(name_node).to_string(),
+                name: method_name.clone(),
                 kind: "function".to_string(),
                 file_path: file_path.to_string(),
-                start_line: node.start_position().row + 1,
+                start_line: method_start_line,
                 end_line: node.end_position().row + 1,
                 signature: None,
                 language: "rust".to_string(),
                 visibility: None,
                 entry_type: None,
             });
-            parsed.containments.push(RawContainment {
-                file_path: file_path.to_string(),
-                parent_name: text(parent_node).to_string(),
-                child_symbol_idx: idx,
+
+            // Emit HasMethod edge: trait -> method signature
+            let from_id = SymbolId::new(file_path, &trait_name, trait_start_line);
+            let to_id = SymbolId::new(file_path, &method_name, method_start_line);
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::HasMethod,
             });
         }
 
-        // Calls
+        // Calls - emit edges with caller (enclosing function) and callee (needs resolution)
         if captures.contains_key("call_free")
             && let Some(&name_node) = captures.get("call_free_name")
         {
             let call_node = captures["call_free"];
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Free,
-                receiver: None,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         } else if captures.contains_key("call_method")
             && let Some(&name_node) = captures.get("call_method_name")
         {
             let call_node = captures["call_method"];
-            let receiver = captures
-                .get("call_method_receiver")
-                .map(|n| text(*n).to_string());
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Method,
-                receiver,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         } else if captures.contains_key("call_scoped")
             && let Some(&name_node) = captures.get("call_scoped_name")
         {
             let call_node = captures["call_scoped"];
-            let qualifier = captures
-                .get("call_scoped_path")
-                .map(|n| text(*n).to_string());
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Scoped,
-                receiver: None,
-                qualifier,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id.clone(),
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+                // Scoped calls with uppercase qualifier also emit TypeRef edge
+                if let Some(&path_node) = captures.get("call_scoped_path") {
+                    let qualifier = text(path_node);
+                    if qualifier.starts_with(|c: char| c.is_ascii_uppercase())
+                        && qualifier != "Self"
+                    {
+                        let type_id = SymbolId::new(file_path, qualifier, 0);
+                        parsed.edges.push(RawEdge {
+                            from: caller_id,
+                            to: type_id,
+                            kind: EdgeKind::TypeRef,
+                        });
+                    }
+                }
+            }
         } else if captures.contains_key("call_generic_fn")
             && let Some(&name_node) = captures.get("call_generic_fn_name")
         {
             let call_node = captures["call_generic_fn"];
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Free,
-                receiver: None,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         } else if captures.contains_key("call_generic_method")
             && let Some(&name_node) = captures.get("call_generic_method_name")
         {
             let call_node = captures["call_generic_method"];
-            let receiver = captures
-                .get("call_generic_method_receiver")
-                .map(|n| text(*n).to_string());
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Method,
-                receiver,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         }
 
         // Struct expression — constructor-like
@@ -1052,15 +1083,16 @@ impl Rust {
             && let Some(&name_node) = captures.get("struct_expr_name")
         {
             let expr_node = captures["struct_expr"];
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: expr_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Free,
-                receiver: None,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = expr_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         }
 
         // Imports
@@ -1081,15 +1113,16 @@ impl Rust {
             && let Some(&name_node) = captures.get("macro_name")
         {
             let call_node = captures["macro_call"];
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Free,
-                receiver: None,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         }
 
         // Write access — assignment
@@ -1175,21 +1208,21 @@ impl Rust {
         }
     }
 
-    fn find_symbol_idx(parsed: &ParsedFile, name: &str, line: usize) -> Option<usize> {
+    fn find_symbol_id(parsed: &ParsedFile, name: &str, line: usize) -> Option<SymbolId> {
         parsed
             .symbols
             .iter()
-            .position(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+            .find(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+            .map(|s| s.symbol_id())
     }
 
-    fn find_enclosing_symbol_idx(parsed: &ParsedFile, line: usize) -> Option<usize> {
+    fn find_enclosing_symbol_id(parsed: &ParsedFile, line: usize) -> Option<SymbolId> {
         parsed
             .symbols
             .iter()
-            .enumerate()
-            .filter(|(_, s)| s.start_line <= line && s.end_line >= line)
-            .min_by_key(|(_, s)| s.end_line - s.start_line)
-            .map(|(i, _)| i)
+            .filter(|s| s.start_line <= line && s.end_line >= line)
+            .min_by_key(|s| s.end_line - s.start_line)
+            .map(|s| s.symbol_id())
     }
 }
 

@@ -104,14 +104,14 @@
     name: (type_identifier) @field_parent
     body: (field_declaration_list
         (field_declaration
-            name: (field_identifier) @field_name) @field_def))
+            name: (field_identifier) @field_name) @field_def)) @field_struct
 
 ;;; trait method signatures (function_signature_item inside trait body)
 (trait_item
     name: (type_identifier) @trait_sig_parent
     body: (declaration_list
         (function_signature_item
-            name: (identifier) @trait_sig_name) @trait_sig_def))
+            name: (identifier) @trait_sig_name) @trait_sig_def)) @trait_sig_trait
 
 ;;; attribute — simple (#[test], #[no_mangle])
 (attribute_item

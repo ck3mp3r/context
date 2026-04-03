@@ -3,7 +3,7 @@
 //! Contains utility functions for determining visibility, entry types,
 //! and finding symbols within parsed files.
 
-use crate::analysis::types::ParsedFile;
+use crate::analysis::types::{ParsedFile, SymbolId};
 
 /// Go built-in types that should not produce type reference edges.
 pub const GO_BUILTINS: &[&str] = &[
@@ -86,18 +86,38 @@ pub fn go_entry_type(name: &str) -> Option<String> {
     }
 }
 
-/// Find symbol index by name and line (symbol must contain the line).
-pub fn find_symbol_idx(parsed: &ParsedFile, name: &str, line: usize) -> Option<usize> {
-    parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+/// Find symbol ID by name and line (symbol must contain the line).
+/// Returns a SymbolId for the symbol with the given name containing the given line.
+pub fn find_symbol_id(
+    parsed: &ParsedFile,
+    file_path: &str,
+    name: &str,
+    line: usize,
+) -> Option<SymbolId> {
+    parsed.symbols.iter().find_map(|s| {
+        if s.name == name && s.start_line <= line && s.end_line >= line {
+            Some(SymbolId::new(file_path, &s.name, s.start_line))
+        } else {
+            None
+        }
+    })
 }
 
-/// Find the enclosing function/method symbol index for a given line.
-/// This is used for type assertions which occur inside function bodies.
-pub fn find_enclosing_symbol_idx(parsed: &ParsedFile, line: usize) -> Option<usize> {
-    parsed.symbols.iter().position(|s| {
-        (s.kind == "function" || s.kind == "method") && s.start_line <= line && s.end_line >= line
+/// Find the enclosing function/method symbol ID for a given line.
+/// Returns a SymbolId for the innermost function/method containing the given line.
+pub fn find_enclosing_symbol_id(
+    parsed: &ParsedFile,
+    file_path: &str,
+    line: usize,
+) -> Option<SymbolId> {
+    parsed.symbols.iter().find_map(|s| {
+        if (s.kind == "function" || s.kind == "method")
+            && s.start_line <= line
+            && s.end_line >= line
+        {
+            Some(SymbolId::new(file_path, &s.name, s.start_line))
+        } else {
+            None
+        }
     })
 }

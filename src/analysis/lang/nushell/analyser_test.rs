@@ -1,5 +1,5 @@
 use super::analyser::Nushell;
-use crate::analysis::lang::LanguageAnalyser;
+use crate::analysis::types::EdgeKind;
 
 fn load_testdata(name: &str) -> String {
     let path = format!(
@@ -8,6 +8,33 @@ fn load_testdata(name: &str) -> String {
         name
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e))
+}
+
+/// Extract the name component from a SymbolId string.
+/// Format: "symbol:file_path:name:line"
+fn extract_name(sid: &str) -> Option<&str> {
+    let s = sid.strip_prefix("symbol:")?;
+    let last_colon = s.rfind(':')?;
+    let before_last = &s[..last_colon];
+    let second_last_colon = before_last.rfind(':')?;
+    Some(&before_last[second_last_colon + 1..])
+}
+
+/// Get all edges of a given kind as (from_name, to_name) pairs.
+fn edges_of_kind<'a>(
+    parsed: &'a crate::analysis::types::ParsedFile,
+    kind: EdgeKind,
+) -> Vec<(&'a str, &'a str)> {
+    parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == kind)
+        .filter_map(|e| {
+            let from = extract_name(e.from.as_str())?;
+            let to = extract_name(e.to.as_str())?;
+            Some((from, to))
+        })
+        .collect()
 }
 
 #[test]
@@ -82,7 +109,12 @@ def main [] {
 }
 "#;
     let parsed = Nushell::extract(code, "main.nu");
-    assert!(parsed.calls.iter().any(|c| c.callee_name == "ls"));
+    let calls = edges_of_kind(&parsed, EdgeKind::Calls);
+    assert!(
+        calls.iter().any(|(_, to)| *to == "ls"),
+        "should capture ls call, got: {:?}",
+        calls
+    );
 }
 
 #[test]
@@ -144,8 +176,13 @@ alias p = print
     // Imports
     assert!(parsed.imports.iter().any(|i| i.entry.module_path == "std"));
 
-    // Calls
-    assert!(!parsed.calls.is_empty());
+    // Calls - should have edges for command calls
+    let calls = edges_of_kind(&parsed, EdgeKind::Calls);
+    assert!(
+        !calls.is_empty(),
+        "should have call edges, got: {:?}",
+        calls
+    );
 }
 
 #[test]
@@ -206,10 +243,10 @@ fn test_module_children_containment() {
     let parsed = Nushell::extract(&code, "app.nu");
 
     let network_children: Vec<&str> = parsed
-        .containments
+        .edges
         .iter()
-        .filter(|c| c.parent_name == "network")
-        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .filter(|e| e.kind == EdgeKind::HasMember && e.from.as_str().contains("network"))
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
         .collect();
 
     assert!(
@@ -274,10 +311,10 @@ fn test_mod_nu_extraction() {
 
     // inner module should contain helper and INNER_CONST via line-range containment
     let inner_children: Vec<&str> = parsed
-        .containments
+        .edges
         .iter()
-        .filter(|c| c.parent_name == "inner")
-        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .filter(|e| e.kind == EdgeKind::HasMember && e.from.as_str().contains("inner"))
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
         .collect();
 
     assert!(
@@ -321,10 +358,10 @@ fn test_sibling_file_extraction() {
 
     // nested module should contain deep-func
     let nested_children: Vec<&str> = parsed
-        .containments
+        .edges
         .iter()
-        .filter(|c| c.parent_name == "nested")
-        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .filter(|e| e.kind == EdgeKind::HasMember && e.from.as_str().contains("nested"))
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
         .collect();
 
     assert!(
@@ -335,47 +372,30 @@ fn test_sibling_file_extraction() {
 }
 
 // --- File-based module resolution tests ---
-// These simulate the pipeline's Phase 2 (register) + Phase 3 (resolve containments)
-// to verify cross-file containment edges are resolvable.
+// These simulate reading edges directly - no registry needed since edges have SymbolIds.
 
-use crate::analysis::pipeline::SymbolRegistry;
 use crate::analysis::types::*;
 
 fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
-    let mut registry = SymbolRegistry::new();
-
-    for pf in parsed_files {
-        let module_path = Nushell.derive_module_path(&pf.file_path);
-        for sym in &pf.symbols {
-            let sid = sym.symbol_id();
-            let qn = QualifiedName::new(&module_path, &sym.name);
-            registry.register(qn, sid, &sym.kind, &sym.language);
-        }
+    // Extract name from SymbolId format "symbol:file_path:name:line"
+    fn extract_name(sid: &str) -> Option<&str> {
+        let s = sid.strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        Some(&before_last[second_last_colon + 1..])
     }
 
     let mut edges = Vec::new();
     for pf in parsed_files {
-        let module_path = Nushell.derive_module_path(&pf.file_path);
-        for cont in &pf.containments {
-            let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
-            if registry.qualified_map.get(&parent_qn).is_some() {
-                let child = &pf.symbols[cont.child_symbol_idx];
-                edges.push((cont.parent_name.clone(), child.name.clone()));
-            } else {
-                panic!(
-                    "UNRESOLVABLE containment: parent '{}' (qualified '{}') \
-                     not found in registry for child '{}' in file '{}'. \
-                     Available qualified names: {:?}",
-                    cont.parent_name,
-                    parent_qn,
-                    pf.symbols[cont.child_symbol_idx].name,
-                    pf.file_path,
-                    registry
-                        .qualified_map
-                        .keys()
-                        .map(|k| k.as_str())
-                        .collect::<Vec<_>>()
-                );
+        for edge in &pf.edges {
+            if edge.kind == EdgeKind::HasMember {
+                if let (Some(parent_name), Some(child_name)) = (
+                    extract_name(edge.from.as_str()),
+                    extract_name(edge.to.as_str()),
+                ) {
+                    edges.push((parent_name.to_string(), child_name.to_string()));
+                }
             }
         }
     }

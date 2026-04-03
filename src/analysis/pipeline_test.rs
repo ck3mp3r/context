@@ -416,12 +416,22 @@ mod integration_tests {
     use crate::analysis::pipeline::{ImportTable, SymbolRegistry};
     use crate::analysis::types::*;
 
-    /// Simulates Phase 2 (register) + Phase 7 (resolve type refs) of the pipeline
-    /// to verify that type references are correctly extracted AND resolved.
+    /// Extract the name component from a SymbolId string.
+    /// Format: "symbol:file_path:name:line"
+    fn extract_name(sid: &str) -> Option<&str> {
+        let s = sid.strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        Some(&before_last[second_last_colon + 1..])
+    }
+
+    /// Simulates Phase 2 (register) + Phase 2b (resolve edges) of the pipeline
+    /// to verify that type edges are correctly extracted AND resolved.
     fn simulate_pipeline_type_refs(
         files: &[(ParsedFile, &str)], // (parsed_file, normalised_import_path_for_glob)
     ) -> Vec<(String, String, String)> {
-        // Vec of (from_symbol_name, ref_kind, to_type_name)
+        // Vec of (from_symbol_name, edge_kind, to_type_name)
         let mut registry = SymbolRegistry::new();
         let mut resolved_refs = Vec::new();
 
@@ -444,28 +454,39 @@ mod integration_tests {
             registry.import_tables.insert(pf.file_path.clone(), table);
         }
 
-        // Phase 7: Resolve type refs
+        // Phase 2b: Resolve type ref edges
         for (pf, _) in files {
             let module_path = Go.derive_module_path(&pf.file_path);
-            for tr in &pf.type_refs {
-                let from_sym = &pf.symbols[tr.from_symbol_idx];
-                if let Some(to_id) = registry.resolve_with_imports(
-                    &tr.type_name,
+            for edge in &pf.edges {
+                // Only process type-reference edges (not Calls, HasField, etc.)
+                let is_type_ref = matches!(
+                    edge.kind,
+                    EdgeKind::ParamType
+                        | EdgeKind::ReturnType
+                        | EdgeKind::FieldType
+                        | EdgeKind::TypeRef
+                );
+                if !is_type_ref {
+                    continue;
+                }
+
+                let from_name = extract_name(edge.from.as_str()).unwrap_or("unknown");
+                let to_name_raw = extract_name(edge.to.as_str()).unwrap_or("unknown");
+
+                // Try to resolve the target through the registry
+                if let Some(resolved_id) = registry.resolve_with_imports(
+                    to_name_raw,
                     &module_path,
                     &pf.file_path,
                     &pf.language,
                 ) {
-                    // Find the target symbol name from ID
-                    let to_name = to_id
-                        .as_str()
-                        .split(':')
-                        .nth(2)
-                        .unwrap_or("unknown")
+                    let resolved_name = extract_name(resolved_id.as_str())
+                        .unwrap_or(to_name_raw)
                         .to_string();
                     resolved_refs.push((
-                        from_sym.name.clone(),
-                        format!("{:?}", tr.ref_kind),
-                        to_name,
+                        from_name.to_string(),
+                        format!("{:?}", edge.kind),
+                        resolved_name,
                     ));
                 }
             }

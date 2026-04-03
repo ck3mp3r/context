@@ -183,52 +183,106 @@ pub fn run(
             .insert(pf.file_path.clone(), import_table);
     }
 
-    // Phase 3: Resolve containments
+    // Phase 2b: Load semantic edges (emitted directly by analysers)
+    // These edges have resolved SymbolIds - no lookup needed for most.
+    // Heritage edges with line 0 need resolution via the registry.
     for pf in &parsed_files {
         let analyser = match Analyser::for_language(&pf.language) {
             Some(a) => a,
             None => continue,
         };
         let module_path = analyser.derive_module_path(&pf.file_path);
-        for cont in &pf.containments {
-            let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
-            if let Some(parent_id) = registry.qualified_map.get(&parent_qn) {
-                let child_sym = &pf.symbols[cont.child_symbol_idx];
-                let child_id = child_sym.symbol_id();
-                graph.insert_symbol_contains_edge(parent_id, &child_id, 1.0)?;
-                total_rels += 1;
-            }
-        }
-    }
 
-    // Phase 4: Resolve heritage
-    for pf in &parsed_files {
-        let analyser = match Analyser::for_language(&pf.language) {
-            Some(a) => a,
-            None => continue,
+        // Helper to extract name from SymbolId and resolve if needed
+        let resolve_if_needed = |sid: &SymbolId| -> Option<SymbolId> {
+            if sid.as_str().ends_with(":0") {
+                // Extract the name from "symbol:file:name:0"
+                let s = sid.as_str().strip_prefix("symbol:")?;
+                let last_colon = s.rfind(':')?;
+                let before_last = &s[..last_colon];
+                let second_last_colon = before_last.rfind(':')?;
+                let target_name = &before_last[second_last_colon + 1..];
+
+                registry
+                    .resolve_with_imports(target_name, &module_path, &pf.file_path, &pf.language)
+                    .cloned()
+            } else {
+                Some(sid.clone())
+            }
         };
-        let module_path = analyser.derive_module_path(&pf.file_path);
-        for h in &pf.heritage {
-            let type_id = registry.resolve_with_imports(
-                &h.type_name,
-                &module_path,
-                &pf.file_path,
-                &pf.language,
-            );
-            let parent_id = registry.resolve_with_imports(
-                &h.parent_name,
-                &module_path,
-                &pf.file_path,
-                &pf.language,
-            );
-            if let (Some(tid), Some(pid)) = (type_id, parent_id) {
-                graph.insert_inherits_edge(tid, pid, &h.kind, 1.0)?;
-                total_rels += 1;
+
+        for edge in &pf.edges {
+            match edge.kind {
+                EdgeKind::HasField | EdgeKind::HasMethod | EdgeKind::HasMember => {
+                    // Containment edges: parent symbolContains child
+                    // Resolve from if it has line 0 (e.g., impl methods need type resolution)
+                    let from_id = resolve_if_needed(&edge.from);
+                    let to_id = resolve_if_needed(&edge.to);
+
+                    if let (Some(from), Some(to)) = (from_id, to_id) {
+                        graph.insert_symbol_contains_edge(&from, &to, 1.0)?;
+                        total_rels += 1;
+                    }
+                }
+                EdgeKind::Implements | EdgeKind::Extends => {
+                    // Heritage edges: type inherits from parent
+                    let kind = match edge.kind {
+                        EdgeKind::Implements => InheritanceType::Implements,
+                        EdgeKind::Extends => InheritanceType::Extends,
+                        _ => unreachable!(),
+                    };
+
+                    let from_id = resolve_if_needed(&edge.from);
+                    let to_id = resolve_if_needed(&edge.to);
+
+                    if let (Some(from), Some(to)) = (from_id, to_id) {
+                        graph.insert_inherits_edge(&from, &to, &kind, 1.0)?;
+                        total_rels += 1;
+                    }
+                }
+                EdgeKind::Calls => {
+                    // Calls edge: caller calls callee
+                    let from_id = resolve_if_needed(&edge.from);
+                    let to_id = resolve_if_needed(&edge.to);
+
+                    if let (Some(from), Some(to)) = (from_id, to_id) {
+                        // Extract line from original from SymbolId
+                        let line = edge
+                            .from
+                            .as_str()
+                            .rsplit(':')
+                            .next()
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .unwrap_or(0);
+                        graph.insert_calls_edge(&from, &to, line, 1.0)?;
+                        total_rels += 1;
+                    }
+                }
+                EdgeKind::TypeRef
+                | EdgeKind::FieldType
+                | EdgeKind::ParamType
+                | EdgeKind::ReturnType => {
+                    // Reference edges: symbol references type
+                    let from_id = resolve_if_needed(&edge.from);
+                    let to_id = resolve_if_needed(&edge.to);
+
+                    if let (Some(from), Some(to)) = (from_id, to_id) {
+                        let ref_kind = match edge.kind {
+                            EdgeKind::TypeRef => ReferenceType::TypeAnnotation,
+                            EdgeKind::FieldType => ReferenceType::FieldType,
+                            EdgeKind::ParamType => ReferenceType::ParamType,
+                            EdgeKind::ReturnType => ReferenceType::ReturnType,
+                            _ => unreachable!(),
+                        };
+                        graph.insert_references_edge(&from, &to, &ref_kind, 1.0)?;
+                        total_rels += 1;
+                    }
+                }
             }
         }
     }
 
-    // Phase 5: Resolve imports
+    // Phase 3: Resolve imports
     for pf in &parsed_files {
         let analyser = match Analyser::for_language(&pf.language) {
             Some(a) => a,
@@ -270,104 +324,11 @@ pub fn run(
         }
     }
 
-    // Phase 6: Resolve calls
-    for pf in &parsed_files {
-        let analyser = match Analyser::for_language(&pf.language) {
-            Some(a) => a,
-            None => continue,
-        };
-        let module_path = analyser.derive_module_path(&pf.file_path);
-        for call in &pf.calls {
-            // Find enclosing symbol (caller)
-            let caller_id = call
-                .enclosing_symbol_idx
-                .and_then(|idx| pf.symbols.get(idx))
-                .map(|s| s.symbol_id())
-                .or_else(|| find_enclosing_symbol(&pf.symbols, call.call_site_line));
-
-            let caller_id = match caller_id {
-                Some(id) => id,
-                None => continue,
-            };
-
-            let callee_id = match call.call_form {
-                CallForm::Free => registry.resolve_with_imports(
-                    &call.callee_name,
-                    &module_path,
-                    &pf.file_path,
-                    &pf.language,
-                ),
-                CallForm::Scoped => {
-                    if let Some(qualifier) = &call.qualifier {
-                        // Translate qualifier via import table (e.g., "common" → "pkg::common")
-                        let resolved_module = registry
-                            .import_tables
-                            .get(&pf.file_path)
-                            .and_then(|t| t.name_to_module.get(qualifier))
-                            .map(|s| s.as_str())
-                            .unwrap_or(qualifier);
-
-                        let qn = QualifiedName::new(resolved_module, &call.callee_name);
-                        registry.qualified_map.get(&qn)
-                    } else {
-                        registry.resolve_with_imports(
-                            &call.callee_name,
-                            &module_path,
-                            &pf.file_path,
-                            &pf.language,
-                        )
-                    }
-                }
-                CallForm::Method => registry.resolve_with_imports(
-                    &call.callee_name,
-                    &module_path,
-                    &pf.file_path,
-                    &pf.language,
-                ),
-            };
-
-            if let Some(callee_id) = callee_id {
-                graph.insert_calls_edge(&caller_id, callee_id, call.call_site_line, 1.0)?;
-                total_rels += 1;
-            }
-        }
-    }
-
-    // Phase 7: Resolve type refs
-    for pf in &parsed_files {
-        let analyser = match Analyser::for_language(&pf.language) {
-            Some(a) => a,
-            None => continue,
-        };
-        let module_path = analyser.derive_module_path(&pf.file_path);
-        for tr in &pf.type_refs {
-            let from_sym = &pf.symbols[tr.from_symbol_idx];
-            let from_id = from_sym.symbol_id();
-            if let Some(to_id) = registry.resolve_with_imports(
-                &tr.type_name,
-                &module_path,
-                &pf.file_path,
-                &pf.language,
-            ) {
-                graph.insert_references_edge(&from_id, to_id, &tr.ref_kind, 1.0)?;
-                total_rels += 1;
-            }
-        }
-    }
-
     Ok(PipelineResult {
         files_analyzed: parsed_files.len(),
         symbols_extracted: total_symbols,
         relationships_created: total_rels,
     })
-}
-
-fn find_enclosing_symbol(symbols: &[RawSymbol], line: usize) -> Option<SymbolId> {
-    symbols
-        .iter()
-        .filter(|s| s.start_line <= line && s.end_line >= line)
-        .min_by_key(|s| s.end_line - s.start_line)
-        .map(|s| s.symbol_id())
 }
 
 fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {

@@ -124,6 +124,53 @@ impl std::fmt::Display for QualifiedName {
 // Relationship enums
 // ============================================================================
 
+/// Semantic edge kinds for the code graph.
+/// These represent typed relationships between symbols.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EdgeKind {
+    // Membership (parent contains child)
+    HasField,  // struct → field
+    HasMethod, // impl/trait → method
+    HasMember, // module → symbol
+
+    // Heritage
+    Implements, // type → trait
+    Extends,    // type → parent type
+
+    // References
+    Calls,      // function → function
+    TypeRef,    // symbol → type it references
+    FieldType,  // field → its type
+    ParamType,  // function → parameter type
+    ReturnType, // function → return type
+}
+
+impl EdgeKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::HasField => "HasField",
+            Self::HasMethod => "HasMethod",
+            Self::HasMember => "HasMember",
+            Self::Implements => "Implements",
+            Self::Extends => "Extends",
+            Self::Calls => "Calls",
+            Self::TypeRef => "TypeRef",
+            Self::FieldType => "FieldType",
+            Self::ParamType => "ParamType",
+            Self::ReturnType => "ReturnType",
+        }
+    }
+}
+
+/// A raw edge between two symbols, emitted directly by analysers.
+/// No resolution needed — both ends are SymbolIds.
+#[derive(Debug, Clone)]
+pub struct RawEdge {
+    pub from: SymbolId,
+    pub to: SymbolId,
+    pub kind: EdgeKind,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReferenceType {
     Import,
@@ -300,21 +347,6 @@ pub struct RawImport {
 }
 
 #[derive(Debug, Clone)]
-pub struct RawHeritage {
-    pub file_path: String,
-    pub type_name: String,
-    pub parent_name: String,
-    pub kind: InheritanceType,
-}
-
-#[derive(Debug, Clone)]
-pub struct RawContainment {
-    pub file_path: String,
-    pub parent_name: String,
-    pub child_symbol_idx: usize,
-}
-
-#[derive(Debug, Clone)]
 pub struct RawTypeRef {
     pub file_path: String,
     pub from_symbol_idx: usize,
@@ -335,10 +367,9 @@ pub struct ParsedFile {
     pub file_path: String,
     pub language: String,
     pub symbols: Vec<RawSymbol>,
+    pub edges: Vec<RawEdge>,
     pub calls: Vec<RawCall>,
     pub imports: Vec<RawImport>,
-    pub heritage: Vec<RawHeritage>,
-    pub containments: Vec<RawContainment>,
     pub type_refs: Vec<RawTypeRef>,
     pub write_accesses: Vec<RawWriteAccess>,
 }
@@ -349,10 +380,9 @@ impl ParsedFile {
             file_path: file_path.into(),
             language: language.into(),
             symbols: Vec::new(),
+            edges: Vec::new(),
             calls: Vec::new(),
             imports: Vec::new(),
-            heritage: Vec::new(),
-            containments: Vec::new(),
             type_refs: Vec::new(),
             write_accesses: Vec::new(),
         }

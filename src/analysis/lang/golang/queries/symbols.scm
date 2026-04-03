@@ -47,7 +47,7 @@
         type: (struct_type
             (field_declaration_list
                 (field_declaration
-                    name: (field_identifier) @field_name) @field_def))))
+                    name: (field_identifier) @field_name) @field_def)))) @field_struct
 
 ;;; interface method specs with parent interface name
 (type_declaration
@@ -55,7 +55,7 @@
         name: (type_identifier) @iface_method_parent
         type: (interface_type
             (method_elem
-                name: (field_identifier) @iface_method_name) @iface_method_def)))
+                name: (field_identifier) @iface_method_name) @iface_method_def))) @iface_method_interface
 
 ;;; struct embedding heritage (anonymous fields only — !name excludes named fields)
 (type_declaration

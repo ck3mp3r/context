@@ -1,5 +1,5 @@
 use crate::analysis::lang::LanguageAnalyser;
-use crate::analysis::types::{ParsedFile, QualifiedName, RawContainment, RawSymbol, SymbolId};
+use crate::analysis::types::{EdgeKind, ParsedFile, QualifiedName, RawEdge, RawSymbol, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Nushell;
@@ -51,6 +51,7 @@ impl Nushell {
         Self::extract_imports(&tree, code, file_path, &mut parsed);
 
         // Post-processing: module → children containment via line ranges
+        // Emit HasMember edges for module->symbol relationships
         let containers: Vec<(usize, &str, usize, usize)> = parsed
             .symbols
             .iter()
@@ -59,24 +60,27 @@ impl Nushell {
             .map(|(i, s)| (i, s.name.as_str(), s.start_line, s.end_line))
             .collect();
 
-        for (child_idx, child) in parsed.symbols.iter().enumerate() {
+        for child in parsed.symbols.iter() {
             if child.kind == "module" {
                 continue;
             }
-            let mut best: Option<(&str, usize)> = None;
-            for &(_, name, start, end) in &containers {
+            let mut best: Option<(usize, &str, usize)> = None; // (parent_idx, name, span)
+            for &(idx, name, start, end) in &containers {
                 if child.start_line > start
                     && child.end_line <= end
-                    && best.is_none_or(|(_, span)| (end - start) < span)
+                    && best.is_none_or(|(_, _, span)| (end - start) < span)
                 {
-                    best = Some((name, end - start));
+                    best = Some((idx, name, end - start));
                 }
             }
-            if let Some((parent_name, _)) = best {
-                parsed.containments.push(RawContainment {
-                    file_path: file_path.to_string(),
-                    parent_name: parent_name.to_string(),
-                    child_symbol_idx: child_idx,
+            if let Some((parent_idx, parent_name, _)) = best {
+                let parent_sym = &parsed.symbols[parent_idx];
+                let from_id = SymbolId::new(file_path, parent_name, parent_sym.start_line);
+                let to_id = SymbolId::new(file_path, &child.name, child.start_line);
+                parsed.edges.push(RawEdge {
+                    from: from_id,
+                    to: to_id,
+                    kind: EdgeKind::HasMember,
                 });
             }
         }
@@ -209,16 +213,33 @@ impl Nushell {
             && let Some(&name_node) = captures.get("command_call_name")
         {
             let call_node = captures["command_call"];
-            parsed.calls.push(RawCall {
-                file_path: file_path.to_string(),
-                call_site_line: call_node.start_position().row + 1,
-                callee_name: text(name_node).to_string(),
-                call_form: CallForm::Free,
-                receiver: None,
-                qualifier: None,
-                enclosing_symbol_idx: None,
-            });
+            let call_line = call_node.start_position().row + 1;
+            // Find enclosing command
+            if let Some(caller_id) = Self::find_enclosing_symbol_id(parsed, file_path, call_line) {
+                let callee_name = text(name_node);
+                let callee_id = SymbolId::new(file_path, callee_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: callee_id,
+                    kind: EdgeKind::Calls,
+                });
+            }
         }
+    }
+
+    /// Find the enclosing command/function symbol ID for a given line.
+    fn find_enclosing_symbol_id(
+        parsed: &ParsedFile,
+        file_path: &str,
+        line: usize,
+    ) -> Option<SymbolId> {
+        parsed.symbols.iter().find_map(|s| {
+            if s.kind == "command" && s.start_line <= line && s.end_line >= line {
+                Some(SymbolId::new(file_path, &s.name, s.start_line))
+            } else {
+                None
+            }
+        })
     }
 
     fn extract_imports(
@@ -363,14 +384,22 @@ impl Nushell {
                     continue;
                 }
 
-                let contained: HashSet<usize> =
-                    pf.containments.iter().map(|c| c.child_symbol_idx).collect();
+                // Find symbols that already have a parent via HasMember edges
+                let contained: HashSet<String> = pf
+                    .edges
+                    .iter()
+                    .filter(|e| e.kind == EdgeKind::HasMember)
+                    .map(|e| e.to.as_str().to_string())
+                    .collect();
 
                 let orphan_idxs: Vec<usize> = pf
                     .symbols
                     .iter()
                     .enumerate()
-                    .filter(|(idx, _)| !contained.contains(idx))
+                    .filter(|(_, s)| {
+                        let sym_id = SymbolId::new(&pf.file_path, &s.name, s.start_line);
+                        !contained.contains(sym_id.as_str())
+                    })
                     .map(|(idx, _)| idx)
                     .collect();
 
@@ -436,11 +465,21 @@ impl Nushell {
                 }
 
                 let file_path = pf.file_path.clone();
+                // Find the module symbol we just added (or existing one)
+                let mod_sym = pf
+                    .symbols
+                    .iter()
+                    .find(|s| s.kind == "module" && s.name == info.module_name);
+                let mod_start_line = mod_sym.map(|s| s.start_line).unwrap_or(1);
+
                 for idx in orphan_idxs {
-                    pf.containments.push(RawContainment {
-                        file_path: file_path.clone(),
-                        parent_name: info.module_name.clone(),
-                        child_symbol_idx: idx,
+                    let child_sym = &pf.symbols[idx];
+                    let from_id = SymbolId::new(&file_path, &info.module_name, mod_start_line);
+                    let to_id = SymbolId::new(&file_path, &child_sym.name, child_sym.start_line);
+                    pf.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::HasMember,
                     });
                 }
             }

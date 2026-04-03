@@ -1,6 +1,4 @@
 use super::analyser::Rust;
-use crate::analysis::lang::LanguageAnalyser;
-use crate::analysis::pipeline::SymbolRegistry;
 use crate::analysis::types::*;
 
 fn load_testdata(name: &str) -> String {
@@ -10,6 +8,49 @@ fn load_testdata(name: &str) -> String {
         name
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e))
+}
+
+/// Extract the name component from a SymbolId string.
+/// Format: "symbol:file_path:name:line"
+fn extract_name(sid: &str) -> Option<&str> {
+    let s = sid.strip_prefix("symbol:")?;
+    let last_colon = s.rfind(':')?;
+    let before_last = &s[..last_colon];
+    let second_last_colon = before_last.rfind(':')?;
+    Some(&before_last[second_last_colon + 1..])
+}
+
+/// Check if an edge exists with the given kind and from/to names.
+fn has_edge(parsed: &ParsedFile, kind: EdgeKind, from_name: &str, to_name: &str) -> bool {
+    parsed.edges.iter().any(|e| {
+        e.kind == kind
+            && extract_name(e.from.as_str()) == Some(from_name)
+            && extract_name(e.to.as_str()) == Some(to_name)
+    })
+}
+
+/// Get all edges of a given kind as (from_name, to_name) pairs.
+fn edges_of_kind<'a>(parsed: &'a ParsedFile, kind: EdgeKind) -> Vec<(&'a str, &'a str)> {
+    parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == kind)
+        .filter_map(|e| {
+            let from = extract_name(e.from.as_str())?;
+            let to = extract_name(e.to.as_str())?;
+            Some((from, to))
+        })
+        .collect()
+}
+
+/// Get all edges from a specific symbol.
+fn edges_from<'a>(parsed: &'a ParsedFile, kind: EdgeKind, from_name: &str) -> Vec<&'a str> {
+    parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == kind && extract_name(e.from.as_str()) == Some(from_name))
+        .filter_map(|e| extract_name(e.to.as_str()))
+        .collect()
 }
 
 #[test]
@@ -66,19 +107,44 @@ fn test_server_methods_and_containment() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
+    // Get method names from HasMethod edges where parent contains "Server"
     let server_methods: Vec<&str> = parsed
-        .containments
+        .edges
         .iter()
-        .filter(|c| c.parent_name == "Server")
-        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .filter(|e| e.kind == EdgeKind::HasMethod && e.from.as_str().contains("Server"))
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
         .collect();
 
-    assert!(server_methods.contains(&"new"));
-    assert!(server_methods.contains(&"register"));
-    assert!(server_methods.contains(&"start"));
-    assert!(server_methods.contains(&"listen"));
-    assert!(server_methods.contains(&"route"));
-    assert!(server_methods.contains(&"before"));
+    assert!(
+        server_methods.contains(&"new"),
+        "missing 'new', got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"register"),
+        "missing 'register', got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"start"),
+        "missing 'start', got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"listen"),
+        "missing 'listen', got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"route"),
+        "missing 'route', got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"before"),
+        "missing 'before', got: {:?}",
+        server_methods
+    );
 }
 
 #[test]
@@ -135,11 +201,10 @@ fn test_server_heritage() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
-    assert!(parsed.heritage.iter().any(|h| {
-        h.type_name == "Server"
-            && h.parent_name == "Middleware"
-            && h.kind == InheritanceType::Implements
-    }));
+    assert!(
+        has_edge(&parsed, EdgeKind::Implements, "Server", "Middleware"),
+        "Server should implement Middleware"
+    );
 }
 
 #[test]
@@ -147,44 +212,48 @@ fn test_server_calls() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
-    // Free calls
-    let free: Vec<&str> = parsed
-        .calls
-        .iter()
-        .filter(|c| c.call_form == CallForm::Free)
-        .map(|c| c.callee_name.as_str())
+    // Get all call targets
+    let calls: Vec<&str> = edges_of_kind(&parsed, EdgeKind::Calls)
+        .into_iter()
+        .map(|(_, to)| to)
         .collect();
+
+    // Should capture various call types
     assert!(
-        free.contains(&"format"),
+        calls.contains(&"format"),
         "should capture format!() macro calls: {:?}",
-        free
+        calls
     );
     assert!(
-        free.contains(&"println"),
+        calls.contains(&"println"),
         "should capture println!() macro calls: {:?}",
-        free
+        calls
     );
-
-    // Scoped calls
-    let scoped: Vec<(&str, Option<&str>)> = parsed
-        .calls
-        .iter()
-        .filter(|c| c.call_form == CallForm::Scoped)
-        .map(|c| (c.callee_name.as_str(), c.qualifier.as_deref()))
-        .collect();
-    assert!(scoped.contains(&("new", Some("HashMap"))));
-
-    // Method calls
-    let methods: Vec<&str> = parsed
-        .calls
-        .iter()
-        .filter(|c| c.call_form == CallForm::Method)
-        .map(|c| c.callee_name.as_str())
-        .collect();
-    assert!(methods.contains(&"insert"));
-    assert!(methods.contains(&"get"));
-    assert!(methods.contains(&"handle"));
-    assert!(methods.contains(&"listen"));
+    assert!(
+        calls.contains(&"new"),
+        "should capture HashMap::new() scoped call: {:?}",
+        calls
+    );
+    assert!(
+        calls.contains(&"insert"),
+        "should capture .insert() method call: {:?}",
+        calls
+    );
+    assert!(
+        calls.contains(&"get"),
+        "should capture .get() method call: {:?}",
+        calls
+    );
+    assert!(
+        calls.contains(&"handle"),
+        "should capture .handle() method call: {:?}",
+        calls
+    );
+    assert!(
+        calls.contains(&"listen"),
+        "should capture .listen() method call: {:?}",
+        calls
+    );
 }
 
 #[test]
@@ -224,10 +293,10 @@ fn test_generic_inherent_impl_containment() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     let container_methods: Vec<&str> = parsed
-        .containments
+        .edges
         .iter()
-        .filter(|c| c.parent_name == "Container" || c.parent_name == "Container<T>")
-        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .filter(|e| e.kind == EdgeKind::HasMethod && e.from.as_str().contains("Container"))
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
         .collect();
 
     assert!(
@@ -249,42 +318,65 @@ fn test_generic_inherent_impl_containment() {
 
 #[test]
 fn test_generic_heritage_variants() {
+    use crate::analysis::types::EdgeKind;
+
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
+    // Extract name from SymbolId format "symbol:file_path:name:line"
+    fn extract_name(sid: &str) -> Option<&str> {
+        let s = sid.strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        Some(&before_last[second_last_colon + 1..])
+    }
+
+    let implements_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Implements)
+        .map(|e| {
+            (
+                extract_name(e.from.as_str()).unwrap_or(""),
+                extract_name(e.to.as_str()).unwrap_or(""),
+            )
+        })
+        .collect();
+
     // Concrete trait, concrete type: impl Middleware for Server (already tested)
     assert!(
-        parsed.heritage.iter().any(|h| h.type_name == "Server"
-            && h.parent_name == "Middleware"
-            && h.kind == InheritanceType::Implements),
+        implements_edges
+            .iter()
+            .any(|(from, to)| *from == "Server" && *to == "Middleware"),
         "concrete×concrete: impl Middleware for Server"
     );
 
     // Generic trait, concrete type: impl Serializer<String> for Server
     assert!(
-        parsed.heritage.iter().any(|h| h.type_name == "Server"
-            && h.parent_name == "Serializer"
-            && h.kind == InheritanceType::Implements),
+        implements_edges
+            .iter()
+            .any(|(from, to)| *from == "Server" && *to == "Serializer"),
         "generic_trait×concrete: impl Serializer<String> for Server, got: {:?}",
-        parsed.heritage
+        implements_edges
     );
 
     // Concrete trait, generic type: impl<T> Handler for Container<T>
     assert!(
-        parsed.heritage.iter().any(|h| h.parent_name == "Handler"
-            && (h.type_name == "Container" || h.type_name == "Container<T>")
-            && h.kind == InheritanceType::Implements),
+        implements_edges.iter().any(
+            |(from, to)| (*from == "Container" || *from == "Container<T>") && *to == "Handler"
+        ),
         "concrete×generic: impl<T> Handler for Container<T>, got: {:?}",
-        parsed.heritage
+        implements_edges
     );
 
     // Generic trait, generic type: impl<T> Serializer<Vec<T>> for Container<T>
     assert!(
-        parsed.heritage.iter().any(|h| h.parent_name == "Serializer"
-            && (h.type_name == "Container" || h.type_name == "Container<T>")
-            && h.kind == InheritanceType::Implements),
+        implements_edges.iter().any(
+            |(from, to)| (*from == "Container" || *from == "Container<T>") && *to == "Serializer"
+        ),
         "generic×generic: impl<T> Serializer<Vec<T>> for Container<T>, got: {:?}",
-        parsed.heritage
+        implements_edges
     );
 }
 
@@ -294,14 +386,14 @@ fn test_generic_function_call() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     // collect::<Vec<_>>() should be captured (it's a generic method call)
+    let calls: Vec<&str> = edges_of_kind(&parsed, EdgeKind::Calls)
+        .into_iter()
+        .map(|(_, to)| to)
+        .collect();
     assert!(
-        parsed.calls.iter().any(|c| c.callee_name == "collect"),
+        calls.contains(&"collect"),
         "should capture collect::<Vec<_>>() generic function call, got calls: {:?}",
-        parsed
-            .calls
-            .iter()
-            .map(|c| &c.callee_name)
-            .collect::<Vec<_>>()
+        calls
     );
 }
 
@@ -311,17 +403,14 @@ fn test_struct_expression_call() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     // Response { status: 200, body: "OK".to_string() } should be captured as constructor
+    let calls: Vec<&str> = edges_of_kind(&parsed, EdgeKind::Calls)
+        .into_iter()
+        .map(|(_, to)| to)
+        .collect();
     assert!(
-        parsed
-            .calls
-            .iter()
-            .any(|c| c.callee_name == "Response" && c.call_form == CallForm::Free),
+        calls.contains(&"Response"),
         "should capture Response {{ ... }} struct expression as constructor call, got: {:?}",
-        parsed
-            .calls
-            .iter()
-            .map(|c| (&c.callee_name, &c.call_form))
-            .collect::<Vec<_>>()
+        calls
     );
 }
 
@@ -617,10 +706,10 @@ fn test_struct_field_containment() {
 
     let children_of = |parent: &str| -> Vec<&str> {
         parsed
-            .containments
+            .edges
             .iter()
-            .filter(|c| c.parent_name == parent)
-            .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+            .filter(|e| e.kind == EdgeKind::HasField && e.from.as_str().contains(parent))
+            .filter_map(|e| e.to.as_str().split(':').nth(2))
             .collect()
     };
 
@@ -680,28 +769,40 @@ fn test_struct_field_containment() {
 
 #[test]
 fn test_trait_method_containment() {
+    use crate::analysis::types::EdgeKind;
+
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
-    let children_of = |parent: &str| -> Vec<&str> {
+    // Extract name from SymbolId format "symbol:file_path:name:line"
+    fn extract_name(sid: &str) -> Option<&str> {
+        let s = sid.strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        Some(&before_last[second_last_colon + 1..])
+    }
+
+    let children_of = |parent: &str| -> Vec<String> {
         parsed
-            .containments
+            .edges
             .iter()
-            .filter(|c| c.parent_name == parent)
-            .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+            .filter(|e| matches!(e.kind, EdgeKind::HasMethod | EdgeKind::HasMember))
+            .filter(|e| extract_name(e.from.as_str()) == Some(parent))
+            .filter_map(|e| extract_name(e.to.as_str()).map(|s| s.to_string()))
             .collect()
     };
 
     let handler_children = children_of("Handler");
     assert!(
-        handler_children.contains(&"handle"),
+        handler_children.iter().any(|c| c == "handle"),
         "Handler trait should contain method 'handle', got: {:?}",
         handler_children
     );
 
     let middleware_children = children_of("Middleware");
     assert!(
-        middleware_children.contains(&"before"),
+        middleware_children.iter().any(|c| c == "before"),
         "Middleware trait should contain method 'before', got: {:?}",
         middleware_children
     );
@@ -709,17 +810,31 @@ fn test_trait_method_containment() {
 
 #[test]
 fn test_module_children_containment() {
+    use crate::analysis::types::EdgeKind;
+
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
-    let children_of = |parent: &str| -> Vec<(&str, &str)> {
+    // Extract name from SymbolId format "symbol:file_path:name:line"
+    fn extract_name(sid: &str) -> Option<&str> {
+        let s = sid.strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        Some(&before_last[second_last_colon + 1..])
+    }
+
+    let children_of = |parent: &str| -> Vec<(String, String)> {
         parsed
-            .containments
+            .edges
             .iter()
-            .filter(|c| c.parent_name == parent)
-            .map(|c| {
-                let sym = &parsed.symbols[c.child_symbol_idx];
-                (sym.name.as_str(), sym.kind.as_str())
+            .filter(|e| matches!(e.kind, EdgeKind::HasMember))
+            .filter(|e| extract_name(e.from.as_str()) == Some(parent))
+            .filter_map(|e| {
+                let child_name = extract_name(e.to.as_str())?;
+                // Find symbol to get its kind
+                let sym = parsed.symbols.iter().find(|s| s.name == child_name)?;
+                Some((child_name.to_string(), sym.kind.clone()))
             })
             .collect()
     };
@@ -728,21 +843,21 @@ fn test_module_children_containment() {
     assert!(
         internal_children
             .iter()
-            .any(|(name, kind)| *name == "helper" && *kind == "function"),
+            .any(|(name, kind)| name == "helper" && kind == "function"),
         "module 'internal' should contain function 'helper', got: {:?}",
         internal_children
     );
     assert!(
         internal_children
             .iter()
-            .any(|(name, kind)| *name == "INTERNAL_VERSION" && *kind == "const"),
+            .any(|(name, kind)| name == "INTERNAL_VERSION" && kind == "const"),
         "module 'internal' should contain const 'INTERNAL_VERSION', got: {:?}",
         internal_children
     );
     assert!(
         internal_children
             .iter()
-            .any(|(name, kind)| *name == "InternalConfig" && *kind == "struct"),
+            .any(|(name, kind)| name == "InternalConfig" && kind == "struct"),
         "module 'internal' should contain struct 'InternalConfig', got: {:?}",
         internal_children
     );
@@ -752,42 +867,32 @@ fn test_module_children_containment() {
 // Cross-file module containment tests
 // =============================================================================
 
-/// Simulate Phase 2+3: register symbols, then resolve containment edges.
+/// Extract containment edges (HasField, HasMethod, HasMember) as (parent_name, child_name) pairs.
 fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
-    let mut registry = SymbolRegistry::new();
+    use crate::analysis::types::EdgeKind;
 
-    for pf in parsed_files {
-        let module_path = Rust.derive_module_path(&pf.file_path);
-        for sym in &pf.symbols {
-            let sid = sym.symbol_id();
-            let qn = QualifiedName::new(&module_path, &sym.name);
-            registry.register(qn, sid, &sym.kind, &sym.language);
-        }
+    // Extract name from SymbolId format "symbol:file_path:name:line"
+    fn extract_name(sid: &str) -> Option<&str> {
+        let s = sid.strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        Some(&before_last[second_last_colon + 1..])
     }
 
     let mut edges = Vec::new();
     for pf in parsed_files {
-        let module_path = Rust.derive_module_path(&pf.file_path);
-        for cont in &pf.containments {
-            let parent_qn = QualifiedName::new(&module_path, &cont.parent_name);
-            if registry.qualified_map.get(&parent_qn).is_some() {
-                let child = &pf.symbols[cont.child_symbol_idx];
-                edges.push((cont.parent_name.clone(), child.name.clone()));
-            } else {
-                panic!(
-                    "UNRESOLVABLE containment: parent '{}' (qualified '{}') \
-                     not found in registry for child '{}' in file '{}'. \
-                     Available qualified names: {:?}",
-                    cont.parent_name,
-                    parent_qn,
-                    pf.symbols[cont.child_symbol_idx].name,
-                    pf.file_path,
-                    registry
-                        .qualified_map
-                        .keys()
-                        .map(|k: &QualifiedName| k.as_str())
-                        .collect::<Vec<_>>()
-                );
+        for edge in &pf.edges {
+            if matches!(
+                edge.kind,
+                EdgeKind::HasField | EdgeKind::HasMethod | EdgeKind::HasMember
+            ) {
+                if let (Some(from_name), Some(to_name)) = (
+                    extract_name(edge.from.as_str()),
+                    extract_name(edge.to.as_str()),
+                ) {
+                    edges.push((from_name.to_string(), to_name.to_string()));
+                }
             }
         }
     }
@@ -917,18 +1022,6 @@ fn test_typeref_debug_all() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let refs: Vec<_> = parsed
-        .type_refs
-        .iter()
-        .map(|tr| {
-            (
-                &parsed.symbols[tr.from_symbol_idx].name,
-                &tr.type_name,
-                &tr.ref_kind,
-            )
-        })
-        .collect();
-
     // Expect:
     // update_server -> Server (ParamType, via &mut)
     // accept_direct -> Server (ParamType, direct)
@@ -936,44 +1029,29 @@ fn test_typeref_debug_all() {
     // route -> Request (ParamType, via &)
     // route -> Response (ReturnType)
     assert!(
-        refs.iter().any(|(name, ty, kind)| *name == "accept_direct"
-            && *ty == "Server"
-            && **kind == ReferenceType::ParamType),
-        "accept_direct should accept Server\nrefs: {:?}\nsymbols: {:?}",
-        refs,
-        parsed
-            .symbols
-            .iter()
-            .map(|s| (&s.name, s.start_line, s.end_line))
-            .collect::<Vec<_>>()
+        has_edge(&parsed, EdgeKind::ParamType, "accept_direct", "Server"),
+        "accept_direct should accept Server, got: {:?}",
+        edges_from(&parsed, EdgeKind::ParamType, "accept_direct")
     );
     assert!(
-        refs.iter().any(|(name, ty, kind)| *name == "update_server"
-            && *ty == "Server"
-            && **kind == ReferenceType::ParamType),
+        has_edge(&parsed, EdgeKind::ParamType, "update_server", "Server"),
         "update_server should accept Server, got: {:?}",
-        refs
+        edges_from(&parsed, EdgeKind::ParamType, "update_server")
     );
     assert!(
-        refs.iter().any(|(name, ty, kind)| *name == "get_server"
-            && *ty == "Server"
-            && **kind == ReferenceType::ReturnType),
+        has_edge(&parsed, EdgeKind::ReturnType, "get_server", "Server"),
         "get_server should return Server, got: {:?}",
-        refs
+        edges_from(&parsed, EdgeKind::ReturnType, "get_server")
     );
     assert!(
-        refs.iter().any(|(name, ty, kind)| *name == "route"
-            && *ty == "Request"
-            && **kind == ReferenceType::ParamType),
+        has_edge(&parsed, EdgeKind::ParamType, "route", "Request"),
         "route should accept Request, got: {:?}",
-        refs
+        edges_from(&parsed, EdgeKind::ParamType, "route")
     );
     assert!(
-        refs.iter().any(|(name, ty, kind)| *name == "route"
-            && *ty == "Response"
-            && **kind == ReferenceType::ReturnType),
+        has_edge(&parsed, EdgeKind::ReturnType, "route", "Response"),
         "route should return Response, got: {:?}",
-        refs
+        edges_from(&parsed, EdgeKind::ReturnType, "route")
     );
 }
 
@@ -983,26 +1061,11 @@ fn test_param_type_refs() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     // fn handle(&self, request: &Request) -> Response
-    // should produce Accepts edge from handle to Request
-    let handle_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "handle" && s.start_line == 20)
-        .expect("handle trait method should exist");
-
-    let has_request_param = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == handle_idx
-            && tr.type_name == "Request"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
+    // should produce ParamType edge from handle to Request
     assert!(
-        has_request_param,
-        "handle should have Accepts ref to Request, got type_refs: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == handle_idx)
-            .collect::<Vec<_>>()
+        has_edge(&parsed, EdgeKind::ParamType, "handle", "Request"),
+        "handle should have ParamType ref to Request, got: {:?}",
+        edges_from(&parsed, EdgeKind::ParamType, "handle")
     );
 }
 
@@ -1012,26 +1075,11 @@ fn test_return_type_refs() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     // fn handle(&self, request: &Request) -> Response
-    // should produce Returns edge from handle to Response
-    let handle_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "handle" && s.start_line == 20)
-        .expect("handle trait method should exist");
-
-    let has_response_return = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == handle_idx
-            && tr.type_name == "Response"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
+    // should produce ReturnType edge from handle to Response
     assert!(
-        has_response_return,
-        "handle should have Returns ref to Response, got type_refs: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == handle_idx)
-            .collect::<Vec<_>>()
+        has_edge(&parsed, EdgeKind::ReturnType, "handle", "Response"),
+        "handle should have ReturnType ref to Response, got: {:?}",
+        edges_from(&parsed, EdgeKind::ReturnType, "handle")
     );
 }
 
@@ -1042,25 +1090,10 @@ fn test_field_type_refs() {
 
     // struct Server { handlers: HashMap<String, Box<dyn Handler>> }
     // The field "handlers" should have a FieldType ref to Handler
-    let handlers_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "handlers" && s.kind == "field")
-        .expect("handlers field should exist");
-
-    let has_handler_ref = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == handlers_idx
-            && tr.type_name == "Handler"
-            && tr.ref_kind == ReferenceType::FieldType
-    });
     assert!(
-        has_handler_ref,
-        "handlers field should have FieldType ref to Handler, got type_refs: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == handlers_idx)
-            .collect::<Vec<_>>()
+        has_edge(&parsed, EdgeKind::FieldType, "handlers", "Handler"),
+        "handlers field should have FieldType ref to Handler, got: {:?}",
+        edges_from(&parsed, EdgeKind::FieldType, "handlers")
     );
 }
 
@@ -1070,25 +1103,15 @@ fn test_create_default_config_returns_response() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     // pub fn create_default_config() -> Response
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "create_default_config")
-        .expect("create_default_config should exist");
-
-    let has_response_return = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Response"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_response_return,
-        "create_default_config should return Response, got type_refs: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .collect::<Vec<_>>()
+        has_edge(
+            &parsed,
+            EdgeKind::ReturnType,
+            "create_default_config",
+            "Response"
+        ),
+        "create_default_config should return Response, got: {:?}",
+        edges_from(&parsed, EdgeKind::ReturnType, "create_default_config")
     );
 }
 
@@ -1098,29 +1121,10 @@ fn test_update_server_accepts_server() {
     let parsed = Rust::extract(&code, "src/server.rs");
 
     // pub fn update_server(server: &mut Server)
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "update_server")
-        .expect("update_server should exist");
-
-    let has_server_param = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Server"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
     assert!(
-        has_server_param,
-        "update_server should accept Server, got ALL type_refs: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .map(|tr| (
-                &parsed.symbols[tr.from_symbol_idx].name,
-                &tr.type_name,
-                &tr.ref_kind
-            ))
-            .collect::<Vec<_>>()
+        has_edge(&parsed, EdgeKind::ParamType, "update_server", "Server"),
+        "update_server should accept Server, got: {:?}",
+        edges_from(&parsed, EdgeKind::ParamType, "update_server")
     );
 }
 
@@ -1129,27 +1133,11 @@ fn test_scoped_call_qualifier_type_ref() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
-    // Server::new() at line 172 inside test_server_creation should produce Usage ref to Server
-    let test_fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "test_server_creation")
-        .expect("test_server_creation should exist");
-
-    let has_server_usage = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == test_fn_idx
-            && tr.type_name == "Server"
-            && tr.ref_kind == ReferenceType::Usage
-    });
+    // Server::new() at line 172 inside test_server_creation should produce TypeRef edge to Server
     assert!(
-        has_server_usage,
-        "test_server_creation should have Usage ref to Server from Server::new(), got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == test_fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        has_edge(&parsed, EdgeKind::TypeRef, "test_server_creation", "Server"),
+        "test_server_creation should have TypeRef to Server from Server::new(), got: {:?}",
+        edges_from(&parsed, EdgeKind::TypeRef, "test_server_creation")
     );
 }
 
@@ -1158,13 +1146,13 @@ fn test_scoped_call_qualifier_filters_self() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");
 
-    let has_self_usage = parsed
-        .type_refs
+    let has_self_ref = parsed
+        .edges
         .iter()
-        .any(|tr| tr.type_name == "Self" && tr.ref_kind == ReferenceType::Usage);
+        .any(|e| e.kind == EdgeKind::TypeRef && extract_name(e.to.as_str()) == Some("Self"));
     assert!(
-        !has_self_usage,
-        "Self::method() should not produce a Usage ref"
+        !has_self_ref,
+        "Self::method() should not produce a TypeRef edge"
     );
 }
 
@@ -1178,26 +1166,10 @@ fn test_generic_return_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "health")
-        .expect("health function should exist");
-
-    let has_health_response = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "HealthResponse"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_health_response,
+        has_edge(&parsed, EdgeKind::ReturnType, "health", "HealthResponse"),
         "health() -> Json<HealthResponse> should extract HealthResponse as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "health")
     );
 }
 
@@ -1207,26 +1179,10 @@ fn test_result_return_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "load_config")
-        .expect("load_config function should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ReturnType, "load_config", "Config"),
         "load_config() -> Result<Config, Error> should extract Config as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "load_config")
     );
 }
 
@@ -1236,26 +1192,10 @@ fn test_option_return_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "find_config")
-        .expect("find_config function should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ReturnType, "find_config", "Config"),
         "find_config() -> Option<Config> should extract Config as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "find_config")
     );
 }
 
@@ -1265,26 +1205,10 @@ fn test_generic_param_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "process_items")
-        .expect("process_items function should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ParamType, "process_items", "Config"),
         "process_items(items: Vec<Config>) should extract Config as ParamType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ParamType, "process_items")
     );
 }
 
@@ -1294,26 +1218,10 @@ fn test_ref_generic_param_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "process_items_ref")
-        .expect("process_items_ref function should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ParamType, "process_items_ref", "Config"),
         "process_items_ref(items: &Vec<Config>) should extract Config as ParamType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ParamType, "process_items_ref")
     );
 }
 
@@ -1323,26 +1231,10 @@ fn test_generic_field_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let field_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "db" && s.kind == "field")
-        .expect("db field should exist");
-
-    let has_database = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == field_idx
-            && tr.type_name == "Database"
-            && tr.ref_kind == ReferenceType::FieldType
-    });
     assert!(
-        has_database,
+        has_edge(&parsed, EdgeKind::FieldType, "db", "Database"),
         "AppState.db: Arc<Database> should extract Database as FieldType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == field_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::FieldType, "db")
     );
 }
 
@@ -1352,26 +1244,10 @@ fn test_nested_generic_return_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "get_shared_db")
-        .expect("get_shared_db function should exist");
-
-    let has_database = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Database"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_database,
+        has_edge(&parsed, EdgeKind::ReturnType, "get_shared_db", "Database"),
         "get_shared_db() -> Arc<Mutex<Database>> should extract Database as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "get_shared_db")
     );
 }
 
@@ -1381,26 +1257,10 @@ fn test_impl_method_generic_return_type_inner_arg() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let method_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "get_config" && s.kind == "function")
-        .expect("get_config method should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == method_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ReturnType, "get_config", "Config"),
         "AppState::get_config() -> Option<Config> should extract Config as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == method_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "get_config")
     );
 }
 
@@ -1414,26 +1274,10 @@ fn test_abstract_type_return() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "get_handler")
-        .expect("get_handler function should exist");
-
-    let has_handler = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Handler"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_handler,
+        has_edge(&parsed, EdgeKind::ReturnType, "get_handler", "Handler"),
         "get_handler() -> impl Handler should extract Handler as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "get_handler")
     );
 }
 
@@ -1443,26 +1287,10 @@ fn test_impl_method_abstract_type_return() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let method_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "get_service" && s.kind == "function")
-        .expect("get_service method should exist");
-
-    let has_service = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == method_idx
-            && tr.type_name == "Service"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_service,
+        has_edge(&parsed, EdgeKind::ReturnType, "get_service", "Service"),
         "AppState::get_service() -> impl Service should extract Service as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == method_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "get_service")
     );
 }
 
@@ -1476,26 +1304,10 @@ fn test_slice_param_type() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "process_slice")
-        .expect("process_slice function should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ParamType, "process_slice", "Config"),
         "process_slice(items: &[Config]) should extract Config as ParamType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ParamType, "process_slice")
     );
 }
 
@@ -1505,26 +1317,10 @@ fn test_array_param_type() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "process_array")
-        .expect("process_array function should exist");
-
-    let has_item = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Item"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
     assert!(
-        has_item,
+        has_edge(&parsed, EdgeKind::ParamType, "process_array", "Item"),
         "process_array(items: [Item; 5]) should extract Item as ParamType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ParamType, "process_array")
     );
 }
 
@@ -1534,26 +1330,10 @@ fn test_impl_method_slice_param_type() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let method_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "update_configs" && s.kind == "function")
-        .expect("update_configs method should exist");
-
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == method_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ParamType
-    });
     assert!(
-        has_config,
+        has_edge(&parsed, EdgeKind::ParamType, "update_configs", "Config"),
         "AppState::update_configs(configs: &[Config]) should extract Config as ParamType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == method_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ParamType, "update_configs")
     );
 }
 
@@ -1567,26 +1347,15 @@ fn test_dyn_trait_return_type() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "get_boxed_handler")
-        .expect("get_boxed_handler function should exist");
-
-    let has_handler = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Handler"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_handler,
+        has_edge(
+            &parsed,
+            EdgeKind::ReturnType,
+            "get_boxed_handler",
+            "Handler"
+        ),
         "get_boxed_handler() -> Box<dyn Handler> should extract Handler as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "get_boxed_handler")
     );
 }
 
@@ -1596,26 +1365,10 @@ fn test_dyn_trait_arc_return_type() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "get_arc_service")
-        .expect("get_arc_service function should exist");
-
-    let has_service = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Service"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_service,
+        has_edge(&parsed, EdgeKind::ReturnType, "get_arc_service", "Service"),
         "get_arc_service() -> Arc<dyn Service> should extract Service as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "get_arc_service")
     );
 }
 
@@ -1625,26 +1378,10 @@ fn test_impl_method_dyn_trait_return_type() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let method_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "try_operation" && s.kind == "function")
-        .expect("try_operation method should exist");
-
-    let has_dyn_error = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == method_idx
-            && tr.type_name == "DynError"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
     assert!(
-        has_dyn_error,
+        has_edge(&parsed, EdgeKind::ReturnType, "try_operation", "DynError"),
         "AppState::try_operation() -> Result<(), Box<dyn DynError>> should extract DynError as ReturnType, got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == method_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        edges_from(&parsed, EdgeKind::ReturnType, "try_operation")
     );
 }
 
@@ -1659,23 +1396,24 @@ fn test_builtin_types_filtered_from_return() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let builtin_refs: Vec<_> = parsed
-        .type_refs
+    let builtin_return_edges: Vec<_> = parsed
+        .edges
         .iter()
-        .filter(|tr| {
-            matches!(
-                tr.type_name.as_str(),
-                "Result" | "Option" | "Box" | "Vec" | "String" | "Arc"
-            ) && tr.ref_kind == ReferenceType::ReturnType
+        .filter(|e| {
+            e.kind == EdgeKind::ReturnType
+                && matches!(
+                    extract_name(e.to.as_str()),
+                    Some("Result" | "Option" | "Box" | "Vec" | "String" | "Arc")
+                )
         })
         .collect();
 
     assert!(
-        builtin_refs.is_empty(),
+        builtin_return_edges.is_empty(),
         "Built-in types should be filtered from return type refs, found: {:?}",
-        builtin_refs
+        builtin_return_edges
             .iter()
-            .map(|tr| &tr.type_name)
+            .filter_map(|e| extract_name(e.to.as_str()))
             .collect::<Vec<_>>()
     );
 }
@@ -1686,23 +1424,24 @@ fn test_builtin_types_filtered_from_params() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let builtin_refs: Vec<_> = parsed
-        .type_refs
+    let builtin_param_edges: Vec<_> = parsed
+        .edges
         .iter()
-        .filter(|tr| {
-            matches!(
-                tr.type_name.as_str(),
-                "String" | "Vec" | "HashMap" | "Option" | "Result"
-            ) && tr.ref_kind == ReferenceType::ParamType
+        .filter(|e| {
+            e.kind == EdgeKind::ParamType
+                && matches!(
+                    extract_name(e.to.as_str()),
+                    Some("String" | "Vec" | "HashMap" | "Option" | "Result")
+                )
         })
         .collect();
 
     assert!(
-        builtin_refs.is_empty(),
+        builtin_param_edges.is_empty(),
         "Built-in types should be filtered from param type refs, found: {:?}",
-        builtin_refs
+        builtin_param_edges
             .iter()
-            .map(|tr| &tr.type_name)
+            .filter_map(|e| extract_name(e.to.as_str()))
             .collect::<Vec<_>>()
     );
 }
@@ -1713,21 +1452,24 @@ fn test_builtin_types_filtered_from_fields() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let builtin_refs: Vec<_> = parsed
-        .type_refs
+    let builtin_field_edges: Vec<_> = parsed
+        .edges
         .iter()
-        .filter(|tr| {
-            matches!(tr.type_name.as_str(), "String" | "u16" | "bool" | "i32")
-                && tr.ref_kind == ReferenceType::FieldType
+        .filter(|e| {
+            e.kind == EdgeKind::FieldType
+                && matches!(
+                    extract_name(e.to.as_str()),
+                    Some("String" | "u16" | "bool" | "i32")
+                )
         })
         .collect();
 
     assert!(
-        builtin_refs.is_empty(),
+        builtin_field_edges.is_empty(),
         "Built-in types should be filtered from field type refs, found: {:?}",
-        builtin_refs
+        builtin_field_edges
             .iter()
-            .map(|tr| &tr.type_name)
+            .filter_map(|e| extract_name(e.to.as_str()))
             .collect::<Vec<_>>()
     );
 }
@@ -1738,26 +1480,111 @@ fn test_user_types_preserved_when_builtins_filtered() {
     let code = load_testdata("typeref.rs");
     let parsed = Rust::extract(&code, "src/typeref.rs");
 
-    let fn_idx = parsed
-        .symbols
-        .iter()
-        .position(|s| s.name == "load_config")
-        .expect("load_config function should exist");
+    assert!(
+        has_edge(&parsed, EdgeKind::ReturnType, "load_config", "Config"),
+        "load_config() -> Result<Config, Error> should extract Config (user type), got: {:?}",
+        edges_from(&parsed, EdgeKind::ReturnType, "load_config")
+    );
+}
 
-    let has_config = parsed.type_refs.iter().any(|tr| {
-        tr.from_symbol_idx == fn_idx
-            && tr.type_name == "Config"
-            && tr.ref_kind == ReferenceType::ReturnType
-    });
+// ============================================================================
+// Edge-based semantic relationship tests (new architecture)
+// ============================================================================
+
+#[test]
+fn test_impl_methods_emit_has_method_edges() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // impl Server has methods: new, register, start, listen, route
+    let has_method_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMethod)
+        .collect();
+
+    // Server impl (5 methods) + Container<T> impl (3 methods) + trait impls
+    assert!(
+        has_method_edges.len() >= 5,
+        "impl Server should emit at least 5 HasMethod edges, got: {}",
+        has_method_edges.len()
+    );
+
+    // Verify Server's methods are in there
+    let server_methods: Vec<&str> = has_method_edges
+        .iter()
+        .filter(|e| e.from.as_str().contains("Server"))
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
+        .collect();
+
+    assert!(server_methods.contains(&"new"), "should have edge to 'new'");
+    assert!(
+        server_methods.contains(&"start"),
+        "should have edge to 'start'"
+    );
+    assert!(
+        server_methods.contains(&"register"),
+        "should have edge to 'register'"
+    );
+}
+
+#[test]
+fn test_struct_fields_emit_has_field_edges() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // struct Server { host, port, handlers }
+    let server_field_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasField && e.from.as_str().contains("Server"))
+        .collect();
+
+    assert_eq!(
+        server_field_edges.len(),
+        3,
+        "struct Server should emit 3 HasField edges, got: {:?}",
+        server_field_edges
+    );
+
+    let field_names: Vec<&str> = server_field_edges
+        .iter()
+        .filter_map(|e| e.to.as_str().split(':').nth(2))
+        .collect();
+
+    assert!(field_names.contains(&"host"), "should have edge to 'host'");
+    assert!(field_names.contains(&"port"), "should have edge to 'port'");
+    assert!(
+        field_names.contains(&"handlers"),
+        "should have edge to 'handlers'"
+    );
+}
+
+#[test]
+fn test_trait_impl_emits_implements_edge() {
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    // impl Middleware for Server, impl Handler for Container<T>, etc.
+    let implements_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Implements)
+        .collect();
 
     assert!(
-        has_config,
-        "load_config() -> Result<Config, Error> should extract Config (user type), got: {:?}",
-        parsed
-            .type_refs
-            .iter()
-            .filter(|tr| tr.from_symbol_idx == fn_idx)
-            .map(|tr| (&tr.type_name, &tr.ref_kind))
-            .collect::<Vec<_>>()
+        !implements_edges.is_empty(),
+        "should have Implements edges for trait impls"
+    );
+
+    // Find the Server -> Middleware edge
+    let server_middleware = implements_edges
+        .iter()
+        .find(|e| e.from.as_str().contains("Server") && e.to.as_str().contains("Middleware"));
+
+    assert!(
+        server_middleware.is_some(),
+        "should have Server implements Middleware edge, got: {:?}",
+        implements_edges
     );
 }

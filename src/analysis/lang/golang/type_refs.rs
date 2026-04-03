@@ -3,10 +3,10 @@
 //! Extracts type references from function parameters, returns, struct fields,
 //! type assertions, composite literals, and variable declarations.
 
-use crate::analysis::types::{ParsedFile, RawTypeRef, ReferenceType};
+use crate::analysis::types::{EdgeKind, ParsedFile, RawEdge, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
-use super::helpers::{find_enclosing_symbol_idx, find_symbol_idx, is_go_builtin};
+use super::helpers::{find_enclosing_symbol_id, find_symbol_id, is_go_builtin};
 
 const TYPE_REF_QUERIES: &str = include_str!("queries/type_refs.scm");
 
@@ -342,20 +342,24 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ParamType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ParamType,
                     });
                 }
             }
         }
 
-        // Process method receiver types (receiver is like first param -> Accepts edge)
+        // Process method receiver types (receiver is like first param -> ParamType edge)
         for &(def_key, fn_key, type_key) in method_recv_patterns {
             if captures.contains_key(def_key)
                 && let Some(&fn_node) = captures.get(fn_key)
@@ -363,14 +367,18 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ParamType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ParamType,
                     });
                 }
             }
@@ -384,14 +392,18 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ParamType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ParamType,
                     });
                 }
             }
@@ -405,14 +417,18 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ReturnType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ReturnType,
                     });
                 }
             }
@@ -426,14 +442,18 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ReturnType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ReturnType,
                     });
                 }
             }
@@ -466,14 +486,18 @@ pub fn extract_type_refs(
                 // Glob import resolution will find it via pkg::common::Result
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ReturnType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ReturnType,
                     });
                 }
             }
@@ -487,17 +511,18 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) = find_symbol_idx(
+                    && let Some(from_id) = find_symbol_id(
                         parsed,
+                        file_path,
                         text(field_node),
                         field_node.start_position().row + 1,
                     )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::FieldType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::FieldType,
                     });
                 }
             }
@@ -511,14 +536,18 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ParamType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ParamType,
                     });
                 }
             }
@@ -532,21 +561,25 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_symbol_idx(parsed, text(fn_node), fn_node.start_position().row + 1)
+                    && let Some(from_id) = find_symbol_id(
+                        parsed,
+                        file_path,
+                        text(fn_node),
+                        fn_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::ReturnType,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::ReturnType,
                     });
                 }
             }
         }
 
-        // Process type assertions (Usage edges)
-        // Type assertions like x.(*Config) or x.(pkg.Type) create Usage refs
+        // Process type assertions (TypeRef edges)
+        // Type assertions like x.(*Config) or x.(pkg.Type) create TypeRef edges
         let type_assert_patterns: &[(&str, &str)] = &[
             ("type_assert_direct_def", "type_assert_direct_type"),
             ("type_assert_ptr_def", "type_assert_ptr_type"),
@@ -561,21 +594,24 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_enclosing_symbol_idx(parsed, def_node.start_position().row + 1)
+                    && let Some(from_id) = find_enclosing_symbol_id(
+                        parsed,
+                        file_path,
+                        def_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::Usage,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::TypeRef,
                     });
                 }
             }
         }
 
-        // Process composite literals (Usage edges)
-        // Composite literals like MyType{} or &pkg.Type{} create Usage refs
+        // Process composite literals (TypeRef edges)
+        // Composite literals like MyType{} or &pkg.Type{} create TypeRef edges
         let composite_patterns: &[(&str, &str)] = &[
             ("composite_direct_def", "composite_direct_type"),
             ("composite_ptr_def", "composite_ptr_type"),
@@ -594,21 +630,24 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_enclosing_symbol_idx(parsed, def_node.start_position().row + 1)
+                    && let Some(from_id) = find_enclosing_symbol_id(
+                        parsed,
+                        file_path,
+                        def_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::Usage,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::TypeRef,
                     });
                 }
             }
         }
 
-        // Process variable declarations (TypeAnnotation edges)
-        // Variable declarations like `var x MyType` create TypeAnnotation refs
+        // Process variable declarations (TypeRef edges)
+        // Variable declarations like `var x MyType` create TypeRef edges
         let var_decl_patterns: &[(&str, &str)] = &[
             ("var_direct_def", "var_direct_type"),
             ("var_ptr_def", "var_ptr_type"),
@@ -628,14 +667,17 @@ pub fn extract_type_refs(
             {
                 let type_name = text(type_node);
                 if !is_go_builtin(type_name)
-                    && let Some(idx) =
-                        find_enclosing_symbol_idx(parsed, def_node.start_position().row + 1)
+                    && let Some(from_id) = find_enclosing_symbol_id(
+                        parsed,
+                        file_path,
+                        def_node.start_position().row + 1,
+                    )
                 {
-                    parsed.type_refs.push(RawTypeRef {
-                        file_path: file_path.to_string(),
-                        from_symbol_idx: idx,
-                        type_name: type_name.to_string(),
-                        ref_kind: ReferenceType::TypeAnnotation,
+                    let to_id = SymbolId::new(file_path, type_name, 0);
+                    parsed.edges.push(RawEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::TypeRef,
                     });
                 }
             }

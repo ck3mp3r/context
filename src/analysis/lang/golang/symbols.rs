@@ -4,12 +4,11 @@
 //! variables, etc.) and their relationships (calls, imports, containment).
 
 use crate::analysis::types::{
-    CallForm, ImportEntry, InheritanceType, ParsedFile, RawCall, RawContainment, RawHeritage,
-    RawImport, RawSymbol, RawWriteAccess,
+    EdgeKind, ImportEntry, ParsedFile, RawEdge, RawImport, RawSymbol, RawWriteAccess, SymbolId,
 };
 use tree_sitter::Query;
 
-use super::helpers::go_visibility;
+use super::helpers::{find_enclosing_symbol_id, go_visibility};
 
 /// Process a single tree-sitter query match for symbol extraction.
 pub fn process_match(
@@ -152,16 +151,24 @@ pub fn process_match(
 
     // Heritage — struct embedding (anonymous fields)
     if captures.contains_key("heritage_def")
+        && let Some(&heritage_node) = captures.get("heritage_def")
         && let (Some(&class_node), Some(&extends_node)) = (
             captures.get("heritage_class"),
             captures.get("heritage_extends"),
         )
     {
-        parsed.heritage.push(RawHeritage {
-            file_path: file_path.to_string(),
-            type_name: text(class_node).to_string(),
-            parent_name: text(extends_node).to_string(),
-            kind: InheritanceType::Extends,
+        let type_name = text(class_node).to_string();
+        let parent_name = text(extends_node).to_string();
+        let struct_start_line = heritage_node.start_position().row + 1;
+
+        // Emit Extends edge: type -> parent
+        // Use struct's line for from, 0 for to (parent needs resolution)
+        let from_id = SymbolId::new(file_path, &type_name, struct_start_line);
+        let to_id = SymbolId::new(file_path, &parent_name, 0);
+        parsed.edges.push(RawEdge {
+            from: from_id,
+            to: to_id,
+            kind: EdgeKind::Extends,
         });
         return;
     }
@@ -170,23 +177,35 @@ pub fn process_match(
     if let Some(&node) = captures.get("field_def")
         && let Some(&name_node) = captures.get("field_name")
     {
-        let idx = parsed.symbols.len();
+        let field_name = text(name_node).to_string();
+        let field_start_line = node.start_position().row + 1;
+
         parsed.symbols.push(RawSymbol {
-            name: text(name_node).to_string(),
+            name: field_name.clone(),
             kind: "field".to_string(),
             file_path: file_path.to_string(),
-            start_line: node.start_position().row + 1,
+            start_line: field_start_line,
             end_line: node.end_position().row + 1,
             signature: None,
             language: "go".to_string(),
             visibility: None,
             entry_type: None,
         });
-        if let Some(&parent_node) = captures.get("field_parent") {
-            parsed.containments.push(RawContainment {
-                file_path: file_path.to_string(),
-                parent_name: text(parent_node).to_string(),
-                child_symbol_idx: idx,
+
+        // Emit HasField edge: struct -> field
+        if let Some(&struct_node) = captures.get("field_struct")
+            && let Some(&parent_node) = captures.get("field_parent")
+        {
+            let struct_start_line = struct_node.start_position().row + 1;
+            let struct_name = text(parent_node).to_string();
+
+            let from_id = SymbolId::new(file_path, &struct_name, struct_start_line);
+            let to_id = SymbolId::new(file_path, &field_name, field_start_line);
+
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::HasField,
             });
         }
         return;
@@ -197,23 +216,35 @@ pub fn process_match(
         && let Some(&name_node) = captures.get("iface_method_name")
         && let Some(&parent_node) = captures.get("iface_method_parent")
     {
-        let idx = parsed.symbols.len();
+        let method_name = text(name_node).to_string();
+        let method_start_line = node.start_position().row + 1;
+
         parsed.symbols.push(RawSymbol {
-            name: text(name_node).to_string(),
+            name: method_name.clone(),
             kind: "function".to_string(),
             file_path: file_path.to_string(),
-            start_line: node.start_position().row + 1,
+            start_line: method_start_line,
             end_line: node.end_position().row + 1,
             signature: None,
             language: "go".to_string(),
             visibility: None,
             entry_type: None,
         });
-        parsed.containments.push(RawContainment {
-            file_path: file_path.to_string(),
-            parent_name: text(parent_node).to_string(),
-            child_symbol_idx: idx,
-        });
+
+        // Emit HasMethod edge: interface -> method
+        if let Some(&iface_node) = captures.get("iface_method_interface") {
+            let iface_start_line = iface_node.start_position().row + 1;
+            let iface_name = text(parent_node).to_string();
+
+            let from_id = SymbolId::new(file_path, &iface_name, iface_start_line);
+            let to_id = SymbolId::new(file_path, &method_name, method_start_line);
+
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::HasMethod,
+            });
+        }
         return;
     }
 
@@ -264,15 +295,16 @@ pub fn process_match(
         && let Some(&name_node) = captures.get("call_free_name")
     {
         let call_node = captures["call_free"];
-        parsed.calls.push(RawCall {
-            file_path: file_path.to_string(),
-            call_site_line: call_node.start_position().row + 1,
-            callee_name: text(name_node).to_string(),
-            call_form: CallForm::Free,
-            receiver: None,
-            qualifier: None,
-            enclosing_symbol_idx: None,
-        });
+        let call_line = call_node.start_position().row + 1;
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
+            let callee_name = text(name_node);
+            let callee_id = SymbolId::new(file_path, callee_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id,
+                to: callee_id,
+                kind: EdgeKind::Calls,
+            });
+        }
         return;
     }
 
@@ -281,18 +313,29 @@ pub fn process_match(
         && let Some(&name_node) = captures.get("call_selector_name")
     {
         let call_node = captures["call_selector"];
-        let operand = captures
-            .get("call_selector_operand")
-            .map(|n| text(*n).to_string());
-        parsed.calls.push(RawCall {
-            file_path: file_path.to_string(),
-            call_site_line: call_node.start_position().row + 1,
-            callee_name: text(name_node).to_string(),
-            call_form: CallForm::Scoped,
-            receiver: operand.clone(),
-            qualifier: operand,
-            enclosing_symbol_idx: None,
-        });
+        let call_line = call_node.start_position().row + 1;
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
+            let callee_name = text(name_node);
+            let callee_id = SymbolId::new(file_path, callee_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id.clone(),
+                to: callee_id,
+                kind: EdgeKind::Calls,
+            });
+            // Also emit TypeRef for the qualifier (package/receiver)
+            if let Some(&operand_node) = captures.get("call_selector_operand") {
+                let operand = text(operand_node);
+                // Only emit if it looks like a type (starts uppercase)
+                if operand.chars().next().is_some_and(|c| c.is_uppercase()) {
+                    let type_id = SymbolId::new(file_path, operand, 0);
+                    parsed.edges.push(RawEdge {
+                        from: caller_id,
+                        to: type_id,
+                        kind: EdgeKind::TypeRef,
+                    });
+                }
+            }
+        }
         return;
     }
 
@@ -301,15 +344,16 @@ pub fn process_match(
         && let Some(&type_node) = captures.get("composite_type")
     {
         let lit_node = captures["composite_lit"];
-        parsed.calls.push(RawCall {
-            file_path: file_path.to_string(),
-            call_site_line: lit_node.start_position().row + 1,
-            callee_name: text(type_node).to_string(),
-            call_form: CallForm::Free,
-            receiver: None,
-            qualifier: None,
-            enclosing_symbol_idx: None,
-        });
+        let call_line = lit_node.start_position().row + 1;
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
+            let callee_name = text(type_node);
+            let callee_id = SymbolId::new(file_path, callee_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id,
+                to: callee_id,
+                kind: EdgeKind::Calls,
+            });
+        }
         return;
     }
 
@@ -318,16 +362,26 @@ pub fn process_match(
         && let Some(&type_node) = captures.get("composite_qual_type")
     {
         let lit_node = captures["composite_qual_lit"];
-        let qualifier = captures.get("composite_pkg").map(|n| text(*n).to_string());
-        parsed.calls.push(RawCall {
-            file_path: file_path.to_string(),
-            call_site_line: lit_node.start_position().row + 1,
-            callee_name: text(type_node).to_string(),
-            call_form: CallForm::Scoped,
-            receiver: None,
-            qualifier,
-            enclosing_symbol_idx: None,
-        });
+        let call_line = lit_node.start_position().row + 1;
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
+            let callee_name = text(type_node);
+            let callee_id = SymbolId::new(file_path, callee_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id.clone(),
+                to: callee_id,
+                kind: EdgeKind::Calls,
+            });
+            // Also emit TypeRef for the package qualifier
+            if let Some(&pkg_node) = captures.get("composite_pkg") {
+                let pkg_name = text(pkg_node);
+                let pkg_id = SymbolId::new(file_path, pkg_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: pkg_id,
+                    kind: EdgeKind::TypeRef,
+                });
+            }
+        }
         return;
     }
 
@@ -337,15 +391,16 @@ pub fn process_match(
         && let Some(&name_node) = captures.get("func_ref_name")
     {
         let call_node = captures["func_ref_call"];
-        parsed.calls.push(RawCall {
-            file_path: file_path.to_string(),
-            call_site_line: call_node.start_position().row + 1,
-            callee_name: text(name_node).to_string(),
-            call_form: CallForm::Free,
-            receiver: None,
-            qualifier: None,
-            enclosing_symbol_idx: None,
-        });
+        let call_line = call_node.start_position().row + 1;
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
+            let callee_name = text(name_node);
+            let callee_id = SymbolId::new(file_path, callee_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id,
+                to: callee_id,
+                kind: EdgeKind::Calls,
+            });
+        }
         return;
     }
 
@@ -356,15 +411,24 @@ pub fn process_match(
         && let Some(&pkg_node) = captures.get("func_ref_qual_pkg")
     {
         let call_node = captures["func_ref_qual_call"];
-        parsed.calls.push(RawCall {
-            file_path: file_path.to_string(),
-            call_site_line: call_node.start_position().row + 1,
-            callee_name: text(name_node).to_string(),
-            call_form: CallForm::Scoped,
-            receiver: None,
-            qualifier: Some(text(pkg_node).to_string()),
-            enclosing_symbol_idx: None,
-        });
+        let call_line = call_node.start_position().row + 1;
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
+            let callee_name = text(name_node);
+            let callee_id = SymbolId::new(file_path, callee_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id.clone(),
+                to: callee_id,
+                kind: EdgeKind::Calls,
+            });
+            // Also emit TypeRef for the package qualifier
+            let pkg_name = text(pkg_node);
+            let pkg_id = SymbolId::new(file_path, pkg_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id,
+                to: pkg_id,
+                kind: EdgeKind::TypeRef,
+            });
+        }
         return;
     }
 
