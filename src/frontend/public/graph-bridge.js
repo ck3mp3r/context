@@ -7,63 +7,80 @@
   // Store active graph instances by container ID
   var instances = {};
 
-  // Kind-to-color mapping (Catppuccin Mocha palette)
-  var kindColors = {
-    "function": "#89b4fa",    // blue
-    "method":   "#89b4fa",    // blue
-    "command":  "#89b4fa",    // blue
-    "struct":   "#a6e3a1",    // green
-    "enum":     "#f9e2af",    // yellow
-    "trait":    "#cba6f7",    // mauve
-    "interface":"#cba6f7",    // mauve
-    "module":   "#fab387",    // peach
-    "mod":      "#fab387",    // peach
-    "constant": "#f2cdcd",    // flamingo
-    "const":    "#f2cdcd",    // flamingo
-    "static":   "#f38ba8",    // red
-    "var":      "#f38ba8",    // red
-    "type_alias":"#94e2d5",   // teal
-    "type":     "#94e2d5",    // teal
-    "macro":    "#f5c2e7",    // pink
-    "alias":    "#eba0ac",    // maroon
-    "extern":   "#74c7ec",    // sapphire
-  };
-  var defaultColor = "#a6adc8"; // subtext0
+  // Helper to read CSS variable from :root
+  function getCssVar(name, fallback) {
+    var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
 
-  // Entry type border colors (Catppuccin Mocha palette)
-  var entryTypeBorderColors = {
-    "main":      "#a6e3a1",   // green - application entry points
-    "test":      "#f9e2af",   // yellow - test functions
-    "export":    "#74c7ec",   // sapphire - exported/FFI symbols
-    "init":      "#fab387",   // peach - initialization functions
-    "benchmark": "#cba6f7",   // mauve - benchmark functions
-    "example":   "#94e2d5",   // teal - example functions
+  // Kind-to-CSS-variable mapping
+  var kindColorVars = {
+    "function": "--ctp-blue",
+    "method":   "--ctp-blue",
+    "command":  "--ctp-blue",
+    "struct":   "--ctp-green",
+    "enum":     "--ctp-yellow",
+    "trait":    "--ctp-mauve",
+    "interface":"--ctp-mauve",
+    "module":   "--ctp-peach",
+    "mod":      "--ctp-peach",
+    "constant": "--ctp-flamingo",
+    "const":    "--ctp-flamingo",
+    "static":   "--ctp-red",
+    "var":      "--ctp-red",
+    "type_alias":"--ctp-teal",
+    "type":     "--ctp-teal",
+    "macro":    "--ctp-pink",
+    "alias":    "--ctp-maroon",
+    "extern":   "--ctp-sapphire",
+  };
+
+  // Entry type border color CSS variables
+  var entryTypeBorderVars = {
+    "main":      "--ctp-green",
+    "test":      "--ctp-yellow",
+    "export":    "--ctp-sapphire",
+    "init":      "--ctp-peach",
+    "benchmark": "--ctp-mauve",
+    "example":   "--ctp-teal",
+  };
+
+  // Edge type-to-CSS-variable mapping
+  var edgeColorVars = {
+    "Calls":          "--ctp-blue",
+    "Uses":           "--ctp-yellow",
+    "Returns":        "--ctp-green",
+    "Accepts":        "--ctp-teal",
+    "FieldType":      "--ctp-pink",
+    "TypeAnnotation": "--ctp-peach",
+    "Inherits":       "--ctp-mauve",
+    "Import":         "--ctp-sapphire",
+    "Contains":       "--ctp-surface2",
   };
 
   function kindColor(kind) {
-    return kindColors[kind] || defaultColor;
+    var varName = kindColorVars[kind] || "--ctp-subtext0";
+    return getCssVar(varName, "#888888");
   }
 
   function entryTypeBorderColor(entryType) {
-    return entryTypeBorderColors[entryType] || null;
+    var varName = entryTypeBorderVars[entryType];
+    return varName ? getCssVar(varName, null) : null;
   }
 
-  // Edge type-to-color mapping (Catppuccin Mocha palette)
-  var edgeColors = {
-    "Calls":          "#89b4fa",  // blue
-    "Uses":           "#f9e2af",  // yellow
-    "Returns":        "#a6e3a1",  // green
-    "Accepts":        "#94e2d5",  // teal
-    "FieldType":      "#f5c2e7",  // pink
-    "TypeAnnotation": "#fab387",  // peach
-    "Inherits":       "#cba6f7",  // mauve
-    "Import":         "#74c7ec",  // sapphire
-    "Contains":       "#585b70",  // surface2 (subtle)
-  };
-  var defaultEdgeColor = "#585b70"; // surface2
-
   function edgeColor(edgeType) {
-    return edgeColors[edgeType] || defaultEdgeColor;
+    var varName = edgeColorVars[edgeType] || "--ctp-surface2";
+    return getCssVar(varName, "#585b70");
+  }
+
+  // Get current theme colors for UI elements
+  function getThemeColors() {
+    return {
+      text: getCssVar("--ctp-text", "#cdd6f4"),
+      surface0: getCssVar("--ctp-surface0", "#313244"),
+      surface2: getCssVar("--ctp-surface2", "#585b70"),
+      overlay0: getCssVar("--ctp-overlay0", "#6c7086"),
+    };
   }
 
   // N-hop BFS from a node
@@ -158,34 +175,48 @@
         console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
       }
 
+      // Get theme colors at render time
+      var themeColors = getThemeColors();
+
       // Create renderer
       var renderer = new Sigma(graph, container, {
         renderLabels: true,
         labelSize: 11,
-        labelColor: { color: "#cdd6f4" },
+        labelColor: { color: themeColors.text },
         labelFont: "ui-monospace, monospace",
         labelRenderedSizeThreshold: 6,
         labelDensity: 0.5,
-        defaultEdgeColor: "#585b70",
+        defaultEdgeColor: themeColors.surface2,
         defaultEdgeType: "arrow",
         edgeLabelSize: 10,
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
         stagePadding: 40,
-        // Custom hover: show qualified name as label
+        // Hover label styling (theme-aware)
         defaultDrawNodeHover: function(context, data, settings) {
-          var label = data.qualifiedName || data.label;
+          var label = data.label;
           if (!label) return;
+
+          // Get fresh theme colors (in case theme changed)
+          var colors = getThemeColors();
 
           var size = settings.labelSize || 11;
           var font = settings.labelFont || "ui-monospace, monospace";
-          context.font = size + "px " + font;
+          context.font = "bold " + size + "px " + font;
 
           var x = data.x + data.size + 3;
           var y = data.y + size / 3;
 
-          // Just draw the text, no background box
-          context.fillStyle = settings.labelColor?.color || "#cdd6f4";
+          // Measure text for background
+          var textWidth = context.measureText(label).width;
+          var padding = 4;
+
+          // Draw background
+          context.fillStyle = colors.surface0;
+          context.fillRect(x - padding, y - size, textWidth + padding * 2, size + padding);
+
+          // Draw text
+          context.fillStyle = colors.text;
           context.fillText(label, x, y);
         },
       });
@@ -259,7 +290,7 @@
           var nodeSize = renderer.scaleSize(attrs.size);
 
           // Get outline color for entry type
-          var outlineColor = entryTypeBorderColor(entryType) || "#89b4fa";
+          var outlineColor = entryTypeBorderColor(entryType) || getCssVar("--ctp-blue", "#89b4fa");
 
           // Draw circle outline matching the node size exactly
           ctx.strokeStyle = outlineColor;
@@ -353,6 +384,9 @@
         var nodeIsTest = graph.getNodeAttribute(node, "isTest");
         var nodeEntryType = graph.getNodeAttribute(node, "entryType");
 
+        // Get dimmed color from theme
+        var dimColor = getThemeColors().surface0;
+
         // Focus filter: hide nodes not in focused subgraph
         if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) {
           res.hidden = true;
@@ -408,7 +442,7 @@
 
         // Search highlighting: dim non-matching nodes
         if (inst.searchMatches && !inst.searchMatches.has(node)) {
-          res.color = "#313244";
+          res.color = dimColor;
           res.label = "";
           return res;
         }
@@ -418,7 +452,7 @@
 
         // Hover dimming (only when not in focus mode and no active search)
         if (!inst.focusedNode && hoveredNode && hoveredNode !== node && !hoveredNeighbors.has(node)) {
-          res.color = "#313244";
+          res.color = dimColor;
           res.label = "";
         }
         if (hoveredNode === node) {

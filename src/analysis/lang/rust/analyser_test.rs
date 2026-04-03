@@ -82,6 +82,55 @@ fn test_server_methods_and_containment() {
 }
 
 #[test]
+fn test_impl_node_captured_for_method() {
+    use tree_sitter::StreamingIterator;
+
+    // Verify that the impl_item node is captured alongside method definitions
+    // so we can compute the impl's SymbolId for containment
+    let code = "struct Server {}\n\nimpl Server {\n    fn start(&self) {}\n}\n";
+
+    let language = Rust::grammar();
+    let query = tree_sitter::Query::new(&language, Rust::queries()).unwrap();
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&language).unwrap();
+    let tree = parser.parse(code, None).unwrap();
+
+    let mut cursor = tree_sitter::QueryCursor::new();
+    let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+    // Find the match that has method_def
+    let mut found_impl_line = None;
+    while let Some(m) = matches.next() {
+        let has_method_def = m
+            .captures
+            .iter()
+            .any(|c| query.capture_names()[c.index as usize] == "method_def");
+
+        if has_method_def {
+            // Check that method_impl is also captured
+            if let Some(impl_capture) = m
+                .captures
+                .iter()
+                .find(|c| query.capture_names()[c.index as usize] == "method_impl")
+            {
+                found_impl_line = Some(impl_capture.node.start_position().row + 1);
+                break;
+            }
+        }
+    }
+
+    assert!(
+        found_impl_line.is_some(),
+        "impl_item should be captured as @method_impl alongside @method_def"
+    );
+    assert_eq!(
+        found_impl_line.unwrap(),
+        3,
+        "impl block should start on line 3"
+    );
+}
+
+#[test]
 fn test_server_heritage() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");

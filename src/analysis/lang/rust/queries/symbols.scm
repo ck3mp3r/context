@@ -87,7 +87,7 @@
         (function_item
             name: (identifier) @method_name
             parameters: (parameters) @method_params
-            return_type: (_)? @method_ret) @method_def))
+            return_type: (_)? @method_ret) @method_def)) @method_impl
 
 ;;; method inside impl — generic impl type
 (impl_item
@@ -97,7 +97,7 @@
         (function_item
             name: (identifier) @method_name
             parameters: (parameters) @method_params
-            return_type: (_)? @method_ret) @method_def))
+            return_type: (_)? @method_ret) @method_def)) @method_impl
 
 ;;; struct field declarations (with parent struct for containment)
 (struct_item
