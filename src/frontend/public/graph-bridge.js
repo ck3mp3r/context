@@ -111,8 +111,14 @@
       var data = JSON.parse(graphDataJson);
       var graph = new graphology.Graph({ multi: true, type: "directed" });
 
+      // Build entry type lookup (Sigma's draw functions may not receive custom attributes)
+      var nodeEntryTypes = {};
+
       // Add nodes with random initial positions (layout done client-side)
       (data.nodes || []).forEach(function(node) {
+        if (node.entry_type) {
+          nodeEntryTypes[node.id] = node.entry_type;
+        }
         graph.addNode(node.id, {
           label: node.label,
           qualifiedName: node.qualified_name || node.label,
@@ -175,33 +181,44 @@
           var padding = 4;
           var x = data.x + data.size + 3;
           var y = data.y + size / 3;
+
+          // Get entryType from lookup using node key
+          var entryType = nodeEntryTypes[data.key];
+
+          // Calculate total width including indicator if present
+          var indicator = "";
+          if (entryType) {
+            indicator = entryType === "main" ? "▶ " :
+                       entryType === "test" ? "🧪 " :
+                       entryType === "export" ? "📤 " :
+                       entryType === "init" ? "⚡ " :
+                       entryType === "benchmark" ? "⏱ " :
+                       entryType === "example" ? "📖 " : "";
+          }
+          var indicatorWidth = indicator ? context.measureText(indicator).width : 0;
+          var totalWidth = indicatorWidth + textWidth;
+
           // Draw background
           context.fillStyle = "#181825";
           context.fillRect(
             x - padding / 2,
             y - size + 1,
-            textWidth + padding,
+            totalWidth + padding,
             size + 2
           );
+
           // Draw entry type indicator before label
-          var entryType = data.entryType;
-          if (entryType) {
-            var indicator = entryType === "main" ? "▶" :
-                           entryType === "test" ? "🧪" :
-                           entryType === "export" ? "📤" :
-                           entryType === "init" ? "⚡" :
-                           entryType === "benchmark" ? "⏱" :
-                           entryType === "example" ? "📖" : "";
-            if (indicator) {
-              var indicatorColor = entryTypeBorderColor(entryType) || "#cdd6f4";
-              context.fillStyle = indicatorColor;
-              context.fillText(indicator, x, y);
-              x += context.measureText(indicator + " ").width;
-            }
+          if (indicator) {
+            var indicatorColor = entryTypeBorderColor(entryType) || "#cdd6f4";
+            context.fillStyle = indicatorColor;
+            context.fillText(indicator, x, y);
+            x += indicatorWidth;
           }
+
           // Draw text
           context.fillStyle = "#cdd6f4";
           context.fillText(data.label, x, y);
+        },
         },
         defaultDrawNodeHover: function(context, data, settings) {
           // Draw enlarged node circle
