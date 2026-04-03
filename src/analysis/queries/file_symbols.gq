@@ -7,6 +7,6 @@ query file_symbols($path: String)
     $s: Symbol
     $f fileContains $s
   }
-  return { $s.name, $s.kind, $s.visibility, $s.start_line, $s.end_line, $s.signature }
+  return { $s.name, $s.kind, $s.visibility, $s.start_line, $s.end_line, $s.signature, $s.entry_type }
   order { $s.start_line asc }
 }

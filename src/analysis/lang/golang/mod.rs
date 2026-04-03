@@ -1,4 +1,7 @@
 mod analyser;
+mod helpers;
+mod symbols;
+mod type_refs;
 
 pub use analyser::Go;
 

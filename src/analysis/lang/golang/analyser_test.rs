@@ -1853,3 +1853,105 @@ fn test_go_method_receiver_accepts_edge() {
         param_refs
     );
 }
+
+// --- Test File Detection ---
+
+#[test]
+fn test_go_test_file_all_symbols_tagged() {
+    // All symbols in a _test.go file should have entry_type = "test"
+    let code = r#"
+package cache
+
+type mockClient struct {
+    callCount int
+}
+
+func (m *mockClient) Call() {
+    m.callCount++
+}
+
+func setupTest() *mockClient {
+    return &mockClient{}
+}
+
+func TestSomething(t *testing.T) {
+    client := setupTest()
+    client.Call()
+}
+"#;
+    let parsed = Go::extract(code, "cache/cache_test.go");
+
+    // All symbols should have entry_type = "test"
+    let non_test_symbols: Vec<&str> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.entry_type.is_none() && s.kind != "package" && s.kind != "field")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    assert!(
+        non_test_symbols.is_empty(),
+        "All symbols in _test.go should have entry_type, but these don't: {:?}",
+        non_test_symbols
+    );
+
+    // Verify specific symbols have entry_type = "test"
+    let mock_client = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "mockClient")
+        .expect("mockClient struct should exist");
+    assert_eq!(
+        mock_client.entry_type,
+        Some("test".to_string()),
+        "mockClient should have entry_type 'test'"
+    );
+
+    let setup_test = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "setupTest")
+        .expect("setupTest function should exist");
+    assert_eq!(
+        setup_test.entry_type,
+        Some("test".to_string()),
+        "setupTest should have entry_type 'test'"
+    );
+}
+
+#[test]
+fn test_go_non_test_file_not_tagged() {
+    // Symbols in regular .go files should NOT get entry_type just from file name
+    let code = r#"
+package cache
+
+type Client struct {
+    url string
+}
+
+func NewClient(url string) *Client {
+    return &Client{url: url}
+}
+"#;
+    let parsed = Go::extract(code, "cache/cache.go");
+
+    let client = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "Client")
+        .expect("Client struct should exist");
+    assert_eq!(
+        client.entry_type, None,
+        "Client in non-test file should not have entry_type"
+    );
+
+    let new_client = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "NewClient")
+        .expect("NewClient function should exist");
+    assert_eq!(
+        new_client.entry_type, None,
+        "NewClient in non-test file should not have entry_type"
+    );
+}
