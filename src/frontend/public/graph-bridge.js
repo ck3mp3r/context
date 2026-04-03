@@ -490,10 +490,13 @@
       // Log initial graph stats
       console.log("[graph-bridge] Graph loaded:", graph.order, "nodes,", graph.size, "edges");
 
-      // Compute node sizes from edge degree
+      // Compute node sizes from edge degree (capped to prevent huge nodes)
       graph.forEachNode(function(node) {
         var degree = graph.degree(node);
-        graph.setNodeAttribute(node, "size", 3 + Math.sqrt(degree) * 2);
+        // Base size 3, scale by log to compress high-degree nodes
+        // Max size ~12 even for nodes with 1000+ edges
+        var size = 3 + Math.min(Math.log(degree + 1) * 2, 9);
+        graph.setNodeAttribute(node, "size", size);
       });
 
       // Run ForceAtlas2 layout in animated batches
