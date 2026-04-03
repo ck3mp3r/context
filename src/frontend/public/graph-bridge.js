@@ -219,7 +219,6 @@
           context.fillStyle = "#cdd6f4";
           context.fillText(data.label, x, y);
         },
-        },
         defaultDrawNodeHover: function(context, data, settings) {
           // Draw enlarged node circle
           context.beginPath();
