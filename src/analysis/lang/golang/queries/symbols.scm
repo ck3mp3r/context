@@ -92,6 +92,13 @@
     arguments: (argument_list
         (identifier) @func_ref_name)) @func_ref_call
 
+;;; qualified function reference passed as argument (callback) — pkg.Func
+(call_expression
+    arguments: (argument_list
+        (selector_expression
+            operand: (identifier) @func_ref_qual_pkg
+            field: (field_identifier) @func_ref_qual_name))) @func_ref_qual_call
+
 ;;; import_declaration — single import
 (import_declaration
     (import_spec

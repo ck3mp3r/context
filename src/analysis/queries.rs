@@ -17,6 +17,8 @@ const BUNDLED_QUERIES: &[(&str, &str)] = &[
     ("file_symbols", include_str!("queries/file_symbols.gq")),
     ("symbol_search", include_str!("queries/symbol_search.gq")),
     ("entry_points", include_str!("queries/entry_points.gq")),
+    ("uses_type", include_str!("queries/uses_type.gq")),
+    ("annotates_type", include_str!("queries/annotates_type.gq")),
 ];
 
 pub fn install_bundled_queries(repo_path: &Path) -> Result<(), std::io::Error> {

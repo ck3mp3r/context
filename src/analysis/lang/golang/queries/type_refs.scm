@@ -116,6 +116,42 @@
                 (type_identifier) @fn_param_variadic_ptr_type)))) @fn_param_variadic_ptr_def
 
 ;;; ==========================================================================
+;;; METHOD RECEIVER TYPES (receiver is like first param)
+;;; ==========================================================================
+
+;;; method receiver — direct type (func (r Receiver) M())
+(method_declaration
+    receiver: (parameter_list
+        (parameter_declaration
+            type: (type_identifier) @method_recv_direct_type))
+    name: (field_identifier) @method_recv_direct_fn) @method_recv_direct_def
+
+;;; method receiver — pointer type (func (r *Receiver) M())
+(method_declaration
+    receiver: (parameter_list
+        (parameter_declaration
+            type: (pointer_type
+                (type_identifier) @method_recv_ptr_type)))
+    name: (field_identifier) @method_recv_ptr_fn) @method_recv_ptr_def
+
+;;; method receiver — qualified type (func (r pkg.Receiver) M())
+(method_declaration
+    receiver: (parameter_list
+        (parameter_declaration
+            type: (qualified_type
+                name: (type_identifier) @method_recv_qual_type)))
+    name: (field_identifier) @method_recv_qual_fn) @method_recv_qual_def
+
+;;; method receiver — pointer to qualified type (func (r *pkg.Receiver) M())
+(method_declaration
+    receiver: (parameter_list
+        (parameter_declaration
+            type: (pointer_type
+                (qualified_type
+                    name: (type_identifier) @method_recv_ptr_qual_type))))
+    name: (field_identifier) @method_recv_ptr_qual_fn) @method_recv_ptr_qual_def
+
+;;; ==========================================================================
 ;;; METHOD PARAMETER TYPES
 ;;; ==========================================================================
 
@@ -542,3 +578,135 @@
                 name: (field_identifier) @iface_ret_slice_fn
                 result: (slice_type
                     element: (type_identifier) @iface_ret_slice_type))))) @iface_ret_slice_def
+
+;;; ============================================================================
+;;; TYPE ASSERTIONS AND CONVERSIONS (Usage edges)
+;;; ============================================================================
+
+;;; type assertion — direct type (x.(MyType))
+(type_assertion_expression
+    type: (type_identifier) @type_assert_direct_type) @type_assert_direct_def
+
+;;; type assertion — pointer type (x.(*MyType))
+(type_assertion_expression
+    type: (pointer_type
+        (type_identifier) @type_assert_ptr_type)) @type_assert_ptr_def
+
+;;; type assertion — qualified type (x.(pkg.Type))
+(type_assertion_expression
+    type: (qualified_type
+        name: (type_identifier) @type_assert_qual_type)) @type_assert_qual_def
+
+;;; type assertion — pointer to qualified type (x.(*pkg.Type))
+(type_assertion_expression
+    type: (pointer_type
+        (qualified_type
+            name: (type_identifier) @type_assert_ptr_qual_type))) @type_assert_ptr_qual_def
+
+;;; ============================================================================
+;;; COMPOSITE LITERALS (Usage edges)
+;;; ============================================================================
+;;; When a type is instantiated via composite literal (MyType{} or &MyType{}),
+;;; this creates a Usage edge from the enclosing function to the type.
+
+;;; composite literal — direct type (MyType{...})
+(composite_literal
+    type: (type_identifier) @composite_direct_type) @composite_direct_def
+
+;;; composite literal — pointer to type (&MyType{...})
+(unary_expression
+    operand: (composite_literal
+        type: (type_identifier) @composite_ptr_type)) @composite_ptr_def
+
+;;; composite literal — qualified type (pkg.MyType{...})
+(composite_literal
+    type: (qualified_type
+        name: (type_identifier) @composite_qual_type)) @composite_qual_def
+
+;;; composite literal — pointer to qualified type (&pkg.MyType{...})
+(unary_expression
+    operand: (composite_literal
+        type: (qualified_type
+            name: (type_identifier) @composite_ptr_qual_type))) @composite_ptr_qual_def
+
+;;; composite literal — slice of type ([]MyType{...})
+(composite_literal
+    type: (slice_type
+        element: (type_identifier) @composite_slice_type)) @composite_slice_def
+
+;;; composite literal — slice of qualified type ([]pkg.MyType{...})
+(composite_literal
+    type: (slice_type
+        element: (qualified_type
+            name: (type_identifier) @composite_slice_qual_type))) @composite_slice_qual_def
+
+;;; composite literal — map with user type value (map[string]MyType{...})
+(composite_literal
+    type: (map_type
+        value: (type_identifier) @composite_map_val_type)) @composite_map_val_def
+
+;;; composite literal — map with user type key (map[MyType]string{...})
+(composite_literal
+    type: (map_type
+        key: (type_identifier) @composite_map_key_type)) @composite_map_key_def
+
+;;; ============================================================================
+;;; VARIABLE DECLARATIONS (TypeAnnotation edges)
+;;; ============================================================================
+;;; When a variable is declared with an explicit type annotation (var x Type),
+;;; this creates a TypeAnnotation edge from the enclosing function to the type.
+
+;;; var declaration — direct type (var x MyType)
+(var_declaration
+    (var_spec
+        type: (type_identifier) @var_direct_type)) @var_direct_def
+
+;;; var declaration — pointer type (var x *MyType)
+(var_declaration
+    (var_spec
+        type: (pointer_type
+            (type_identifier) @var_ptr_type))) @var_ptr_def
+
+;;; var declaration — qualified type (var x pkg.MyType)
+(var_declaration
+    (var_spec
+        type: (qualified_type
+            name: (type_identifier) @var_qual_type))) @var_qual_def
+
+;;; var declaration — pointer to qualified type (var x *pkg.MyType)
+(var_declaration
+    (var_spec
+        type: (pointer_type
+            (qualified_type
+                name: (type_identifier) @var_ptr_qual_type)))) @var_ptr_qual_def
+
+;;; var declaration — slice type (var x []MyType)
+(var_declaration
+    (var_spec
+        type: (slice_type
+            element: (type_identifier) @var_slice_type))) @var_slice_def
+
+;;; var declaration — slice of qualified type (var x []pkg.MyType)
+(var_declaration
+    (var_spec
+        type: (slice_type
+            element: (qualified_type
+                name: (type_identifier) @var_slice_qual_type)))) @var_slice_qual_def
+
+;;; var declaration — map with user type value (var x map[string]MyType)
+(var_declaration
+    (var_spec
+        type: (map_type
+            value: (type_identifier) @var_map_val_type))) @var_map_val_def
+
+;;; var declaration — map with user type key (var x map[MyType]string)
+(var_declaration
+    (var_spec
+        type: (map_type
+            key: (type_identifier) @var_map_key_type))) @var_map_key_def
+
+;;; var declaration — channel type (var x chan MyType)
+(var_declaration
+    (var_spec
+        type: (channel_type
+            value: (type_identifier) @var_chan_type))) @var_chan_def

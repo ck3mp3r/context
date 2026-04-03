@@ -34,21 +34,39 @@ fn test_cache_symbols() {
 }
 
 #[test]
-fn test_cache_methods_containment() {
+fn test_cache_methods_accept_receiver_type() {
     let code = load_testdata("cache.go");
     let parsed = Go::extract(&code, "cache/cache.go");
 
-    let cache_methods: Vec<&str> = parsed
-        .containments
+    // Methods with receiver (c *Cache) should have Accepts edge to Cache
+    // Find all methods that accept Cache as a parameter (receiver)
+    let methods_accepting_cache: Vec<&str> = parsed
+        .type_refs
         .iter()
-        .filter(|c| c.parent_name == "Cache")
-        .map(|c| parsed.symbols[c.child_symbol_idx].name.as_str())
+        .filter(|tr| tr.type_name == "Cache" && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| parsed.symbols[tr.from_symbol_idx].name.as_str())
         .collect();
 
-    assert!(cache_methods.contains(&"Get"));
-    assert!(cache_methods.contains(&"Set"));
-    assert!(cache_methods.contains(&"Delete"));
-    assert!(cache_methods.contains(&"Cleanup"));
+    assert!(
+        methods_accepting_cache.contains(&"Get"),
+        "Get should accept Cache, got: {:?}",
+        methods_accepting_cache
+    );
+    assert!(
+        methods_accepting_cache.contains(&"Set"),
+        "Set should accept Cache, got: {:?}",
+        methods_accepting_cache
+    );
+    assert!(
+        methods_accepting_cache.contains(&"Delete"),
+        "Delete should accept Cache, got: {:?}",
+        methods_accepting_cache
+    );
+    assert!(
+        methods_accepting_cache.contains(&"Cleanup"),
+        "Cleanup should accept Cache, got: {:?}",
+        methods_accepting_cache
+    );
 }
 
 #[test]
@@ -956,6 +974,42 @@ fn test_go_return_type_ptr_qualified() {
     );
 }
 
+#[test]
+fn test_go_return_type_multiple_user_types() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // GetMultipleTypes() (Cache, Handler, error) should produce ReturnType refs to Cache AND Handler, NOT error
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "GetMultipleTypes" && s.kind == "function")
+        .expect("GetMultipleTypes should exist");
+
+    let return_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::ReturnType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        return_refs.contains(&"Cache"),
+        "GetMultipleTypes should return Cache, got: {:?}",
+        return_refs
+    );
+    assert!(
+        return_refs.contains(&"Handler"),
+        "GetMultipleTypes should return Handler, got: {:?}",
+        return_refs
+    );
+    assert!(
+        !return_refs.contains(&"error"),
+        "GetMultipleTypes should NOT have error in return refs (it's a builtin), got: {:?}",
+        return_refs
+    );
+}
+
 // --- Method Parameter and Return Type References ---
 
 #[test]
@@ -1222,23 +1276,28 @@ fn test_go_interface_method_types() {
             })
     });
 
-    if let Some(idx) = process_idx {
-        let has_request_param = parsed.type_refs.iter().any(|tr| {
-            tr.from_symbol_idx == idx
-                && tr.type_name == "Request"
-                && tr.ref_kind == ReferenceType::ParamType
-        });
-        let has_response_return = parsed.type_refs.iter().any(|tr| {
-            tr.from_symbol_idx == idx
-                && tr.type_name == "Response"
-                && tr.ref_kind == ReferenceType::ReturnType
-        });
-        assert!(has_request_param, "Processor.Process should accept Request");
-        assert!(
-            has_response_return,
-            "Processor.Process should return Response"
-        );
-    }
+    // Ensure we actually found the method
+    assert!(
+        process_idx.is_some(),
+        "Should find Process method in Processor interface"
+    );
+
+    let idx = process_idx.unwrap();
+    let has_request_param = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == idx
+            && tr.type_name == "Request"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    let has_response_return = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == idx
+            && tr.type_name == "Response"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(has_request_param, "Processor.Process should accept Request");
+    assert!(
+        has_response_return,
+        "Processor.Process should return Response"
+    );
 }
 
 // --- Generic Types (Go 1.18+) ---
@@ -1630,5 +1689,167 @@ fn test_go_func_ref_multiple() {
     assert!(
         call_to_setup.is_some(),
         "setupConfig passed as argument should create a call edge"
+    );
+}
+
+#[test]
+fn test_go_func_ref_qualified() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // CallWithQualifiedFuncRef calls: http.HandleFunc("/notfound", http.NotFound)
+    // This should create a call edge to NotFound with qualifier "http"
+    let call_to_notfound = parsed
+        .calls
+        .iter()
+        .find(|c| c.callee_name == "NotFound" && c.qualifier.as_deref() == Some("http"));
+
+    assert!(
+        call_to_notfound.is_some(),
+        "http.NotFound passed as argument should create a scoped call edge, got: {:?}",
+        parsed
+            .calls
+            .iter()
+            .map(|c| (&c.callee_name, &c.qualifier))
+            .collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        call_to_notfound.unwrap().call_form,
+        CallForm::Scoped,
+        "Qualified func ref should have Scoped call form"
+    );
+}
+
+// --- Type Assertions (Usage edges) ---
+
+#[test]
+fn test_go_type_assertion_uses_edge() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // UseTypeAssertion does: v, ok := x.(*Config)
+    // This should create a Usage edge from UseTypeAssertion to Config
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "UseTypeAssertion" && s.kind == "function")
+        .expect("UseTypeAssertion should exist");
+
+    let usage_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::Usage)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        usage_refs.contains(&"Config"),
+        "UseTypeAssertion should have Usage edge to Config from type assertion x.(*Config), got: {:?}",
+        usage_refs
+    );
+}
+
+#[test]
+fn test_go_composite_literal_uses_edge() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // UseCompositeLiteral does: Config{}, &Config{}, []Item{}
+    // This should create Usage edges to Config and Item
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "UseCompositeLiteral" && s.kind == "function")
+        .expect("UseCompositeLiteral should exist");
+
+    let usage_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::Usage)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        usage_refs.contains(&"Config"),
+        "UseCompositeLiteral should have Usage edge to Config from Config{{}}, got: {:?}",
+        usage_refs
+    );
+    assert!(
+        usage_refs.contains(&"Item"),
+        "UseCompositeLiteral should have Usage edge to Item from []Item{{}}, got: {:?}",
+        usage_refs
+    );
+}
+
+#[test]
+fn test_go_var_declaration_type_annotation_edge() {
+    let code = load_testdata("types.go");
+    let parsed = Go::extract(&code, "testdata/types.go");
+
+    // UseVarDeclaration does: var cfg Config, var cfgPtr *Config, var items []Item
+    // This should create TypeAnnotation edges to Config and Item
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "UseVarDeclaration" && s.kind == "function")
+        .expect("UseVarDeclaration should exist");
+
+    let type_annot_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == fn_idx && tr.ref_kind == ReferenceType::TypeAnnotation)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        type_annot_refs.contains(&"Config"),
+        "UseVarDeclaration should have TypeAnnotation edge to Config from var cfg Config, got: {:?}",
+        type_annot_refs
+    );
+    assert!(
+        type_annot_refs.contains(&"Item"),
+        "UseVarDeclaration should have TypeAnnotation edge to Item from var items []Item, got: {:?}",
+        type_annot_refs
+    );
+}
+
+// --- Method Receiver Types (Accepts edges) ---
+
+#[test]
+fn test_go_method_receiver_accepts_edge() {
+    let code = load_testdata("cache.go");
+    let parsed = Go::extract(&code, "cache/cache.go");
+
+    // func (c *Cache) Get(key string) should create Accepts edge from Get to Cache
+    // Note: There's also a Get in the Cacher interface, so we need to find the one
+    // that has an Accepts edge to Cache (the method implementation, not the interface method)
+    let get_idx = parsed
+        .symbols
+        .iter()
+        .enumerate()
+        .find(|(idx, s)| {
+            s.name == "Get"
+                && s.kind == "function"
+                && parsed.type_refs.iter().any(|tr| {
+                    tr.from_symbol_idx == *idx
+                        && tr.type_name == "Cache"
+                        && tr.ref_kind == ReferenceType::ParamType
+                })
+        })
+        .map(|(idx, _)| idx)
+        .expect("Get method with Cache receiver should exist");
+
+    let param_refs: Vec<&str> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| tr.from_symbol_idx == get_idx && tr.ref_kind == ReferenceType::ParamType)
+        .map(|tr| tr.type_name.as_str())
+        .collect();
+
+    assert!(
+        param_refs.contains(&"Cache"),
+        "Get method should have Accepts edge to Cache (receiver type), got: {:?}",
+        param_refs
     );
 }

@@ -151,7 +151,6 @@ impl Go {
         if let Some(&node) = captures.get("method_def")
             && let Some(&name_node) = captures.get("method_name")
         {
-            let idx = parsed.symbols.len();
             parsed.symbols.push(RawSymbol {
                 name: text(name_node).to_string(),
                 kind: "function".to_string(),
@@ -164,16 +163,8 @@ impl Go {
                 entry_type: None,
             });
 
-            if let Some(&recv_node) = captures.get("method_receiver") {
-                let recv_text = text(recv_node);
-                if let Some(type_name) = extract_go_receiver_type(recv_text) {
-                    parsed.containments.push(RawContainment {
-                        file_path: file_path.to_string(),
-                        parent_name: type_name,
-                        child_symbol_idx: idx,
-                    });
-                }
-            }
+            // Note: Method receiver types are captured as Accepts edges in extract_type_refs(),
+            // not as containment. Methods don't "belong to" a struct - they accept it as a parameter.
             return;
         }
 
@@ -439,6 +430,25 @@ impl Go {
             return;
         }
 
+        // Qualified function reference passed as argument (callback)
+        // e.g., http.HandleFunc("/", handlers.Index) — handlers.Index is a pkg.Func callback
+        if captures.contains_key("func_ref_qual_call")
+            && let Some(&name_node) = captures.get("func_ref_qual_name")
+            && let Some(&pkg_node) = captures.get("func_ref_qual_pkg")
+        {
+            let call_node = captures["func_ref_qual_call"];
+            parsed.calls.push(RawCall {
+                file_path: file_path.to_string(),
+                call_site_line: call_node.start_position().row + 1,
+                callee_name: text(name_node).to_string(),
+                call_form: CallForm::Scoped,
+                receiver: None,
+                qualifier: Some(text(pkg_node).to_string()),
+                enclosing_symbol_idx: None,
+            });
+            return;
+        }
+
         // Imports — single
         // Go imports are wildcards: import "pkg/common" makes all exported symbols available
         if captures.contains_key("import_decl")
@@ -640,6 +650,30 @@ impl Go {
                 "fn_param_variadic_ptr_def",
                 "fn_param_variadic_ptr_fn",
                 "fn_param_variadic_ptr_type",
+            ),
+        ];
+
+        // Method receiver patterns (receiver is like first param)
+        let method_recv_patterns: &[(&str, &str, &str)] = &[
+            (
+                "method_recv_direct_def",
+                "method_recv_direct_fn",
+                "method_recv_direct_type",
+            ),
+            (
+                "method_recv_ptr_def",
+                "method_recv_ptr_fn",
+                "method_recv_ptr_type",
+            ),
+            (
+                "method_recv_qual_def",
+                "method_recv_qual_fn",
+                "method_recv_qual_type",
+            ),
+            (
+                "method_recv_ptr_qual_def",
+                "method_recv_ptr_qual_fn",
+                "method_recv_ptr_qual_type",
             ),
         ];
 
@@ -886,6 +920,30 @@ impl Go {
                 }
             }
 
+            // Process method receiver types (receiver is like first param -> Accepts edge)
+            for &(def_key, fn_key, type_key) in method_recv_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&fn_node) = captures.get(fn_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_symbol_idx(
+                            parsed,
+                            text(fn_node),
+                            fn_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::ParamType,
+                        });
+                    }
+                }
+            }
+
             // Process method parameter types
             for &(def_key, fn_key, type_key) in method_param_patterns {
                 if captures.contains_key(def_key)
@@ -1072,6 +1130,108 @@ impl Go {
                     }
                 }
             }
+
+            // Process type assertions (Usage edges)
+            // Type assertions like x.(*Config) or x.(pkg.Type) create Usage refs
+            let type_assert_patterns: &[(&str, &str)] = &[
+                ("type_assert_direct_def", "type_assert_direct_type"),
+                ("type_assert_ptr_def", "type_assert_ptr_type"),
+                ("type_assert_qual_def", "type_assert_qual_type"),
+                ("type_assert_ptr_qual_def", "type_assert_ptr_qual_type"),
+            ];
+
+            for &(def_key, type_key) in type_assert_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&def_node) = captures.get(def_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_enclosing_symbol_idx(
+                            parsed,
+                            def_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::Usage,
+                        });
+                    }
+                }
+            }
+
+            // Process composite literals (Usage edges)
+            // Composite literals like MyType{} or &pkg.Type{} create Usage refs
+            let composite_patterns: &[(&str, &str)] = &[
+                ("composite_direct_def", "composite_direct_type"),
+                ("composite_ptr_def", "composite_ptr_type"),
+                ("composite_qual_def", "composite_qual_type"),
+                ("composite_ptr_qual_def", "composite_ptr_qual_type"),
+                ("composite_slice_def", "composite_slice_type"),
+                ("composite_slice_qual_def", "composite_slice_qual_type"),
+                ("composite_map_val_def", "composite_map_val_type"),
+                ("composite_map_key_def", "composite_map_key_type"),
+            ];
+
+            for &(def_key, type_key) in composite_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&def_node) = captures.get(def_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_enclosing_symbol_idx(
+                            parsed,
+                            def_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::Usage,
+                        });
+                    }
+                }
+            }
+
+            // Process variable declarations (TypeAnnotation edges)
+            // Variable declarations like `var x MyType` create TypeAnnotation refs
+            let var_decl_patterns: &[(&str, &str)] = &[
+                ("var_direct_def", "var_direct_type"),
+                ("var_ptr_def", "var_ptr_type"),
+                ("var_qual_def", "var_qual_type"),
+                ("var_ptr_qual_def", "var_ptr_qual_type"),
+                ("var_slice_def", "var_slice_type"),
+                ("var_slice_qual_def", "var_slice_qual_type"),
+                ("var_map_val_def", "var_map_val_type"),
+                ("var_map_key_def", "var_map_key_type"),
+                ("var_chan_def", "var_chan_type"),
+            ];
+
+            for &(def_key, type_key) in var_decl_patterns {
+                if captures.contains_key(def_key)
+                    && let Some(&def_node) = captures.get(def_key)
+                    && let Some(&type_node) = captures.get(type_key)
+                {
+                    let type_name = text(type_node);
+                    if !is_go_builtin(type_name)
+                        && let Some(idx) = Self::find_enclosing_symbol_idx(
+                            parsed,
+                            def_node.start_position().row + 1,
+                        )
+                    {
+                        parsed.type_refs.push(RawTypeRef {
+                            file_path: file_path.to_string(),
+                            from_symbol_idx: idx,
+                            type_name: type_name.to_string(),
+                            ref_kind: ReferenceType::TypeAnnotation,
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -1081,6 +1241,16 @@ impl Go {
             .symbols
             .iter()
             .position(|s| s.name == name && s.start_line <= line && s.end_line >= line)
+    }
+
+    /// Find the enclosing function/method symbol index for a given line.
+    /// This is used for type assertions which occur inside function bodies.
+    fn find_enclosing_symbol_idx(parsed: &ParsedFile, line: usize) -> Option<usize> {
+        parsed.symbols.iter().position(|s| {
+            (s.kind == "function" || s.kind == "method")
+                && s.start_line <= line
+                && s.end_line >= line
+        })
     }
 }
 
@@ -1190,13 +1360,6 @@ impl LanguageAnalyser for Go {
 
 fn is_go_builtin(name: &str) -> bool {
     GO_BUILTINS.contains(&name)
-}
-
-fn extract_go_receiver_type(receiver_text: &str) -> Option<String> {
-    let inner = receiver_text.trim_start_matches('(').trim_end_matches(')');
-    let parts: Vec<&str> = inner.split_whitespace().collect();
-    let type_part = parts.last()?;
-    Some(type_part.trim_start_matches('*').to_string())
 }
 
 fn go_visibility(name: &str) -> Option<String> {

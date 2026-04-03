@@ -110,6 +110,11 @@ func GetItemsAndError() ([]Item, error) {
 	return nil, nil
 }
 
+// GetMultipleTypes returns multiple user-defined types (should extract Cache AND Handler, NOT error).
+func GetMultipleTypes() (Cache, Handler, error) {
+	return Cache{}, nil, nil
+}
+
 // GetQualified returns a qualified type.
 func GetQualified() http.Handler {
 	return nil
@@ -176,6 +181,23 @@ func Setup() {
 	http.HandleFunc("/", nil)
 }
 
+// helperFunc is a local helper function.
+func helperFunc() {}
+
+// CallWithLocalFuncRef passes a local function reference as argument.
+func CallWithLocalFuncRef() {
+	// Pass a local function as callback (already handled by func_ref)
+	http.HandleFunc("/local", helperFunc)
+}
+
+// CallWithQualifiedFuncRef passes a qualified function reference as argument.
+func CallWithQualifiedFuncRef() {
+	// Pass a qualified function reference as callback
+	// This simulates passing pkg.Func as a callback argument
+	// We use http.NotFound as an example (it's a real http function)
+	http.HandleFunc("/notfound", http.NotFound)
+}
+
 // --- Channel types ---
 
 // SendItems sends items through a channel.
@@ -184,6 +206,53 @@ func SendItems(ch chan Item) {
 
 // ReceiveConfigs receives configs from a channel.
 func ReceiveConfigs(ch <-chan Config) {
+}
+
+// --- Type assertions and conversions ---
+
+// UseTypeAssertion uses a type assertion (should create Uses edge to Config).
+func UseTypeAssertion(x interface{}) {
+	v, ok := x.(*Config)
+	_ = v
+	_ = ok
+}
+
+// UseTypeConversion uses a type conversion (should create Uses edge to Handler).
+func UseTypeConversion(x interface{}) {
+	h := Handler(x)
+	_ = h
+}
+
+// --- Composite Literals (Usage edges) ---
+
+// UseCompositeLiteral uses composite literals (should create Uses edges).
+func UseCompositeLiteral() {
+	// Direct composite literal
+	c := Config{}
+	_ = c
+
+	// Pointer to composite literal
+	cp := &Config{}
+	_ = cp
+
+	// Slice of composite literal
+	items := []Item{{}, {}}
+	_ = items
+}
+
+// UseVarDeclaration uses var declarations with explicit types (should create TypeAnnotation edges).
+func UseVarDeclaration() {
+	// Direct type annotation
+	var cfg Config
+	_ = cfg
+
+	// Pointer type annotation
+	var cfgPtr *Config
+	_ = cfgPtr
+
+	// Slice type annotation
+	var items []Item
+	_ = items
 }
 
 // --- Type aliases ---
