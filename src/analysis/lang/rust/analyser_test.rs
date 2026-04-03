@@ -1330,3 +1330,94 @@ fn test_impl_method_abstract_type_return() {
             .collect::<Vec<_>>()
     );
 }
+
+// =============================================================================
+// Array and slice type tests
+// =============================================================================
+
+#[test]
+fn test_slice_param_type() {
+    // fn process_slice(items: &[Config]) should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "process_slice")
+        .expect("process_slice function should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config,
+        "process_slice(items: &[Config]) should extract Config as ParamType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_array_param_type() {
+    // fn process_array(items: [Item; 5]) should extract Item
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "process_array")
+        .expect("process_array function should exist");
+
+    let has_item = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Item"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_item,
+        "process_array(items: [Item; 5]) should extract Item as ParamType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_impl_method_slice_param_type() {
+    // impl AppState { fn update_configs(&self, configs: &[Config]) } should extract Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let method_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "update_configs" && s.kind == "function")
+        .expect("update_configs method should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ParamType
+    });
+    assert!(
+        has_config,
+        "AppState::update_configs(configs: &[Config]) should extract Config as ParamType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}

@@ -104,6 +104,20 @@ impl AppState {
     }
 }
 
+// =============================================================================
+// Array and slice type patterns
+// =============================================================================
+
+// Fixed-size array param — should extract Item
+pub fn process_array(items: [Item; 5]) {}
+
+pub struct Item;
+
+// impl method with slice param — should extract Config
+impl AppState {
+    pub fn update_configs(&self, configs: &[Config]) {}
+}
+
 // Placeholder types for compilation
 pub struct Json<T>(T);
 pub struct Error;

@@ -210,6 +210,29 @@ impl Rust {
                 "trait_param_ref_generic_type_fn",
                 "trait_param_ref_generic_type_name",
             ),
+            // Slice and array patterns
+            ("param_slice_def", "param_slice_fn", "param_slice_name"),
+            ("param_array_def", "param_array_fn", "param_array_name"),
+            (
+                "method_param_slice_def",
+                "method_param_slice_fn",
+                "method_param_slice_name",
+            ),
+            (
+                "method_param_array_def",
+                "method_param_array_fn",
+                "method_param_array_name",
+            ),
+            (
+                "trait_param_slice_def",
+                "trait_param_slice_fn",
+                "trait_param_slice_name",
+            ),
+            (
+                "trait_param_array_def",
+                "trait_param_array_fn",
+                "trait_param_array_name",
+            ),
         ];
         let ret_patterns: &[(&str, &str, &str)] = &[
             ("ret_type_def", "ret_type_fn", "ret_type_name"),

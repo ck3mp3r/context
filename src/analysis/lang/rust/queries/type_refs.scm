@@ -235,6 +235,65 @@
             return_type: (abstract_type
                 trait: (type_identifier) @trait_ret_abstract_name)))) @trait_ret_abstract_def
 
+;;; parameter types — top-level functions (slice reference: &[Config])
+(function_item
+    name: (identifier) @param_slice_fn
+    parameters: (parameters
+        (parameter
+            type: (reference_type
+                type: (array_type
+                    element: (type_identifier) @param_slice_name))))) @param_slice_def
+
+;;; parameter types — top-level functions (fixed array: [Item; N])
+(function_item
+    name: (identifier) @param_array_fn
+    parameters: (parameters
+        (parameter
+            type: (array_type
+                element: (type_identifier) @param_array_name)))) @param_array_def
+
+;;; parameter types — methods inside impl (slice reference: &[Config])
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_param_slice_fn
+            parameters: (parameters
+                (parameter
+                    type: (reference_type
+                        type: (array_type
+                            element: (type_identifier) @method_param_slice_name))))))) @method_param_slice_def
+
+;;; parameter types — methods inside impl (fixed array: [Item; N])
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_param_array_fn
+            parameters: (parameters
+                (parameter
+                    type: (array_type
+                        element: (type_identifier) @method_param_array_name)))))) @method_param_array_def
+
+;;; parameter types — trait method signatures (slice reference: &[Config])
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_param_slice_fn
+            parameters: (parameters
+                (parameter
+                    type: (reference_type
+                        type: (array_type
+                            element: (type_identifier) @trait_param_slice_name))))))) @trait_param_slice_def
+
+;;; parameter types — trait method signatures (fixed array: [Item; N])
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_param_array_fn
+            parameters: (parameters
+                (parameter
+                    type: (array_type
+                        element: (type_identifier) @trait_param_array_name)))))) @trait_param_array_def
+
 ;;; struct field types — direct (field: Foo)
 (struct_item
     name: (type_identifier) @field_type_struct
