@@ -118,6 +118,30 @@ impl AppState {
     pub fn update_configs(&self, configs: &[Config]) {}
 }
 
+// =============================================================================
+// Dynamic type (dyn Trait) patterns
+// =============================================================================
+
+// Return type with Box<dyn Trait> — should extract Handler
+pub fn get_boxed_handler() -> Box<dyn Handler> {
+    todo!()
+}
+
+// Return type with Arc<dyn Trait> — should extract Service
+pub fn get_arc_service() -> Arc<dyn Service> {
+    todo!()
+}
+
+// impl method with dyn return — should extract DynError
+impl AppState {
+    pub fn try_operation(&self) -> Result<(), Box<dyn DynError>> {
+        todo!()
+    }
+}
+
+pub trait DynError {}
+pub struct Box<T: ?Sized>(core::marker::PhantomData<T>);
+
 // Placeholder types for compilation
 pub struct Json<T>(T);
 pub struct Error;

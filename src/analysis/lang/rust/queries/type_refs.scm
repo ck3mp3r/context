@@ -235,6 +235,68 @@
             return_type: (abstract_type
                 trait: (type_identifier) @trait_ret_abstract_name)))) @trait_ret_abstract_def
 
+;;; return types — top-level functions (dynamic_type inside generic: Box<dyn Handler>)
+(function_item
+    name: (identifier) @ret_dyn_fn
+    return_type: (generic_type
+        type_arguments: (type_arguments
+            (dynamic_type
+                trait: (type_identifier) @ret_dyn_name)))) @ret_dyn_def
+
+;;; return types — top-level functions (nested dynamic_type: Result<(), Box<dyn Error>>)
+(function_item
+    name: (identifier) @ret_nested_dyn_fn
+    return_type: (generic_type
+        type_arguments: (type_arguments
+            (generic_type
+                type_arguments: (type_arguments
+                    (dynamic_type
+                        trait: (type_identifier) @ret_nested_dyn_name)))))) @ret_nested_dyn_def
+
+;;; return types — methods inside impl (dynamic_type inside generic: Box<dyn Handler>)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_ret_dyn_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (dynamic_type
+                        trait: (type_identifier) @method_ret_dyn_name)))))) @method_ret_dyn_def
+
+;;; return types — methods inside impl (nested dynamic_type: Result<(), Box<dyn Error>>)
+(impl_item
+    body: (declaration_list
+        (function_item
+            name: (identifier) @method_ret_nested_dyn_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (generic_type
+                        type_arguments: (type_arguments
+                            (dynamic_type
+                                trait: (type_identifier) @method_ret_nested_dyn_name)))))))) @method_ret_nested_dyn_def
+
+;;; return types — trait method signatures (dynamic_type inside generic: Box<dyn Handler>)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_ret_dyn_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (dynamic_type
+                        trait: (type_identifier) @trait_ret_dyn_name)))))) @trait_ret_dyn_def
+
+;;; return types — trait method signatures (nested dynamic_type: Result<(), Box<dyn Error>>)
+(trait_item
+    body: (declaration_list
+        (function_signature_item
+            name: (identifier) @trait_ret_nested_dyn_fn
+            return_type: (generic_type
+                type_arguments: (type_arguments
+                    (generic_type
+                        type_arguments: (type_arguments
+                            (dynamic_type
+                                trait: (type_identifier) @trait_ret_nested_dyn_name)))))))) @trait_ret_nested_dyn_def
+
 ;;; parameter types — top-level functions (slice reference: &[Config])
 (function_item
     name: (identifier) @param_slice_fn

@@ -1421,3 +1421,94 @@ fn test_impl_method_slice_param_type() {
             .collect::<Vec<_>>()
     );
 }
+
+// =============================================================================
+// Dynamic type (dyn Trait) tests
+// =============================================================================
+
+#[test]
+fn test_dyn_trait_return_type() {
+    // fn get_boxed_handler() -> Box<dyn Handler> should extract Handler
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "get_boxed_handler")
+        .expect("get_boxed_handler function should exist");
+
+    let has_handler = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Handler"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_handler,
+        "get_boxed_handler() -> Box<dyn Handler> should extract Handler as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_dyn_trait_arc_return_type() {
+    // fn get_arc_service() -> Arc<dyn Service> should extract Service
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "get_arc_service")
+        .expect("get_arc_service function should exist");
+
+    let has_service = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Service"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_service,
+        "get_arc_service() -> Arc<dyn Service> should extract Service as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_impl_method_dyn_trait_return_type() {
+    // impl AppState { fn try_operation(&self) -> Result<(), Box<dyn DynError>> } should extract DynError
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let method_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "try_operation" && s.kind == "function")
+        .expect("try_operation method should exist");
+
+    let has_dyn_error = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == method_idx
+            && tr.type_name == "DynError"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+    assert!(
+        has_dyn_error,
+        "AppState::try_operation() -> Result<(), Box<dyn DynError>> should extract DynError as ReturnType, got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == method_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}

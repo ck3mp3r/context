@@ -309,6 +309,33 @@ impl Rust {
                 "trait_ret_abstract_fn",
                 "trait_ret_abstract_name",
             ),
+            // Dynamic type patterns (dyn Trait)
+            ("ret_dyn_def", "ret_dyn_fn", "ret_dyn_name"),
+            (
+                "ret_nested_dyn_def",
+                "ret_nested_dyn_fn",
+                "ret_nested_dyn_name",
+            ),
+            (
+                "method_ret_dyn_def",
+                "method_ret_dyn_fn",
+                "method_ret_dyn_name",
+            ),
+            (
+                "method_ret_nested_dyn_def",
+                "method_ret_nested_dyn_fn",
+                "method_ret_nested_dyn_name",
+            ),
+            (
+                "trait_ret_dyn_def",
+                "trait_ret_dyn_fn",
+                "trait_ret_dyn_name",
+            ),
+            (
+                "trait_ret_nested_dyn_def",
+                "trait_ret_nested_dyn_fn",
+                "trait_ret_nested_dyn_name",
+            ),
         ];
         let field_patterns: &[(&str, &str, &str)] = &[
             ("field_type_def", "field_type_field", "field_type_name"),
