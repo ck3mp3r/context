@@ -13,6 +13,25 @@
     return value || fallback;
   }
 
+  // Helper to desaturate a color for a muted effect (works for both light and dark themes)
+  // factor: 0 = full color, 1 = fully desaturated (gray)
+  function muteColor(hexColor, factor) {
+    // Parse hex color
+    var r = parseInt(hexColor.slice(1, 3), 16);
+    var g = parseInt(hexColor.slice(3, 5), 16);
+    var b = parseInt(hexColor.slice(5, 7), 16);
+
+    // Calculate luminance (grayscale value)
+    var gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+
+    // Mix toward gray (desaturate) - preserves brightness, reduces vibrance
+    r = Math.round(r * (1 - factor) + gray * factor);
+    g = Math.round(g * (1 - factor) + gray * factor);
+    b = Math.round(b * (1 - factor) + gray * factor);
+
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
   // Kind-to-CSS-variable mapping
   var kindColorVars = {
     "function": "--ctp-blue",
@@ -60,7 +79,9 @@
 
   function kindColor(kind) {
     var varName = kindColorVars[kind] || "--ctp-subtext0";
-    return getCssVar(varName, "#888888");
+    var color = getCssVar(varName, "#888888");
+    // Mute the color by mixing 40% with background for softer appearance
+    return muteColor(color, 0.4);
   }
 
   function entryTypeBorderColor(entryType) {
@@ -70,7 +91,9 @@
 
   function edgeColor(edgeType) {
     var varName = edgeColorVars[edgeType] || "--ctp-surface2";
-    return getCssVar(varName, "#585b70");
+    var color = getCssVar(varName, "#585b70");
+    // Mute edges more heavily (60% background) for subtlety
+    return muteColor(color, 0.6);
   }
 
   // Get current theme colors for UI elements
