@@ -30,8 +30,22 @@
   };
   var defaultColor = "#a6adc8"; // subtext0
 
+  // Entry type border colors (Catppuccin Mocha palette)
+  var entryTypeBorderColors = {
+    "main":      "#a6e3a1",   // green - application entry points
+    "test":      "#f9e2af",   // yellow - test functions
+    "export":    "#74c7ec",   // sapphire - exported/FFI symbols
+    "init":      "#fab387",   // peach - initialization functions
+    "benchmark": "#cba6f7",   // mauve - benchmark functions
+    "example":   "#94e2d5",   // teal - example functions
+  };
+
   function kindColor(kind) {
     return kindColors[kind] || defaultColor;
+  }
+
+  function entryTypeBorderColor(entryType) {
+    return entryTypeBorderColors[entryType] || null;
   }
 
   // Edge type-to-color mapping (Catppuccin Mocha palette)
@@ -138,7 +152,7 @@
         console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
       }
 
-      // Create renderer
+      // Create renderer with custom node program for borders
       var renderer = new Sigma(graph, container, {
         renderLabels: true,
         labelSize: 11,
@@ -152,6 +166,11 @@
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
         stagePadding: 40,
+        // Use border program for nodes with entry types
+        nodeProgramClasses: {
+          circle: Sigma.NodeCircleProgram,
+          border: Sigma.NodeCircleBorderProgram || Sigma.NodeCircleProgram,
+        },
         defaultDrawNodeLabel: function(context, data, settings) {
           if (!data.label) return;
           var size = settings.labelSize;
@@ -169,6 +188,22 @@
             textWidth + padding,
             size + 2
           );
+          // Draw entry type indicator before label
+          var entryType = data.entryType;
+          if (entryType) {
+            var indicator = entryType === "main" ? "▸" :
+                           entryType === "test" ? "◆" :
+                           entryType === "export" ? "◉" :
+                           entryType === "init" ? "●" :
+                           entryType === "benchmark" ? "◇" :
+                           entryType === "example" ? "○" : "";
+            if (indicator) {
+              var indicatorColor = entryTypeBorderColor(entryType) || "#cdd6f4";
+              context.fillStyle = indicatorColor;
+              context.fillText(indicator, x, y);
+              x += context.measureText(indicator + " ").width;
+            }
+          }
           // Draw text
           context.fillStyle = "#cdd6f4";
           context.fillText(data.label, x, y);
@@ -301,12 +336,13 @@
         }
       });
 
-      // Node reducer: handles focus, hover dimming, kind/language/test filtering
+      // Node reducer: handles focus, hover dimming, kind/language/test filtering, entry type styling
       renderer.setSetting("nodeReducer", function(node, data) {
         var res = Object.assign({}, data);
         var nodeKind = graph.getNodeAttribute(node, "kind");
         var nodeLang = graph.getNodeAttribute(node, "language");
         var nodeIsTest = graph.getNodeAttribute(node, "isTest");
+        var nodeEntryType = graph.getNodeAttribute(node, "entryType");
 
         // Focus filter: hide nodes not in focused subgraph
         if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) {
@@ -349,6 +385,17 @@
             res.hidden = true;
             return res;
           }
+        }
+
+        // Entry type styling: add border for entry points and pass entryType for label rendering
+        if (nodeEntryType) {
+          var borderColor = entryTypeBorderColor(nodeEntryType);
+          if (borderColor) {
+            res.borderColor = borderColor;
+            res.borderSize = 2;
+            res.type = "border";
+          }
+          res.entryType = nodeEntryType;
         }
 
         // Highlight focused node
