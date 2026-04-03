@@ -209,6 +209,7 @@
         savedCameraState: null,   // camera state before focus
         searchMatches: null,      // Set of matched node IDs from search, null = no active search
         onSelectCallback: null,   // callback for node selection events
+        onFocusCallback: null,    // callback for focus state changes (double-click)
         entryTypeCanvas: null,    // custom canvas for entry-type shapes
       };
 
@@ -311,6 +312,11 @@
         inst.focusedNode = node;
         inst.focusedNeighbors = neighbors;
 
+        // Notify Rust of focus state change
+        if (inst.onFocusCallback) {
+          inst.onFocusCallback(true);
+        }
+
         renderer.refresh();
 
         // Defer zoom to let Sigma recalculate after reducer hides nodes
@@ -328,6 +334,10 @@
           var camera = renderer.getCamera();
           camera.animate(inst.savedCameraState, { duration: 300 });
           inst.savedCameraState = null;
+          // Notify Rust of focus state change
+          if (inst.onFocusCallback) {
+            inst.onFocusCallback(false);
+          }
         }
         // Clear selection
         if (inst.onSelectCallback) {
@@ -828,6 +838,18 @@
     var inst = instances[containerId];
     if (!inst) return;
     inst.onSelectCallback = callback;
+  };
+
+  /**
+   * Register a callback for focus state changes (double-click).
+   * Callback receives a boolean: true when focused, false when unfocused.
+   * @param {string} containerId
+   * @param {function} callback
+   */
+  window.graphOnFocusChange = function(containerId, callback) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.onFocusCallback = callback;
   };
 
   /**

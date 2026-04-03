@@ -254,6 +254,9 @@ extern "C" {
     #[wasm_bindgen(js_name = graphOnNodeSelect)]
     fn on_node_select(container_id: &str, callback: &Closure<dyn Fn(String)>);
 
+    #[wasm_bindgen(js_name = graphOnFocusChange)]
+    fn on_focus_change(container_id: &str, callback: &Closure<dyn Fn(bool)>);
+
     #[wasm_bindgen(js_name = graphIsLayoutRunning)]
     fn is_layout_running(container_id: &str) -> bool;
 }
@@ -276,6 +279,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     let (search_query, set_search_query) = signal(String::new());
     let (search_count, set_search_count) = signal(0u32);
     let (focus_depth, set_focus_depth) = signal(1u32);
+    let (is_focused, set_is_focused) = signal(false);
     let (selected_node, set_selected_node) = signal(None::<SelectedNodeInfo>);
     let (layout_running, set_layout_running) = signal(false);
 
@@ -335,6 +339,12 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         });
                         on_node_select(container_id, &select_closure);
                         select_closure.forget();
+                        // Register focus change callback
+                        let focus_closure = Closure::new(move |focused: bool| {
+                            set_is_focused.set(focused);
+                        });
+                        on_focus_change(container_id, &focus_closure);
+                        focus_closure.forget();
                         set_layout_running.set(true);
                         set_graph_state.set(GraphState::Loaded);
                         // Poll layout status via recursive setTimeout
@@ -412,124 +422,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     });
 
     view! {
-        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6">
-            // Controls row - single row with overflow
-            <div class="flex items-center gap-3 mb-4 overflow-x-auto">
-                <h3 class="text-lg font-semibold text-ctp-text flex-shrink-0">"Code Graph"</h3>
-                // Search
-                <div class="relative flex-shrink-0">
-                    <input
-                        type="text"
-                        placeholder="Search nodes..."
-                        class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 pr-14 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-44"
-                        on:input=move |ev| {
-                            let value = event_target_value(&ev);
-                            set_search_query.set(value);
-                        }
-                        prop:value=move || search_query.get()
-                    />
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                    >
-                        <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
-                    </svg>
-                    {move || {
-                        let q = search_query.get();
-                        let count = search_count.get();
-                        if !q.is_empty() {
-                            view! {
-                                <span class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                    <span class="text-[10px] text-ctp-overlay0">
-                                        {count.to_string()}
-                                    </span>
-                                    <button
-                                        class="text-ctp-overlay0 hover:text-ctp-red transition-colors"
-                                        on:click=move |_| set_search_query.set(String::new())
-                                        title="Clear search"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-                                        </svg>
-                                    </button>
-                                </span>
-                            }.into_any()
-                        } else {
-                            view! { <span></span> }.into_any()
-                        }
-                    }}
-                </div>
-                // Language pills
-                {move || {
-                    let langs = available_languages.get();
-                    langs
-                        .into_iter()
-                        .map(|lang| {
-                            let lang_for_click = lang.clone();
-                            let is_selected = {
-                                let lang_check = lang.clone();
-                                Signal::derive(move || selected_language.get() == lang_check)
-                            };
-
-                            view! {
-                                <button
-                                    class="text-xs px-2 py-0.5 rounded-md border transition-colors capitalize flex-shrink-0"
-                                    class:bg-ctp-surface1=move || is_selected.get()
-                                    class:text-ctp-text=move || is_selected.get()
-                                    class:border-ctp-overlay0=move || is_selected.get()
-                                    class:bg-ctp-base=move || !is_selected.get()
-                                    class:text-ctp-overlay0=move || !is_selected.get()
-                                    class:border-ctp-surface2=move || !is_selected.get()
-                                    on:click=move |_| {
-                                        let current = selected_language.get_untracked();
-                                        if current == lang_for_click {
-                                            set_selected_language.set(String::new());
-                                        } else {
-                                            set_selected_language.set(lang_for_click.clone());
-                                        }
-                                    }
-                                >
-                                    {lang}
-                                </button>
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }}
-                // Spacer
-                <div class="flex-1"></div>
-                // Depth controls
-                <div class="flex items-center gap-2 flex-shrink-0">
-                    <span class="text-xs text-ctp-overlay0" title="Double-click a node to focus. Depth controls how many hops of neighbors to include.">"Depth:"</span>
-                    {[1u32, 2, 3].into_iter().map(|d| {
-                        let is_active = Signal::derive(move || focus_depth.get() == d);
-                        view! {
-                            <button
-                                class="text-xs px-1.5 py-0.5 rounded transition-colors"
-                                class:bg-ctp-blue=move || is_active.get()
-                                class:text-ctp-base=move || is_active.get()
-                                class:bg-ctp-surface1=move || !is_active.get()
-                                class:text-ctp-subtext0=move || !is_active.get()
-                                class:hover:bg-ctp-surface2=move || !is_active.get()
-                                on:click=move |_| set_focus_depth.set(d)
-                            >
-                                {d.to_string()}
-                            </button>
-                        }
-                    }).collect::<Vec<_>>()}
-                    <button
-                        class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors"
-                        on:click=move |_| zoom_to_fit(container_id)
-                        title="Fit to canvas"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
+        <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4">
             // Main content: graph (left) + side panel (right)
             <div class="flex gap-4">
                 // Graph canvas (square, takes remaining space)
@@ -569,14 +462,142 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             view! { <span></span> }.into_any()
                         }
                     }}
-                    // Layout running indicator
-                    <div
-                        class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
-                        style:opacity=move || if layout_running.get() { "1" } else { "0" }
-                        style:pointer-events="none"
-                    >
-                        <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
-                        "Layouting..."
+                    // Top-left overlay: search + language filters
+                    <div class="absolute top-3 left-3 z-10 flex items-center gap-2">
+                        // Search
+                        <div class="relative">
+                            <input
+                                type="text"
+                                placeholder="Search..."
+                                class="text-xs bg-ctp-surface0 border border-ctp-surface2 rounded px-2 py-1 pl-6 pr-12 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-36"
+                                on:input=move |ev| {
+                                    let value = event_target_value(&ev);
+                                    set_search_query.set(value);
+                                }
+                                prop:value=move || search_query.get()
+                            />
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                            >
+                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+                            </svg>
+                            {move || {
+                                let q = search_query.get();
+                                let count = search_count.get();
+                                if !q.is_empty() {
+                                    view! {
+                                        <span class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            <span class="text-[10px] text-ctp-overlay0">
+                                                {count.to_string()}
+                                            </span>
+                                            <button
+                                                class="text-ctp-overlay0 hover:text-ctp-red transition-colors"
+                                                on:click=move |_| set_search_query.set(String::new())
+                                                title="Clear search"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </button>
+                                        </span>
+                                    }.into_any()
+                                } else {
+                                    view! { <span></span> }.into_any()
+                                }
+                            }}
+                        </div>
+                        // Language pills (only show if more than one language)
+                        {move || {
+                            let langs = available_languages.get();
+                            if langs.len() <= 1 {
+                                return Vec::new();
+                            }
+                            langs
+                                .into_iter()
+                                .map(|lang| {
+                                    let lang_for_click = lang.clone();
+                                    let is_selected = {
+                                        let lang_check = lang.clone();
+                                        Signal::derive(move || selected_language.get() == lang_check)
+                                    };
+
+                                    view! {
+                                        <button
+                                            class="text-xs px-2 py-0.5 rounded border transition-colors capitalize"
+                                            class:bg-ctp-blue=move || is_selected.get()
+                                            class:text-ctp-base=move || is_selected.get()
+                                            class:border-ctp-blue=move || is_selected.get()
+                                            class:bg-ctp-surface0=move || !is_selected.get()
+                                            class:text-ctp-subtext0=move || !is_selected.get()
+                                            class:border-ctp-surface2=move || !is_selected.get()
+                                            class:hover:bg-ctp-surface1=move || !is_selected.get()
+                                            on:click=move |_| {
+                                                let current = selected_language.get_untracked();
+                                                if current == lang_for_click {
+                                                    set_selected_language.set(String::new());
+                                                } else {
+                                                    set_selected_language.set(lang_for_click.clone());
+                                                }
+                                            }
+                                        >
+                                            {lang}
+                                        </button>
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        }}
+                    </div>
+                    // Top-right overlay: layout indicator + depth controls + fit button
+                    <div class="absolute top-3 right-3 z-10 flex items-center gap-2">
+                        // Layout running indicator
+                        <div
+                            class="flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
+                            style:opacity=move || if layout_running.get() { "1" } else { "0" }
+                            style:pointer-events="none"
+                        >
+                            <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
+                            "Layouting..."
+                        </div>
+                        // Depth controls (only shown when focused)
+                        <div
+                            class="flex items-center gap-1 bg-ctp-surface0 border border-ctp-surface2 rounded px-2 py-1 transition-opacity duration-200"
+                            style:opacity=move || if is_focused.get() { "1" } else { "0" }
+                            style:pointer-events=move || if is_focused.get() { "auto" } else { "none" }
+                        >
+                            <Tooltip content="Neighborhood depth">
+                                <span class="text-xs text-ctp-overlay0">"Depth"</span>
+                            </Tooltip>
+                            {[1u32, 2, 3].into_iter().map(|d| {
+                                let is_active = Signal::derive(move || focus_depth.get() == d);
+                                view! {
+                                    <button
+                                        class="text-xs px-1.5 py-0.5 rounded transition-colors"
+                                        class:bg-ctp-blue=move || is_active.get()
+                                        class:text-ctp-base=move || is_active.get()
+                                        class:bg-ctp-surface1=move || !is_active.get()
+                                        class:text-ctp-subtext0=move || !is_active.get()
+                                        class:hover:bg-ctp-surface2=move || !is_active.get()
+                                        on:click=move |_| set_focus_depth.set(d)
+                                    >
+                                        {d.to_string()}
+                                    </button>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                        // Fit to canvas button
+                        <Tooltip content="Fit to canvas">
+                            <button
+                                class="p-1.5 rounded bg-ctp-surface0 border border-ctp-surface2 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
+                                on:click=move |_| zoom_to_fit(container_id)
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
+                                </svg>
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
 
