@@ -476,6 +476,92 @@ fn test_entry_type_regular_function_is_none() {
 }
 
 #[test]
+fn test_cfg_test_module_tags_all_symbols() {
+    // All symbols inside #[cfg(test)] mod tests { } should have entry_type = "test"
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| (s.name.clone(), s.entry_type.clone()))
+    };
+
+    // The tests module itself should be tagged
+    assert_eq!(
+        entry("tests").map(|(_, e)| e),
+        Some(Some("test".to_string())),
+        "#[cfg(test)] mod tests should have entry_type 'test'"
+    );
+
+    // Helper function inside #[cfg(test)] mod should be tagged
+    assert_eq!(
+        entry("setup_test_fixture").map(|(_, e)| e),
+        Some(Some("test".to_string())),
+        "helper function inside #[cfg(test)] mod should have entry_type 'test'"
+    );
+
+    // Struct inside #[cfg(test)] mod should be tagged
+    assert_eq!(
+        entry("TestHelper").map(|(_, e)| e),
+        Some(Some("test".to_string())),
+        "struct inside #[cfg(test)] mod should have entry_type 'test'"
+    );
+
+    // Constant inside #[cfg(test)] mod should be tagged
+    assert_eq!(
+        entry("TEST_CONSTANT").map(|(_, e)| e),
+        Some(Some("test".to_string())),
+        "constant inside #[cfg(test)] mod should have entry_type 'test'"
+    );
+
+    // Test function inside #[cfg(test)] mod should be tagged
+    assert_eq!(
+        entry("test_inside_cfg_test_module").map(|(_, e)| e),
+        Some(Some("test".to_string())),
+        "#[test] function inside #[cfg(test)] mod should have entry_type 'test'"
+    );
+
+    // Another test module
+    assert_eq!(
+        entry("integration_tests").map(|(_, e)| e),
+        Some(Some("test".to_string())),
+        "#[cfg(test)] mod integration_tests should have entry_type 'test'"
+    );
+}
+
+#[test]
+fn test_non_test_module_not_tagged() {
+    // Regular modules without #[cfg(test)] should NOT have entry_type
+    let code = load_testdata("server.rs");
+    let parsed = Rust::extract(&code, "src/server.rs");
+
+    let entry = |name: &str| {
+        parsed
+            .symbols
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.entry_type.clone())
+    };
+
+    // Regular internal module should NOT have entry_type
+    assert_eq!(
+        entry("internal"),
+        None,
+        "regular mod internal should NOT have entry_type"
+    );
+
+    // Symbols inside regular module should NOT have entry_type
+    assert_eq!(
+        entry("INTERNAL_VERSION"),
+        None,
+        "constant in regular mod should NOT have entry_type"
+    );
+}
+
+#[test]
 fn test_struct_field_containment() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");

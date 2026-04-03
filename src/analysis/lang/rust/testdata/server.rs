@@ -183,3 +183,31 @@ async fn main() {
 pub extern "C" fn exported_function() -> i32 {
     42
 }
+
+// --- Test module patterns ---
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_test_fixture() -> Server {
+        Server::new("test".to_string(), 8080)
+    }
+
+    struct TestHelper {
+        name: String,
+    }
+
+    const TEST_CONSTANT: u32 = 42;
+
+    #[test]
+    fn test_inside_cfg_test_module() {
+        let _server = setup_test_fixture();
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    #[test]
+    fn another_test_in_cfg_test() {}
+}

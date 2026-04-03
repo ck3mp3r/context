@@ -125,6 +125,12 @@
             path: (_) @attr_scope
             name: (identifier) @attr_scoped_name))) @attr_scoped
 
+;;; attribute — cfg with arguments (#[cfg(test)])
+(attribute_item
+    (attribute
+        (identifier) @attr_cfg_name
+        arguments: (token_tree) @attr_cfg_args)) @attr_cfg
+
 ;;; call_expression — plain function
 (call_expression
     function: (identifier) @call_free_name) @call_free

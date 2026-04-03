@@ -58,6 +58,25 @@ pub struct Rust;
 const QUERIES: &str = include_str!("queries/symbols.scm");
 const TYPE_REF_QUERIES: &str = include_str!("queries/type_refs.scm");
 
+/// Context for collecting extraction state during query processing
+struct ExtractContext {
+    public_symbols: std::collections::HashSet<(String, usize)>,
+    /// (attr_end_line, entry_type) — correlate with functions by line proximity
+    attr_entry_types: Vec<(usize, String)>,
+    /// Track #[cfg(test)] attribute end lines for module detection
+    cfg_test_attr_lines: Vec<usize>,
+}
+
+impl ExtractContext {
+    fn new() -> Self {
+        Self {
+            public_symbols: std::collections::HashSet::new(),
+            attr_entry_types: Vec::new(),
+            cfg_test_attr_lines: Vec::new(),
+        }
+    }
+}
+
 impl Rust {
     pub fn name() -> &'static str {
         "rust"
@@ -94,21 +113,10 @@ impl Rust {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
 
-        let mut public_symbols: std::collections::HashSet<(String, usize)> =
-            std::collections::HashSet::new();
-        // (attr_end_line, entry_type) — correlate with functions by line proximity
-        let mut attr_entry_types: Vec<(usize, String)> = Vec::new();
+        let mut ctx = ExtractContext::new();
 
         while let Some(m) = matches.next() {
-            Self::process_match(
-                &query,
-                m,
-                code,
-                file_path,
-                &mut parsed,
-                &mut public_symbols,
-                &mut attr_entry_types,
-            );
+            Self::process_match(&query, m, code, file_path, &mut parsed, &mut ctx);
         }
 
         // Post-processing: module → children containment via line ranges
@@ -151,16 +159,42 @@ impl Rust {
             }
         }
 
+        // Identify test modules: modules with #[cfg(test)] attribute just before them
+        let mut test_module_ranges: Vec<(usize, usize)> = Vec::new();
+        for sym in &parsed.symbols {
+            if sym.kind == "module" {
+                // Check if there's a #[cfg(test)] attribute just before this module
+                for &attr_line in &ctx.cfg_test_attr_lines {
+                    if attr_line >= sym.start_line.saturating_sub(2) && attr_line < sym.start_line {
+                        test_module_ranges.push((sym.start_line, sym.end_line));
+                        break;
+                    }
+                }
+            }
+        }
+
         for sym in &mut parsed.symbols {
-            if public_symbols.contains(&(sym.name.clone(), sym.start_line)) {
+            if ctx
+                .public_symbols
+                .contains(&(sym.name.clone(), sym.start_line))
+            {
                 sym.visibility = Some("public".to_string());
             } else {
                 sym.visibility = Some("private".to_string());
             }
 
+            // Check if this symbol is inside a #[cfg(test)] module
+            let in_test_module = test_module_ranges
+                .iter()
+                .any(|&(start, end)| sym.start_line >= start && sym.end_line <= end);
+
+            if in_test_module {
+                sym.entry_type = Some("test".to_string());
+            }
+
             // Correlate attributes: attribute's end line should be just before the symbol's start line
-            if sym.kind == "function" {
-                for (attr_end_line, entry_type) in &attr_entry_types {
+            if sym.kind == "function" && sym.entry_type.is_none() {
+                for (attr_end_line, entry_type) in &ctx.attr_entry_types {
                     if *attr_end_line >= sym.start_line.saturating_sub(2)
                         && *attr_end_line < sym.start_line
                     {
@@ -648,8 +682,7 @@ impl Rust {
         code: &str,
         file_path: &str,
         parsed: &mut ParsedFile,
-        public_symbols: &mut std::collections::HashSet<(String, usize)>,
-        attr_entry_types: &mut Vec<(usize, String)>,
+        ctx: &mut ExtractContext,
     ) {
         use crate::analysis::types::*;
 
@@ -1074,7 +1107,7 @@ impl Rust {
             && let Some(&name_node) = captures.get("vis_name")
         {
             let def_node = captures["vis_def"];
-            public_symbols.insert((
+            ctx.public_symbols.insert((
                 text(name_node).to_string(),
                 def_node.start_position().row + 1,
             ));
@@ -1091,7 +1124,8 @@ impl Rust {
                 _ => None,
             };
             if let Some(et) = entry_type {
-                attr_entry_types.push((attr_node.end_position().row + 1, et.to_string()));
+                ctx.attr_entry_types
+                    .push((attr_node.end_position().row + 1, et.to_string()));
             }
         } else if let Some(&attr_node) = captures.get("attr_scoped")
             && let Some(&name_node) = captures.get("attr_scoped_name")
@@ -1103,7 +1137,22 @@ impl Rust {
                 _ => None,
             };
             if let Some(et) = entry_type {
-                attr_entry_types.push((attr_node.end_position().row + 1, et.to_string()));
+                ctx.attr_entry_types
+                    .push((attr_node.end_position().row + 1, et.to_string()));
+            }
+        }
+
+        // Track #[cfg(test)] attributes for module detection
+        if let Some(&attr_node) = captures.get("attr_cfg")
+            && let Some(&name_node) = captures.get("attr_cfg_name")
+            && let Some(&args_node) = captures.get("attr_cfg_args")
+        {
+            let attr_name = text(name_node);
+            let args = text(args_node);
+            // Check for #[cfg(test)]
+            if attr_name == "cfg" && args.contains("test") {
+                ctx.cfg_test_attr_lines
+                    .push(attr_node.end_position().row + 1);
             }
         }
     }
