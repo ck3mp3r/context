@@ -158,52 +158,6 @@
         console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
       }
 
-      // Helper: draw node shape based on entry type
-      function drawNodeShape(context, x, y, size, color, entryType) {
-        context.fillStyle = color;
-        context.beginPath();
-
-        if (entryType === "main") {
-          // Square for main entry points
-          var half = size;
-          context.rect(x - half, y - half, half * 2, half * 2);
-        } else if (entryType === "test") {
-          // Diamond for test
-          context.moveTo(x, y - size * 1.2);
-          context.lineTo(x + size * 1.2, y);
-          context.lineTo(x, y + size * 1.2);
-          context.lineTo(x - size * 1.2, y);
-          context.closePath();
-        } else if (entryType === "export") {
-          // Triangle pointing right for exports
-          context.moveTo(x + size * 1.2, y);
-          context.lineTo(x - size * 0.8, y - size);
-          context.lineTo(x - size * 0.8, y + size);
-          context.closePath();
-        } else if (entryType === "init") {
-          // Triangle pointing up for init
-          context.moveTo(x, y - size * 1.2);
-          context.lineTo(x + size, y + size * 0.8);
-          context.lineTo(x - size, y + size * 0.8);
-          context.closePath();
-        } else if (entryType === "benchmark" || entryType === "example") {
-          // Hexagon for benchmark/example
-          for (var i = 0; i < 6; i++) {
-            var angle = (Math.PI / 3) * i - Math.PI / 6;
-            var px = x + size * Math.cos(angle);
-            var py = y + size * Math.sin(angle);
-            if (i === 0) context.moveTo(px, py);
-            else context.lineTo(px, py);
-          }
-          context.closePath();
-        } else {
-          // Circle for regular nodes (default)
-          context.arc(x, y, size, 0, Math.PI * 2);
-        }
-
-        context.fill();
-      }
-
       // Create renderer
       var renderer = new Sigma(graph, container, {
         renderLabels: true,
@@ -218,70 +172,21 @@
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
         stagePadding: 40,
-        defaultDrawNode: function(context, data, settings) {
-          var entryType = nodeEntryTypes[data.key];
-          drawNodeShape(context, data.x, data.y, data.size, data.color || "#a6adc8", entryType);
-        },
-        defaultDrawNodeLabel: function(context, data, settings) {
-          if (!data.label) return;
-          var size = settings.labelSize;
-          var font = settings.labelFont;
+        // Custom hover: show qualified name as label
+        defaultDrawNodeHover: function(context, data, settings) {
+          var label = data.qualifiedName || data.label;
+          if (!label) return;
+
+          var size = settings.labelSize || 11;
+          var font = settings.labelFont || "ui-monospace, monospace";
           context.font = size + "px " + font;
-          var textWidth = context.measureText(data.label).width;
-          var padding = 4;
+
           var x = data.x + data.size + 3;
           var y = data.y + size / 3;
 
-          // Draw background
-          context.fillStyle = "#181825";
-          context.fillRect(
-            x - padding / 2,
-            y - size + 1,
-            textWidth + padding,
-            size + 2
-          );
-
-          // Draw text
-          context.fillStyle = "#cdd6f4";
-          context.fillText(data.label, x, y);
-        },
-        defaultDrawNodeHover: function(context, data, settings) {
-          // Draw enlarged node shape with highlight
-          var entryType = nodeEntryTypes[data.key];
-          drawNodeShape(context, data.x, data.y, data.size + 2, data.color || "#a6adc8", entryType);
-
-          // Add highlight border
-          context.strokeStyle = "#89b4fa";
-          context.lineWidth = 2;
-          context.stroke();
-
-          // Draw hover label — show qualified name for disambiguation
-          var hoverLabel = data.qualifiedName || data.label;
-          if (!hoverLabel) return;
-          var size = settings.labelSize + 2;
-          var font = settings.labelFont;
-          context.font = size + "px " + font;
-          var textWidth = context.measureText(hoverLabel).width;
-          var padding = 6;
-          var x = data.x + data.size + 5;
-          var y = data.y + size / 3;
-          // Dark background with blue border
-          context.fillStyle = "#1e1e2e";
-          context.strokeStyle = "#89b4fa";
-          context.lineWidth = 1;
-          context.beginPath();
-          context.roundRect(
-            x - padding,
-            y - size,
-            textWidth + padding * 2,
-            size + padding,
-            4
-          );
-          context.fill();
-          context.stroke();
-          // Light text
-          context.fillStyle = "#cdd6f4";
-          context.fillText(hoverLabel, x, y);
+          // Just draw the text, no background box
+          context.fillStyle = settings.labelColor?.color || "#cdd6f4";
+          context.fillText(label, x, y);
         },
       });
 
@@ -304,7 +209,65 @@
         savedCameraState: null,   // camera state before focus
         searchMatches: null,      // Set of matched node IDs from search, null = no active search
         onSelectCallback: null,   // callback for node selection events
+        entryTypeCanvas: null,    // custom canvas for entry-type shapes
       };
+
+      // Create custom canvas layer for entry-type shapes (drawn on top of WebGL circles)
+      var entryTypeCanvas = document.createElement("canvas");
+      entryTypeCanvas.style.position = "absolute";
+      entryTypeCanvas.style.top = "0";
+      entryTypeCanvas.style.left = "0";
+      entryTypeCanvas.style.pointerEvents = "none";
+      container.style.position = "relative";
+      container.appendChild(entryTypeCanvas);
+      inst.entryTypeCanvas = entryTypeCanvas;
+
+      // Draw entry-type shapes after each render
+      renderer.on("afterRender", function() {
+        var ctx = entryTypeCanvas.getContext("2d");
+        var dims = renderer.getDimensions();
+        var pixelRatio = window.devicePixelRatio || 1;
+
+        // Resize canvas if needed
+        if (entryTypeCanvas.width !== dims.width * pixelRatio || entryTypeCanvas.height !== dims.height * pixelRatio) {
+          entryTypeCanvas.width = dims.width * pixelRatio;
+          entryTypeCanvas.height = dims.height * pixelRatio;
+          entryTypeCanvas.style.width = dims.width + "px";
+          entryTypeCanvas.style.height = dims.height + "px";
+          ctx.scale(pixelRatio, pixelRatio);
+        }
+
+        ctx.clearRect(0, 0, dims.width, dims.height);
+
+        // Draw colored circle outlines for entry-type nodes
+        graph.forEachNode(function(nodeId, attrs) {
+          var entryType = nodeEntryTypes[nodeId];
+          if (!entryType) return;
+
+          // Skip hidden nodes
+          if (attrs.hidden) return;
+          if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(nodeId)) return;
+          if (inst.hideTests && attrs.isTest) return;
+          if (inst.filteredLanguage && attrs.language !== inst.filteredLanguage) return;
+          if (inst.filteredKinds.size > 0 && !inst.filteredKinds.has(attrs.kind)) return;
+
+          // Get viewport coordinates
+          var pos = renderer.graphToViewport({ x: attrs.x, y: attrs.y });
+
+          // Use Sigma's scaleSize to get the exact rendered pixel size
+          var nodeSize = renderer.scaleSize(attrs.size);
+
+          // Get outline color for entry type
+          var outlineColor = entryTypeBorderColor(entryType) || "#89b4fa";
+
+          // Draw circle outline matching the node size exactly
+          ctx.strokeStyle = outlineColor;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, nodeSize, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+      });
 
       renderer.on("enterNode", function(event) {
         hoveredNode = event.node;
@@ -552,8 +515,6 @@
           if (!inst.layoutRunning || currentIteration >= totalIterations) {
             inst.layoutRunning = false;
             renderer.refresh();
-            // Fit to view after layout completes
-            window.graphZoomToFit(containerId);
             return;
           }
           var iters = Math.min(batchSize, totalIterations - currentIteration);
@@ -580,24 +541,28 @@
     if (instances[containerId]) {
       instances[containerId].layoutRunning = false;
       instances[containerId].renderer.kill();
+      // Remove custom entry-type canvas if it exists
+      if (instances[containerId].entryTypeCanvas) {
+        instances[containerId].entryTypeCanvas.remove();
+      }
       delete instances[containerId];
     }
   };
 
   /**
    * Zoom to fit visible nodes in view.
-   * Accounts for focus, language, and kind filters.
    * @param {string} containerId
    */
   window.graphZoomToFit = function(containerId) {
     var inst = instances[containerId];
     if (!inst) return;
 
+    var graph = inst.graph;
     var camera = inst.renderer.getCamera();
 
     // Collect visible node IDs
     var visibleNodes = [];
-    inst.graph.forEachNode(function(node, attrs) {
+    graph.forEachNode(function(node, attrs) {
       if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) return;
       if (inst.hideTests && attrs.isTest) return;
       if (inst.filteredLanguage && attrs.language !== inst.filteredLanguage) return;
@@ -610,48 +575,55 @@
       return;
     }
 
-    // Get ALL node positions to find the full bounding box (Sigma's normalization base)
-    var allXs = [], allYs = [];
-    inst.graph.forEachNode(function(n, a) { allXs.push(a.x); allYs.push(a.y); });
-    var fullMinX = Math.min.apply(null, allXs), fullMaxX = Math.max.apply(null, allXs);
-    var fullMinY = Math.min.apply(null, allYs), fullMaxY = Math.max.apply(null, allYs);
-    var fullRangeX = fullMaxX - fullMinX || 1;
-    var fullRangeY = fullMaxY - fullMinY || 1;
-    var fullRange = Math.max(fullRangeX, fullRangeY);
-
-    // Get visible node positions in graph coordinates
-    var visXs = [], visYs = [];
-    visibleNodes.forEach(function(node) {
-      var attrs = inst.graph.getNodeAttributes(node);
-      visXs.push(attrs.x);
-      visYs.push(attrs.y);
+    // Get full graph bounding box first
+    var allMinX = Infinity, allMaxX = -Infinity;
+    var allMinY = Infinity, allMaxY = -Infinity;
+    graph.forEachNode(function(node, attrs) {
+      allMinX = Math.min(allMinX, attrs.x);
+      allMaxX = Math.max(allMaxX, attrs.x);
+      allMinY = Math.min(allMinY, attrs.y);
+      allMaxY = Math.max(allMaxY, attrs.y);
     });
+    var graphWidth = allMaxX - allMinX || 1;
+    var graphHeight = allMaxY - allMinY || 1;
 
-    // Single node — center on it
+    // Single node: center on it with tight zoom
     if (visibleNodes.length === 1) {
-      // Normalize to Sigma's [0, 1] space
-      var nx = (visXs[0] - fullMinX) / fullRange;
-      var ny = (visYs[0] - fullMinY) / fullRange;
-      camera.animate({ x: nx, y: ny, ratio: 0.1 }, { duration: 300 });
+      var attrs = graph.getNodeAttributes(visibleNodes[0]);
+      // Convert to normalized coordinates (0-1)
+      var nx = (attrs.x - allMinX) / graphWidth;
+      var ny = (attrs.y - allMinY) / graphHeight;
+      camera.animate({ x: nx, y: ny, ratio: 0.15 }, { duration: 300 });
       return;
     }
 
-    // Bounding box of visible nodes in graph coordinates
-    var visMinX = Math.min.apply(null, visXs), visMaxX = Math.max.apply(null, visXs);
-    var visMinY = Math.min.apply(null, visYs), visMaxY = Math.max.apply(null, visYs);
+    // Multiple nodes: calculate bounding box in graph coordinates
+    var minX = Infinity, maxX = -Infinity;
+    var minY = Infinity, maxY = -Infinity;
 
-    // Convert center to normalized coordinates
-    var cx = ((visMinX + visMaxX) / 2 - fullMinX) / fullRange;
-    var cy = ((visMinY + visMaxY) / 2 - fullMinY) / fullRange;
+    visibleNodes.forEach(function(node) {
+      var attrs = graph.getNodeAttributes(node);
+      minX = Math.min(minX, attrs.x);
+      maxX = Math.max(maxX, attrs.x);
+      minY = Math.min(minY, attrs.y);
+      maxY = Math.max(maxY, attrs.y);
+    });
 
-    // Ratio: proportion of full graph that the subset spans, with padding
-    var subRangeX = visMaxX - visMinX;
-    var subRangeY = visMaxY - visMinY;
-    var subRange = Math.max(subRangeX, subRangeY);
-    var padding = 1.4;
-    var ratio = Math.max(0.05, (subRange / fullRange) * padding);
+    // Center of visible nodes in normalized coordinates (0-1)
+    var centerX = ((minX + maxX) / 2 - allMinX) / graphWidth;
+    var centerY = ((minY + maxY) / 2 - allMinY) / graphHeight;
 
-    camera.animate({ x: cx, y: cy, ratio: ratio }, { duration: 300 });
+    var subsetWidth = maxX - minX;
+    var subsetHeight = maxY - minY;
+
+    // Ratio = fraction of graph to show (with padding)
+    var ratio = Math.max(
+      (subsetWidth / graphWidth) * 1.1,
+      (subsetHeight / graphHeight) * 1.1,
+      0.05
+    );
+
+    camera.animate({ x: centerX, y: centerY, ratio: ratio }, { duration: 300 });
   };
 
   /**
