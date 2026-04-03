@@ -191,12 +191,12 @@
           // Draw entry type indicator before label
           var entryType = data.entryType;
           if (entryType) {
-            var indicator = entryType === "main" ? "▸" :
-                           entryType === "test" ? "◆" :
-                           entryType === "export" ? "◉" :
-                           entryType === "init" ? "●" :
-                           entryType === "benchmark" ? "◇" :
-                           entryType === "example" ? "○" : "";
+            var indicator = entryType === "main" ? "▶" :
+                           entryType === "test" ? "🧪" :
+                           entryType === "export" ? "📤" :
+                           entryType === "init" ? "⚡" :
+                           entryType === "benchmark" ? "⏱" :
+                           entryType === "example" ? "📖" : "";
             if (indicator) {
               var indicatorColor = entryTypeBorderColor(entryType) || "#cdd6f4";
               context.fillStyle = indicatorColor;
