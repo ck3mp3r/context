@@ -1512,3 +1512,117 @@ fn test_impl_method_dyn_trait_return_type() {
             .collect::<Vec<_>>()
     );
 }
+
+// =============================================================================
+// Built-in type filtering tests
+// =============================================================================
+
+#[test]
+fn test_builtin_types_filtered_from_return() {
+    // fn load_config() -> Result<Config, Error> should NOT have Result in refs
+    // fn find_config() -> Option<Config> should NOT have Option in refs
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let builtin_refs: Vec<_> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| {
+            matches!(
+                tr.type_name.as_str(),
+                "Result" | "Option" | "Box" | "Vec" | "String" | "Arc"
+            ) && tr.ref_kind == ReferenceType::ReturnType
+        })
+        .collect();
+
+    assert!(
+        builtin_refs.is_empty(),
+        "Built-in types should be filtered from return type refs, found: {:?}",
+        builtin_refs
+            .iter()
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_builtin_types_filtered_from_params() {
+    // fn get_server(name: String) should NOT have String in refs
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let builtin_refs: Vec<_> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| {
+            matches!(
+                tr.type_name.as_str(),
+                "String" | "Vec" | "HashMap" | "Option" | "Result"
+            ) && tr.ref_kind == ReferenceType::ParamType
+        })
+        .collect();
+
+    assert!(
+        builtin_refs.is_empty(),
+        "Built-in types should be filtered from param type refs, found: {:?}",
+        builtin_refs
+            .iter()
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_builtin_types_filtered_from_fields() {
+    // struct Config { name: String } should NOT have String in refs
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let builtin_refs: Vec<_> = parsed
+        .type_refs
+        .iter()
+        .filter(|tr| {
+            matches!(tr.type_name.as_str(), "String" | "u16" | "bool" | "i32")
+                && tr.ref_kind == ReferenceType::FieldType
+        })
+        .collect();
+
+    assert!(
+        builtin_refs.is_empty(),
+        "Built-in types should be filtered from field type refs, found: {:?}",
+        builtin_refs
+            .iter()
+            .map(|tr| &tr.type_name)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_user_types_preserved_when_builtins_filtered() {
+    // fn load_config() -> Result<Config, Error> should still have Config
+    let code = load_testdata("typeref.rs");
+    let parsed = Rust::extract(&code, "src/typeref.rs");
+
+    let fn_idx = parsed
+        .symbols
+        .iter()
+        .position(|s| s.name == "load_config")
+        .expect("load_config function should exist");
+
+    let has_config = parsed.type_refs.iter().any(|tr| {
+        tr.from_symbol_idx == fn_idx
+            && tr.type_name == "Config"
+            && tr.ref_kind == ReferenceType::ReturnType
+    });
+
+    assert!(
+        has_config,
+        "load_config() -> Result<Config, Error> should extract Config (user type), got: {:?}",
+        parsed
+            .type_refs
+            .iter()
+            .filter(|tr| tr.from_symbol_idx == fn_idx)
+            .map(|tr| (&tr.type_name, &tr.ref_kind))
+            .collect::<Vec<_>>()
+    );
+}

@@ -4,6 +4,55 @@ use crate::analysis::types::{
 };
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
+/// Rust built-in types that should not produce type reference edges.
+/// These are either primitives or standard library types that won't exist
+/// as symbols in the project's code graph.
+pub const RUST_BUILTINS: &[&str] = &[
+    // Primitives
+    "bool",
+    "char",
+    "str",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "isize",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "usize",
+    "f32",
+    "f64",
+    // Common standard library types
+    "String",
+    "Vec",
+    "HashMap",
+    "HashSet",
+    "BTreeMap",
+    "BTreeSet",
+    "Option",
+    "Result",
+    "Box",
+    "Rc",
+    "Arc",
+    "RefCell",
+    "Mutex",
+    "RwLock",
+    "Cell",
+    "Cow",
+    "Pin",
+    "PhantomData",
+];
+
+/// Check if a type name is a Rust built-in.
+#[inline]
+pub fn is_rust_builtin(name: &str) -> bool {
+    RUST_BUILTINS.contains(&name)
+}
+
 pub struct Rust;
 
 const QUERIES: &str = include_str!("queries/symbols.scm");
@@ -370,6 +419,7 @@ impl Rust {
                 {
                     let type_name = text(type_node);
                     if type_name != "Self"
+                        && !is_rust_builtin(type_name)
                         && let Some(idx) = Self::find_symbol_idx(
                             parsed,
                             text(fn_node),
@@ -393,6 +443,7 @@ impl Rust {
                 {
                     let type_name = text(type_node);
                     if type_name != "Self"
+                        && !is_rust_builtin(type_name)
                         && let Some(idx) = Self::find_symbol_idx(
                             parsed,
                             text(fn_node),
@@ -416,6 +467,7 @@ impl Rust {
                 {
                     let type_name = text(type_node);
                     if type_name != "Self"
+                        && !is_rust_builtin(type_name)
                         && let Some(idx) = Self::find_symbol_idx(
                             parsed,
                             text(field_node),
