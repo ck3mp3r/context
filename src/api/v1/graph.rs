@@ -37,6 +37,10 @@ pub struct GraphNode {
     pub language: String,
     pub file_path: String,
     pub start_line: i64,
+    /// Entry point type: "main", "test", "export", "init", "benchmark", "example", or null
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_type: Option<String>,
+    /// Deprecated: use entry_type == "test" instead
     pub is_test: bool,
 }
 
@@ -297,6 +301,11 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
                 language: language.to_string(),
                 file_path: file_path.to_string(),
                 start_line: s["start_line"].as_i64().unwrap_or(0),
+                entry_type: if entry_type.is_empty() {
+                    None
+                } else {
+                    Some(entry_type.to_string())
+                },
                 is_test: entry_type == "test",
             })
         })

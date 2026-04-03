@@ -108,6 +108,7 @@
           language: node.language || "unknown",
           filePath: node.file_path,
           startLine: node.start_line,
+          entryType: node.entry_type || null,
           isTest: node.is_test || false,
           x: (Math.random() - 0.5) * 100,
           y: (Math.random() - 0.5) * 100,
@@ -259,6 +260,7 @@
             language: attrs.language || "unknown",
             filePath: attrs.filePath || "",
             startLine: attrs.startLine || 0,
+            entryType: attrs.entryType || null,
           });
           inst.onSelectCallback(info);
         }
