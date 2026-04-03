@@ -158,6 +158,52 @@
         console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
       }
 
+      // Helper: draw node shape based on entry type
+      function drawNodeShape(context, x, y, size, color, entryType) {
+        context.fillStyle = color;
+        context.beginPath();
+
+        if (entryType === "main") {
+          // Square for main entry points
+          var half = size;
+          context.rect(x - half, y - half, half * 2, half * 2);
+        } else if (entryType === "test") {
+          // Diamond for test
+          context.moveTo(x, y - size * 1.2);
+          context.lineTo(x + size * 1.2, y);
+          context.lineTo(x, y + size * 1.2);
+          context.lineTo(x - size * 1.2, y);
+          context.closePath();
+        } else if (entryType === "export") {
+          // Triangle pointing right for exports
+          context.moveTo(x + size * 1.2, y);
+          context.lineTo(x - size * 0.8, y - size);
+          context.lineTo(x - size * 0.8, y + size);
+          context.closePath();
+        } else if (entryType === "init") {
+          // Triangle pointing up for init
+          context.moveTo(x, y - size * 1.2);
+          context.lineTo(x + size, y + size * 0.8);
+          context.lineTo(x - size, y + size * 0.8);
+          context.closePath();
+        } else if (entryType === "benchmark" || entryType === "example") {
+          // Hexagon for benchmark/example
+          for (var i = 0; i < 6; i++) {
+            var angle = (Math.PI / 3) * i - Math.PI / 6;
+            var px = x + size * Math.cos(angle);
+            var py = y + size * Math.sin(angle);
+            if (i === 0) context.moveTo(px, py);
+            else context.lineTo(px, py);
+          }
+          context.closePath();
+        } else {
+          // Circle for regular nodes (default)
+          context.arc(x, y, size, 0, Math.PI * 2);
+        }
+
+        context.fill();
+      }
+
       // Create renderer
       var renderer = new Sigma(graph, container, {
         renderLabels: true,
@@ -172,6 +218,10 @@
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
         stagePadding: 40,
+        defaultDrawNode: function(context, data, settings) {
+          var entryType = nodeEntryTypes[data.key];
+          drawNodeShape(context, data.x, data.y, data.size, data.color || "#a6adc8", entryType);
+        },
         defaultDrawNodeLabel: function(context, data, settings) {
           if (!data.label) return;
           var size = settings.labelSize;
@@ -182,50 +232,25 @@
           var x = data.x + data.size + 3;
           var y = data.y + size / 3;
 
-          // Get entryType from lookup using node key
-          var entryType = nodeEntryTypes[data.key];
-
-          // Calculate total width including indicator if present
-          var indicator = "";
-          if (entryType) {
-            indicator = entryType === "main" ? "▶ " :
-                       entryType === "test" ? "🧪 " :
-                       entryType === "export" ? "📤 " :
-                       entryType === "init" ? "⚡ " :
-                       entryType === "benchmark" ? "⏱ " :
-                       entryType === "example" ? "📖 " : "";
-          }
-          var indicatorWidth = indicator ? context.measureText(indicator).width : 0;
-          var totalWidth = indicatorWidth + textWidth;
-
           // Draw background
           context.fillStyle = "#181825";
           context.fillRect(
             x - padding / 2,
             y - size + 1,
-            totalWidth + padding,
+            textWidth + padding,
             size + 2
           );
-
-          // Draw entry type indicator before label
-          if (indicator) {
-            var indicatorColor = entryTypeBorderColor(entryType) || "#cdd6f4";
-            context.fillStyle = indicatorColor;
-            context.fillText(indicator, x, y);
-            x += indicatorWidth;
-          }
 
           // Draw text
           context.fillStyle = "#cdd6f4";
           context.fillText(data.label, x, y);
         },
         defaultDrawNodeHover: function(context, data, settings) {
-          // Draw enlarged node circle
-          context.beginPath();
-          context.arc(data.x, data.y, data.size + 2, 0, Math.PI * 2);
-          context.closePath();
-          context.fillStyle = data.color || "#a6adc8";
-          context.fill();
+          // Draw enlarged node shape with highlight
+          var entryType = nodeEntryTypes[data.key];
+          drawNodeShape(context, data.x, data.y, data.size + 2, data.color || "#a6adc8", entryType);
+
+          // Add highlight border
           context.strokeStyle = "#89b4fa";
           context.lineWidth = 2;
           context.stroke();
