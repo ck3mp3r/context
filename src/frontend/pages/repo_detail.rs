@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
+use thaw::Tooltip;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{ApiClientError, graph, projects, repos};
@@ -413,300 +414,324 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
 
     view! {
         <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6">
-            // Controls wrapper
-            <div class="flex flex-col gap-3 mb-4">
-                // Row 1: title + search | depth + fit
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-3">
-                        <h3 class="text-lg font-semibold text-ctp-text">"Code Graph"</h3>
-                        <div class="relative">
-                            <input
-                                type="text"
-                                placeholder="Search nodes..."
-                                class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 pr-14 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-44"
-                                on:input=move |ev| {
-                                    let value = event_target_value(&ev);
-                                    set_search_query.set(value);
-                                }
-                                prop:value=move || search_query.get()
-                            />
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
+            // Controls row - single row with overflow
+            <div class="flex items-center gap-3 mb-4 overflow-x-auto">
+                <h3 class="text-lg font-semibold text-ctp-text flex-shrink-0">"Code Graph"</h3>
+                // Search
+                <div class="relative flex-shrink-0">
+                    <input
+                        type="text"
+                        placeholder="Search nodes..."
+                        class="text-xs bg-ctp-base border border-ctp-surface2 rounded-full px-3 py-1 pl-7 pr-14 text-ctp-text placeholder-ctp-overlay0 focus:outline-none focus:border-ctp-blue transition-colors w-44"
+                        on:input=move |ev| {
+                            let value = event_target_value(&ev);
+                            set_search_query.set(value);
+                        }
+                        prop:value=move || search_query.get()
+                    />
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ctp-overlay0"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                    >
+                        <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+                    </svg>
+                    {move || {
+                        let q = search_query.get();
+                        let count = search_count.get();
+                        if !q.is_empty() {
+                            view! {
+                                <span class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    <span class="text-[10px] text-ctp-overlay0">
+                                        {count.to_string()}
+                                    </span>
+                                    <button
+                                        class="text-ctp-overlay0 hover:text-ctp-red transition-colors"
+                                        on:click=move |_| set_search_query.set(String::new())
+                                        title="Clear search"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                        </svg>
+                                    </button>
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
+                </div>
+                // Language pills
+                {move || {
+                    let langs = available_languages.get();
+                    langs
+                        .into_iter()
+                        .map(|lang| {
+                            let lang_for_click = lang.clone();
+                            let is_selected = {
+                                let lang_check = lang.clone();
+                                Signal::derive(move || selected_language.get() == lang_check)
+                            };
+
+                            view! {
+                                <button
+                                    class="text-xs px-2 py-0.5 rounded-md border transition-colors capitalize flex-shrink-0"
+                                    class:bg-ctp-surface1=move || is_selected.get()
+                                    class:text-ctp-text=move || is_selected.get()
+                                    class:border-ctp-overlay0=move || is_selected.get()
+                                    class:bg-ctp-base=move || !is_selected.get()
+                                    class:text-ctp-overlay0=move || !is_selected.get()
+                                    class:border-ctp-surface2=move || !is_selected.get()
+                                    on:click=move |_| {
+                                        let current = selected_language.get_untracked();
+                                        if current == lang_for_click {
+                                            set_selected_language.set(String::new());
+                                        } else {
+                                            set_selected_language.set(lang_for_click.clone());
+                                        }
+                                    }
+                                >
+                                    {lang}
+                                </button>
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                }}
+                // Spacer
+                <div class="flex-1"></div>
+                // Depth controls
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-xs text-ctp-overlay0" title="Double-click a node to focus. Depth controls how many hops of neighbors to include.">"Depth:"</span>
+                    {[1u32, 2, 3].into_iter().map(|d| {
+                        let is_active = Signal::derive(move || focus_depth.get() == d);
+                        view! {
+                            <button
+                                class="text-xs px-1.5 py-0.5 rounded transition-colors"
+                                class:bg-ctp-blue=move || is_active.get()
+                                class:text-ctp-base=move || is_active.get()
+                                class:bg-ctp-surface1=move || !is_active.get()
+                                class:text-ctp-subtext0=move || !is_active.get()
+                                class:hover:bg-ctp-surface2=move || !is_active.get()
+                                on:click=move |_| set_focus_depth.set(d)
                             >
-                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
-                            </svg>
+                                {d.to_string()}
+                            </button>
+                        }
+                    }).collect::<Vec<_>>()}
+                    <button
+                        class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors"
+                        on:click=move |_| zoom_to_fit(container_id)
+                        title="Fit to canvas"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            // Main content: graph (left) + side panel (right)
+            <div class="flex gap-4">
+                // Graph canvas (square, takes remaining space)
+                <div
+                    id=container_id
+                    class="flex-1 bg-ctp-mantle rounded-lg relative aspect-square max-h-[600px]"
+                >
+                    {move || match graph_state.get() {
+                        GraphState::Loading => {
+                            view! {
+                                <div class="absolute inset-0 flex items-center justify-center">
+                                    <div class="flex items-center gap-2 text-ctp-subtext0">
+                                        <span class="inline-block w-3 h-3 rounded-full bg-ctp-blue animate-pulse"></span>
+                                        <span class="text-sm">"Loading graph..."</span>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        }
+                        GraphState::NoAnalysis => {
+                            view! {
+                                <div class="absolute inset-0 flex items-center justify-center">
+                                    <p class="text-ctp-overlay0 text-sm">"No analysis available. Run analysis first."</p>
+                                </div>
+                            }.into_any()
+                        }
+                        GraphState::Error(ref msg) => {
+                            view! {
+                                <div class="absolute inset-0 flex items-center justify-center">
+                                    <div class="text-center">
+                                        <p class="text-ctp-red text-sm mb-2">"Error loading graph"</p>
+                                        <p class="text-ctp-overlay0 text-xs">{msg.clone()}</p>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        }
+                        _ => {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
+                    // Layout running indicator
+                    <div
+                        class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
+                        style:opacity=move || if layout_running.get() { "1" } else { "0" }
+                        style:pointer-events="none"
+                    >
+                        <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
+                        "Layouting..."
+                    </div>
+                </div>
+
+                // Side panel: detail card + legends
+                <div class="w-64 flex flex-col gap-4">
+                    // Selected node info card
+                    <div class="bg-ctp-base border border-ctp-surface2 rounded-lg p-3">
+                        <h4 class="text-xs font-semibold text-ctp-overlay0 mb-2">"Selected Node"</h4>
+                        {move || {
+                            selected_node.get().map(|info| {
+                                view! {
+                                    <div class="space-y-1 text-xs font-mono">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-ctp-blue font-semibold">{info.kind}</span>
+                                            <span class="text-ctp-overlay0">{info.language}</span>
+                                        </div>
+                                        <p class="text-ctp-text break-all">{info.qualified_name}</p>
+                                        <p class="text-ctp-overlay0 text-[10px]">{format!("{}:{}", info.file_path, info.start_line)}</p>
+                                    </div>
+                                }.into_any()
+                            }).unwrap_or_else(|| {
+                                view! {
+                                    <p class="text-ctp-overlay0 text-xs italic">"Click a node to see details"</p>
+                                }.into_any()
+                            })
+                        }}
+                    </div>
+
+                    // Node kinds legend
+                    <div class="bg-ctp-base border border-ctp-surface2 rounded-lg p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-xs font-semibold text-ctp-overlay0">"Node Types"</h4>
+                            <Tooltip content=move || if hide_tests.get() { "Show test symbols" } else { "Hide test symbols" }>
+                                <button
+                                    class="p-1 rounded border transition-colors"
+                                    class:bg-ctp-surface1=move || hide_tests.get()
+                                    class:border-ctp-surface2=move || hide_tests.get()
+                                    class:text-ctp-overlay0=move || hide_tests.get()
+                                    class:bg-ctp-surface0=move || !hide_tests.get()
+                                    class:border-ctp-yellow=move || !hide_tests.get()
+                                    class:text-ctp-yellow=move || !hide_tests.get()
+                                    on:click=move |_| set_hide_tests.set(!hide_tests.get_untracked())
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 7 6.82 21.18a2.83 2.83 0 0 1-3.99-.01a2.83 2.83 0 0 1 0-4L17 3"/>
+                                        <path d="m16 2 6 6"/>
+                                        <path d="M12 16H4"/>
+                                    </svg>
+                                </button>
+                            </Tooltip>
+                        </div>
+                        <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ctp-subtext0">
                             {move || {
-                                let q = search_query.get();
-                                let count = search_count.get();
-                                if !q.is_empty() {
-                                    view! {
-                                        <span class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                            <span class="text-[10px] text-ctp-overlay0">
-                                                {count.to_string()}
-                                            </span>
+                                let kinds = legend_kinds.get();
+                                let total = kinds.len();
+                                kinds
+                                    .into_iter()
+                                    .map(|ki| {
+                                        let kind = ki.kind.clone();
+                                        let color = ki.color.clone();
+                                        let kind_for_check = kind.clone();
+                                        let kind_for_click = kind.clone();
+
+                                        let is_active = {
+                                            let kind_check = kind_for_check.clone();
+                                            move || {
+                                                let active = active_kinds.get();
+                                                active.is_empty() || active.contains(&kind_check)
+                                            }
+                                        };
+
+                                        view! {
                                             <button
-                                                class="text-ctp-overlay0 hover:text-ctp-red transition-colors"
-                                                on:click=move |_| set_search_query.set(String::new())
-                                                title="Clear search"
+                                                class="flex items-center gap-1 cursor-pointer transition-opacity"
+                                                style:opacity=move || if is_active() { "1" } else { "0.3" }
+                                                on:click=move |_| {
+                                                    let mut kinds = active_kinds.get();
+                                                    if kinds.contains(&kind_for_click) {
+                                                        kinds.remove(&kind_for_click);
+                                                    } else {
+                                                        kinds.insert(kind_for_click.clone());
+                                                    }
+                                                    if kinds.len() == total {
+                                                        kinds.clear();
+                                                    }
+                                                    set_active_kinds.set(kinds);
+                                                }
                                             >
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-                                                </svg>
+                                                <span
+                                                    class="inline-block w-2 h-2 rounded-full"
+                                                    style:background-color=color
+                                                />
+                                                {kind}
                                             </button>
-                                        </span>
-                                    }.into_any()
-                                } else {
-                                    view! { <span></span> }.into_any()
-                                }
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
                             }}
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs text-ctp-overlay0" title="Double-click a node to focus. Depth controls how many hops of neighbors to include.">"Depth:"</span>
-                        {[1u32, 2, 3].into_iter().map(|d| {
-                            let is_active = Signal::derive(move || focus_depth.get() == d);
-                            view! {
-                                <button
-                                    class="text-xs px-1.5 py-0.5 rounded transition-colors"
-                                    class:bg-ctp-blue=move || is_active.get()
-                                    class:text-ctp-base=move || is_active.get()
-                                    class:bg-ctp-surface1=move || !is_active.get()
-                                    class:text-ctp-subtext0=move || !is_active.get()
-                                    class:hover:bg-ctp-surface2=move || !is_active.get()
-                                    on:click=move |_| set_focus_depth.set(d)
-                                >
-                                    {d.to_string()}
-                                </button>
-                            }
-                        }).collect::<Vec<_>>()}
-                        <button
-                            class="p-1.5 rounded bg-ctp-surface1 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface2 transition-colors flex-shrink-0"
-                            on:click=move |_| zoom_to_fit(container_id)
-                            title="Fit to canvas"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
-                            </svg>
-                        </button>
+
+                    // Edge types legend
+                    <div class="bg-ctp-base border border-ctp-surface2 rounded-lg p-3">
+                        <h4 class="text-xs font-semibold text-ctp-overlay0 mb-2">"Edge Types"</h4>
+                        <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ctp-subtext0">
+                            {move || {
+                                let edge_types = legend_edge_types.get();
+                                let total = edge_types.len();
+                                edge_types
+                                    .into_iter()
+                                    .map(|ei| {
+                                        let kind = ei.kind.clone();
+                                        let color = ei.color.clone();
+                                        let kind_for_check = kind.clone();
+                                        let kind_for_click = kind.clone();
+
+                                        let is_active = {
+                                            let kind_check = kind_for_check.clone();
+                                            move || {
+                                                let active = active_edges.get();
+                                                active.is_empty() || active.contains(&kind_check)
+                                            }
+                                        };
+
+                                        view! {
+                                            <button
+                                                class="flex items-center gap-1 cursor-pointer transition-opacity"
+                                                style:opacity=move || if is_active() { "1" } else { "0.3" }
+                                                on:click=move |_| {
+                                                    let mut edges = active_edges.get();
+                                                    if edges.contains(&kind_for_click) {
+                                                        edges.remove(&kind_for_click);
+                                                    } else {
+                                                        edges.insert(kind_for_click.clone());
+                                                    }
+                                                    if edges.len() == total {
+                                                        edges.clear();
+                                                    }
+                                                    set_active_edges.set(edges);
+                                                }
+                                            >
+                                                <span
+                                                    class="inline-block w-3 h-0.5 rounded"
+                                                    style:background-color=color
+                                                />
+                                                {kind}
+                                            </button>
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                            }}
+                        </div>
                     </div>
                 </div>
-                // Row 2: test toggle + language pills
-                <div class="flex flex-wrap items-center gap-2">
-                    <button
-                        class="text-xs px-2 py-0.5 rounded-md border border-ctp-surface2 transition-colors"
-                        class:bg-ctp-surface1=move || hide_tests.get()
-                        class:text-ctp-subtext0=move || hide_tests.get()
-                        class:bg-ctp-base=move || !hide_tests.get()
-                        class:text-ctp-overlay0=move || !hide_tests.get()
-                        on:click=move |_| set_hide_tests.set(!hide_tests.get_untracked())
-                        title="Toggle test symbol visibility"
-                    >
-                        {move || if hide_tests.get() { "Tests hidden" } else { "Tests shown" }}
-                    </button>
-                    <span class="w-px h-4 bg-ctp-surface2"></span>
-                    {move || {
-                        let langs = available_languages.get();
-                        langs
-                            .into_iter()
-                            .map(|lang| {
-                                let lang_for_click = lang.clone();
-                                let is_selected = {
-                                    let lang_check = lang.clone();
-                                    Signal::derive(move || selected_language.get() == lang_check)
-                                };
-
-                                view! {
-                                    <button
-                                        class="text-xs px-2 py-0.5 rounded-md border transition-colors capitalize"
-                                        class:bg-ctp-surface1=move || is_selected.get()
-                                        class:text-ctp-text=move || is_selected.get()
-                                        class:border-ctp-overlay0=move || is_selected.get()
-                                        class:bg-ctp-base=move || !is_selected.get()
-                                        class:text-ctp-overlay0=move || !is_selected.get()
-                                        class:border-ctp-surface2=move || !is_selected.get()
-                                        on:click=move |_| {
-                                            let current = selected_language.get_untracked();
-                                            if current == lang_for_click {
-                                                set_selected_language.set(String::new());
-                                            } else {
-                                                set_selected_language.set(lang_for_click.clone());
-                                            }
-                                        }
-                                    >
-                                        {lang}
-                                    </button>
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                    }}
-                </div>
-            </div>
-
-            // Graph canvas container (always in DOM)
-            <div
-                id=container_id
-                class="w-full bg-ctp-mantle rounded-lg relative"
-                style="height: 500px;"
-            >
-                {move || match graph_state.get() {
-                    GraphState::Loading => {
-                        view! {
-                            <div class="absolute inset-0 flex items-center justify-center">
-                                <div class="flex items-center gap-2 text-ctp-subtext0">
-                                    <span class="inline-block w-3 h-3 rounded-full bg-ctp-blue animate-pulse"></span>
-                                    <span class="text-sm">"Loading graph..."</span>
-                                </div>
-                            </div>
-                        }.into_any()
-                    }
-                    GraphState::NoAnalysis => {
-                        view! {
-                            <div class="absolute inset-0 flex items-center justify-center">
-                                <p class="text-ctp-overlay0 text-sm">"No analysis available. Run analysis first."</p>
-                            </div>
-                        }.into_any()
-                    }
-                    GraphState::Error(ref msg) => {
-                        view! {
-                            <div class="absolute inset-0 flex items-center justify-center">
-                                <div class="text-center">
-                                    <p class="text-ctp-red text-sm mb-2">"Error loading graph"</p>
-                                    <p class="text-ctp-overlay0 text-xs">{msg.clone()}</p>
-                                </div>
-                            </div>
-                        }.into_any()
-                    }
-                    _ => {
-                        view! { <span></span> }.into_any()
-                    }
-                }}
-                // Layout running indicator
-                <div
-                    class="absolute top-3 right-3 z-10 flex items-center gap-2 bg-ctp-surface0 border border-ctp-surface2 rounded-full px-3 py-1 text-xs text-ctp-subtext0 transition-opacity duration-200"
-                    style:opacity=move || if layout_running.get() { "1" } else { "0" }
-                    style:pointer-events="none"
-                >
-                    <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
-                    "Layouting..."
-                </div>
-            </div>
-
-            // Selected node info bar
-            {move || {
-                selected_node.get().map(|info| {
-                    view! {
-                        <div class="flex items-center gap-3 mt-3 px-3 py-2 bg-ctp-base border border-ctp-surface2 rounded text-xs text-ctp-subtext1 font-mono">
-                            <span class="text-ctp-blue font-semibold">{info.kind}</span>
-                            <span class="text-ctp-text">{info.qualified_name}</span>
-                            <span class="text-ctp-overlay0">{format!("{}:{}", info.file_path, info.start_line)}</span>
-                            <span class="text-ctp-overlay0">{info.language}</span>
-                        </div>
-                    }
-                })
-            }}
-
-            // Legend: node kinds
-            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-ctp-subtext0">
-                <span class="text-ctp-overlay0 font-medium">"Nodes:"</span>
-                {move || {
-                    let kinds = legend_kinds.get();
-                    let total = kinds.len();
-                    kinds
-                        .into_iter()
-                        .map(|ki| {
-                            let kind = ki.kind.clone();
-                            let color = ki.color.clone();
-                            let kind_for_check = kind.clone();
-                            let kind_for_click = kind.clone();
-
-                            let is_active = {
-                                let kind_check = kind_for_check.clone();
-                                move || {
-                                    let active = active_kinds.get();
-                                    active.is_empty() || active.contains(&kind_check)
-                                }
-                            };
-
-                            view! {
-                                <button
-                                    class="flex items-center gap-1.5 cursor-pointer transition-opacity"
-                                    style:opacity=move || if is_active() { "1" } else { "0.3" }
-                                    on:click=move |_| {
-                                        let mut kinds = active_kinds.get();
-                                        if kinds.contains(&kind_for_click) {
-                                            kinds.remove(&kind_for_click);
-                                        } else {
-                                            kinds.insert(kind_for_click.clone());
-                                        }
-                                        if kinds.len() == total {
-                                            kinds.clear();
-                                        }
-                                        set_active_kinds.set(kinds);
-                                    }
-                                >
-                                    <span
-                                        class="inline-block w-2.5 h-2.5 rounded-full"
-                                        style:background-color=color
-                                    />
-                                    {kind}
-                                </button>
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }}
-            </div>
-            // Legend: edge types (clickable for filtering)
-            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-ctp-subtext0">
-                <span class="text-ctp-overlay0 font-medium">"Edges:"</span>
-                {move || {
-                    let edge_types = legend_edge_types.get();
-                    let total = edge_types.len();
-                    edge_types
-                        .into_iter()
-                        .map(|ei| {
-                            let kind = ei.kind.clone();
-                            let color = ei.color.clone();
-                            let kind_for_check = kind.clone();
-                            let kind_for_click = kind.clone();
-
-                            let is_active = {
-                                let kind_check = kind_for_check.clone();
-                                move || {
-                                    let active = active_edges.get();
-                                    active.is_empty() || active.contains(&kind_check)
-                                }
-                            };
-
-                            view! {
-                                <button
-                                    class="flex items-center gap-1.5 cursor-pointer transition-opacity"
-                                    style:opacity=move || if is_active() { "1" } else { "0.3" }
-                                    on:click=move |_| {
-                                        let mut edges = active_edges.get();
-                                        if edges.contains(&kind_for_click) {
-                                            edges.remove(&kind_for_click);
-                                        } else {
-                                            edges.insert(kind_for_click.clone());
-                                        }
-                                        if edges.len() == total {
-                                            edges.clear();
-                                        }
-                                        set_active_edges.set(edges);
-                                    }
-                                >
-                                    <span
-                                        class="inline-block w-4 h-0.5 rounded"
-                                        style:background-color=color
-                                    />
-                                    {kind}
-                                </button>
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }}
             </div>
         </div>
     }
