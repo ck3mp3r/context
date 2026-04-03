@@ -560,6 +560,7 @@ impl Rust {
         struct ModDecl {
             mod_name: String,
             declaring_dir: String,
+            is_test: bool,
         }
 
         let mut decls: Vec<ModDecl> = Vec::new();
@@ -578,6 +579,7 @@ impl Rust {
                     decls.push(ModDecl {
                         mod_name: sym.name.clone(),
                         declaring_dir: dir.to_string(),
+                        is_test: sym.entry_type.as_deref() == Some("test"),
                     });
                 }
             }
@@ -599,6 +601,7 @@ impl Rust {
             target_file_idx: usize,
             mod_name: String,
             orphan_idxs: Vec<usize>,
+            is_test: bool,
         }
 
         let mut containments: Vec<Containment> = Vec::new();
@@ -636,14 +639,25 @@ impl Rust {
                         target_file_idx: tidx,
                         mod_name: decl.mod_name.clone(),
                         orphan_idxs,
+                        is_test: decl.is_test,
                     });
                 }
             }
         }
 
         // Apply mutations: add module symbol to target file + containment edges
+        // Also propagate test status to all symbols in test modules
         for cont in containments {
             let pf = &mut parsed_files[cont.target_file_idx];
+
+            // If this is a test module, tag all symbols in the file as test
+            if cont.is_test {
+                for sym in &mut pf.symbols {
+                    if sym.entry_type.is_none() {
+                        sym.entry_type = Some("test".to_string());
+                    }
+                }
+            }
 
             // Ensure the target file has a module symbol so Phase 3 can
             // resolve the parent via this file's module path
@@ -661,7 +675,11 @@ impl Rust {
                     signature: None,
                     language: "rust".to_string(),
                     visibility: Some("public".to_string()),
-                    entry_type: None,
+                    entry_type: if cont.is_test {
+                        Some("test".to_string())
+                    } else {
+                        None
+                    },
                 });
             }
 
