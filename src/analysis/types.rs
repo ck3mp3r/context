@@ -303,13 +303,6 @@ impl ImportEntry {
 // Raw extraction types (query-based pipeline)
 // ============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallForm {
-    Free,
-    Method,
-    Scoped,
-}
-
 #[derive(Debug, Clone)]
 pub struct RawSymbol {
     pub name: String,
@@ -330,28 +323,9 @@ impl RawSymbol {
 }
 
 #[derive(Debug, Clone)]
-pub struct RawCall {
-    pub file_path: String,
-    pub call_site_line: usize,
-    pub callee_name: String,
-    pub call_form: CallForm,
-    pub receiver: Option<String>,
-    pub qualifier: Option<String>,
-    pub enclosing_symbol_idx: Option<usize>,
-}
-
-#[derive(Debug, Clone)]
 pub struct RawImport {
     pub file_path: String,
     pub entry: ImportEntry,
-}
-
-#[derive(Debug, Clone)]
-pub struct RawTypeRef {
-    pub file_path: String,
-    pub from_symbol_idx: usize,
-    pub type_name: String,
-    pub ref_kind: ReferenceType,
 }
 
 #[derive(Debug, Clone)]
@@ -368,9 +342,7 @@ pub struct ParsedFile {
     pub language: String,
     pub symbols: Vec<RawSymbol>,
     pub edges: Vec<RawEdge>,
-    pub calls: Vec<RawCall>,
     pub imports: Vec<RawImport>,
-    pub type_refs: Vec<RawTypeRef>,
     pub write_accesses: Vec<RawWriteAccess>,
 }
 
@@ -381,9 +353,7 @@ impl ParsedFile {
             language: language.into(),
             symbols: Vec::new(),
             edges: Vec::new(),
-            calls: Vec::new(),
             imports: Vec::new(),
-            type_refs: Vec::new(),
             write_accesses: Vec::new(),
         }
     }
