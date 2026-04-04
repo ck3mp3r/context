@@ -328,14 +328,6 @@ pub struct RawImport {
     pub entry: ImportEntry,
 }
 
-#[derive(Debug, Clone)]
-pub struct RawWriteAccess {
-    pub file_path: String,
-    pub write_site_line: usize,
-    pub receiver: String,
-    pub property: String,
-}
-
 #[derive(Debug)]
 pub struct ParsedFile {
     pub file_path: String,
@@ -343,7 +335,6 @@ pub struct ParsedFile {
     pub symbols: Vec<RawSymbol>,
     pub edges: Vec<RawEdge>,
     pub imports: Vec<RawImport>,
-    pub write_accesses: Vec<RawWriteAccess>,
 }
 
 impl ParsedFile {
@@ -354,7 +345,6 @@ impl ParsedFile {
             symbols: Vec::new(),
             edges: Vec::new(),
             imports: Vec::new(),
-            write_accesses: Vec::new(),
         }
     }
 }

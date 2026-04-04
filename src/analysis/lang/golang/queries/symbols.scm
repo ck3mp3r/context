@@ -117,28 +117,8 @@
         path: (interpreted_string_literal) @import_alias_path)) @import_alias_decl
 
 ;;; import with alias — grouped
-(import_declaration
-    (import_spec_list
-        (import_spec
-            name: (package_identifier) @import_grouped_alias
-            path: (interpreted_string_literal) @import_grouped_alias_path))) @import_grouped_alias_decl
-
-;;; write access — field assignment (obj.field = value)
-(assignment_statement
-    left: (expression_list
-        (selector_expression
-            operand: (_) @write_assign_receiver
-            field: (field_identifier) @write_assign_field))
-    right: (_)) @write_assign
-
-;;; write access — field increment (obj.field++)
-(inc_statement
-    (selector_expression
-        operand: (_) @write_inc_receiver
-        field: (field_identifier) @write_inc_field)) @write_inc
-
-;;; write access — field decrement (obj.field--)
-(dec_statement
-    (selector_expression
-        operand: (_) @write_dec_receiver
-        field: (field_identifier) @write_dec_field)) @write_dec
+ (import_declaration
+     (import_spec_list
+         (import_spec
+             name: (package_identifier) @import_grouped_alias
+             path: (interpreted_string_literal) @import_grouped_alias_path))) @import_grouped_alias_decl

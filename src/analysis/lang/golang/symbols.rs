@@ -4,7 +4,7 @@
 //! variables, etc.) and their relationships (calls, imports, containment).
 
 use crate::analysis::types::{
-    EdgeKind, ImportEntry, ParsedFile, RawEdge, RawImport, RawSymbol, RawWriteAccess, SymbolId,
+    EdgeKind, ImportEntry, ParsedFile, RawEdge, RawImport, RawSymbol, SymbolId,
 };
 use tree_sitter::Query;
 
@@ -507,50 +507,5 @@ pub fn process_match(
                 entry,
             });
         }
-        return;
-    }
-
-    // Write access — field assignment
-    if captures.contains_key("write_assign")
-        && let Some(&recv_node) = captures.get("write_assign_receiver")
-        && let Some(&field_node) = captures.get("write_assign_field")
-    {
-        let assign_node = captures["write_assign"];
-        parsed.write_accesses.push(RawWriteAccess {
-            file_path: file_path.to_string(),
-            write_site_line: assign_node.start_position().row + 1,
-            receiver: text(recv_node).to_string(),
-            property: text(field_node).to_string(),
-        });
-        return;
-    }
-
-    // Write access — increment
-    if captures.contains_key("write_inc")
-        && let Some(&recv_node) = captures.get("write_inc_receiver")
-        && let Some(&field_node) = captures.get("write_inc_field")
-    {
-        let inc_node = captures["write_inc"];
-        parsed.write_accesses.push(RawWriteAccess {
-            file_path: file_path.to_string(),
-            write_site_line: inc_node.start_position().row + 1,
-            receiver: text(recv_node).to_string(),
-            property: text(field_node).to_string(),
-        });
-        return;
-    }
-
-    // Write access — decrement
-    if captures.contains_key("write_dec")
-        && let Some(&recv_node) = captures.get("write_dec_receiver")
-        && let Some(&field_node) = captures.get("write_dec_field")
-    {
-        let dec_node = captures["write_dec"];
-        parsed.write_accesses.push(RawWriteAccess {
-            file_path: file_path.to_string(),
-            write_site_line: dec_node.start_position().row + 1,
-            receiver: text(recv_node).to_string(),
-            property: text(field_node).to_string(),
-        });
     }
 }

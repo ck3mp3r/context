@@ -1125,34 +1125,6 @@ impl Rust {
             }
         }
 
-        // Write access — assignment
-        if captures.contains_key("write_assign")
-            && let Some(&recv_node) = captures.get("write_assign_receiver")
-            && let Some(&field_node) = captures.get("write_assign_field")
-        {
-            let assign_node = captures["write_assign"];
-            parsed.write_accesses.push(RawWriteAccess {
-                file_path: file_path.to_string(),
-                write_site_line: assign_node.start_position().row + 1,
-                receiver: text(recv_node).to_string(),
-                property: text(field_node).to_string(),
-            });
-        }
-
-        // Write access — compound assignment
-        if captures.contains_key("write_compound")
-            && let Some(&recv_node) = captures.get("write_compound_receiver")
-            && let Some(&field_node) = captures.get("write_compound_field")
-        {
-            let compound_node = captures["write_compound"];
-            parsed.write_accesses.push(RawWriteAccess {
-                file_path: file_path.to_string(),
-                write_site_line: compound_node.start_position().row + 1,
-                receiver: text(recv_node).to_string(),
-                property: text(field_node).to_string(),
-            });
-        }
-
         // Visibility — record public symbols for post-processing
         if captures.contains_key("vis_def")
             && let Some(&name_node) = captures.get("vis_name")

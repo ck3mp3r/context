@@ -277,36 +277,6 @@ fn test_cache_struct_embedding_heritage() {
 }
 
 #[test]
-fn test_cache_write_access_assignment() {
-    let code = load_testdata("cache.go");
-    let parsed = Go::extract(&code, "cache/cache.go");
-
-    assert!(
-        parsed
-            .write_accesses
-            .iter()
-            .any(|w| w.property == "maxSize" && w.receiver == "rwc"),
-        "should capture rwc.maxSize = size write access, got: {:?}",
-        parsed.write_accesses
-    );
-}
-
-#[test]
-fn test_cache_write_access_increment() {
-    let code = load_testdata("cache.go");
-    let parsed = Go::extract(&code, "cache/cache.go");
-
-    assert!(
-        parsed
-            .write_accesses
-            .iter()
-            .any(|w| w.property == "hits" && w.receiver == "rwc"),
-        "should capture rwc.hits++ write access, got: {:?}",
-        parsed.write_accesses
-    );
-}
-
-#[test]
 fn test_go_visibility() {
     let code = load_testdata("cache.go");
     let parsed = Go::extract(&code, "cache/cache.go");

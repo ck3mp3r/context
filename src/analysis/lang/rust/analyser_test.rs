@@ -466,21 +466,6 @@ fn test_rust_type_alias() {
 }
 
 #[test]
-fn test_rust_write_access() {
-    let code = load_testdata("server.rs");
-    let parsed = Rust::extract(&code, "src/server.rs");
-
-    assert!(
-        parsed
-            .write_accesses
-            .iter()
-            .any(|w| w.property == "port" && w.receiver == "server"),
-        "should capture server.port = 9090 write access, got: {:?}",
-        parsed.write_accesses
-    );
-}
-
-#[test]
 fn test_rust_visibility() {
     let code = load_testdata("server.rs");
     let parsed = Rust::extract(&code, "src/server.rs");

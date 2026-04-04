@@ -171,20 +171,6 @@
 (macro_invocation
     macro: (identifier) @macro_name) @macro_call
 
-;;; write access — field assignment (obj.field = value)
-(assignment_expression
-    left: (field_expression
-        value: (_) @write_assign_receiver
-        field: (field_identifier) @write_assign_field)
-    right: (_)) @write_assign
-
-;;; write access — compound assignment (obj.field += value)
-(compound_assignment_expr
-    left: (field_expression
-        value: (_) @write_compound_receiver
-        field: (field_identifier) @write_compound_field)
-    right: (_)) @write_compound
-
 ;;; visibility — public items (captures name + start line to correlate with symbols)
 (function_item (visibility_modifier) @vis name: (identifier) @vis_name) @vis_def
 (struct_item (visibility_modifier) @vis name: (type_identifier) @vis_name) @vis_def
