@@ -103,18 +103,26 @@ pub fn find_symbol_id(
     })
 }
 
-/// Find the enclosing function/method symbol ID for a given line.
-/// Returns a SymbolId for the innermost function/method containing the given line.
+/// Find the enclosing function/method/var symbol ID for a given line.
+/// Returns a SymbolId for the innermost symbol containing the given line.
+/// Prefers function/method over var/const when both contain the line.
 pub fn find_enclosing_symbol_id(
     parsed: &ParsedFile,
     file_path: &str,
     line: usize,
 ) -> Option<SymbolId> {
+    // First try to find enclosing function/method
+    let func_match = parsed.symbols.iter().find(|s| {
+        (s.kind == "function" || s.kind == "method") && s.start_line <= line && s.end_line >= line
+    });
+
+    if let Some(s) = func_match {
+        return Some(SymbolId::new(file_path, &s.name, s.start_line));
+    }
+
+    // Fall back to var/const (for calls inside anonymous functions)
     parsed.symbols.iter().find_map(|s| {
-        if (s.kind == "function" || s.kind == "method")
-            && s.start_line <= line
-            && s.end_line >= line
-        {
+        if (s.kind == "var" || s.kind == "const") && s.start_line <= line && s.end_line >= line {
             Some(SymbolId::new(file_path, &s.name, s.start_line))
         } else {
             None

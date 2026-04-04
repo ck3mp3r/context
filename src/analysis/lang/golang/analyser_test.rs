@@ -1898,3 +1898,21 @@ fn test_go_qualified_return_uses() {
         edges_of_kind(&parsed, EdgeKind::Usage)
     );
 }
+
+// =============================================================================
+// Anonymous Function Calls Tests
+// =============================================================================
+
+#[test]
+fn test_go_call_inside_anonymous_function() {
+    let code = load_testdata("anonymous_func_calls.go");
+    let parsed = Go::extract(&code, "cmd/auth/list.go");
+
+    // printDetails(provider) inside anonymous function assigned to Run field
+    // Should create Calls edge from listCmd (the enclosing var)
+    assert!(
+        has_edge(&parsed, EdgeKind::Calls, "listCmd", "printDetails"),
+        "Call inside anonymous function should create Calls edge.\nEdges: {:?}",
+        edges_of_kind(&parsed, EdgeKind::Calls)
+    );
+}
