@@ -342,43 +342,50 @@ pub fn run(
                         total_rels += 1;
                     }
                 }
+                EdgeKind::FileImports => {
+                    // File-level imports are handled separately in Phase 3
+                    // (File -> Symbol edges, not Symbol -> Symbol)
+                    // RawEdge is Symbol -> Symbol, so this case shouldn't occur
+                    unreachable!(
+                        "FileImports edges should not appear in RawEdge; \
+                         they are emitted via insert_file_imports_edge in Phase 3"
+                    );
+                }
             }
         }
     }
 
-    // Phase 3: Resolve imports
+    // Phase 3: Resolve imports and create FileImports edges
+    // File-level imports use FileImports (File -> Symbol)
+    // Scoped imports would use Import (Symbol -> Symbol) - not yet implemented
     for pf in &parsed_files {
         let analyser = match Analyser::for_language(&pf.language) {
             Some(a) => a,
             None => continue,
         };
-        let module_path = analyser.derive_module_path(&pf.file_path);
 
-        // Use trait method to find import source symbol
-        let source_id = analyser.find_import_source(
-            &pf.symbols,
-            &pf.file_path,
-            &module_path,
-            &registry.qualified_map,
-        );
+        // Create FileId for this file (matches the one created in Phase 1)
+        let file_id = FileId::new(&pf.file_path);
 
-        if let Some(source_id) = source_id {
-            for imp in &pf.imports {
-                // Use trait method to resolve import targets
-                // For Go (is_glob=true): resolve_import_targets finds matching package
-                // For Rust/others: resolve_import_targets uses imported_names
-                let targets = analyser.resolve_import_targets(
-                    &imp.entry.module_path,
-                    &imp.entry.imported_names,
-                    &registry.qualified_map,
-                    &registry.symbol_languages,
-                    &registry.symbol_kinds,
-                );
+        for imp in &pf.imports {
+            // Normalize the import path (strips crate::, self::, super:: for Rust, etc.)
+            let normalized_path = analyser.normalise_import_path(&imp.entry.module_path);
 
-                for target_id in targets {
-                    graph.insert_references_edge(&source_id, &target_id, &EdgeKind::Import, 1.0)?;
-                    total_rels += 1;
-                }
+            // Resolve import targets
+            // For Go (is_glob=true): resolve_import_targets finds matching package symbols
+            // For Rust/others: resolve_import_targets uses imported_names
+            let targets = analyser.resolve_import_targets(
+                &normalized_path,
+                &imp.entry.imported_names,
+                &registry.qualified_map,
+                &registry.symbol_languages,
+                &registry.symbol_kinds,
+            );
+
+            for target_id in targets {
+                // File-level import: File -> Symbol
+                graph.insert_file_imports_edge(&file_id, &target_id, 1.0)?;
+                total_rels += 1;
             }
         }
     }

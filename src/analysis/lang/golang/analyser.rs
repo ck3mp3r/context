@@ -4,7 +4,7 @@
 //! calls, imports, and type references.
 
 use crate::analysis::lang::LanguageAnalyser;
-use crate::analysis::types::{ParsedFile, QualifiedName, RawSymbol, SymbolId};
+use crate::analysis::types::{ParsedFile, QualifiedName, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 use super::helpers::{go_entry_type, go_visibility};
@@ -130,20 +130,6 @@ impl LanguageAnalyser for Go {
 
         // No known local dir - just convert slashes to ::
         import_path.replace('/', "::")
-    }
-
-    fn find_import_source(
-        &self,
-        symbols: &[RawSymbol],
-        _file_path: &str,
-        _module_path: &str,
-        _registry: &std::collections::HashMap<QualifiedName, SymbolId>,
-    ) -> Option<SymbolId> {
-        // For Go, the import source is the package symbol
-        symbols
-            .iter()
-            .find(|s| s.kind == "package")
-            .map(|s| s.symbol_id())
     }
 
     fn resolve_import_targets(

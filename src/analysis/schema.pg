@@ -54,7 +54,12 @@ edge Calls: Symbol -> Symbol {
     call_site_line: I32            // Where the call happens
 }
 
-// References: imports
+// File-level imports (Go always, Rust/Nushell top-level use statements)
+edge FileImports: File -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Scoped imports (Rust use inside fn/impl, Nushell use inside command)
 edge Import: Symbol -> Symbol {
     confidence: F64 @default(1.0)
 }

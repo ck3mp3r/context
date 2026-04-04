@@ -1,6 +1,6 @@
 //! Language analyser trait for SOLID pipeline architecture.
 
-use crate::analysis::types::{ParsedFile, QualifiedName, RawSymbol, SymbolId};
+use crate::analysis::types::{ParsedFile, QualifiedName, SymbolId};
 use std::collections::HashMap;
 
 /// Trait for language-specific code analysis.
@@ -14,16 +14,6 @@ pub trait LanguageAnalyser {
 
     fn normalise_import_path(&self, import_path: &str) -> String {
         import_path.to_string()
-    }
-
-    fn find_import_source(
-        &self,
-        _symbols: &[RawSymbol],
-        _file_path: &str,
-        _module_path: &str,
-        _registry: &HashMap<QualifiedName, SymbolId>,
-    ) -> Option<SymbolId> {
-        None
     }
 
     /// Resolve import targets given an import path.
@@ -97,16 +87,6 @@ macro_rules! define_languages {
 
             fn normalise_import_path(&self, import_path: &str) -> String {
                 match self { $(Self::$type(a) => a.normalise_import_path(import_path),)* }
-            }
-
-            fn find_import_source(
-                &self,
-                symbols: &[RawSymbol],
-                file_path: &str,
-                module_path: &str,
-                registry: &HashMap<QualifiedName, SymbolId>,
-            ) -> Option<SymbolId> {
-                match self { $(Self::$type(a) => a.find_import_source(symbols, file_path, module_path, registry),)* }
             }
 
             fn resolve_import_targets(

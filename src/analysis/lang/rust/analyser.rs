@@ -1,5 +1,5 @@
 use crate::analysis::lang::LanguageAnalyser;
-use crate::analysis::types::{EdgeKind, ParsedFile, QualifiedName, RawEdge, RawSymbol, SymbolId};
+use crate::analysis::types::{EdgeKind, ParsedFile, RawEdge, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 /// Rust built-in types that should not produce type reference edges.
@@ -1219,6 +1219,19 @@ impl LanguageAnalyser for Rust {
         Rust::extract(code, file_path)
     }
 
+    fn normalise_import_path(&self, import_path: &str) -> String {
+        // Strip Rust-specific prefixes that don't appear in module paths
+        let path = import_path
+            .strip_prefix("crate::")
+            .or_else(|| import_path.strip_prefix("self::"))
+            .or_else(|| import_path.strip_prefix("super::"))
+            .unwrap_or(import_path);
+
+        // Also strip external crate names (anything before first ::)
+        // e.g., "serde::Serialize" -> won't match anyway, but "analysis::types" should
+        path.to_string()
+    }
+
     fn derive_module_path(&self, file_path: &str) -> String {
         use std::path::Path;
 
@@ -1244,32 +1257,6 @@ impl LanguageAnalyser for Rust {
         };
 
         module_part.replace('/', "::")
-    }
-
-    fn find_import_source(
-        &self,
-        _symbols: &[RawSymbol],
-        file_path: &str,
-        module_path: &str,
-        registry: &std::collections::HashMap<QualifiedName, SymbolId>,
-    ) -> Option<SymbolId> {
-        use std::path::Path;
-
-        // For Rust, find the module symbol from the registry
-        let source_qn = if module_path.is_empty() {
-            let stem = Path::new(file_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(file_path);
-            QualifiedName::new("", stem)
-        } else {
-            let mod_name = module_path.rsplit("::").next().unwrap_or(module_path);
-            QualifiedName::new(
-                module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or(""),
-                mod_name,
-            )
-        };
-        registry.get(&source_qn).cloned()
     }
 }
 

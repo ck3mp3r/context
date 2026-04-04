@@ -1,5 +1,5 @@
 use crate::analysis::lang::LanguageAnalyser;
-use crate::analysis::types::{EdgeKind, ParsedFile, QualifiedName, RawEdge, RawSymbol, SymbolId};
+use crate::analysis::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 pub struct Nushell;
@@ -528,31 +528,5 @@ impl LanguageAnalyser for Nushell {
         };
 
         module_part.replace('/', "::")
-    }
-
-    fn find_import_source(
-        &self,
-        _symbols: &[RawSymbol],
-        file_path: &str,
-        module_path: &str,
-        registry: &std::collections::HashMap<QualifiedName, SymbolId>,
-    ) -> Option<SymbolId> {
-        use std::path::Path;
-
-        // For Nushell, find the module symbol from the registry
-        let source_qn = if module_path.is_empty() {
-            let stem = Path::new(file_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(file_path);
-            QualifiedName::new("", stem)
-        } else {
-            let mod_name = module_path.rsplit("::").next().unwrap_or(module_path);
-            QualifiedName::new(
-                module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or(""),
-                mod_name,
-            )
-        };
-        registry.get(&source_qn).cloned()
     }
 }

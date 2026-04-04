@@ -280,6 +280,61 @@ impl CodeGraph {
         Ok(())
     }
 
+    /// Insert FileImports edge (file-level import: File -> Symbol)
+    ///
+    /// Used for:
+    /// - Go: All imports (always file-level)
+    /// - Rust: Top-level `use` statements
+    /// - Nushell: Module-level `use` statements
+    pub fn insert_file_imports_edge(
+        &mut self,
+        file_id: &FileId,
+        symbol_id: &SymbolId,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "edge": "FileImports",
+            "from": file_id.as_str(),
+            "to": symbol_id.as_str(),
+            "data": {
+                "confidence": confidence,
+            }
+        });
+
+        self.append_batch(&data)?;
+        tracing::debug!(
+            "Appended FileImports edge to batch: {} -> {}",
+            file_id,
+            symbol_id
+        );
+        Ok(())
+    }
+
+    /// Insert Import edge (scoped import: Symbol -> Symbol)
+    ///
+    /// Used for:
+    /// - Rust: `use` statements inside functions or impl blocks
+    /// - Nushell: `use` statements inside commands
+    pub fn insert_import_edge(
+        &mut self,
+        from: &SymbolId,
+        to: &SymbolId,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::json!({
+            "edge": "Import",
+            "from": from.as_str(),
+            "to": to.as_str(),
+            "data": {
+                "confidence": confidence,
+            }
+        });
+
+        self.append_batch(&data)?;
+        tracing::debug!("Appended Import edge to batch: {} -> {}", from, to);
+        Ok(())
+    }
+
     /// Commit all batched data to nanograph (call this once at the end)
     pub fn commit(&mut self) -> Result<(), StoreError> {
         if !self.batch_file.exists() {

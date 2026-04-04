@@ -138,13 +138,14 @@ pub enum EdgeKind {
     Extends,    // type → parent type
 
     // References
-    Calls,      // function → function
-    Import,     // symbol → imported symbol
-    TypeRef,    // symbol → type it references
-    FieldType,  // field → its type
-    ParamType,  // function → parameter type
-    ReturnType, // function → return type
-    Usage,      // symbol → identifier it references (const, var, etc.)
+    Calls,       // function → function
+    FileImports, // file → imported symbol (file-level imports)
+    Import,      // symbol → imported symbol (scoped imports)
+    TypeRef,     // symbol → type it references
+    FieldType,   // field → its type
+    ParamType,   // function → parameter type
+    ReturnType,  // function → return type
+    Usage,       // symbol → identifier it references (const, var, etc.)
 }
 
 impl EdgeKind {
@@ -156,6 +157,7 @@ impl EdgeKind {
             Self::Implements => "Implements",
             Self::Extends => "Extends",
             Self::Calls => "Calls",
+            Self::FileImports => "FileImports",
             Self::Import => "Import",
             Self::TypeRef => "TypeRef",
             Self::FieldType => "FieldType",
@@ -175,6 +177,7 @@ impl EdgeKind {
             Self::Implements => "Inherits",
             Self::Extends => "Inherits",
             Self::Calls => "Calls",
+            Self::FileImports => "FileImports",
             Self::Import => "Import",
             Self::TypeRef => "TypeAnnotation",
             Self::FieldType => "FieldType",
