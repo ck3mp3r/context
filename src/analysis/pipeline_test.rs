@@ -1,415 +1,405 @@
-#[cfg(test)]
-mod tests {
-    use crate::analysis::pipeline::SymbolRegistry;
-    use crate::analysis::types::*;
+use crate::analysis::pipeline::SymbolRegistry;
+use crate::analysis::types::*;
 
-    fn build_registry() -> SymbolRegistry {
-        let mut reg = SymbolRegistry::new();
+fn build_registry() -> SymbolRegistry {
+    let mut reg = SymbolRegistry::new();
 
-        // Rust symbols
-        reg.register(
-            QualifiedName::new("server", "init"),
-            SymbolId::new("src/server.rs", "init", 10),
-            "function",
-            "rust",
-        );
-        reg.register(
-            QualifiedName::new("server", "Config"),
-            SymbolId::new("src/server.rs", "Config", 1),
-            "struct",
-            "rust",
-        );
-        reg.register(
-            QualifiedName::new("server", "run"),
-            SymbolId::new("src/server.rs", "run", 20),
-            "function",
-            "rust",
-        );
+    // Rust symbols
+    reg.register(
+        QualifiedName::new("server", "init"),
+        SymbolId::new("src/server.rs", "init", 10),
+        "function",
+        "rust",
+    );
+    reg.register(
+        QualifiedName::new("server", "Config"),
+        SymbolId::new("src/server.rs", "Config", 1),
+        "struct",
+        "rust",
+    );
+    reg.register(
+        QualifiedName::new("server", "run"),
+        SymbolId::new("src/server.rs", "run", 20),
+        "function",
+        "rust",
+    );
 
-        // Nushell symbols with overlapping names
-        reg.register(
-            QualifiedName::new("commands", "init"),
-            SymbolId::new("src/commands/mod.nu", "init", 5),
-            "command",
-            "nushell",
-        );
-        reg.register(
-            QualifiedName::new("commands", "run"),
-            SymbolId::new("src/commands/mod.nu", "run", 15),
-            "command",
-            "nushell",
-        );
+    // Nushell symbols with overlapping names
+    reg.register(
+        QualifiedName::new("commands", "init"),
+        SymbolId::new("src/commands/mod.nu", "init", 5),
+        "command",
+        "nushell",
+    );
+    reg.register(
+        QualifiedName::new("commands", "run"),
+        SymbolId::new("src/commands/mod.nu", "run", 15),
+        "command",
+        "nushell",
+    );
 
-        // Go symbols with overlapping names
-        reg.register(
-            QualifiedName::new("main", "init"),
-            SymbolId::new("main.go", "init", 3),
-            "function",
-            "go",
-        );
+    // Go symbols with overlapping names
+    reg.register(
+        QualifiedName::new("main", "init"),
+        SymbolId::new("main.go", "init", 3),
+        "function",
+        "go",
+    );
 
-        reg
-    }
+    reg
+}
 
-    #[test]
-    fn test_bare_name_unique_resolves_without_language() {
-        let reg = build_registry();
+#[test]
+fn test_bare_name_unique_resolves_without_language() {
+    let reg = build_registry();
 
-        // "Config" only exists in Rust — should resolve regardless of caller language
-        let result = reg.resolve_with_imports("Config", "whatever", "any.rs", "rust");
-        assert!(result.is_some(), "unique bare name should resolve");
-        assert_eq!(result.unwrap().as_str(), "symbol:src/server.rs:Config:1");
-    }
+    // "Config" only exists in Rust — should resolve regardless of caller language
+    let result = reg.resolve_with_imports("Config", "whatever", "any.rs", "rust");
+    assert!(result.is_some(), "unique bare name should resolve");
+    assert_eq!(result.unwrap().as_str(), "symbol:src/server.rs:Config:1");
+}
 
-    #[test]
-    fn test_bare_name_ambiguous_prefers_same_language() {
-        let reg = build_registry();
+#[test]
+fn test_bare_name_ambiguous_prefers_same_language() {
+    let reg = build_registry();
 
-        // "init" exists in Rust, Nushell, and Go
-        // A Rust caller should get the Rust "init"
-        let result = reg.resolve_with_imports("init", "caller", "src/caller.rs", "rust");
-        assert!(result.is_some(), "should resolve init for Rust caller");
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:src/server.rs:init:10",
-            "Rust caller should get Rust init, not Nushell or Go"
-        );
+    // "init" exists in Rust, Nushell, and Go
+    // A Rust caller should get the Rust "init"
+    let result = reg.resolve_with_imports("init", "caller", "src/caller.rs", "rust");
+    assert!(result.is_some(), "should resolve init for Rust caller");
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:src/server.rs:init:10",
+        "Rust caller should get Rust init, not Nushell or Go"
+    );
 
-        // A Nushell caller should get the Nushell "init"
-        let result = reg.resolve_with_imports("init", "caller", "src/caller.nu", "nushell");
-        assert!(result.is_some(), "should resolve init for Nushell caller");
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:src/commands/mod.nu:init:5",
-            "Nushell caller should get Nushell init, not Rust or Go"
-        );
+    // A Nushell caller should get the Nushell "init"
+    let result = reg.resolve_with_imports("init", "caller", "src/caller.nu", "nushell");
+    assert!(result.is_some(), "should resolve init for Nushell caller");
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:src/commands/mod.nu:init:5",
+        "Nushell caller should get Nushell init, not Rust or Go"
+    );
 
-        // A Go caller should get the Go "init"
-        let result = reg.resolve_with_imports("init", "caller", "cmd/caller.go", "go");
-        assert!(result.is_some(), "should resolve init for Go caller");
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:main.go:init:3",
-            "Go caller should get Go init, not Rust or Nushell"
-        );
-    }
+    // A Go caller should get the Go "init"
+    let result = reg.resolve_with_imports("init", "caller", "cmd/caller.go", "go");
+    assert!(result.is_some(), "should resolve init for Go caller");
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:main.go:init:3",
+        "Go caller should get Go init, not Rust or Nushell"
+    );
+}
 
-    #[test]
-    fn test_same_module_resolution_unaffected_by_language() {
-        let reg = build_registry();
+#[test]
+fn test_same_module_resolution_unaffected_by_language() {
+    let reg = build_registry();
 
-        // Same-module lookup (step 1) should still work — it's exact qualified match
-        let result = reg.resolve_with_imports("init", "server", "src/server.rs", "rust");
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().as_str(), "symbol:src/server.rs:init:10");
-    }
+    // Same-module lookup (step 1) should still work — it's exact qualified match
+    let result = reg.resolve_with_imports("init", "server", "src/server.rs", "rust");
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().as_str(), "symbol:src/server.rs:init:10");
+}
 
-    #[test]
-    fn test_import_resolution_unaffected_by_language() {
-        let mut reg = build_registry();
+#[test]
+fn test_import_resolution_unaffected_by_language() {
+    let mut reg = build_registry();
 
-        // Add import table: src/app.rs imports "init" from "server"
-        let mut table = crate::analysis::pipeline::ImportTable::default();
-        table
-            .name_to_module
-            .insert("init".to_string(), "server".to_string());
-        reg.import_tables.insert("src/app.rs".to_string(), table);
+    // Add import table: src/app.rs imports "init" from "server"
+    let mut table = crate::analysis::pipeline::ImportTable::default();
+    table
+        .name_to_module
+        .insert("init".to_string(), "server".to_string());
+    reg.import_tables.insert("src/app.rs".to_string(), table);
 
-        // Should resolve via import table (step 2), not bare name (step 3)
-        let result = reg.resolve_with_imports("init", "app", "src/app.rs", "rust");
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:src/server.rs:init:10",
-            "import resolution should still work"
-        );
-    }
+    // Should resolve via import table (step 2), not bare name (step 3)
+    let result = reg.resolve_with_imports("init", "app", "src/app.rs", "rust");
+    assert!(result.is_some());
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:src/server.rs:init:10",
+        "import resolution should still work"
+    );
+}
 
-    #[test]
-    fn test_no_same_language_match_returns_none() {
-        let reg = build_registry();
+#[test]
+fn test_no_same_language_match_returns_none() {
+    let reg = build_registry();
 
-        // "Config" only exists in Rust — a Nushell caller should NOT resolve it
-        // Cross-language bare name fallback is never valid
-        let result = reg.resolve_with_imports("Config", "caller", "src/caller.nu", "nushell");
-        assert!(
-            result.is_none(),
-            "cross-language bare name should not resolve, got: {:?}",
-            result.map(|id| id.as_str())
-        );
-    }
+    // "Config" only exists in Rust — a Nushell caller should NOT resolve it
+    // Cross-language bare name fallback is never valid
+    let result = reg.resolve_with_imports("Config", "caller", "src/caller.nu", "nushell");
+    assert!(
+        result.is_none(),
+        "cross-language bare name should not resolve, got: {:?}",
+        result.map(|id| id.as_str())
+    );
+}
 
-    #[test]
-    fn test_ambiguous_same_language_returns_none() {
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_ambiguous_same_language_returns_none() {
+    let mut reg = SymbolRegistry::new();
 
-        // Two Rust functions with the same bare name in different modules
-        reg.register(
-            QualifiedName::new("server", "process"),
-            SymbolId::new("src/server.rs", "process", 10),
-            "function",
-            "rust",
-        );
-        reg.register(
-            QualifiedName::new("handlers", "process"),
-            SymbolId::new("src/handlers.rs", "process", 5),
-            "function",
-            "rust",
-        );
+    // Two Rust functions with the same bare name in different modules
+    reg.register(
+        QualifiedName::new("server", "process"),
+        SymbolId::new("src/server.rs", "process", 10),
+        "function",
+        "rust",
+    );
+    reg.register(
+        QualifiedName::new("handlers", "process"),
+        SymbolId::new("src/handlers.rs", "process", 5),
+        "function",
+        "rust",
+    );
 
-        // Bare name lookup from an unrelated module should return None
-        // because there are 2 same-language candidates
-        let result = reg.resolve_with_imports("process", "app", "src/app.rs", "rust");
-        assert!(
-            result.is_none(),
-            "ambiguous same-language bare name should return None, got: {:?}",
-            result.map(|id| id.as_str())
-        );
-    }
+    // Bare name lookup from an unrelated module should return None
+    // because there are 2 same-language candidates
+    let result = reg.resolve_with_imports("process", "app", "src/app.rs", "rust");
+    assert!(
+        result.is_none(),
+        "ambiguous same-language bare name should return None, got: {:?}",
+        result.map(|id| id.as_str())
+    );
+}
 
-    #[test]
-    fn test_ambiguous_cross_language_no_same_lang_returns_none() {
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_ambiguous_cross_language_no_same_lang_returns_none() {
+    let mut reg = SymbolRegistry::new();
 
-        // "init" exists in Rust and Go but NOT Nushell
-        reg.register(
-            QualifiedName::new("server", "init"),
-            SymbolId::new("src/server.rs", "init", 10),
-            "function",
-            "rust",
-        );
-        reg.register(
-            QualifiedName::new("main", "init"),
-            SymbolId::new("main.go", "init", 3),
-            "function",
-            "go",
-        );
+    // "init" exists in Rust and Go but NOT Nushell
+    reg.register(
+        QualifiedName::new("server", "init"),
+        SymbolId::new("src/server.rs", "init", 10),
+        "function",
+        "rust",
+    );
+    reg.register(
+        QualifiedName::new("main", "init"),
+        SymbolId::new("main.go", "init", 3),
+        "function",
+        "go",
+    );
 
-        // Nushell caller: no same-language match, and 2 cross-language candidates
-        // Should return None — not pick an arbitrary cross-language match
-        let result = reg.resolve_with_imports("init", "caller", "src/caller.nu", "nushell");
-        assert!(
-            result.is_none(),
-            "ambiguous cross-language with no same-language match should return None, got: {:?}",
-            result.map(|id| id.as_str())
-        );
-    }
+    // Nushell caller: no same-language match, and 2 cross-language candidates
+    // Should return None — not pick an arbitrary cross-language match
+    let result = reg.resolve_with_imports("init", "caller", "src/caller.nu", "nushell");
+    assert!(
+        result.is_none(),
+        "ambiguous cross-language with no same-language match should return None, got: {:?}",
+        result.map(|id| id.as_str())
+    );
+}
 
-    #[test]
-    fn test_go_import_resolution_with_internal_module_path() {
-        // Simulates: pkg/analyzer/hpa.go imports "github.com/k8sgpt-ai/k8sgpt/pkg/common"
-        // and uses type "Context" from that package
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_go_import_resolution_with_internal_module_path() {
+    // Simulates: pkg/analyzer/hpa.go imports "github.com/k8sgpt-ai/k8sgpt/pkg/common"
+    // and uses type "Context" from that package
+    let mut reg = SymbolRegistry::new();
 
-        // Register Go symbols with internal module paths (as derive_go_module_path produces)
-        // pkg/common/types.go has Context type
-        reg.register(
-            QualifiedName::new("pkg::common", "Context"),
-            SymbolId::new("pkg/common/types.go", "Context", 10),
-            "struct",
-            "go",
-        );
-        reg.register(
-            QualifiedName::new("pkg::common", "Analyzer"),
-            SymbolId::new("pkg/common/types.go", "Analyzer", 20),
-            "struct",
-            "go",
-        );
+    // Register Go symbols with internal module paths (as derive_go_module_path produces)
+    // pkg/common/types.go has Context type
+    reg.register(
+        QualifiedName::new("pkg::common", "Context"),
+        SymbolId::new("pkg/common/types.go", "Context", 10),
+        "struct",
+        "go",
+    );
+    reg.register(
+        QualifiedName::new("pkg::common", "Analyzer"),
+        SymbolId::new("pkg/common/types.go", "Analyzer", 20),
+        "struct",
+        "go",
+    );
 
-        // pkg/analyzer/hpa.go has function that uses Context
-        reg.register(
-            QualifiedName::new("pkg::analyzer", "Analyze"),
-            SymbolId::new("pkg/analyzer/hpa.go", "Analyze", 15),
-            "function",
-            "go",
-        );
+    // pkg/analyzer/hpa.go has function that uses Context
+    reg.register(
+        QualifiedName::new("pkg::analyzer", "Analyze"),
+        SymbolId::new("pkg/analyzer/hpa.go", "Analyze", 15),
+        "function",
+        "go",
+    );
 
-        // Add import table for pkg/analyzer/hpa.go
-        // The import "github.com/k8sgpt-ai/k8sgpt/pkg/common" should map to internal "pkg::common"
-        let mut table = crate::analysis::pipeline::ImportTable::default();
-        // Key insight: the import table should use INTERNAL module format, not raw Go import path
-        table
-            .name_to_module
-            .insert("common".to_string(), "pkg::common".to_string());
-        reg.import_tables
-            .insert("pkg/analyzer/hpa.go".to_string(), table);
+    // Add import table for pkg/analyzer/hpa.go
+    // The import "github.com/k8sgpt-ai/k8sgpt/pkg/common" should map to internal "pkg::common"
+    let mut table = crate::analysis::pipeline::ImportTable::default();
+    // Key insight: the import table should use INTERNAL module format, not raw Go import path
+    table
+        .name_to_module
+        .insert("common".to_string(), "pkg::common".to_string());
+    reg.import_tables
+        .insert("pkg/analyzer/hpa.go".to_string(), table);
 
-        // Now resolve "Context" from pkg/analyzer/hpa.go
-        // Step 1: Same module lookup fails (Context not in pkg::analyzer)
-        // Step 2: Import table lookup should succeed (common -> pkg::common -> pkg::common::Context)
-        let result =
-            reg.resolve_with_imports("Context", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    // Now resolve "Context" from pkg/analyzer/hpa.go
+    // Step 1: Same module lookup fails (Context not in pkg::analyzer)
+    // Step 2: Import table lookup should succeed (common -> pkg::common -> pkg::common::Context)
+    let result = reg.resolve_with_imports("Context", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
 
-        assert!(
-            result.is_some(),
-            "Go import resolution should find Context via import table"
-        );
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:pkg/common/types.go:Context:10",
-            "Should resolve to Context in pkg/common"
-        );
-    }
+    assert!(
+        result.is_some(),
+        "Go import resolution should find Context via import table"
+    );
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:pkg/common/types.go:Context:10",
+        "Should resolve to Context in pkg/common"
+    );
+}
 
-    #[test]
-    fn test_go_import_resolution_bare_name_fallback() {
-        // When import table doesn't have the mapping, bare name fallback should still work
-        // for unique symbols
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_go_import_resolution_bare_name_fallback() {
+    // When import table doesn't have the mapping, bare name fallback should still work
+    // for unique symbols
+    let mut reg = SymbolRegistry::new();
 
-        // Only one "UniqueType" exists in the whole codebase
-        reg.register(
-            QualifiedName::new("pkg::special", "UniqueType"),
-            SymbolId::new("pkg/special/types.go", "UniqueType", 5),
-            "struct",
-            "go",
-        );
+    // Only one "UniqueType" exists in the whole codebase
+    reg.register(
+        QualifiedName::new("pkg::special", "UniqueType"),
+        SymbolId::new("pkg/special/types.go", "UniqueType", 5),
+        "struct",
+        "go",
+    );
 
-        // Caller in different package with no import table entry for UniqueType
-        let result =
-            reg.resolve_with_imports("UniqueType", "pkg::caller", "pkg/caller/main.go", "go");
+    // Caller in different package with no import table entry for UniqueType
+    let result = reg.resolve_with_imports("UniqueType", "pkg::caller", "pkg/caller/main.go", "go");
 
-        assert!(
-            result.is_some(),
-            "Unique bare name should resolve via fallback"
-        );
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:pkg/special/types.go:UniqueType:5"
-        );
-    }
+    assert!(
+        result.is_some(),
+        "Unique bare name should resolve via fallback"
+    );
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:pkg/special/types.go:UniqueType:5"
+    );
+}
 
-    #[test]
-    fn test_go_import_resolution_ambiguous_without_import_fails() {
-        // Multiple types with same name in different packages
-        // Without proper import table, should NOT resolve (ambiguous)
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_go_import_resolution_ambiguous_without_import_fails() {
+    // Multiple types with same name in different packages
+    // Without proper import table, should NOT resolve (ambiguous)
+    let mut reg = SymbolRegistry::new();
 
-        reg.register(
-            QualifiedName::new("pkg::common", "Config"),
-            SymbolId::new("pkg/common/types.go", "Config", 10),
-            "struct",
-            "go",
-        );
-        reg.register(
-            QualifiedName::new("pkg::cache", "Config"),
-            SymbolId::new("pkg/cache/types.go", "Config", 5),
-            "struct",
-            "go",
-        );
+    reg.register(
+        QualifiedName::new("pkg::common", "Config"),
+        SymbolId::new("pkg/common/types.go", "Config", 10),
+        "struct",
+        "go",
+    );
+    reg.register(
+        QualifiedName::new("pkg::cache", "Config"),
+        SymbolId::new("pkg/cache/types.go", "Config", 5),
+        "struct",
+        "go",
+    );
 
-        // Caller has no import table - ambiguous Config should not resolve
-        let result =
-            reg.resolve_with_imports("Config", "pkg::analyzer", "pkg/analyzer/main.go", "go");
+    // Caller has no import table - ambiguous Config should not resolve
+    let result = reg.resolve_with_imports("Config", "pkg::analyzer", "pkg/analyzer/main.go", "go");
 
-        assert!(
-            result.is_none(),
-            "Ambiguous bare name without import should return None, got: {:?}",
-            result.map(|id| id.as_str())
-        );
-    }
+    assert!(
+        result.is_none(),
+        "Ambiguous bare name without import should return None, got: {:?}",
+        result.map(|id| id.as_str())
+    );
+}
 
-    #[test]
-    fn test_go_glob_import_resolution() {
-        // Simulates: pkg/analyzer/hpa.go imports "github.com/k8sgpt-ai/k8sgpt/pkg/common"
-        // and uses type "Result" from that package via glob import
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_go_glob_import_resolution() {
+    // Simulates: pkg/analyzer/hpa.go imports "github.com/k8sgpt-ai/k8sgpt/pkg/common"
+    // and uses type "Result" from that package via glob import
+    let mut reg = SymbolRegistry::new();
 
-        // Register Go symbols with internal module paths
-        reg.register(
-            QualifiedName::new("pkg::common", "Result"),
-            SymbolId::new("pkg/common/types.go", "Result", 76),
-            "struct",
-            "go",
-        );
-        reg.register(
-            QualifiedName::new("pkg::common", "Analyzer"),
-            SymbolId::new("pkg/common/types.go", "Analyzer", 39),
-            "struct",
-            "go",
-        );
+    // Register Go symbols with internal module paths
+    reg.register(
+        QualifiedName::new("pkg::common", "Result"),
+        SymbolId::new("pkg/common/types.go", "Result", 76),
+        "struct",
+        "go",
+    );
+    reg.register(
+        QualifiedName::new("pkg::common", "Analyzer"),
+        SymbolId::new("pkg/common/types.go", "Analyzer", 39),
+        "struct",
+        "go",
+    );
 
-        // pkg/analyzer/hpa.go
-        reg.register(
-            QualifiedName::new("pkg::analyzer", "Analyze"),
-            SymbolId::new("pkg/analyzer/hpa.go", "Analyze", 31),
-            "function",
-            "go",
-        );
+    // pkg/analyzer/hpa.go
+    reg.register(
+        QualifiedName::new("pkg::analyzer", "Analyze"),
+        SymbolId::new("pkg/analyzer/hpa.go", "Analyze", 31),
+        "function",
+        "go",
+    );
 
-        // Add glob import table for pkg/analyzer/hpa.go
-        // Go imports are wildcards - normalise_import_path converts the path
-        let mut table = crate::analysis::pipeline::ImportTable::default();
-        // Glob modules contain the NORMALISED internal path, not the raw Go import
-        table.glob_modules.push("pkg::common".to_string());
-        reg.import_tables
-            .insert("pkg/analyzer/hpa.go".to_string(), table);
+    // Add glob import table for pkg/analyzer/hpa.go
+    // Go imports are wildcards - normalise_import_path converts the path
+    let mut table = crate::analysis::pipeline::ImportTable::default();
+    // Glob modules contain the NORMALISED internal path, not the raw Go import
+    table.glob_modules.push("pkg::common".to_string());
+    reg.import_tables
+        .insert("pkg/analyzer/hpa.go".to_string(), table);
 
-        // Resolve "Result" from pkg/analyzer/hpa.go via glob import
-        let result =
-            reg.resolve_with_imports("Result", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    // Resolve "Result" from pkg/analyzer/hpa.go via glob import
+    let result = reg.resolve_with_imports("Result", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
 
-        assert!(
-            result.is_some(),
-            "Go glob import resolution should find Result via glob_modules"
-        );
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:pkg/common/types.go:Result:76",
-            "Should resolve to Result in pkg/common"
-        );
+    assert!(
+        result.is_some(),
+        "Go glob import resolution should find Result via glob_modules"
+    );
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:pkg/common/types.go:Result:76",
+        "Should resolve to Result in pkg/common"
+    );
 
-        // Also verify Analyzer resolves
-        let result =
-            reg.resolve_with_imports("Analyzer", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:pkg/common/types.go:Analyzer:39"
-        );
-    }
+    // Also verify Analyzer resolves
+    let result = reg.resolve_with_imports("Analyzer", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    assert!(result.is_some());
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:pkg/common/types.go:Analyzer:39"
+    );
+}
 
-    #[test]
-    fn test_go_glob_import_does_not_resolve_wrong_package() {
-        // Verify glob import only resolves symbols from the imported package
-        let mut reg = SymbolRegistry::new();
+#[test]
+fn test_go_glob_import_does_not_resolve_wrong_package() {
+    // Verify glob import only resolves symbols from the imported package
+    let mut reg = SymbolRegistry::new();
 
-        // Result in pkg::common
-        reg.register(
-            QualifiedName::new("pkg::common", "Result"),
-            SymbolId::new("pkg/common/types.go", "Result", 76),
-            "struct",
-            "go",
-        );
-        // Result in pkg::other (different package)
-        reg.register(
-            QualifiedName::new("pkg::other", "Result"),
-            SymbolId::new("pkg/other/types.go", "Result", 10),
-            "struct",
-            "go",
-        );
+    // Result in pkg::common
+    reg.register(
+        QualifiedName::new("pkg::common", "Result"),
+        SymbolId::new("pkg/common/types.go", "Result", 76),
+        "struct",
+        "go",
+    );
+    // Result in pkg::other (different package)
+    reg.register(
+        QualifiedName::new("pkg::other", "Result"),
+        SymbolId::new("pkg/other/types.go", "Result", 10),
+        "struct",
+        "go",
+    );
 
-        // Only import pkg::common, not pkg::other
-        let mut table = crate::analysis::pipeline::ImportTable::default();
-        table.glob_modules.push("pkg::common".to_string());
-        reg.import_tables
-            .insert("pkg/analyzer/hpa.go".to_string(), table);
+    // Only import pkg::common, not pkg::other
+    let mut table = crate::analysis::pipeline::ImportTable::default();
+    table.glob_modules.push("pkg::common".to_string());
+    reg.import_tables
+        .insert("pkg/analyzer/hpa.go".to_string(), table);
 
-        // Should resolve to pkg::common::Result, not pkg::other::Result
-        let result =
-            reg.resolve_with_imports("Result", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    // Should resolve to pkg::common::Result, not pkg::other::Result
+    let result = reg.resolve_with_imports("Result", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
 
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().as_str(),
-            "symbol:pkg/common/types.go:Result:76",
-            "Should resolve to Result from imported package (pkg::common), not pkg::other"
-        );
-    }
+    assert!(result.is_some());
+    assert_eq!(
+        result.unwrap().as_str(),
+        "symbol:pkg/common/types.go:Result:76",
+        "Should resolve to Result from imported package (pkg::common), not pkg::other"
+    );
 }
 
 /// Integration tests that run the full pipeline on actual Go files
-#[cfg(test)]
 mod integration_tests {
     use crate::analysis::lang::LanguageAnalyser;
     use crate::analysis::lang::golang::Go;
