@@ -8,7 +8,7 @@ use crate::analysis::types::{
 };
 use tree_sitter::Query;
 
-use super::helpers::{find_enclosing_symbol_id, go_visibility};
+use super::helpers::{extract_receiver_type, find_enclosing_symbol_id, go_visibility};
 
 /// Process a single tree-sitter query match for symbol extraction.
 pub fn process_match(
@@ -69,11 +69,14 @@ pub fn process_match(
     if let Some(&node) = captures.get("method_def")
         && let Some(&name_node) = captures.get("method_name")
     {
+        let method_name = text(name_node).to_string();
+        let method_start_line = node.start_position().row + 1;
+
         parsed.symbols.push(RawSymbol {
-            name: text(name_node).to_string(),
-            kind: "function".to_string(),
+            name: method_name.clone(),
+            kind: "method".to_string(),
             file_path: file_path.to_string(),
-            start_line: node.start_position().row + 1,
+            start_line: method_start_line,
             end_line: node.end_position().row + 1,
             signature: None,
             language: "go".to_string(),
@@ -81,8 +84,18 @@ pub fn process_match(
             entry_type: None,
         });
 
-        // Note: Method receiver types are captured as Accepts edges in extract_type_refs(),
-        // not as containment. Methods don't "belong to" a struct - they accept it as a parameter.
+        // Emit HasMethod edge: receiver_type -> method
+        if let Some(&recv_node) = captures.get("method_receiver")
+            && let Some(receiver_type) = extract_receiver_type(recv_node, code)
+        {
+            let from_id = SymbolId::new(file_path, &receiver_type, 0);
+            let to_id = SymbolId::new(file_path, &method_name, method_start_line);
+            parsed.edges.push(RawEdge {
+                from: from_id,
+                to: to_id,
+                kind: EdgeKind::HasMethod,
+            });
+        }
         return;
     }
 
@@ -221,7 +234,7 @@ pub fn process_match(
 
         parsed.symbols.push(RawSymbol {
             name: method_name.clone(),
-            kind: "function".to_string(),
+            kind: "method".to_string(),
             file_path: file_path.to_string(),
             start_line: method_start_line,
             end_line: node.end_position().row + 1,
@@ -339,44 +352,44 @@ pub fn process_match(
         return;
     }
 
-    // Composite literal — struct instantiation as constructor call
+    // Composite literal — struct instantiation is a type reference
     if captures.contains_key("composite_lit")
         && let Some(&type_node) = captures.get("composite_type")
     {
         let lit_node = captures["composite_lit"];
-        let call_line = lit_node.start_position().row + 1;
-        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
-            let callee_name = text(type_node);
-            let callee_id = SymbolId::new(file_path, callee_name, 0);
+        let ref_line = lit_node.start_position().row + 1;
+        if let Some(from_id) = find_enclosing_symbol_id(parsed, file_path, ref_line) {
+            let type_name = text(type_node);
+            let type_id = SymbolId::new(file_path, type_name, 0);
             parsed.edges.push(RawEdge {
-                from: caller_id,
-                to: callee_id,
-                kind: EdgeKind::Calls,
+                from: from_id,
+                to: type_id,
+                kind: EdgeKind::TypeRef,
             });
         }
         return;
     }
 
-    // Qualified composite literal (pkg.Type{})
+    // Qualified composite literal (pkg.Type{}) — type reference
     if captures.contains_key("composite_qual_lit")
         && let Some(&type_node) = captures.get("composite_qual_type")
     {
         let lit_node = captures["composite_qual_lit"];
-        let call_line = lit_node.start_position().row + 1;
-        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, call_line) {
-            let callee_name = text(type_node);
-            let callee_id = SymbolId::new(file_path, callee_name, 0);
+        let ref_line = lit_node.start_position().row + 1;
+        if let Some(from_id) = find_enclosing_symbol_id(parsed, file_path, ref_line) {
+            let type_name = text(type_node);
+            let type_id = SymbolId::new(file_path, type_name, 0);
             parsed.edges.push(RawEdge {
-                from: caller_id.clone(),
-                to: callee_id,
-                kind: EdgeKind::Calls,
+                from: from_id.clone(),
+                to: type_id,
+                kind: EdgeKind::TypeRef,
             });
             // Also emit TypeRef for the package qualifier
             if let Some(&pkg_node) = captures.get("composite_pkg") {
                 let pkg_name = text(pkg_node);
                 let pkg_id = SymbolId::new(file_path, pkg_name, 0);
                 parsed.edges.push(RawEdge {
-                    from: caller_id,
+                    from: from_id,
                     to: pkg_id,
                     kind: EdgeKind::TypeRef,
                 });
@@ -507,5 +520,73 @@ pub fn process_match(
                 entry,
             });
         }
+    }
+
+    // =========================================================================
+    // IDENTIFIER USES (for Uses edges)
+    // =========================================================================
+
+    // Helper to emit Uses edge from enclosing function to identifier
+    let emit_uses_edge = |parsed: &mut ParsedFile, ident_node: tree_sitter::Node, code: &str| {
+        let ident_name = &code[ident_node.byte_range()];
+        let ident_line = ident_node.start_position().row + 1;
+
+        // Find enclosing function/method
+        if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, ident_line) {
+            // Target with line 0 = needs resolution
+            let target_id = SymbolId::new(file_path, ident_name, 0);
+            parsed.edges.push(RawEdge {
+                from: caller_id,
+                to: target_id,
+                kind: EdgeKind::Usage,
+            });
+        }
+    };
+
+    // return statement with identifier
+    if captures.contains_key("uses_return_def")
+        && let Some(&ident_node) = captures.get("uses_return_ident")
+    {
+        emit_uses_edge(parsed, ident_node, code);
+        return;
+    }
+
+    // short_var_declaration RHS identifier
+    if captures.contains_key("uses_short_var_def")
+        && let Some(&ident_node) = captures.get("uses_short_var_ident")
+    {
+        emit_uses_edge(parsed, ident_node, code);
+        return;
+    }
+
+    // assignment_statement RHS identifier
+    if captures.contains_key("uses_assign_def")
+        && let Some(&ident_node) = captures.get("uses_assign_ident")
+    {
+        emit_uses_edge(parsed, ident_node, code);
+        return;
+    }
+
+    // binary_expression left operand
+    if captures.contains_key("uses_binop_left_def")
+        && let Some(&ident_node) = captures.get("uses_binop_left")
+    {
+        emit_uses_edge(parsed, ident_node, code);
+        return;
+    }
+
+    // binary_expression right operand
+    if captures.contains_key("uses_binop_right_def")
+        && let Some(&ident_node) = captures.get("uses_binop_right")
+    {
+        emit_uses_edge(parsed, ident_node, code);
+        return;
+    }
+
+    // call argument identifier
+    if captures.contains_key("uses_call_arg_def")
+        && let Some(&ident_node) = captures.get("uses_call_arg_ident")
+    {
+        emit_uses_edge(parsed, ident_node, code);
     }
 }

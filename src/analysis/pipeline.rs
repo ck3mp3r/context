@@ -63,18 +63,34 @@ impl SymbolRegistry {
         self.qualified_map.insert(qn, id);
     }
 
-    fn resolve_with_imports(
+    /// Resolve a symbol name with optional kind filter.
+    /// When expected_kinds is Some, only symbols with matching kind are considered.
+    fn resolve_with_imports_and_kind(
         &self,
         bare_name: &str,
         caller_module: &str,
         file_path: &str,
         caller_language: &str,
+        expected_kinds: Option<&[&str]>,
     ) -> Option<&SymbolId> {
         let name = SymbolName::new(bare_name);
 
-        // 1. Same module
+        // Helper to check if a symbol matches expected kinds
+        let kind_matches = |id: &SymbolId| -> bool {
+            match expected_kinds {
+                None => true,
+                Some(kinds) => self
+                    .symbol_kinds
+                    .get(id)
+                    .is_some_and(|k| kinds.contains(&k.as_str())),
+            }
+        };
+
+        // 1. Same module (prefer matching kind)
         let same_qn = QualifiedName::new(caller_module, bare_name);
-        if let Some(id) = self.qualified_map.get(&same_qn) {
+        if let Some(id) = self.qualified_map.get(&same_qn)
+            && kind_matches(id)
+        {
             return Some(id);
         }
 
@@ -82,36 +98,73 @@ impl SymbolRegistry {
         if let Some(table) = self.import_tables.get(file_path) {
             if let Some(module) = table.name_to_module.get(bare_name) {
                 let qn = QualifiedName::new(module, bare_name);
-                if let Some(id) = self.qualified_map.get(&qn) {
+                if let Some(id) = self.qualified_map.get(&qn)
+                    && kind_matches(id)
+                {
                     return Some(id);
                 }
             }
             for glob_mod in &table.glob_modules {
                 let qn = QualifiedName::new(glob_mod, bare_name);
-                if let Some(id) = self.qualified_map.get(&qn) {
+                if let Some(id) = self.qualified_map.get(&qn)
+                    && kind_matches(id)
+                {
                     return Some(id);
                 }
             }
         }
 
-        // 3. Bare name fallback — same language only
+        // 3. Bare name fallback — same language only, with kind filter
         if let Some(candidates) = self.bare_to_qualified.get(&name) {
-            let same_lang: Vec<_> = candidates
+            let matching: Vec<_> = candidates
                 .iter()
                 .filter(|qn| {
-                    self.qualified_map
-                        .get(*qn)
-                        .and_then(|id| self.symbol_languages.get(id))
-                        .is_some_and(|lang| lang == caller_language)
+                    self.qualified_map.get(*qn).is_some_and(|id| {
+                        self.symbol_languages
+                            .get(id)
+                            .is_some_and(|lang| lang == caller_language)
+                            && kind_matches(id)
+                    })
                 })
                 .collect();
 
-            if same_lang.len() == 1 {
-                return self.qualified_map.get(same_lang[0]);
+            if matching.len() == 1 {
+                return self.qualified_map.get(matching[0]);
             }
         }
 
         None
+    }
+}
+
+/// Helper to resolve a SymbolId with optional kind filter
+fn resolve_with_kind(
+    sid: &SymbolId,
+    registry: &SymbolRegistry,
+    module_path: &str,
+    file_path: &str,
+    language: &str,
+    expected_kinds: Option<&[&str]>,
+) -> Option<SymbolId> {
+    if sid.as_str().ends_with(":0") {
+        // Extract the name from "symbol:file:name:0"
+        let s = sid.as_str().strip_prefix("symbol:")?;
+        let last_colon = s.rfind(':')?;
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':')?;
+        let target_name = &before_last[second_last_colon + 1..];
+
+        registry
+            .resolve_with_imports_and_kind(
+                target_name,
+                module_path,
+                file_path,
+                language,
+                expected_kinds,
+            )
+            .cloned()
+    } else {
+        Some(sid.clone())
     }
 }
 
@@ -195,20 +248,28 @@ pub fn run(
 
         // Helper to extract name from SymbolId and resolve if needed
         let resolve_if_needed = |sid: &SymbolId| -> Option<SymbolId> {
-            if sid.as_str().ends_with(":0") {
-                // Extract the name from "symbol:file:name:0"
-                let s = sid.as_str().strip_prefix("symbol:")?;
-                let last_colon = s.rfind(':')?;
-                let before_last = &s[..last_colon];
-                let second_last_colon = before_last.rfind(':')?;
-                let target_name = &before_last[second_last_colon + 1..];
+            resolve_with_kind(
+                sid,
+                &registry,
+                &module_path,
+                &pf.file_path,
+                &pf.language,
+                None,
+            )
+        };
 
-                registry
-                    .resolve_with_imports(target_name, &module_path, &pf.file_path, &pf.language)
-                    .cloned()
-            } else {
-                Some(sid.clone())
-            }
+        // Helper to resolve with expected kinds (for type references)
+        let resolve_type_ref = |sid: &SymbolId| -> Option<SymbolId> {
+            // For type references, prefer struct/interface/type over field
+            static TYPE_KINDS: &[&str] = &["struct", "interface", "type"];
+            resolve_with_kind(
+                sid,
+                &registry,
+                &module_path,
+                &pf.file_path,
+                &pf.language,
+                Some(TYPE_KINDS),
+            )
         };
 
         for edge in &pf.edges {
@@ -262,19 +323,22 @@ pub fn run(
                 | EdgeKind::FieldType
                 | EdgeKind::ParamType
                 | EdgeKind::ReturnType => {
-                    // Reference edges: symbol references type
+                    // Type reference edges: prefer struct/interface/type over field
+                    let from_id = resolve_if_needed(&edge.from);
+                    let to_id = resolve_type_ref(&edge.to);
+
+                    if let (Some(from), Some(to)) = (from_id, to_id) {
+                        graph.insert_references_edge(&from, &to, &edge.kind, 1.0)?;
+                        total_rels += 1;
+                    }
+                }
+                EdgeKind::Usage | EdgeKind::Import => {
+                    // Value/import reference edges: any symbol kind is valid
                     let from_id = resolve_if_needed(&edge.from);
                     let to_id = resolve_if_needed(&edge.to);
 
                     if let (Some(from), Some(to)) = (from_id, to_id) {
-                        let ref_kind = match edge.kind {
-                            EdgeKind::TypeRef => ReferenceType::TypeAnnotation,
-                            EdgeKind::FieldType => ReferenceType::FieldType,
-                            EdgeKind::ParamType => ReferenceType::ParamType,
-                            EdgeKind::ReturnType => ReferenceType::ReturnType,
-                            _ => unreachable!(),
-                        };
-                        graph.insert_references_edge(&from, &to, &ref_kind, 1.0)?;
+                        graph.insert_references_edge(&from, &to, &edge.kind, 1.0)?;
                         total_rels += 1;
                     }
                 }
@@ -312,12 +376,7 @@ pub fn run(
                 );
 
                 for target_id in targets {
-                    graph.insert_references_edge(
-                        &source_id,
-                        &target_id,
-                        &ReferenceType::Import,
-                        1.0,
-                    )?;
+                    graph.insert_references_edge(&source_id, &target_id, &EdgeKind::Import, 1.0)?;
                     total_rels += 1;
                 }
             }

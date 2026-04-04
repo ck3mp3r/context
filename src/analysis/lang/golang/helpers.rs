@@ -121,3 +121,57 @@ pub fn find_enclosing_symbol_id(
         }
     })
 }
+
+/// Extract the receiver type name from a method receiver parameter_list node.
+///
+/// Handles these Go receiver patterns:
+/// - `(c Cache)` -> "Cache" (value receiver)
+/// - `(c *Cache)` -> "Cache" (pointer receiver)
+/// - `(c pkg.Cache)` -> "Cache" (qualified type)
+/// - `(c *pkg.Cache)` -> "Cache" (pointer to qualified)
+///
+/// Returns the type name without pointer or package qualifier.
+pub fn extract_receiver_type(recv_node: tree_sitter::Node, code: &str) -> Option<String> {
+    // recv_node is a parameter_list: (c *Cache)
+    // Find the parameter_declaration inside
+    let param_decl = recv_node
+        .children(&mut recv_node.walk())
+        .find(|n| n.kind() == "parameter_declaration")?;
+
+    // Find the type field of the parameter_declaration
+    let type_node = param_decl.children(&mut param_decl.walk()).find(|n| {
+        matches!(
+            n.kind(),
+            "type_identifier" | "pointer_type" | "qualified_type"
+        )
+    })?;
+
+    extract_type_name_from_node(type_node, code)
+}
+
+/// Extract the base type name from a type node, stripping pointers and qualifiers.
+fn extract_type_name_from_node(node: tree_sitter::Node, code: &str) -> Option<String> {
+    match node.kind() {
+        "type_identifier" => {
+            // Direct type: Cache
+            let name = &code[node.byte_range()];
+            Some(name.to_string())
+        }
+        "pointer_type" => {
+            // Pointer type: *Cache or *pkg.Cache
+            // Find the inner type
+            let inner = node
+                .children(&mut node.walk())
+                .find(|n| matches!(n.kind(), "type_identifier" | "qualified_type"))?;
+            extract_type_name_from_node(inner, code)
+        }
+        "qualified_type" => {
+            // Qualified type: pkg.Cache
+            // Get the name field (the type identifier after the dot)
+            let name_node = node.child_by_field_name("name")?;
+            let name = &code[name_node.byte_range()];
+            Some(name.to_string())
+        }
+        _ => None,
+    }
+}

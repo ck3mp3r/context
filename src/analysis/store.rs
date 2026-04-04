@@ -4,7 +4,7 @@
 //! Instead of embedding NanoGraph as a library (which adds 400MB+ to the binary),
 //! we shell out to the standalone `nanograph` CLI tool.
 
-use crate::analysis::types::{FileId, InheritanceType, ReferenceType, Symbol, SymbolId};
+use crate::analysis::types::{EdgeKind, FileId, InheritanceType, Symbol, SymbolId};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -229,16 +229,15 @@ impl CodeGraph {
     }
 
     /// Insert a reference edge between two symbols.
-    /// The ReferenceType determines which edge type is used in the graph
-    /// (Import, TypeAnnotation, FieldType, Returns, Accepts, Uses).
+    /// The EdgeKind determines which edge type is used in the graph.
     pub fn insert_references_edge(
         &mut self,
         from: &SymbolId,
         to: &SymbolId,
-        reference_type: &ReferenceType,
+        edge_kind: &EdgeKind,
         confidence: f64,
     ) -> Result<(), StoreError> {
-        let edge_name = reference_type.edge_name();
+        let edge_name = edge_kind.graph_edge_name();
         let data = serde_json::json!({
             "edge": edge_name,
             "from": from.as_str(),

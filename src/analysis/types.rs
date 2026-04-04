@@ -139,10 +139,12 @@ pub enum EdgeKind {
 
     // References
     Calls,      // function → function
+    Import,     // symbol → imported symbol
     TypeRef,    // symbol → type it references
     FieldType,  // field → its type
     ParamType,  // function → parameter type
     ReturnType, // function → return type
+    Usage,      // symbol → identifier it references (const, var, etc.)
 }
 
 impl EdgeKind {
@@ -154,10 +156,31 @@ impl EdgeKind {
             Self::Implements => "Implements",
             Self::Extends => "Extends",
             Self::Calls => "Calls",
+            Self::Import => "Import",
             Self::TypeRef => "TypeRef",
             Self::FieldType => "FieldType",
             Self::ParamType => "ParamType",
             Self::ReturnType => "ReturnType",
+            Self::Usage => "Usage",
+        }
+    }
+
+    /// Get the edge name used in the graph store.
+    /// Some EdgeKinds map to different names in the graph schema.
+    pub fn graph_edge_name(&self) -> &str {
+        match self {
+            Self::HasField => "SymbolContains",
+            Self::HasMethod => "SymbolContains",
+            Self::HasMember => "SymbolContains",
+            Self::Implements => "Inherits",
+            Self::Extends => "Inherits",
+            Self::Calls => "Calls",
+            Self::Import => "Import",
+            Self::TypeRef => "TypeAnnotation",
+            Self::FieldType => "FieldType",
+            Self::ParamType => "Accepts",
+            Self::ReturnType => "Returns",
+            Self::Usage => "Uses",
         }
     }
 }
@@ -169,45 +192,6 @@ pub struct RawEdge {
     pub from: SymbolId,
     pub to: SymbolId,
     pub kind: EdgeKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReferenceType {
-    Import,
-    TypeAnnotation,
-    FieldType,
-    Usage,
-    ReturnType,
-    ParamType,
-}
-
-impl ReferenceType {
-    pub fn edge_name(&self) -> &str {
-        match self {
-            Self::Import => "Import",
-            Self::TypeAnnotation => "TypeAnnotation",
-            Self::FieldType => "FieldType",
-            Self::Usage => "Uses",
-            Self::ReturnType => "Returns",
-            Self::ParamType => "Accepts",
-        }
-    }
-}
-
-impl std::str::FromStr for ReferenceType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Import" => Ok(Self::Import),
-            "TypeAnnotation" => Ok(Self::TypeAnnotation),
-            "FieldType" => Ok(Self::FieldType),
-            "Uses" => Ok(Self::Usage),
-            "Returns" => Ok(Self::ReturnType),
-            "Accepts" => Ok(Self::ParamType),
-            _ => Err(format!("Unknown reference type: {}", s)),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

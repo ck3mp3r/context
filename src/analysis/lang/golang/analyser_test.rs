@@ -151,13 +151,15 @@ fn test_cache_composite_literals() {
     let code = load_testdata("cache.go");
     let parsed = Go::extract(&code, "cache/cache.go");
 
-    // Composite literals like Cache{} and Item{} should appear as Calls edges
-    let calls = edges_of_kind(&parsed, EdgeKind::Calls);
+    // Composite literals like Cache{} and Item{} are type references, not calls
+    let type_refs = edges_of_kind(&parsed, EdgeKind::TypeRef);
 
     assert!(
-        calls.iter().any(|(_, to)| *to == "Cache" || *to == "Item"),
-        "should capture composite literals as constructor calls, got calls: {:?}",
-        calls
+        type_refs
+            .iter()
+            .any(|(_, to)| *to == "Cache" || *to == "Item"),
+        "should capture composite literals as type references, got type_refs: {:?}",
+        type_refs
     );
 }
 
@@ -495,23 +497,24 @@ fn test_interface_method_containment() {
     let code = load_testdata("cache.go");
     let parsed = Go::extract(&code, "cache/cache.go");
 
+    // Interface methods should have kind "method"
     let method_syms: Vec<&RawSymbol> = parsed
         .symbols
         .iter()
-        .filter(|s| s.kind == "function" && s.name == "Get" || s.name == "Set")
+        .filter(|s| s.kind == "method" && (s.name == "Get" || s.name == "Set"))
         .collect();
 
     assert!(
         method_syms
             .iter()
             .any(|s| s.name == "Get" && s.start_line >= 21 && s.start_line <= 22),
-        "should extract Cacher.Get as a function symbol"
+        "should extract Cacher.Get as a method symbol"
     );
     assert!(
         method_syms
             .iter()
             .any(|s| s.name == "Set" && s.start_line >= 22 && s.start_line <= 23),
-        "should extract Cacher.Set as a function symbol"
+        "should extract Cacher.Set as a method symbol"
     );
 
     let cacher_methods: Vec<&str> = parsed
@@ -1352,22 +1355,22 @@ fn test_go_type_assertion_uses_edge() {
 }
 
 #[test]
-fn test_go_composite_literal_uses_edge() {
+fn test_go_composite_literal_type_ref_edge() {
     let code = load_testdata("types.go");
     let parsed = Go::extract(&code, "testdata/types.go");
 
     // UseCompositeLiteral does: Config{}, &Config{}
-    // These should create Calls edges (composite literal = constructor call)
-    // Note: []Item{{}, {}} won't create Item calls because the inner {} don't have explicit type identifiers
-    let calls = edges_from(&parsed, EdgeKind::Calls, "UseCompositeLiteral");
+    // These should create TypeRef edges (composite literal = type reference)
+    // Note: []Item{{}, {}} won't create Item refs because the inner {} don't have explicit type identifiers
+    let type_refs = edges_from(&parsed, EdgeKind::TypeRef, "UseCompositeLiteral");
 
     assert!(
-        calls.contains(&"Config"),
-        "UseCompositeLiteral should have Calls edge to Config from Config{{}}, got: {:?}",
-        calls
+        type_refs.contains(&"Config"),
+        "UseCompositeLiteral should have TypeRef edge to Config from Config{{}}, got: {:?}",
+        type_refs
     );
     // The nested {} in []Item{{}, {}} don't have explicit type - Go infers from slice type
-    // So we don't expect a call to Item from the implicit type literals
+    // So we don't expect a TypeRef to Item from the implicit type literals
 }
 
 #[test]
@@ -1509,4 +1512,357 @@ func NewClient(url string) *Client {
         new_client.entry_type, None,
         "NewClient in non-test file should not have entry_type"
     );
+}
+
+// =============================================================================
+// Method Kind Tests
+// =============================================================================
+
+#[test]
+fn test_go_struct_method_has_kind_method() {
+    let code = load_testdata("method_kind.go");
+    let parsed = Go::extract(&code, "pkg/method_kind.go");
+
+    // Struct methods should have kind "method"
+    let get = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "Get")
+        .expect("Get method should exist");
+    assert_eq!(
+        get.kind, "method",
+        "Struct method with pointer receiver should have kind 'method'"
+    );
+
+    let size = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "Size")
+        .expect("Size method should exist");
+    assert_eq!(
+        size.kind, "method",
+        "Struct method with value receiver should have kind 'method'"
+    );
+}
+
+#[test]
+fn test_go_interface_method_has_kind_method() {
+    let code = load_testdata("method_kind.go");
+    let parsed = Go::extract(&code, "pkg/method_kind.go");
+
+    // Interface methods should have kind "method"
+    // Note: interface has Get and Set, but struct also has Get
+    // Find the interface method by checking it's inside the interface line range
+    let cacher = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "Cacher" && s.kind == "interface")
+        .expect("Cacher interface should exist");
+
+    // Interface methods are between interface start and end lines
+    let iface_methods: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| {
+            s.start_line > cacher.start_line
+                && s.start_line < cacher.end_line
+                && (s.name == "Get" || s.name == "Set")
+        })
+        .collect();
+
+    assert_eq!(iface_methods.len(), 2, "Should find 2 interface methods");
+
+    for m in &iface_methods {
+        assert_eq!(
+            m.kind, "method",
+            "Interface method '{}' should have kind 'method'",
+            m.name
+        );
+    }
+}
+
+#[test]
+fn test_go_free_function_has_kind_function() {
+    let code = load_testdata("method_kind.go");
+    let parsed = Go::extract(&code, "pkg/method_kind.go");
+
+    // Free functions should have kind "function"
+    let new_cache = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "NewCache")
+        .expect("NewCache function should exist");
+    assert_eq!(
+        new_cache.kind, "function",
+        "Free function should have kind 'function'"
+    );
+
+    let helper = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "HelperFunc")
+        .expect("HelperFunc should exist");
+    assert_eq!(
+        helper.kind, "function",
+        "Free function should have kind 'function'"
+    );
+}
+
+#[test]
+fn test_go_struct_method_has_method_edge_pointer_receiver() {
+    let code = load_testdata("method_kind.go");
+    let parsed = Go::extract(&code, "pkg/method_kind.go");
+
+    // Cache struct has methods Get (pointer receiver) and Size (value receiver)
+    // Both should have HasMethod edges from Cache
+    assert!(
+        has_edge(&parsed, EdgeKind::HasMethod, "Cache", "Get"),
+        "Cache should have HasMethod edge to Get (pointer receiver)"
+    );
+    assert!(
+        has_edge(&parsed, EdgeKind::HasMethod, "Cache", "Size"),
+        "Cache should have HasMethod edge to Size (value receiver)"
+    );
+}
+
+#[test]
+fn test_go_struct_method_has_method_edge_multiple_methods() {
+    let code = load_testdata("method_kind.go");
+    let parsed = Go::extract(&code, "pkg/method_kind.go");
+
+    // Server struct has 3 methods: Start, Stop, Address
+    let server_methods: Vec<&str> = edges_from(&parsed, EdgeKind::HasMethod, "Server");
+
+    assert!(
+        server_methods.contains(&"Start"),
+        "Server should have HasMethod edge to Start, got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"Stop"),
+        "Server should have HasMethod edge to Stop, got: {:?}",
+        server_methods
+    );
+    assert!(
+        server_methods.contains(&"Address"),
+        "Server should have HasMethod edge to Address, got: {:?}",
+        server_methods
+    );
+    assert_eq!(
+        server_methods.len(),
+        3,
+        "Server should have exactly 3 methods, got: {:?}",
+        server_methods
+    );
+}
+
+#[test]
+fn test_go_free_function_no_has_method_edge() {
+    let code = load_testdata("method_kind.go");
+    let parsed = Go::extract(&code, "pkg/method_kind.go");
+
+    // Free functions should NOT have HasMethod edges TO them
+    let has_method_targets: Vec<&str> = edges_of_kind(&parsed, EdgeKind::HasMethod)
+        .iter()
+        .map(|(_, to)| *to)
+        .collect();
+
+    assert!(
+        !has_method_targets.contains(&"NewCache"),
+        "NewCache is a free function, should not be target of HasMethod edge"
+    );
+    assert!(
+        !has_method_targets.contains(&"HelperFunc"),
+        "HelperFunc is a free function, should not be target of HasMethod edge"
+    );
+}
+
+// =============================================================================
+// Uses Edge Tests (identifier references)
+// =============================================================================
+
+#[test]
+fn test_go_return_statement_uses_const() {
+    let code = load_testdata("uses.go");
+    let parsed = Go::extract(&code, "pkg/uses.go");
+
+    // GetClientName should have Uses edge to ClientName
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "GetClientName", "ClientName"),
+        "Function returning const should have Uses edge to the const"
+    );
+}
+
+#[test]
+fn test_go_return_statement_uses_var() {
+    let code = load_testdata("uses.go");
+    let parsed = Go::extract(&code, "pkg/uses.go");
+
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "GetTimeout", "defaultTimeout"),
+        "Function returning var should have Uses edge to the var"
+    );
+}
+
+#[test]
+fn test_go_short_var_decl_uses_const() {
+    let code = load_testdata("uses.go");
+    let parsed = Go::extract(&code, "pkg/uses.go");
+
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "Setup", "MaxSize"),
+        "Short var decl RHS should create Uses edge"
+    );
+}
+
+#[test]
+fn test_go_binary_expr_uses_const() {
+    let code = load_testdata("uses.go");
+    let parsed = Go::extract(&code, "pkg/uses.go");
+
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "ShouldRetry", "maxRetries"),
+        "Binary expression should create Uses edge for const operand"
+    );
+}
+
+#[test]
+fn test_go_call_arg_uses_const() {
+    let code = load_testdata("uses.go");
+    let parsed = Go::extract(&code, "pkg/uses.go");
+
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "LogName", "ClientName"),
+        "Function call argument should create Uses edge for const"
+    );
+}
+
+// =============================================================================
+// Local Type Tests (types defined inside functions should NOT be extracted)
+// =============================================================================
+
+#[test]
+fn test_go_local_types_not_extracted() {
+    let code = load_testdata("local_types.go");
+    let parsed = Go::extract(&code, "pkg/local_types.go");
+
+    // Top-level structs SHOULD be extracted
+    let top_level_structs: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "struct")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    assert!(
+        top_level_structs.contains(&"Config"),
+        "Top-level struct Config should be extracted, got: {:?}",
+        top_level_structs
+    );
+    assert!(
+        top_level_structs.contains(&"Response"),
+        "Top-level struct Response should be extracted, got: {:?}",
+        top_level_structs
+    );
+
+    // Local types inside functions should NOT be extracted
+    assert!(
+        !top_level_structs.contains(&"InvokeModelResponseBody"),
+        "Local type InvokeModelResponseBody inside function should NOT be extracted, got: {:?}",
+        top_level_structs
+    );
+}
+
+#[test]
+fn test_go_local_type_fields_not_extracted() {
+    let code = load_testdata("local_types.go");
+    let parsed = Go::extract(&code, "pkg/local_types.go");
+
+    // Fields of local types should NOT be extracted
+    let fields: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "field")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    // Config.Name is a top-level struct field - should be extracted
+    // But Completion and Data are fields of local types - should NOT be extracted
+    assert!(
+        !fields.contains(&"Completion"),
+        "Field 'Completion' from local type should NOT be extracted, got: {:?}",
+        fields
+    );
+    assert!(
+        !fields.contains(&"Data"),
+        "Field 'Data' from local type should NOT be extracted, got: {:?}",
+        fields
+    );
+}
+
+#[test]
+fn test_go_top_level_field_type_edge() {
+    let code = load_testdata("local_types.go");
+    let parsed = Go::extract(&code, "pkg/local_types.go");
+
+    // Response.Config should have FieldType edge to Config struct
+    assert!(
+        has_edge(&parsed, EdgeKind::FieldType, "Config", "Config"),
+        "Response.Config field should have FieldType edge to Config struct"
+    );
+}
+
+#[test]
+fn test_go_field_type_resolves_to_struct_not_field() {
+    let code = load_testdata("field_type_resolution.go");
+    let parsed = Go::extract(&code, "pkg/field_type_resolution.go");
+
+    // Debug: print all symbols
+    let symbols: Vec<_> = parsed
+        .symbols
+        .iter()
+        .map(|s| (s.name.as_str(), s.kind.as_str(), s.start_line))
+        .collect();
+
+    // Debug: print all FieldType edges
+    let all_field_type_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::FieldType)
+        .map(|e| (e.from.as_str(), e.to.as_str()))
+        .collect();
+
+    // Server.Config field (line 15) has type Config (the struct at line 4)
+    // It should NOT resolve to Settings.Config field (line 10)
+
+    // Find the FieldType edge from Server.Config field
+    let server_config_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| {
+            e.kind == EdgeKind::FieldType
+                && e.from.as_str().contains("Config")
+                && e.from.as_str().contains(":15") // Server.Config is on line 15
+        })
+        .collect();
+
+    assert!(
+        !server_config_edges.is_empty(),
+        "Server.Config field (line 15) should have FieldType edge.\nSymbols: {:?}\nFieldType edges: {:?}",
+        symbols,
+        all_field_type_edges
+    );
+
+    // The target should be the Config struct (line 4), not Settings.Config field (line 10)
+    for edge in &server_config_edges {
+        let target = edge.to.as_str();
+        // Target should be Config struct at line 4, or line 0 (unresolved)
+        // It should NOT be line 10 (Settings.Config field)
+        assert!(
+            !target.contains(":10"),
+            "FieldType edge should NOT point to Settings.Config field (line 10). Got: {}.\nAll edges: {:?}",
+            target,
+            all_field_type_edges
+        );
+    }
 }
