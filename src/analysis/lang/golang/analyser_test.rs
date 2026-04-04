@@ -1355,22 +1355,17 @@ fn test_go_type_assertion_uses_edge() {
 }
 
 #[test]
-fn test_go_composite_literal_type_ref_edge() {
-    let code = load_testdata("types.go");
-    let parsed = Go::extract(&code, "testdata/types.go");
+fn test_go_keyed_composite_literal_type_ref() {
+    let code = load_testdata("keyed_composite_literal.go");
+    let parsed = Go::extract(&code, "pkg/types.go");
 
-    // UseCompositeLiteral does: Config{}, &Config{}
-    // These should create TypeRef edges (composite literal = type reference)
-    // Note: []Item{{}, {}} won't create Item refs because the inner {} don't have explicit type identifiers
-    let type_refs = edges_from(&parsed, EdgeKind::TypeRef, "UseCompositeLiteral");
-
+    // Inner: Inner{{...}} - the value (Inner{{}}) should create TypeRef edge
+    // from create function to Inner struct
     assert!(
-        type_refs.contains(&"Config"),
-        "UseCompositeLiteral should have TypeRef edge to Config from Config{{}}, got: {:?}",
-        type_refs
+        has_edge(&parsed, EdgeKind::TypeRef, "create", "Inner"),
+        "Keyed composite literal Inner{{...}} should create TypeRef edge.\nEdges: {:?}",
+        edges_of_kind(&parsed, EdgeKind::TypeRef)
     );
-    // The nested {} in []Item{{}, {}} don't have explicit type - Go infers from slice type
-    // So we don't expect a TypeRef to Item from the implicit type literals
 }
 
 #[test]
