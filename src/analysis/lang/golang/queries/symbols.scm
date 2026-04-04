@@ -160,3 +160,43 @@
 (call_expression
     arguments: (argument_list
         (identifier) @uses_call_arg_ident)) @uses_call_arg_def
+
+;;; ============================================================================
+;;; QUALIFIED IDENTIFIER USES (pkg.Symbol for Uses edges)
+;;; ============================================================================
+
+;;; call argument that is a qualified reference (pkg.Symbol)
+(call_expression
+    arguments: (argument_list
+        (selector_expression
+            operand: (identifier) @uses_qual_call_pkg
+            field: (field_identifier) @uses_qual_call_name))) @uses_qual_call_def
+
+;;; var declaration RHS with qualified reference (var x = pkg.Symbol)
+(var_declaration
+    (var_spec
+        value: (expression_list
+            (selector_expression
+                operand: (identifier) @uses_qual_var_pkg
+                field: (field_identifier) @uses_qual_var_name)))) @uses_qual_var_def
+
+;;; short_var_declaration RHS with qualified reference (x := pkg.Symbol)
+(short_var_declaration
+    right: (expression_list
+        (selector_expression
+            operand: (identifier) @uses_qual_short_pkg
+            field: (field_identifier) @uses_qual_short_name))) @uses_qual_short_def
+
+;;; assignment_statement RHS with qualified reference (x = pkg.Symbol)
+(assignment_statement
+    right: (expression_list
+        (selector_expression
+            operand: (identifier) @uses_qual_assign_pkg
+            field: (field_identifier) @uses_qual_assign_name))) @uses_qual_assign_def
+
+;;; return_statement with qualified reference (return pkg.Symbol)
+(return_statement
+    (expression_list
+        (selector_expression
+            operand: (identifier) @uses_qual_return_pkg
+            field: (field_identifier) @uses_qual_return_name))) @uses_qual_return_def

@@ -588,5 +588,67 @@ pub fn process_match(
         && let Some(&ident_node) = captures.get("uses_call_arg_ident")
     {
         emit_uses_edge(parsed, ident_node, code);
+        return;
+    }
+
+    // =========================================================================
+    // QUALIFIED IDENTIFIER USES (pkg.Symbol)
+    // =========================================================================
+
+    // Helper to emit Uses edge for qualified reference (pkg.Symbol)
+    let emit_qualified_uses_edge =
+        |parsed: &mut ParsedFile, name_node: tree_sitter::Node, code: &str| {
+            let target_name = &code[name_node.byte_range()];
+            let ref_line = name_node.start_position().row + 1;
+
+            // Find enclosing function/method
+            if let Some(caller_id) = find_enclosing_symbol_id(parsed, file_path, ref_line) {
+                // Target with line 0 = needs resolution
+                let target_id = SymbolId::new(file_path, target_name, 0);
+                parsed.edges.push(RawEdge {
+                    from: caller_id,
+                    to: target_id,
+                    kind: EdgeKind::Usage,
+                });
+            }
+        };
+
+    // call argument that is a qualified reference (pkg.Symbol)
+    if captures.contains_key("uses_qual_call_def")
+        && let Some(&name_node) = captures.get("uses_qual_call_name")
+    {
+        emit_qualified_uses_edge(parsed, name_node, code);
+        return;
+    }
+
+    // var declaration RHS with qualified reference (var x = pkg.Symbol)
+    if captures.contains_key("uses_qual_var_def")
+        && let Some(&name_node) = captures.get("uses_qual_var_name")
+    {
+        emit_qualified_uses_edge(parsed, name_node, code);
+        return;
+    }
+
+    // short_var_declaration RHS with qualified reference (x := pkg.Symbol)
+    if captures.contains_key("uses_qual_short_def")
+        && let Some(&name_node) = captures.get("uses_qual_short_name")
+    {
+        emit_qualified_uses_edge(parsed, name_node, code);
+        return;
+    }
+
+    // assignment_statement RHS with qualified reference (x = pkg.Symbol)
+    if captures.contains_key("uses_qual_assign_def")
+        && let Some(&name_node) = captures.get("uses_qual_assign_name")
+    {
+        emit_qualified_uses_edge(parsed, name_node, code);
+        return;
+    }
+
+    // return_statement with qualified reference (return pkg.Symbol)
+    if captures.contains_key("uses_qual_return_def")
+        && let Some(&name_node) = captures.get("uses_qual_return_name")
+    {
+        emit_qualified_uses_edge(parsed, name_node, code);
     }
 }

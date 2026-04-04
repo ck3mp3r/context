@@ -1866,3 +1866,35 @@ fn test_go_field_type_resolves_to_struct_not_field() {
         );
     }
 }
+
+// =============================================================================
+// Qualified Identifier Reference Tests (pkg.Symbol)
+// =============================================================================
+
+#[test]
+fn test_go_qualified_call_arg_uses() {
+    let code = load_testdata("qualified_uses.go");
+    let parsed = Go::extract(&code, "cmd/root.go");
+
+    // auth.AuthCmd is a qualified reference passed as call argument
+    // Should create Uses edge from init to AuthCmd
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "init", "AuthCmd"),
+        "Qualified call argument auth.AuthCmd should create Uses edge.\nEdges: {:?}",
+        edges_of_kind(&parsed, EdgeKind::Usage)
+    );
+}
+
+#[test]
+fn test_go_qualified_return_uses() {
+    let code = load_testdata("qualified_uses.go");
+    let parsed = Go::extract(&code, "cmd/root.go");
+
+    // auth.DefaultTimeout is a qualified reference in return statement
+    // Should create Uses edge from GetTimeout to DefaultTimeout
+    assert!(
+        has_edge(&parsed, EdgeKind::Usage, "GetTimeout", "DefaultTimeout"),
+        "Qualified return value auth.DefaultTimeout should create Uses edge.\nEdges: {:?}",
+        edges_of_kind(&parsed, EdgeKind::Usage)
+    );
+}

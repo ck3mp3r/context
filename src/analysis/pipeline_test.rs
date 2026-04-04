@@ -54,7 +54,7 @@ fn test_bare_name_unique_resolves_without_language() {
     let reg = build_registry();
 
     // "Config" only exists in Rust — should resolve regardless of caller language
-    let result = reg.resolve_with_imports("Config", "whatever", "any.rs", "rust");
+    let result = reg.resolve_with_imports_and_kind("Config", "whatever", "any.rs", "rust", None);
     assert!(result.is_some(), "unique bare name should resolve");
     assert_eq!(result.unwrap().as_str(), "symbol:src/server.rs:Config:1");
 }
@@ -65,7 +65,7 @@ fn test_bare_name_ambiguous_prefers_same_language() {
 
     // "init" exists in Rust, Nushell, and Go
     // A Rust caller should get the Rust "init"
-    let result = reg.resolve_with_imports("init", "caller", "src/caller.rs", "rust");
+    let result = reg.resolve_with_imports_and_kind("init", "caller", "src/caller.rs", "rust", None);
     assert!(result.is_some(), "should resolve init for Rust caller");
     assert_eq!(
         result.unwrap().as_str(),
@@ -74,7 +74,8 @@ fn test_bare_name_ambiguous_prefers_same_language() {
     );
 
     // A Nushell caller should get the Nushell "init"
-    let result = reg.resolve_with_imports("init", "caller", "src/caller.nu", "nushell");
+    let result =
+        reg.resolve_with_imports_and_kind("init", "caller", "src/caller.nu", "nushell", None);
     assert!(result.is_some(), "should resolve init for Nushell caller");
     assert_eq!(
         result.unwrap().as_str(),
@@ -83,7 +84,7 @@ fn test_bare_name_ambiguous_prefers_same_language() {
     );
 
     // A Go caller should get the Go "init"
-    let result = reg.resolve_with_imports("init", "caller", "cmd/caller.go", "go");
+    let result = reg.resolve_with_imports_and_kind("init", "caller", "cmd/caller.go", "go", None);
     assert!(result.is_some(), "should resolve init for Go caller");
     assert_eq!(
         result.unwrap().as_str(),
@@ -97,7 +98,7 @@ fn test_same_module_resolution_unaffected_by_language() {
     let reg = build_registry();
 
     // Same-module lookup (step 1) should still work — it's exact qualified match
-    let result = reg.resolve_with_imports("init", "server", "src/server.rs", "rust");
+    let result = reg.resolve_with_imports_and_kind("init", "server", "src/server.rs", "rust", None);
     assert!(result.is_some());
     assert_eq!(result.unwrap().as_str(), "symbol:src/server.rs:init:10");
 }
@@ -114,7 +115,7 @@ fn test_import_resolution_unaffected_by_language() {
     reg.import_tables.insert("src/app.rs".to_string(), table);
 
     // Should resolve via import table (step 2), not bare name (step 3)
-    let result = reg.resolve_with_imports("init", "app", "src/app.rs", "rust");
+    let result = reg.resolve_with_imports_and_kind("init", "app", "src/app.rs", "rust", None);
     assert!(result.is_some());
     assert_eq!(
         result.unwrap().as_str(),
@@ -129,7 +130,8 @@ fn test_no_same_language_match_returns_none() {
 
     // "Config" only exists in Rust — a Nushell caller should NOT resolve it
     // Cross-language bare name fallback is never valid
-    let result = reg.resolve_with_imports("Config", "caller", "src/caller.nu", "nushell");
+    let result =
+        reg.resolve_with_imports_and_kind("Config", "caller", "src/caller.nu", "nushell", None);
     assert!(
         result.is_none(),
         "cross-language bare name should not resolve, got: {:?}",
@@ -157,7 +159,7 @@ fn test_ambiguous_same_language_returns_none() {
 
     // Bare name lookup from an unrelated module should return None
     // because there are 2 same-language candidates
-    let result = reg.resolve_with_imports("process", "app", "src/app.rs", "rust");
+    let result = reg.resolve_with_imports_and_kind("process", "app", "src/app.rs", "rust", None);
     assert!(
         result.is_none(),
         "ambiguous same-language bare name should return None, got: {:?}",
@@ -185,7 +187,8 @@ fn test_ambiguous_cross_language_no_same_lang_returns_none() {
 
     // Nushell caller: no same-language match, and 2 cross-language candidates
     // Should return None — not pick an arbitrary cross-language match
-    let result = reg.resolve_with_imports("init", "caller", "src/caller.nu", "nushell");
+    let result =
+        reg.resolve_with_imports_and_kind("init", "caller", "src/caller.nu", "nushell", None);
     assert!(
         result.is_none(),
         "ambiguous cross-language with no same-language match should return None, got: {:?}",
@@ -235,7 +238,13 @@ fn test_go_import_resolution_with_internal_module_path() {
     // Now resolve "Context" from pkg/analyzer/hpa.go
     // Step 1: Same module lookup fails (Context not in pkg::analyzer)
     // Step 2: Import table lookup should succeed (common -> pkg::common -> pkg::common::Context)
-    let result = reg.resolve_with_imports("Context", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    let result = reg.resolve_with_imports_and_kind(
+        "Context",
+        "pkg::analyzer",
+        "pkg/analyzer/hpa.go",
+        "go",
+        None,
+    );
 
     assert!(
         result.is_some(),
@@ -263,7 +272,13 @@ fn test_go_import_resolution_bare_name_fallback() {
     );
 
     // Caller in different package with no import table entry for UniqueType
-    let result = reg.resolve_with_imports("UniqueType", "pkg::caller", "pkg/caller/main.go", "go");
+    let result = reg.resolve_with_imports_and_kind(
+        "UniqueType",
+        "pkg::caller",
+        "pkg/caller/main.go",
+        "go",
+        None,
+    );
 
     assert!(
         result.is_some(),
@@ -295,7 +310,13 @@ fn test_go_import_resolution_ambiguous_without_import_fails() {
     );
 
     // Caller has no import table - ambiguous Config should not resolve
-    let result = reg.resolve_with_imports("Config", "pkg::analyzer", "pkg/analyzer/main.go", "go");
+    let result = reg.resolve_with_imports_and_kind(
+        "Config",
+        "pkg::analyzer",
+        "pkg/analyzer/main.go",
+        "go",
+        None,
+    );
 
     assert!(
         result.is_none(),
@@ -341,7 +362,13 @@ fn test_go_glob_import_resolution() {
         .insert("pkg/analyzer/hpa.go".to_string(), table);
 
     // Resolve "Result" from pkg/analyzer/hpa.go via glob import
-    let result = reg.resolve_with_imports("Result", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    let result = reg.resolve_with_imports_and_kind(
+        "Result",
+        "pkg::analyzer",
+        "pkg/analyzer/hpa.go",
+        "go",
+        None,
+    );
 
     assert!(
         result.is_some(),
@@ -354,7 +381,13 @@ fn test_go_glob_import_resolution() {
     );
 
     // Also verify Analyzer resolves
-    let result = reg.resolve_with_imports("Analyzer", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    let result = reg.resolve_with_imports_and_kind(
+        "Analyzer",
+        "pkg::analyzer",
+        "pkg/analyzer/hpa.go",
+        "go",
+        None,
+    );
     assert!(result.is_some());
     assert_eq!(
         result.unwrap().as_str(),
@@ -389,7 +422,13 @@ fn test_go_glob_import_does_not_resolve_wrong_package() {
         .insert("pkg/analyzer/hpa.go".to_string(), table);
 
     // Should resolve to pkg::common::Result, not pkg::other::Result
-    let result = reg.resolve_with_imports("Result", "pkg::analyzer", "pkg/analyzer/hpa.go", "go");
+    let result = reg.resolve_with_imports_and_kind(
+        "Result",
+        "pkg::analyzer",
+        "pkg/analyzer/hpa.go",
+        "go",
+        None,
+    );
 
     assert!(result.is_some());
     assert_eq!(
@@ -464,11 +503,12 @@ mod integration_tests {
                 let to_name_raw = extract_name(edge.to.as_str()).unwrap_or("unknown");
 
                 // Try to resolve the target through the registry
-                if let Some(resolved_id) = registry.resolve_with_imports(
+                if let Some(resolved_id) = registry.resolve_with_imports_and_kind(
                     to_name_raw,
                     &module_path,
                     &pf.file_path,
                     &pf.language,
+                    None,
                 ) {
                     let resolved_name = extract_name(resolved_id.as_str())
                         .unwrap_or(to_name_raw)
