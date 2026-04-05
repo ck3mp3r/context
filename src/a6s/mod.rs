@@ -1,0 +1,43 @@
+//! a6s - Analysis rewrite with parallel extraction
+//!
+//! This module is a complete rewrite of the code analysis pipeline.
+//! It will eventually replace `src/analysis/` once proven correct.
+//!
+//! Architecture:
+//! - Layer 1: Parallel per-file tree-sitter extraction via spawn_blocking
+//! - Layer 2: Sequential cross-file resolution via SymbolRegistry
+//! - Buffered graph writes (single nanograph load at commit)
+
+#[cfg(feature = "backend")]
+pub mod types;
+
+#[cfg(feature = "backend")]
+pub mod extract;
+
+#[cfg(feature = "backend")]
+pub mod registry;
+
+#[cfg(feature = "backend")]
+pub mod store;
+
+#[cfg(feature = "backend")]
+pub mod pipeline;
+
+#[cfg(feature = "backend")]
+pub mod lang;
+
+// Public API
+#[cfg(feature = "backend")]
+pub use pipeline::analyze;
+
+#[cfg(test)]
+mod types_test;
+
+#[cfg(test)]
+mod registry_test;
+
+#[cfg(test)]
+mod store_test;
+
+#[cfg(test)]
+mod pipeline_test;

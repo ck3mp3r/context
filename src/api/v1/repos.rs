@@ -479,3 +479,82 @@ pub async fn delete_repo<D: Database, G: GitOps + Send + Sync>(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Trigger code analysis for a repository
+///
+/// Starts background analysis of the repository's code using the a6s pipeline.
+/// Returns immediately (202 Accepted) while analysis runs in the background.
+#[utoipa::path(
+    post,
+    path = "/api/v1/repos/{id}/analyze",
+    tag = "repos",
+    params(
+        ("id" = String, Path, description = "Repo ID (8-character hex)")
+    ),
+    responses(
+        (status = 202, description = "Analysis started"),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 400, description = "Repository has no local path configured", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Load repository
+    let repo = state.db().repos().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Repository '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Check that repo has a local path
+    let repo_path_str = repo.path.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Repository has no local path configured".to_string(),
+            }),
+        )
+    })?;
+
+    let repo_path = std::path::PathBuf::from(&repo_path_str);
+    let analysis_path = crate::analysis::get_analysis_path(&id).join("analysis.nano");
+
+    // Spawn analysis in background
+    let repo_id = id.clone();
+    tokio::spawn(async move {
+        tracing::info!("Starting a6s analysis for repo: {}", repo_id);
+
+        // Get commit hash (stub - could get from git later)
+        let commit_hash = "HEAD";
+
+        match crate::a6s::analyze(&repo_path, &analysis_path, commit_hash, None).await {
+            Ok(stats) => {
+                tracing::info!(
+                    "a6s analysis complete for {}: {} symbols, {} edges resolved, {} dropped",
+                    repo_id,
+                    stats.symbols_registered,
+                    stats.edges_resolved,
+                    stats.edges_dropped
+                );
+            }
+            Err(e) => {
+                tracing::error!("a6s analysis failed for {}: {:?}", repo_id, e);
+            }
+        }
+    });
+
+    Ok(StatusCode::ACCEPTED)
+}

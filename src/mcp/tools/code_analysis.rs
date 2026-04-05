@@ -3,7 +3,8 @@
 //! Handles MCP tools for code analysis operations.
 //! Follows SOLID principles - thin MCP layer delegating to service layer.
 
-use crate::analysis::{get_analysis_path, service};
+use crate::a6s;
+use crate::analysis::get_analysis_path;
 use crate::db::{Database, RepoRepository};
 use crate::mcp::tools::map_db_error;
 use rmcp::{
@@ -71,20 +72,38 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         })?;
 
         let graph_path = get_analysis_path(&params.0.repo_id);
+        let analysis_path = graph_path.join("analysis.nano");
 
-        // Spawn analysis as background process
-        // CodeGraph::new() handles init if needed
+        // Spawn NEW a6s analysis pipeline in background
         let repo_id = params.0.repo_id.clone();
+        let repo_path = PathBuf::from(&repo_path_str);
+
         tokio::spawn(async move {
-            let _ =
-                service::analyze_repository(&PathBuf::from(&repo_path_str), &repo_id, &graph_path)
-                    .await;
+            tracing::info!("Starting a6s analysis for repo: {}", repo_id);
+
+            // Get commit hash (stub - could get from git later)
+            let commit_hash = "HEAD";
+
+            match a6s::analyze(&repo_path, &analysis_path, commit_hash, None).await {
+                Ok(stats) => {
+                    tracing::info!(
+                        "a6s analysis complete: {} symbols, {} edges resolved, {} dropped",
+                        stats.symbols_registered,
+                        stats.edges_resolved,
+                        stats.edges_dropped
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("a6s analysis failed: {:?}", e);
+                }
+            }
         });
 
         let response = json!({
             "status": "started",
-            "message": format!("Analysis started for repository {}. This will run in the background.", params.0.repo_id),
+            "message": format!("Analysis started (a6s pipeline) for repository {}. This will run in the background.", params.0.repo_id),
             "repo_id": params.0.repo_id,
+            "pipeline": "a6s (scaffolding)",
         });
 
         let content = serde_json::to_string_pretty(&response).map_err(|e| {

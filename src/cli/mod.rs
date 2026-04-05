@@ -587,6 +587,11 @@ enum RepoCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Trigger code analysis for a repository
+    Analyze {
+        /// Repository ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -841,6 +846,10 @@ pub async fn run() -> Result<()> {
             }
             RepoCommands::Delete { id, force } => {
                 let output = commands::repo::delete_repo(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            RepoCommands::Analyze { id } => {
+                let output = commands::repo::analyze_repo(&api_client, &id).await?;
                 println!("{}", output);
             }
         },

@@ -228,3 +228,28 @@ pub async fn delete_repo(api_client: &ApiClient, id: &str, force: bool) -> CliRe
         })
     }
 }
+
+/// Trigger code analysis for a repository
+pub async fn analyze_repo(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/repos/{}/analyze", id))
+        .send()
+        .await?;
+
+    if response.status().as_u16() == 202 {
+        Ok(format!(
+            "✓ Analysis started for repository: {}\n  Check server logs for progress",
+            id
+        ))
+    } else {
+        let status = response.status().as_u16();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        Err(crate::cli::error::CliError::ApiError {
+            status,
+            message: error_text,
+        })
+    }
+}
