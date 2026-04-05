@@ -1,0 +1,21 @@
+pre-commit:
+  commands:
+    trailing-whitespace:
+      run: >
+        git diff --cached --name-only --diff-filter=ACM |
+        while IFS= read -r f; do sed -i 's/[[:space:]]*$//' "$f" && git add "$f"; done
+      glob: "*.{rs,nix,toml,yml,yaml,md,json,js,css,html}"
+    rustfmt:
+      run: cargo fmt -- --check
+      glob: "*.rs"
+    clippy:
+      run: cargo clippy -- -D warnings
+      glob: "*.rs"
+    nix-fmt:
+      run: nix fmt .
+      glob: "*.nix"
+
+pre-push:
+  commands:
+    tests:
+      run: cargo test

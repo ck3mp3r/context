@@ -1,33 +1,37 @@
-# Classic Nix shell for CI - just the toolchains needed for testing
 {
   pkgs,
   inputs,
   system,
 }: let
   fenix = inputs.fenix.packages.${system};
-  # Same toolchain as devenv.nix - Rust with WASM target support
   toolchain = fenix.combine [
     fenix.stable.cargo
     fenix.stable.rustc
+    fenix.stable.rustfmt
+    fenix.stable.clippy
+    fenix.stable.rust-analyzer
+    fenix.stable.llvm-tools-preview
     fenix.targets.wasm32-unknown-unknown.stable.rust-std
   ];
 in
   pkgs.mkShellNoCC {
-    name = "context-ci";
+    name = "context-dev";
 
     buildInputs = [
       toolchain
       pkgs.cargo-tarpaulin
+      pkgs.cargo-llvm-cov
       pkgs.trunk
       pkgs.wasm-bindgen-cli
       pkgs.nodejs
       pkgs.tailwindcss_4
-      pkgs.protobuf # Required for NanoGraph (Lance dependency)
+      pkgs.act
+      pkgs.protobuf
+      pkgs.lefthook
+      pkgs.tree-sitter
     ];
 
     shellHook = ''
-      echo "CI Testing Environment"
-      echo "Rust: $(rustc --version)"
-      echo ""
+      lefthook install
     '';
   }
