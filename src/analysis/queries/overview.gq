@@ -1,0 +1,7 @@
+query overview()
+  @description("High-level codebase overview: symbol counts by kind and visibility")
+  @instruction("Run this first when exploring a new codebase to understand its structure and scale")
+{
+  match { $s: Symbol }
+  return { $s.kind as kind, $s.visibility as visibility, count($s) as total }
+}

@@ -721,7 +721,16 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                 .items
                                                                                 .iter()
                                                                                 .map(|repo| {
-                                                                                    view! { <RepoCard repo=repo.clone()/> }
+                                                                                    let proj_id = project_id();
+                                                                                    let query_str = location.search.get();
+                                                                                    view! {
+                                                                                        <RepoCard
+                                                                                            repo=repo.clone()
+                                                                                            project_id=proj_id.clone()
+                                                                                            current_query=query_str
+                                                                                            breadcrumb_name=proj_id
+                                                                                        />
+                                                                                    }
                                                                                 })
                                                                                 .collect::<Vec<_>>()}
                                                                         </div>

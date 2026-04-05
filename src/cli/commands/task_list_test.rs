@@ -23,8 +23,8 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 
     // Create test project
     let project_id = sqlx::query_scalar::<_, String>(
-        "INSERT INTO project (id, title, description, tags, created_at, updated_at) 
-         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now')) 
+        "INSERT INTO project (id, title, description, tags, created_at, updated_at)
+         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now'))
          RETURNING id"
     )
     .fetch_one(db.pool())

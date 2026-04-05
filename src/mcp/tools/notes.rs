@@ -27,7 +27,11 @@ fn compute_etag(updated_at: &str) -> String {
     let mut hasher = sha2::Sha256::new();
     sha2::Digest::update(&mut hasher, updated_at.as_bytes());
     let result = hasher.finalize();
-    format!("{:x}", result)
+    result.iter().fold(String::new(), |mut acc, b| {
+        use std::fmt::Write;
+        write!(acc, "{:02x}", b).unwrap();
+        acc
+    })
 }
 
 // =============================================================================

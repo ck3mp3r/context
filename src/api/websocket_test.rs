@@ -19,6 +19,7 @@ async fn test_websocket_route_exists() {
     let temp_dir = TempDir::new().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
+
     let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
     let app = routes::create_router(state, false);
 
@@ -51,6 +52,7 @@ async fn test_websocket_rejects_non_upgrade_requests() {
     let temp_dir = TempDir::new().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
+
     let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
     let app = routes::create_router(state, false);
 

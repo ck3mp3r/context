@@ -19,6 +19,7 @@ async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
+
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
@@ -34,6 +35,7 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
     db.migrate().unwrap();
     let notifier = ChangeNotifier::new();
     let temp_dir = TempDir::new().unwrap();
+
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
@@ -68,6 +70,7 @@ async fn patch_updates_timestamp() {
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
     let temp_dir = TempDir::new().unwrap();
+
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),

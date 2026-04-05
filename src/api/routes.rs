@@ -11,11 +11,11 @@ use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
     CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse, EnableSkillResponse,
-    ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest, PatchProjectRequest,
-    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest,
-    RepoResponse, SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
-    UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest,
-    UpdateTaskRequest,
+    ErrorResponse, GraphEdge, GraphNode, GraphResponse, GraphStats, ImportSkillRequest,
+    NoteResponse, PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
+    PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse, SkillResponse,
+    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use crate::db::Database;
@@ -59,6 +59,7 @@ macro_rules! routes {
         super::v1::update_repo,
         super::v1::patch_repo,
         super::v1::delete_repo,
+        super::v1::get_repo_graph,
         super::v1::list_task_lists,
         super::v1::get_task_list,
         super::v1::create_task_list,
@@ -134,6 +135,11 @@ macro_rules! routes {
              UpdateSkillRequest,
              EnableSkillResponse,
              DisableSkillResponse,
+             // --- Graph ---
+             GraphResponse,
+             GraphNode,
+             GraphEdge,
+             GraphStats,
         )
     ),
     tags(
@@ -158,6 +164,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
     let ct = tokio_util::sync::CancellationToken::new();
     let mcp_service: rmcp::transport::streamable_http_server::StreamableHttpService<
         crate::mcp::McpServer<D>,
+        rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
     > = crate::mcp::create_mcp_service(
         state.db_arc(),
         state.notifier().clone(),
@@ -182,6 +189,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         // Repos
         get "/repos" => super::v1::list_repos,
         get "/repos/{id}" => super::v1::get_repo,
+        get "/repos/{id}/graph" => super::v1::get_repo_graph,
         post "/repos" => super::v1::create_repo,
         put "/repos/{id}" => super::v1::update_repo,
         patch "/repos/{id}" => super::v1::patch_repo,

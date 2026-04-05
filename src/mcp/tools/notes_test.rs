@@ -141,7 +141,11 @@ async fn test_create_and_read_note() {
     let expected_etag = {
         let mut hasher = sha2::Sha256::new();
         sha2::Digest::update(&mut hasher, updated_at.as_bytes());
-        format!("{:x}", hasher.finalize())
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
     };
     assert_eq!(etag1, expected_etag, "etag should match SHA256(updated_at)");
 }
