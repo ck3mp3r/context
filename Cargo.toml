@@ -205,7 +205,7 @@ features = ["csr"]
 optional = true
 
 [dependencies.leptos_router]
-version = "0.8.12"
+version = "0.8.13"
 optional = true
 
 [dependencies.leptos_meta]
