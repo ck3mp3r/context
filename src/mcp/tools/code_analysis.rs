@@ -72,7 +72,6 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         })?;
 
         let graph_path = get_analysis_path(&params.0.repo_id);
-        let analysis_path = graph_path.join("analysis.nano");
 
         // Spawn NEW a6s analysis pipeline in background
         let repo_id = params.0.repo_id.clone();
@@ -84,7 +83,7 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             // Get commit hash (stub - could get from git later)
             let commit_hash = "HEAD";
 
-            match a6s::analyze(&repo_path, &analysis_path, commit_hash, None).await {
+            match a6s::analyze(&repo_path, &graph_path, commit_hash, None).await {
                 Ok(stats) => {
                     tracing::info!(
                         "a6s analysis complete: {} symbols, {} edges resolved, {} dropped",

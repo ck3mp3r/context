@@ -116,27 +116,9 @@ macro_rules! define_extractors {
     };
 }
 
-// Wire up the extractors using static instances
-use super::lang::golang::extractor::GolangExtractor;
-use super::lang::nushell::extractor::NushellExtractor;
-use super::lang::rust::extractor::RustExtractor;
-
-static RUST: RustExtractor = RustExtractor;
-static GO: GolangExtractor = GolangExtractor;
-static NU: NushellExtractor = NushellExtractor;
-
-/// Get an extractor for the given file extension.
-/// Returns None if no extractor is registered for this extension.
-pub fn get_extractor(extension: &str) -> Option<&'static dyn LanguageExtractor> {
-    match extension {
-        "rs" => Some(&RUST),
-        "go" => Some(&GO),
-        "nu" => Some(&NU),
-        _ => None,
-    }
-}
-
-/// Returns all registered extensions for file scanning.
-pub fn supported_extensions() -> Vec<&'static str> {
-    vec!["rs", "go", "nu"]
-}
+// Use the macro to define the Extractor enum with all languages
+define_extractors!(
+    rust::RustExtractor,
+    golang::GolangExtractor,
+    nushell::NushellExtractor,
+);

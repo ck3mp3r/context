@@ -5,15 +5,15 @@ use super::*;
 #[test]
 fn test_get_extractor_for_known_extensions() {
     // Extractors are now registered
-    assert!(get_extractor("rs").is_some());
-    assert!(get_extractor("go").is_some());
-    assert!(get_extractor("nu").is_some());
+    assert!(Extractor::for_extension("rs").is_some());
+    assert!(Extractor::for_extension("go").is_some());
+    assert!(Extractor::for_extension("nu").is_some());
 }
 
 #[test]
 fn test_get_extractor_for_unknown_extension() {
-    assert!(get_extractor("xyz").is_none());
-    assert!(get_extractor("py").is_none());
+    assert!(Extractor::for_extension("xyz").is_none());
+    assert!(Extractor::for_extension("py").is_none());
 }
 
 #[test]
@@ -28,5 +28,5 @@ fn test_supported_extensions() {
 // Compile-time trait checks
 fn _assert_trait_is_send_sync() {
     fn _check<T: Send + Sync>() {}
-    _check::<&dyn LanguageExtractor>();
+    _check::<Extractor>();
 }

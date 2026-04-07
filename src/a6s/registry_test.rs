@@ -29,9 +29,9 @@ fn test_resolve_resolved_passthrough() {
     let id = SymbolId::new("src/main.rs", "main", 1);
     let sym_ref = SymbolRef::Resolved(id.clone());
 
-    // STUB: Even resolved refs return None for now
+    // Resolved refs are passed through
     let result = registry.resolve(&sym_ref, "src/main.rs");
-    assert!(result.is_none());
+    assert_eq!(result, Some(id));
 }
 
 #[test]

@@ -26,6 +26,12 @@ pub mod pipeline;
 #[cfg(feature = "backend")]
 pub mod lang;
 
+#[cfg(feature = "backend")]
+pub mod queries;
+
+#[cfg(feature = "backend")]
+pub mod error;
+
 // Public API
 #[cfg(feature = "backend")]
 pub use pipeline::analyze;

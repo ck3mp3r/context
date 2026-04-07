@@ -1,0 +1,14 @@
+query all_symbols() {
+    match {
+        $sym: Symbol
+    }
+    return {
+        $sym.symbol_id as symbol_id
+        $sym.name as name
+        $sym.kind as kind
+        $sym.language as language
+        $sym.file_path as file_path
+        $sym.start_line as start_line
+        $sym.entry_type as entry_type
+    }
+}

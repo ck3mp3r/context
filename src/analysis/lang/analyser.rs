@@ -110,4 +110,5 @@ macro_rules! define_languages {
     };
 }
 
-define_languages!(golang::Go, rust::Rust, nushell::Nushell,);
+// Disabled during a6s migration - Nushell moved to a6s
+define_languages!(golang::Go, rust::Rust,);

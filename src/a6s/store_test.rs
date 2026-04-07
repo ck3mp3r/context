@@ -15,8 +15,9 @@ fn test_insert_file_adds_to_buffer() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"node\""));
-    assert!(buffer[0].contains("\"label\":\"File\""));
+    // Correct format: {"type": "File", "data": {...}}
+    assert!(buffer[0].contains("\"type\":\"File\""));
+    assert!(buffer[0].contains("\"data\""));
     assert!(buffer[0].contains("src/main.rs"));
     assert!(buffer[0].contains("rust"));
     assert!(buffer[0].contains("abc123"));
@@ -42,8 +43,9 @@ fn test_insert_symbol_adds_to_buffer() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"node\""));
-    assert!(buffer[0].contains("\"label\":\"Symbol\""));
+    // Correct format: {"type": "Symbol", "data": {...}}
+    assert!(buffer[0].contains("\"type\":\"Symbol\""));
+    assert!(buffer[0].contains("\"data\""));
     assert!(buffer[0].contains("foo"));
     assert!(buffer[0].contains("function"));
 }
@@ -59,8 +61,11 @@ fn test_insert_contains_edge() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"edge\""));
-    assert!(buffer[0].contains("\"label\":\"Contains\""));
+    // Correct format: {"edge": "FileContains", "from": ..., "to": ..., "data": {...}}
+    assert!(buffer[0].contains("\"edge\":\"FileContains\""));
+    assert!(buffer[0].contains("\"from\""));
+    assert!(buffer[0].contains("\"to\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
 }
 
 #[test]
@@ -74,9 +79,10 @@ fn test_insert_calls_edge() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"edge\""));
-    assert!(buffer[0].contains("\"label\":\"Calls\""));
-    assert!(buffer[0].contains("\"line\":15"));
+    // Correct format: {"edge": "Calls", ...}
+    assert!(buffer[0].contains("\"edge\":\"Calls\""));
+    assert!(buffer[0].contains("\"call_site_line\":15"));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
 }
 
 #[test]
@@ -90,9 +96,10 @@ fn test_insert_inherits_edge() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"edge\""));
-    assert!(buffer[0].contains("\"label\":\"Inherits\""));
+    // Correct format: {"edge": "Inherits", ...}
+    assert!(buffer[0].contains("\"edge\":\"Inherits\""));
     assert!(buffer[0].contains("extends"));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
 }
 
 #[test]
@@ -106,10 +113,9 @@ fn test_insert_references_edge() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"edge\""));
-    assert!(buffer[0].contains("\"label\":\"References\""));
-    assert!(buffer[0].contains("TypeRef"));
-    assert!(buffer[0].contains("\"line\":12"));
+    // Correct format: {"edge": "TypeAnnotation", ...}
+    assert!(buffer[0].contains("\"edge\":\"TypeAnnotation\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
 }
 
 #[test]
@@ -123,8 +129,9 @@ fn test_insert_file_imports_edge() {
 
     assert_eq!(graph.buffer_len(), 1);
     let buffer = graph.buffer();
-    assert!(buffer[0].contains("\"type\":\"edge\""));
-    assert!(buffer[0].contains("\"label\":\"FileImports\""));
+    // Correct format: {"edge": "FileImports", ...}
+    assert!(buffer[0].contains("\"edge\":\"FileImports\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
 }
 
 #[test]

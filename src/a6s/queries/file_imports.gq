@@ -1,0 +1,17 @@
+query fileimports() {
+    match {
+        $file: File
+        $sym: Symbol
+        $file fileImports $sym
+    }
+    return {
+        $file.file_id as src_id
+        $sym.symbol_id as dst_id
+        $sym.name as dst_name
+        $sym.kind as dst_kind
+        $sym.language as dst_language
+        $sym.file_path as dst_file_path
+        $sym.start_line as dst_start_line
+        $sym.entry_type as dst_entry_type
+    }
+}

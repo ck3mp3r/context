@@ -1,37 +1,86 @@
+use super::error::A6sError;
 use super::types::*;
-use crate::analysis::service::AnalysisError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use tracing::info;
 
-/// Buffered CodeGraph that collects JSONL in-memory.
-///
-/// In scaffolding, all insert methods append JSONL strings to a Vec<String>.
-/// The `commit()` method is a stub that logs the buffer size and returns Ok(()).
-pub struct CodeGraph {
-    buffer: Vec<String>,
-    #[allow(dead_code)]
-    analysis_path: PathBuf,
+#[cfg(test)]
+use mockall::automock;
+
+/// Trait for NanoGraph CLI operations (mockable for tests).
+#[cfg_attr(test, automock)]
+pub trait NanoGraphCli {
+    fn init(&self, db_path: &Path, schema_path: &Path) -> Result<Output, std::io::Error>;
+    fn load(&self, db_path: &Path, batch_file: &Path) -> Result<Output, std::io::Error>;
 }
 
-impl CodeGraph {
-    /// Create a new CodeGraph with an empty buffer.
+/// Real implementation that calls nanograph CLI.
+pub struct RealNanoGraphCli;
+
+impl NanoGraphCli for RealNanoGraphCli {
+    fn init(&self, db_path: &Path, schema_path: &Path) -> Result<Output, std::io::Error> {
+        Command::new("nanograph")
+            .arg("init")
+            .arg("--db")
+            .arg(db_path)
+            .arg("--schema")
+            .arg(schema_path)
+            .output()
+    }
+
+    fn load(&self, db_path: &Path, batch_file: &Path) -> Result<Output, std::io::Error> {
+        Command::new("nanograph")
+            .arg("load")
+            .arg("--db")
+            .arg(db_path)
+            .arg("--data")
+            .arg(batch_file)
+            .arg("--mode")
+            .arg("merge")
+            .output()
+    }
+}
+
+/// Buffered CodeGraph that collects JSONL in-memory.
+pub struct CodeGraph<C: NanoGraphCli = RealNanoGraphCli> {
+    buffer: Vec<String>,
+    analysis_path: PathBuf,
+    cli: C,
+}
+
+impl CodeGraph<RealNanoGraphCli> {
+    /// Create a new CodeGraph with real CLI.
     pub fn new(analysis_path: PathBuf) -> Self {
         Self {
             buffer: Vec::new(),
             analysis_path,
+            cli: RealNanoGraphCli,
+        }
+    }
+}
+
+impl<C: NanoGraphCli> CodeGraph<C> {
+    /// Create a new CodeGraph with custom CLI (for testing).
+    #[cfg(test)]
+    pub fn new_with_cli(analysis_path: PathBuf, cli: C) -> Self {
+        Self {
+            buffer: Vec::new(),
+            analysis_path,
+            cli,
         }
     }
 
     /// Insert a file node into the buffer.
     pub fn insert_file(&mut self, file_path: &str, language: &str, commit_hash: &str) {
+        let file_id = FileId::new(file_path);
         let line = serde_json::json!({
-            "type": "node",
-            "label": "File",
-            "id": format!("file:{}", file_path),
-            "properties": {
+            "type": "File",
+            "data": {
+                "file_id": file_id.as_str(),
                 "path": file_path,
                 "language": language,
-                "commit_hash": commit_hash,
+                "hash": commit_hash,
+                "repo_id": "unknown",  // TODO: pass repo_id
             }
         });
         self.buffer.push(line.to_string());
@@ -41,16 +90,20 @@ impl CodeGraph {
     pub fn insert_symbol(&mut self, symbol: &RawSymbol) {
         let symbol_id = symbol.symbol_id();
         let line = serde_json::json!({
-            "type": "node",
-            "label": "Symbol",
-            "id": symbol_id.as_str(),
-            "properties": {
+            "type": "Symbol",
+            "data": {
+                "symbol_id": symbol_id.as_str(),
+                "repo_id": "unknown",  // TODO: pass repo_id
                 "name": &symbol.name,
                 "kind": &symbol.kind,
+                "language": &symbol.language,
                 "file_path": &symbol.file_path,
                 "start_line": symbol.start_line,
                 "end_line": symbol.end_line,
-                "language": &symbol.language,
+                "visibility": symbol.visibility.as_deref(),
+                "entry_type": symbol.entry_type.as_deref(),
+                "signature": symbol.signature.as_deref(),
+                "content": Option::<String>::None,
             }
         });
         self.buffer.push(line.to_string());
@@ -59,25 +112,28 @@ impl CodeGraph {
     /// Insert a Contains edge (File -> Symbol) into the buffer.
     pub fn insert_contains(&mut self, file_id: &FileId, symbol_id: &SymbolId) {
         let line = serde_json::json!({
-            "type": "edge",
-            "label": "Contains",
+            "edge": "FileContains",
             "from": file_id.as_str(),
             "to": symbol_id.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
         });
         self.buffer.push(line.to_string());
     }
 
     /// Insert a Calls edge into the buffer.
     pub fn insert_calls_edge(&mut self, from: &SymbolId, to: &SymbolId, line: Option<usize>) {
-        let mut edge = serde_json::json!({
-            "type": "edge",
-            "label": "Calls",
+        let line_num = line.unwrap_or(0);
+        let edge = serde_json::json!({
+            "edge": "Calls",
             "from": from.as_str(),
             "to": to.as_str(),
+            "data": {
+                "confidence": 1.0,
+                "call_site_line": line_num,
+            }
         });
-        if let Some(line_num) = line {
-            edge["properties"] = serde_json::json!({ "line": line_num });
-        }
         self.buffer.push(edge.to_string());
     }
 
@@ -89,11 +145,11 @@ impl CodeGraph {
         inheritance_type: &InheritanceType,
     ) {
         let line = serde_json::json!({
-            "type": "edge",
-            "label": "Inherits",
+            "edge": "Inherits",
             "from": from.as_str(),
             "to": to.as_str(),
-            "properties": {
+            "data": {
+                "confidence": 1.0,
                 "inheritance_type": inheritance_type.as_str(),
             }
         });
@@ -103,10 +159,12 @@ impl CodeGraph {
     /// Insert a SymbolContains edge (Symbol -> Symbol) into the buffer.
     pub fn insert_symbol_contains_edge(&mut self, from: &SymbolId, to: &SymbolId) {
         let line = serde_json::json!({
-            "type": "edge",
-            "label": "SymbolContains",
+            "edge": "SymbolContains",
             "from": from.as_str(),
             "to": to.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
         });
         self.buffer.push(line.to_string());
     }
@@ -117,41 +175,95 @@ impl CodeGraph {
         from: &SymbolId,
         to: &SymbolId,
         kind: &EdgeKind,
-        line: Option<usize>,
+        _line: Option<usize>,
     ) {
-        let mut edge = serde_json::json!({
-            "type": "edge",
-            "label": "References",
+        let edge_name = match kind {
+            EdgeKind::Usage => "Uses",
+            EdgeKind::ReturnType => "Returns",
+            EdgeKind::ParamType => "Accepts",
+            EdgeKind::FieldType => "FieldType",
+            EdgeKind::TypeRef => "TypeAnnotation",
+            _ => "Uses",
+        };
+
+        let edge = serde_json::json!({
+            "edge": edge_name,
             "from": from.as_str(),
             "to": to.as_str(),
-            "properties": {
-                "kind": kind.as_str(),
+            "data": {
+                "confidence": 1.0,
             }
         });
-        if let Some(line_num) = line
-            && let Some(props) = edge["properties"].as_object_mut()
-        {
-            props.insert("line".to_string(), serde_json::json!(line_num));
-        }
         self.buffer.push(edge.to_string());
     }
 
     /// Insert a FileImports edge (File -> Symbol) into the buffer.
     pub fn insert_file_imports_edge(&mut self, file_id: &FileId, symbol_id: &SymbolId) {
         let line = serde_json::json!({
-            "type": "edge",
-            "label": "FileImports",
+            "edge": "FileImports",
             "from": file_id.as_str(),
             "to": symbol_id.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
         });
         self.buffer.push(line.to_string());
     }
 
     /// Commit the buffered JSONL to the code graph.
-    ///
-    /// STUB: Logs the buffer size and returns Ok(()). Does not shell out to nanograph.
-    pub fn commit(&self) -> Result<(), AnalysisError> {
+    pub fn commit(&self) -> Result<(), A6sError> {
+        use std::fs;
+
+        if self.buffer.is_empty() {
+            info!("CodeGraph commit: no data to commit");
+            return Ok(());
+        }
+
         info!("CodeGraph commit: {} lines buffered", self.buffer.len());
+
+        let db_path = self.analysis_path.join("analysis.nano");
+        let batch_file = self.analysis_path.join("batch.jsonl");
+        let schema_path = std::env::current_dir()?.join("src/a6s/schema.pg");
+
+        fs::create_dir_all(&self.analysis_path)?;
+
+        let batch_content = self.buffer.join("\n") + "\n";
+        fs::write(&batch_file, batch_content)?;
+
+        info!("Wrote {} lines to {:?}", self.buffer.len(), batch_file);
+
+        fs::create_dir_all(&db_path)?;
+
+        let output = self.cli.init(&db_path, &schema_path)?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(A6sError::Custom(format!(
+                "nanograph init failed: {}",
+                stderr
+            )));
+        }
+
+        info!("Initialized NanoGraph database");
+
+        let output = self.cli.load(&db_path, &batch_file)?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(A6sError::Custom(format!(
+                "nanograph load failed: {}",
+                stderr
+            )));
+        }
+
+        info!("Successfully loaded data into NanoGraph database");
+
+        fs::remove_file(&batch_file)?;
+
+        super::queries::install_bundled_queries(&self.analysis_path)?;
+
+        info!("Installed bundled queries");
+
         Ok(())
     }
 

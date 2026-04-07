@@ -1,14 +1,34 @@
 use super::pipeline::*;
+use super::store::{CodeGraph, MockNanoGraphCli};
 use super::types::*;
+use std::os::unix::process::ExitStatusExt;
+use std::process::ExitStatus;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
+
+fn mock_success_output() -> std::process::Output {
+    std::process::Output {
+        status: ExitStatus::from_raw(0),
+        stdout: vec![],
+        stderr: vec![],
+    }
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_analyze_empty_directory() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let analysis_path = temp_dir.path().join("analysis");
 
-    let result = analyze(temp_dir.path(), &analysis_path, "test_commit", None).await;
+    let mut mock_cli = MockNanoGraphCli::new();
+    mock_cli
+        .expect_init()
+        .returning(|_, _| Ok(mock_success_output()));
+    mock_cli
+        .expect_load()
+        .returning(|_, _| Ok(mock_success_output()));
+
+    let graph = CodeGraph::new_with_cli(analysis_path, mock_cli);
+    let result = analyze_with_graph(temp_dir.path(), "test_commit", None, graph).await;
 
     assert!(result.is_ok());
     let stats = result.unwrap();
@@ -25,9 +45,20 @@ async fn test_progress_events_fire() {
 
     let (tx, mut rx) = mpsc::channel(10);
 
+    let mut mock_cli = MockNanoGraphCli::new();
+    mock_cli
+        .expect_init()
+        .returning(|_, _| Ok(mock_success_output()));
+    mock_cli
+        .expect_load()
+        .returning(|_, _| Ok(mock_success_output()));
+
+    let graph = CodeGraph::new_with_cli(analysis_path, mock_cli);
+
     // Run analysis in background
+    let repo_path = temp_dir.path().to_path_buf();
     let analyze_handle = tokio::spawn(async move {
-        analyze(temp_dir.path(), &analysis_path, "test_commit", Some(tx)).await
+        analyze_with_graph(&repo_path, "test_commit", Some(tx), graph).await
     });
 
     // Collect all progress events
@@ -74,4 +105,119 @@ async fn test_progress_events_fire() {
     assert!(saw_extracted);
     assert!(saw_resolved);
     assert!(saw_loaded);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_nushell_multi_file_integration() {
+    use std::fs;
+
+    // Create temporary directory structure
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = temp_dir.path();
+
+    // Create lib directory
+    fs::create_dir_all(repo_path.join("lib")).unwrap();
+
+    // Write math.nu
+    fs::write(
+        repo_path.join("lib/math.nu"),
+        r#"
+export def add [a: int, b: int] -> int {
+    $a + $b
+}
+
+export def multiply [a: int, b: int] -> int {
+    $a * $b
+}
+"#,
+    )
+    .unwrap();
+
+    // Write utils.nu
+    fs::write(
+        repo_path.join("lib/utils.nu"),
+        r#"
+export def greet [name: string] -> string {
+    $"Hello, ($name)!"
+}
+"#,
+    )
+    .unwrap();
+
+    // Write main.nu using glob import (not named import, because that's broken in import extraction)
+    fs::write(
+        repo_path.join("main.nu"),
+        r#"
+use lib/math *
+use lib/utils *
+
+def main [] {
+    let sum = add 5 10
+    let product = multiply 3 4
+    let message = greet "World"
+
+    print $"Sum: ($sum), Product: ($product)"
+    print $message
+}
+"#,
+    )
+    .unwrap();
+
+    // Run analysis
+    let analysis_path = temp_dir.path().join("analysis");
+
+    let mut mock_cli = MockNanoGraphCli::new();
+    mock_cli
+        .expect_init()
+        .returning(|_, _| Ok(mock_success_output()));
+    mock_cli
+        .expect_load()
+        .returning(|_, _| Ok(mock_success_output()));
+
+    let graph = CodeGraph::new_with_cli(analysis_path, mock_cli);
+    let result = analyze_with_graph(repo_path, "abc123", None, graph).await;
+
+    assert!(result.is_ok(), "Analysis should succeed");
+    let stats = result.unwrap();
+
+    println!(
+        "Stats: symbols={}, edges={}, imports={}, dropped={}",
+        stats.symbols_registered, stats.edges_resolved, stats.imports_resolved, stats.edges_dropped
+    );
+
+    // Verify extraction
+    assert!(
+        stats.symbols_registered > 0,
+        "Should extract symbols, got: {}",
+        stats.symbols_registered
+    );
+
+    // Verify imports resolved
+    assert!(
+        stats.imports_resolved > 0,
+        "Should resolve imports, got: {}",
+        stats.imports_resolved
+    );
+
+    // Verify edges resolved (calls + imports)
+    assert!(
+        stats.edges_resolved > 0,
+        "Should resolve edges, got: {}",
+        stats.edges_resolved
+    );
+
+    // Check specific counts
+    // Expected symbols: add, multiply, greet, main = 4 commands
+    assert!(
+        stats.symbols_registered >= 4,
+        "Should have at least 4 symbols, got: {}",
+        stats.symbols_registered
+    );
+
+    // Expected imports: 3 (add, multiply, greet) via glob imports
+    assert!(
+        stats.imports_resolved >= 3,
+        "Should resolve at least 3 imports, got: {}",
+        stats.imports_resolved
+    );
 }

@@ -30,7 +30,7 @@ fn has_edge(parsed: &ParsedFile, kind: EdgeKind, from_name: &str, to_name: &str)
 }
 
 /// Get all edges of a given kind as (from_name, to_name) pairs.
-fn edges_of_kind<'a>(parsed: &'a ParsedFile, kind: EdgeKind) -> Vec<(&'a str, &'a str)> {
+fn edges_of_kind(parsed: &ParsedFile, kind: EdgeKind) -> Vec<(&str, &str)> {
     parsed
         .edges
         .iter()

@@ -1,13 +1,32 @@
+use super::error::A6sError;
 use super::extract;
+use super::extract::LanguageExtractor;
 use super::registry::SymbolRegistry;
 use super::store::CodeGraph;
 use super::types::*;
-use crate::analysis::service::AnalysisError;
 use std::path::{Path, PathBuf};
 use tokio::task::JoinSet;
 use tracing::{debug, info};
 
-/// Main entry point for code analysis pipeline.
+/// Main entry point for code analysis pipeline (production).
+pub async fn analyze(
+    repo_path: &Path,
+    analysis_path: &Path,
+    commit_hash: &str,
+    progress_tx: Option<tokio::sync::mpsc::Sender<PipelineProgress>>,
+) -> Result<ResolveStats, A6sError> {
+    // Remove existing database if it exists (like old analysis layer does)
+    let db_path = analysis_path.join("analysis.nano");
+    if db_path.exists() {
+        info!("Removing existing graph at {:?}", db_path);
+        std::fs::remove_dir_all(&db_path)?;
+    }
+
+    let graph = CodeGraph::new(analysis_path.to_path_buf());
+    analyze_with_graph(repo_path, commit_hash, progress_tx, graph).await
+}
+
+/// Main entry point for code analysis pipeline with injectable graph.
 ///
 /// Orchestrates the full analysis flow:
 /// 1. Scan repository for supported files
@@ -15,17 +34,14 @@ use tracing::{debug, info};
 /// 3. Build symbol registry
 /// 4. Resolve edges and imports (Layer 2)
 /// 5. Load graph and commit
-///
-/// STUB: In scaffolding, extractors return empty results, so stats will be zeros.
-pub async fn analyze(
+pub async fn analyze_with_graph<C: super::store::NanoGraphCli>(
     repo_path: &Path,
-    analysis_path: &Path,
     commit_hash: &str,
     progress_tx: Option<tokio::sync::mpsc::Sender<PipelineProgress>>,
-) -> Result<ResolveStats, AnalysisError> {
+    mut graph: super::store::CodeGraph<C>,
+) -> Result<ResolveStats, A6sError> {
     info!("=== a6s Pipeline Starting ===");
     info!("Repo path: {:?}", repo_path);
-    info!("Analysis path: {:?}", analysis_path);
     info!("Commit: {}", commit_hash);
 
     // Phase 1: Scan for supported files
@@ -83,25 +99,16 @@ pub async fn analyze(
         let _ = tx.send(PipelineProgress::Resolved(stats.clone())).await;
     }
 
-    // Phase 7: Load graph
+    // Phase 7: Load graph and commit
     info!("Phase 7: Loading graph buffer...");
-    let mut graph = CodeGraph::new(analysis_path.to_path_buf());
-    load_graph(
+    load_and_commit(
         &mut graph,
         &parsed_files,
         &resolved_edges,
         &import_edges,
         commit_hash,
-    );
-    info!("✓ Loaded {} JSONL lines into buffer", graph.buffer_len());
-
-    if let Some(ref tx) = progress_tx {
-        let _ = tx.send(PipelineProgress::Loaded).await;
-    }
-
-    // Phase 8: Commit (stub: no-op)
-    info!("Phase 8: Committing to graph (stub)...");
-    graph.commit()?;
+        &progress_tx,
+    )?;
     info!("=== a6s Pipeline Complete ===");
     info!(
         "Final stats: {} symbols, {} edges resolved, {} dropped, {} imports",
@@ -151,7 +158,7 @@ async fn extract_parallel(files: Vec<PathBuf>, repo_path: &Path) -> Vec<ParsedFi
         let repo_root_clone = repo_root.clone();
         join_set.spawn_blocking(move || -> Option<ParsedFile> {
             let ext = file.extension()?.to_str()?;
-            let extractor = extract::get_extractor(ext)?;
+            let extractor = extract::Extractor::for_extension(ext)?;
             let code = std::fs::read_to_string(&file).ok()?;
             let rel_path = file
                 .strip_prefix(&repo_root_clone)
@@ -242,28 +249,29 @@ fn resolve_edges(
 }
 
 /// Resolve imports to target symbols.
-///
-/// STUB: Calls `resolve_imports()` on each extractor.
-fn resolve_imports(
-    _parsed_files: &[ParsedFile],
-    _registry: &SymbolRegistry,
-) -> Vec<ResolvedImport> {
-    // TODO: Group by language, call extractor.resolve_imports()
-    // For scaffolding, return empty
-    debug!("resolve_imports: stub");
-    Vec::new()
+fn resolve_imports(parsed_files: &[ParsedFile], registry: &SymbolRegistry) -> Vec<ResolvedImport> {
+    let mut all_resolved = Vec::new();
+
+    for parsed in parsed_files {
+        if let Some(extractor) = extract::Extractor::for_language(&parsed.language) {
+            let resolved = extractor.resolve_imports(&parsed.imports, registry);
+            all_resolved.extend(resolved);
+        }
+    }
+
+    debug!("Resolved {} imports", all_resolved.len());
+    all_resolved
 }
 
-/// Load all nodes and edges into the CodeGraph buffer.
-///
-/// STUB: In scaffolding, parsed_files are mostly empty, so buffer will be small.
-fn load_graph(
-    graph: &mut CodeGraph,
+/// Load all nodes and edges into the CodeGraph buffer and commit.
+fn load_and_commit<C: super::store::NanoGraphCli>(
+    graph: &mut super::store::CodeGraph<C>,
     parsed_files: &[ParsedFile],
     resolved_edges: &[ResolvedEdge],
     import_edges: &[ResolvedImport],
     commit_hash: &str,
-) {
+    progress_tx: &Option<tokio::sync::mpsc::Sender<PipelineProgress>>,
+) -> Result<(), A6sError> {
     // Insert File nodes
     for parsed in parsed_files {
         graph.insert_file(&parsed.file_path, &parsed.language, commit_hash);
@@ -307,5 +315,15 @@ fn load_graph(
         graph.insert_file_imports_edge(&import.file_id, &import.target_symbol_id);
     }
 
-    debug!("Loaded {} buffer lines", graph.buffer_len());
+    info!("✓ Loaded {} JSONL lines into buffer", graph.buffer_len());
+
+    if let Some(tx) = progress_tx {
+        let _ = tx.try_send(PipelineProgress::Loaded);
+    }
+
+    // Commit
+    info!("Phase 8: Committing to graph...");
+    graph.commit()?;
+
+    Ok(())
 }

@@ -398,7 +398,7 @@ pub fn run(
 }
 
 fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {
-    use crate::analysis::lang::nushell::Nushell;
+    // Disabled during a6s migration: use crate::analysis::lang::nushell::Nushell;
     use crate::analysis::lang::rust::Rust;
 
     let mut results = Vec::new();
@@ -426,7 +426,7 @@ fn extract_all(files: &[PathBuf], repo_path: &Path) -> Vec<ParsedFile> {
 
     // Language-specific multi-file resolution
     // These are static methods that operate on all files at once
-    Nushell::resolve_file_modules(&mut results);
+    // Disabled during a6s migration: Nushell::resolve_file_modules(&mut results);
     Rust::resolve_file_modules(&mut results);
 
     results

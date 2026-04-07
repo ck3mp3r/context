@@ -30,7 +30,7 @@ fn has_edge(parsed: &ParsedFile, kind: EdgeKind, from_name: &str, to_name: &str)
 }
 
 /// Get all edges of a given kind as (from_name, to_name) pairs.
-fn edges_of_kind<'a>(parsed: &'a ParsedFile, kind: EdgeKind) -> Vec<(&'a str, &'a str)> {
+fn edges_of_kind(parsed: &ParsedFile, kind: EdgeKind) -> Vec<(&str, &str)> {
     parsed
         .edges
         .iter()
@@ -871,13 +871,11 @@ fn resolve_containments(parsed_files: &[ParsedFile]) -> Vec<(String, String)> {
             if matches!(
                 edge.kind,
                 EdgeKind::HasField | EdgeKind::HasMethod | EdgeKind::HasMember
+            ) && let (Some(from_name), Some(to_name)) = (
+                extract_name(edge.from.as_str()),
+                extract_name(edge.to.as_str()),
             ) {
-                if let (Some(from_name), Some(to_name)) = (
-                    extract_name(edge.from.as_str()),
-                    extract_name(edge.to.as_str()),
-                ) {
-                    edges.push((from_name.to_string(), to_name.to_string()));
-                }
+                edges.push((from_name.to_string(), to_name.to_string()));
             }
         }
     }

@@ -1,6 +1,10 @@
-;;; def command
+;;; def command (with unquoted name)
 (decl_def
     (cmd_identifier) @cmd_name) @cmd_def
+
+;;; def command (with quoted name)
+(decl_def
+    (val_string) @cmd_name) @cmd_def
 
 ;;; module
 (decl_module
@@ -18,9 +22,8 @@
 (stmt_const
     (identifier) @const_name) @const_def
 
-;;; command call
-(command
-    (cmd_identifier) @command_call_name) @command_call
+;;; command call - capture the whole command node, extract name in Rust
+(command) @command_call
 
 ;;; use statement
 (decl_use) @use_decl
