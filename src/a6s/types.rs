@@ -183,6 +183,9 @@ pub enum EdgeKind {
     ParamType,   // function → parameter type
     ReturnType,  // function → return type
     Usage,       // symbol → identifier it references (const, var, etc.)
+
+    // Test-specific
+    TestEntry, // test runner main → test function
 }
 
 impl EdgeKind {
@@ -201,6 +204,7 @@ impl EdgeKind {
             Self::ParamType => "ParamType",
             Self::ReturnType => "ReturnType",
             Self::Usage => "Usage",
+            Self::TestEntry => "TestEntry",
         }
     }
 
@@ -221,6 +225,7 @@ impl EdgeKind {
             Self::ParamType => "Accepts",
             Self::ReturnType => "Returns",
             Self::Usage => "Uses",
+            Self::TestEntry => "TestEntry",
         }
     }
 }
@@ -387,6 +392,7 @@ pub struct ParsedFile {
     pub symbols: Vec<RawSymbol>,
     pub edges: Vec<RawEdge>, // Now uses SymbolRef
     pub imports: Vec<RawImport>,
+    pub file_category: Option<String>, // "test_file", "contains_tests", etc.
 }
 
 impl ParsedFile {
@@ -397,6 +403,7 @@ impl ParsedFile {
             symbols: Vec::new(),
             edges: Vec::new(),
             imports: Vec::new(),
+            file_category: None,
         }
     }
 }

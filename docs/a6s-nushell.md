@@ -6,11 +6,56 @@ Analyzes `.nu` files to extract commands, modules, imports, and call relationshi
 
 ## Key Features
 
-- **Symbol extraction**: Commands, modules, visibility
+- **Symbol extraction**: Commands, modules, visibility, **test functions**
 - **Import resolution**: Resolves `use` statements to target symbols
 - **Glob imports**: `use foo *` correctly expands to all symbols in module
 - **Module paths**: Derived from file structure (`tools/k8s/utils.nu` → `k8s::utils`)
 - **Call tracking**: Function/command call relationships
+- **Test detection**: Automatically identifies test functions following Nushell conventions
+
+## Test Detection
+
+### How It Works
+
+Test functions are automatically identified by:
+
+1. **Name pattern**: Function name starts with `test ` (space), `test-`, or `test_`
+2. **Empty parameters**: Test functions must have empty parameter list `[]`
+3. **Loose mode**: Both exported (`export def`) and private (`def`) tests are detected
+
+### Examples
+
+```nushell
+# ✓ Detected as test
+export def "test fibonacci" [] {
+    assert equal (fib 5) 5
+}
+
+# ✓ Detected as test (kebab-case)
+export def test-addition [] {
+    assert equal (1 + 1) 2
+}
+
+# ✓ Detected as test (snake_case)
+def test_subtraction [] {
+    assert equal (5 - 3) 2
+}
+
+# ✗ NOT a test (has parameters)
+export def "test runner" [name: string] {
+    print $"Running: ($name)"
+}
+
+# ✗ NOT a test (doesn't start with test pattern)
+def calculate [] { 42 }
+```
+
+### Symbol Kind
+
+Test functions are assigned `kind: "test"` in the code graph, distinct from:
+- `kind: "function"` - Regular functions
+- `kind: "command"` - Space-separated command names or `main`
+- `kind: "module"` - Module definitions
 
 ## Import Resolution
 
@@ -98,7 +143,9 @@ cargo test --lib test_nushell_multi_file_integration  # Integration test
 
 ### Test Coverage
 
-- Symbol extraction (commands, modules, visibility)
+- Symbol extraction (commands, modules, visibility, **test functions**)
+- **Test function detection** (space, kebab-case, snake_case patterns)
+- **Parameter validation** (tests must have empty `[]`)
 - Import extraction (named, glob)
 - Import resolution with SymbolRegistry
 - Glob import AST detection

@@ -33,6 +33,7 @@ impl LanguageExtractor for GolangExtractor {
             symbols: Vec::new(),
             edges: Vec::new(),
             imports: Vec::new(),
+            file_category: None,
         }
     }
 

@@ -99,6 +99,9 @@ impl LanguageExtractor for NushellExtractor {
             }
         }
 
+        // Phase 3: Test-specific post-processing
+        Self::process_test_features(code, file_path, &mut parsed);
+
         parsed
     }
 
@@ -229,14 +232,31 @@ impl NushellExtractor {
             let name = text(name_node).trim_matches('"');
             let is_exported = text(node).starts_with("export");
 
-            // Determine if this is a command or function:
+            // Check if this is a test function
+            // Test criteria:
+            // 1. Name matches test pattern ("test ", "test-", "test_")
+            // 2. Has no parameters (empty [])
+            // 3. Accept both exported and private (loose mode)
+            let is_test = Self::is_test_name(name) && Self::has_no_parameters(node, code);
+
+            // Determine kind: command or function
             // - Commands: space-separated names (e.g., "main list") OR entry point "main"
             // - Functions: everything else (e.g., "foo", "bar")
+            // Note: Tests are marked via entry_type, not kind
             let is_command = name.contains(' ') || name == "main";
             let kind = if is_command { "command" } else { "function" };
 
             let entry_type = if name == "main" {
                 Some("main".to_string())
+            } else if is_test {
+                Some("test".to_string())
+            } else {
+                None
+            };
+
+            // Extract test metadata from preceding comments (Phase 2)
+            let signature = if is_test {
+                Self::extract_test_metadata(node, code)
             } else {
                 None
             };
@@ -247,7 +267,7 @@ impl NushellExtractor {
                 file_path: file_path.to_string(),
                 start_line: node.start_position().row + 1,
                 end_line: node.end_position().row + 1,
-                signature: None,
+                signature,
                 language: "nushell".to_string(),
                 visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
                 entry_type,
@@ -504,5 +524,203 @@ impl NushellExtractor {
                 }
             }
         }
+    }
+
+    /// Check if a function name matches test naming patterns.
+    /// Patterns: "test " (with space), "test-", or "test_"
+    /// Case-insensitive matching.
+    fn is_test_name(name: &str) -> bool {
+        let lower = name.to_lowercase();
+        lower.starts_with("test ") || lower.starts_with("test-") || lower.starts_with("test_")
+    }
+
+    /// Check if a decl_def node has no parameters (empty parameter list).
+    /// Test functions must have empty parameters [].
+    fn has_no_parameters(node: tree_sitter::Node, _code: &str) -> bool {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "parameter_bracks" {
+                // Parameter brackets found - check if it has any actual parameters
+                // Structure: parameter_bracks contains parameter nodes
+                // We need to check if there are any children of kind "parameter"
+                let mut param_cursor = child.walk();
+                for param_child in child.children(&mut param_cursor) {
+                    if param_child.kind() == "parameter" {
+                        // Found an actual parameter - not a test
+                        return false;
+                    }
+                }
+                // No parameters found in the brackets - it's empty []
+                return true;
+            }
+        }
+        // If no parameter_bracks found, treat as no parameters (shouldn't happen for valid def)
+        true
+    }
+
+    /// Extract test metadata from preceding comments.
+    /// Looks for comments immediately before the function definition.
+    /// Supported metadata:
+    /// - `# ignore` - test should be skipped
+    /// - `# unit` - unit test
+    /// - `# integration` - integration test
+    ///
+    /// Returns a JSON-like string with metadata if any found, None otherwise.
+    fn extract_test_metadata(node: tree_sitter::Node, code: &str) -> Option<String> {
+        let mut metadata = Vec::new();
+
+        // Get the parent node (should be the source file or a block)
+        let parent = node.parent()?;
+
+        // Find preceding sibling nodes that are comments
+        let mut cursor = parent.walk();
+        let siblings: Vec<_> = parent.children(&mut cursor).collect();
+
+        // Find the index of our node
+        let node_idx = siblings.iter().position(|&n| n.id() == node.id())?;
+
+        // Look at preceding siblings (in reverse order)
+        for i in (0..node_idx).rev() {
+            let sibling = siblings[i];
+
+            // Stop if we hit a non-comment node
+            if sibling.kind() != "comment" {
+                break;
+            }
+
+            // Extract comment text
+            let comment_text = &code[sibling.byte_range()];
+            let comment_text = comment_text.trim_start_matches('#').trim().to_lowercase();
+
+            // Check for metadata keywords
+            if comment_text == "ignore" {
+                metadata.push("ignored");
+            } else if comment_text == "unit" {
+                metadata.push("unit");
+            } else if comment_text == "integration" {
+                metadata.push("integration");
+            }
+        }
+
+        // Return metadata as JSON-like string if any found
+        if metadata.is_empty() {
+            None
+        } else {
+            // Reverse to get original order (top to bottom)
+            metadata.reverse();
+            Some(format!(
+                "{{\"test_metadata\":[{}]}}",
+                metadata
+                    .iter()
+                    .map(|m| format!("\"{}\"", m))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ))
+        }
+    }
+
+    /// Phase 3: Test-specific post-processing
+    ///
+    /// Handles:
+    /// 1. Test runner main detection (main functions that run tests)
+    /// 2. File categorization (test_file, contains_tests)
+    /// 3. TestEntry edges (main -> test functions)
+    fn process_test_features(code: &str, file_path: &str, parsed: &mut ParsedFile) {
+        // 1. Detect if main is a test runner
+        let main_idx = parsed.symbols.iter().position(|s| s.name == "main");
+        let is_test_runner = main_idx
+            .map(|idx| Self::is_test_runner(&parsed.symbols[idx], code))
+            .unwrap_or(false);
+
+        // Mark main as test_runner if it qualifies
+        if is_test_runner && let Some(idx) = main_idx {
+            let main_sym = &mut parsed.symbols[idx];
+            main_sym.signature = Some(match &main_sym.signature {
+                Some(sig) => format!("{}, test_runner: true", sig),
+                None => "test_runner: true".to_string(),
+            });
+        }
+
+        // 2. Categorize file based on path and content
+        parsed.file_category = Self::categorize_file(file_path, &parsed.symbols);
+
+        // 3. Create TestEntry edges if main is a test runner
+        if is_test_runner && let Some(main_idx) = main_idx {
+            let main_sym = &parsed.symbols[main_idx];
+            let main_ref =
+                SymbolRef::resolved(SymbolId::new(file_path, "main", main_sym.start_line));
+
+            // Create edges from main to all test functions
+            for test_sym in parsed
+                .symbols
+                .iter()
+                .filter(|s| s.entry_type.as_deref() == Some("test"))
+            {
+                let test_ref = SymbolRef::resolved(SymbolId::new(
+                    file_path,
+                    &test_sym.name,
+                    test_sym.start_line,
+                ));
+                parsed.edges.push(RawEdge {
+                    from: main_ref.clone(),
+                    to: test_ref,
+                    kind: EdgeKind::TestEntry,
+                    line: Some(test_sym.start_line),
+                });
+            }
+        }
+    }
+
+    /// Check if a main function is a test runner.
+    ///
+    /// Heuristics:
+    /// - Contains "test" keyword in body
+    /// - Contains "scope commands" (introspection for test discovery)
+    ///
+    /// This is a simple heuristic that works well for typical nushell test runners.
+    fn is_test_runner(main_sym: &RawSymbol, code: &str) -> bool {
+        // Get the main function code (between start and end lines)
+        let lines: Vec<&str> = code.lines().collect();
+        if main_sym.start_line == 0 || main_sym.end_line == 0 {
+            return false;
+        }
+
+        // Extract main function body (lines are 1-indexed)
+        let start = main_sym.start_line.saturating_sub(1);
+        let end = main_sym.end_line.min(lines.len());
+        if start >= end {
+            return false;
+        }
+
+        let main_code = lines[start..end].join("\n").to_lowercase();
+
+        // Check heuristics: must contain both "test" and "scope commands"
+        main_code.contains("test") && main_code.contains("scope commands")
+    }
+
+    /// Categorize a file based on its path and content.
+    ///
+    /// Returns:
+    /// - `Some("test_file")` for files in tests/ directory or with _test.nu suffix
+    /// - `Some("contains_tests")` for files with test functions but not dedicated test files
+    /// - `None` for regular files without tests
+    fn categorize_file(file_path: &str, symbols: &[RawSymbol]) -> Option<String> {
+        // Check file path patterns first (highest priority)
+        if file_path.contains("tests/")
+            || file_path.ends_with("_test.nu")
+            || file_path.ends_with("test.nu")
+        {
+            return Some("test_file".to_string());
+        }
+
+        // Check content: file contains test functions
+        if symbols
+            .iter()
+            .any(|s| s.entry_type.as_deref() == Some("test"))
+        {
+            return Some("contains_tests".to_string());
+        }
+
+        None
     }
 }
