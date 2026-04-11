@@ -183,9 +183,6 @@ pub enum EdgeKind {
     ParamType,   // function → parameter type
     ReturnType,  // function → return type
     Usage,       // symbol → identifier it references (const, var, etc.)
-
-    // Test-specific
-    TestEntry, // test runner main → test function
 }
 
 impl EdgeKind {
@@ -204,7 +201,6 @@ impl EdgeKind {
             Self::ParamType => "ParamType",
             Self::ReturnType => "ReturnType",
             Self::Usage => "Usage",
-            Self::TestEntry => "TestEntry",
         }
     }
 
@@ -212,11 +208,11 @@ impl EdgeKind {
     /// Some EdgeKinds map to different names in the graph schema.
     pub fn graph_edge_name(&self) -> &str {
         match self {
-            Self::HasField => "SymbolContains",
-            Self::HasMethod => "SymbolContains",
-            Self::HasMember => "SymbolContains",
-            Self::Implements => "Inherits",
-            Self::Extends => "Inherits",
+            Self::HasField => "HasField",
+            Self::HasMethod => "HasMethod",
+            Self::HasMember => "HasMember",
+            Self::Implements => "Implements",
+            Self::Extends => "Extends",
             Self::Calls => "Calls",
             Self::FileImports => "FileImports",
             Self::Import => "Import",
@@ -225,7 +221,6 @@ impl EdgeKind {
             Self::ParamType => "Accepts",
             Self::ReturnType => "Returns",
             Self::Usage => "Uses",
-            Self::TestEntry => "TestEntry",
         }
     }
 }
@@ -367,6 +362,7 @@ pub struct RawSymbol {
     pub language: String,
     pub visibility: Option<String>,
     pub entry_type: Option<String>,
+    pub module_path: Option<String>, // NEW: derived from file path (e.g., "db::sqlite::project")
 }
 
 impl RawSymbol {
@@ -385,7 +381,7 @@ pub struct RawImport {
 // MODIFIED: ParsedFile — edges now use SymbolRef
 // ============================================================================
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedFile {
     pub file_path: String,
     pub language: String,

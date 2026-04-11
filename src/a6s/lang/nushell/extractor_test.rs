@@ -472,6 +472,7 @@ fn test_resolve_imports_glob() {
         language: "nushell".to_string(),
         visibility: Some("public".to_string()),
         entry_type: None,
+        module_path: None,
     });
     std_file.symbols.push(RawSymbol {
         name: "length".to_string(),
@@ -483,6 +484,7 @@ fn test_resolve_imports_glob() {
         language: "nushell".to_string(),
         visibility: Some("public".to_string()),
         entry_type: None,
+        module_path: None,
     });
 
     // Build registry
@@ -526,6 +528,7 @@ fn test_resolve_imports_named() {
         language: "nushell".to_string(),
         visibility: Some("public".to_string()),
         entry_type: None,
+        module_path: None,
     });
     std_file.symbols.push(RawSymbol {
         name: "length".to_string(),
@@ -537,6 +540,7 @@ fn test_resolve_imports_named() {
         language: "nushell".to_string(),
         visibility: Some("public".to_string()),
         entry_type: None,
+        module_path: None,
     });
 
     let registry = SymbolRegistry::build(&[std_file]);
@@ -577,6 +581,7 @@ fn test_resolve_imports_module_import() {
         language: "nushell".to_string(),
         visibility: Some("public".to_string()),
         entry_type: None,
+        module_path: None,
     });
 
     let registry = SymbolRegistry::build(&[std_file]);
@@ -1661,19 +1666,19 @@ def main [] {
 "#;
     let parsed = extractor.extract(code, "tests/run.nu");
 
-    // Should have TestEntry edge from main to test functions
-    let test_entry_edges = edges_of_kind(&parsed, EdgeKind::TestEntry);
+    // Should have Calls edge from main to test functions
+    let calls_edges = edges_of_kind(&parsed, EdgeKind::Calls);
 
     assert!(
-        !test_entry_edges.is_empty(),
-        "Should create TestEntry edge from main to tests"
+        !calls_edges.is_empty(),
+        "Should create Calls edge from main to tests"
     );
 
     // Main should be the source
     assert!(
-        test_entry_edges.iter().any(|(from, _)| from == &"main"),
-        "TestEntry edge should originate from main, found: {:?}",
-        test_entry_edges
+        calls_edges.iter().any(|(from, _)| from == &"main"),
+        "Calls edge should originate from main, found: {:?}",
+        calls_edges
     );
 }
 

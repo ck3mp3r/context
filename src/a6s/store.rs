@@ -156,10 +156,62 @@ impl<C: NanoGraphCli> CodeGraph<C> {
         self.buffer.push(line.to_string());
     }
 
-    /// Insert a SymbolContains edge (Symbol -> Symbol) into the buffer.
-    pub fn insert_symbol_contains_edge(&mut self, from: &SymbolId, to: &SymbolId) {
+    /// Insert an Implements edge (type → trait) into the buffer.
+    pub fn insert_implements_edge(&mut self, from: &SymbolId, to: &SymbolId) {
         let line = serde_json::json!({
-            "edge": "SymbolContains",
+            "edge": "Implements",
+            "from": from.as_str(),
+            "to": to.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
+        });
+        self.buffer.push(line.to_string());
+    }
+
+    /// Insert an Extends edge (type → parent type) into the buffer.
+    pub fn insert_extends_edge(&mut self, from: &SymbolId, to: &SymbolId) {
+        let line = serde_json::json!({
+            "edge": "Extends",
+            "from": from.as_str(),
+            "to": to.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
+        });
+        self.buffer.push(line.to_string());
+    }
+
+    /// Insert a HasField edge (struct → field) into the buffer.
+    pub fn insert_has_field_edge(&mut self, from: &SymbolId, to: &SymbolId) {
+        let line = serde_json::json!({
+            "edge": "HasField",
+            "from": from.as_str(),
+            "to": to.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
+        });
+        self.buffer.push(line.to_string());
+    }
+
+    /// Insert a HasMethod edge (type → method) into the buffer.
+    pub fn insert_has_method_edge(&mut self, from: &SymbolId, to: &SymbolId) {
+        let line = serde_json::json!({
+            "edge": "HasMethod",
+            "from": from.as_str(),
+            "to": to.as_str(),
+            "data": {
+                "confidence": 1.0,
+            }
+        });
+        self.buffer.push(line.to_string());
+    }
+
+    /// Insert a HasMember edge (module → symbol) into the buffer.
+    pub fn insert_has_member_edge(&mut self, from: &SymbolId, to: &SymbolId) {
+        let line = serde_json::json!({
+            "edge": "HasMember",
             "from": from.as_str(),
             "to": to.as_str(),
             "data": {

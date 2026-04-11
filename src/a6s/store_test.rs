@@ -37,6 +37,7 @@ fn test_insert_symbol_adds_to_buffer() {
         language: "rust".to_string(),
         visibility: Some("pub".to_string()),
         entry_type: None,
+        module_path: None,
     };
 
     graph.insert_symbol(&symbol);
@@ -159,6 +160,7 @@ fn test_multiple_inserts() {
         language: "rust".to_string(),
         visibility: None,
         entry_type: None,
+        module_path: None,
     };
     let sym2 = RawSymbol {
         name: "bar".to_string(),
@@ -170,6 +172,7 @@ fn test_multiple_inserts() {
         language: "rust".to_string(),
         visibility: None,
         entry_type: None,
+        module_path: None,
     };
     let sym3 = RawSymbol {
         name: "MyStruct".to_string(),
@@ -181,6 +184,7 @@ fn test_multiple_inserts() {
         language: "rust".to_string(),
         visibility: None,
         entry_type: None,
+        module_path: None,
     };
 
     graph.insert_symbol(&sym1);
@@ -195,4 +199,74 @@ fn test_multiple_inserts() {
 
     // Verify total: 1 file + 3 symbols + 2 edges = 6
     assert_eq!(graph.buffer_len(), 6);
+}
+
+#[test]
+fn test_insert_has_field_edge() {
+    let mut graph = CodeGraph::new(PathBuf::from("/tmp/test-analysis"));
+    let from_id = SymbolId::new("src/main.rs", "MyStruct", 10);
+    let to_id = SymbolId::new("src/main.rs", "field_x", 11);
+
+    graph.insert_has_field_edge(&from_id, &to_id);
+
+    assert_eq!(graph.buffer_len(), 1);
+    let buffer = graph.buffer();
+    assert!(buffer[0].contains("\"edge\":\"HasField\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
+}
+
+#[test]
+fn test_insert_has_method_edge() {
+    let mut graph = CodeGraph::new(PathBuf::from("/tmp/test-analysis"));
+    let from_id = SymbolId::new("src/main.rs", "MyStruct", 10);
+    let to_id = SymbolId::new("src/main.rs", "my_method", 15);
+
+    graph.insert_has_method_edge(&from_id, &to_id);
+
+    assert_eq!(graph.buffer_len(), 1);
+    let buffer = graph.buffer();
+    assert!(buffer[0].contains("\"edge\":\"HasMethod\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
+}
+
+#[test]
+fn test_insert_has_member_edge() {
+    let mut graph = CodeGraph::new(PathBuf::from("/tmp/test-analysis"));
+    let from_id = SymbolId::new("src/main.rs", "my_module", 5);
+    let to_id = SymbolId::new("src/main.rs", "my_function", 10);
+
+    graph.insert_has_member_edge(&from_id, &to_id);
+
+    assert_eq!(graph.buffer_len(), 1);
+    let buffer = graph.buffer();
+    assert!(buffer[0].contains("\"edge\":\"HasMember\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
+}
+
+#[test]
+fn test_insert_implements_edge() {
+    let mut graph = CodeGraph::new(PathBuf::from("/tmp/test-analysis"));
+    let from_id = SymbolId::new("src/main.rs", "MyStruct", 10);
+    let to_id = SymbolId::new("src/lib.rs", "MyTrait", 5);
+
+    graph.insert_implements_edge(&from_id, &to_id);
+
+    assert_eq!(graph.buffer_len(), 1);
+    let buffer = graph.buffer();
+    assert!(buffer[0].contains("\"edge\":\"Implements\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
+}
+
+#[test]
+fn test_insert_extends_edge() {
+    let mut graph = CodeGraph::new(PathBuf::from("/tmp/test-analysis"));
+    let from_id = SymbolId::new("src/main.rs", "Child", 10);
+    let to_id = SymbolId::new("src/lib.rs", "Parent", 5);
+
+    graph.insert_extends_edge(&from_id, &to_id);
+
+    assert_eq!(graph.buffer_len(), 1);
+    let buffer = graph.buffer();
+    assert!(buffer[0].contains("\"edge\":\"Extends\""));
+    assert!(buffer[0].contains("\"confidence\":1.0"));
 }

@@ -58,6 +58,9 @@ pub struct GraphEdge {
 pub struct GraphStats {
     pub total_symbols: usize,
     pub total_edges: usize,
+    /// Names of queries that failed during graph construction.
+    /// Empty if all queries succeeded.
+    pub failed_queries: Vec<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -181,10 +184,17 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     let mut all_edges: Vec<(String, String, String)> = Vec::new();
     let mut symbol_map: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
+    let mut failed_queries: Vec<String> = Vec::new();
 
     // Query ALL symbols first
-    let all_symbols =
-        run_nanograph_query(db_path, queries::ALL_SYMBOLS, "all_symbols").unwrap_or_default();
+    let all_symbols = match run_nanograph_query(db_path, queries::ALL_SYMBOLS, "all_symbols") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("all_symbols query failed: {}", e);
+            failed_queries.push("all_symbols".to_string());
+            Vec::new()
+        }
+    };
     for row in all_symbols {
         let symbol_id = row["symbol_id"].as_str().unwrap_or("").to_string();
         if symbol_id.is_empty() {
@@ -203,8 +213,14 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     }
 
     // Query for Calls edges using pre-loaded query
-    let calls_rows =
-        run_nanograph_query(db_path, queries::CALLS_EDGES, "calls").unwrap_or_default();
+    let calls_rows = match run_nanograph_query(db_path, queries::CALLS_EDGES, "calls") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("calls query failed: {}", e);
+            failed_queries.push("calls".to_string());
+            Vec::new()
+        }
+    };
     for row in calls_rows {
         let src_id = row["src_id"].as_str().unwrap_or("").to_string();
         let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
@@ -216,8 +232,15 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     }
 
     // Query for FileImports edges using pre-loaded query
-    let file_import_rows =
-        run_nanograph_query(db_path, queries::FILE_IMPORTS, "fileimports").unwrap_or_default();
+    let file_import_rows = match run_nanograph_query(db_path, queries::FILE_IMPORTS, "fileimports")
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("fileimports query failed: {}", e);
+            failed_queries.push("fileimports".to_string());
+            Vec::new()
+        }
+    };
     for row in file_import_rows {
         let src_id = row["src_id"].as_str().unwrap_or("").to_string();
         let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
@@ -226,6 +249,96 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
         }
 
         all_edges.push((src_id, dst_id, "FileImports".to_string()));
+    }
+
+    // Query for HasField edges
+    let field_rows = match run_nanograph_query(db_path, queries::HAS_FIELD, "hasfield") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("hasfield query failed: {}", e);
+            failed_queries.push("hasfield".to_string());
+            Vec::new()
+        }
+    };
+    for row in field_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "HasField".to_string()));
+    }
+
+    // Query for HasMethod edges
+    let method_rows = match run_nanograph_query(db_path, queries::HAS_METHOD, "hasmethod") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("hasmethod query failed: {}", e);
+            failed_queries.push("hasmethod".to_string());
+            Vec::new()
+        }
+    };
+    for row in method_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "HasMethod".to_string()));
+    }
+
+    // Query for HasMember edges
+    let member_rows = match run_nanograph_query(db_path, queries::HAS_MEMBER, "hasmember") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("hasmember query failed: {}", e);
+            failed_queries.push("hasmember".to_string());
+            Vec::new()
+        }
+    };
+    for row in member_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "HasMember".to_string()));
+    }
+
+    // Query for Implements edges
+    let implements_rows = match run_nanograph_query(db_path, queries::IMPLEMENTS, "implements") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("implements query failed: {}", e);
+            failed_queries.push("implements".to_string());
+            Vec::new()
+        }
+    };
+    for row in implements_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "Implements".to_string()));
+    }
+
+    // Query for Extends edges
+    let extends_rows = match run_nanograph_query(db_path, queries::EXTENDS, "extends") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("extends query failed: {}", e);
+            failed_queries.push("extends".to_string());
+            Vec::new()
+        }
+    };
+    for row in extends_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "Extends".to_string()));
     }
 
     let total_symbols = symbol_map.len();
@@ -284,6 +397,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
         stats: GraphStats {
             total_symbols,
             total_edges,
+            failed_queries,
         },
         nodes,
         edges,

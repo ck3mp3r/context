@@ -43,9 +43,19 @@ edge FileContains: File -> Symbol {
     confidence: F64 @default(1.0)  // Always 1.0 for same-file
 }
 
-// Symbol contains Symbol (Class → Method)
-edge SymbolContains: Symbol -> Symbol {
-    confidence: F64 @default(1.0)  // Always 1.0 for same-file containment
+// Struct → field
+edge HasField: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Type → method (impl block or trait impl)
+edge HasMethod: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Module → symbol
+edge HasMember: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
 }
 
 // Function/method calls
@@ -74,10 +84,14 @@ edge FieldType: Symbol -> Symbol {
     confidence: F64 @default(1.0)
 }
 
-// Inheritance: extends, implements, trait bounds
-edge Inherits: Symbol -> Symbol {
+// Trait implementation
+edge Implements: Symbol -> Symbol {
     confidence: F64 @default(1.0)
-    inheritance_type: String       // "extends", "implements", "trait_bound"
+}
+
+// Class/type extension
+edge Extends: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
 }
 
 // Returns: function/method returns a type

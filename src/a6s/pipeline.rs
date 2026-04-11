@@ -183,10 +183,36 @@ async fn extract_parallel(files: Vec<PathBuf>, repo_path: &Path) -> Vec<ParsedFi
 /// Resolve file-level modules (e.g., Rust `mod` declarations, Go packages).
 ///
 /// STUB: Calls `resolve_file_modules()` on each extractor, grouped by language.
-fn resolve_file_modules(_parsed_files: &mut Vec<ParsedFile>) {
-    // TODO: Group by language, call extractor.resolve_file_modules()
-    // For scaffolding, this is a no-op
-    debug!("resolve_file_modules: stub");
+fn resolve_file_modules(parsed_files: &mut [ParsedFile]) {
+    use std::collections::HashMap;
+
+    // Group files by language
+    let mut by_language: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, pf) in parsed_files.iter().enumerate() {
+        by_language
+            .entry(pf.language.clone())
+            .or_default()
+            .push(idx);
+    }
+
+    // Call each language's resolve_file_modules
+    for (lang, indices) in by_language {
+        if let Some(extractor) = extract::Extractor::for_language(&lang) {
+            // Collect mutable references for this language
+            let mut lang_files: Vec<ParsedFile> = indices
+                .iter()
+                .map(|&idx| parsed_files[idx].clone())
+                .collect();
+
+            // Call language-specific resolver
+            extractor.resolve_file_modules(&mut lang_files);
+
+            // Write back
+            for (i, &idx) in indices.iter().enumerate() {
+                parsed_files[idx] = lang_files[i].clone();
+            }
+        }
+    }
 }
 
 /// Build the symbol registry from all parsed files.
@@ -293,16 +319,20 @@ fn load_and_commit<C: super::store::NanoGraphCli>(
             EdgeKind::Calls => {
                 graph.insert_calls_edge(&edge.from, &edge.to, edge.line);
             }
-            EdgeKind::Implements | EdgeKind::Extends => {
-                let inheritance_type = match edge.kind {
-                    EdgeKind::Implements => InheritanceType::Implements,
-                    EdgeKind::Extends => InheritanceType::Extends,
-                    _ => unreachable!(),
-                };
-                graph.insert_inherits_edge(&edge.from, &edge.to, &inheritance_type);
+            EdgeKind::Implements => {
+                graph.insert_implements_edge(&edge.from, &edge.to);
             }
-            EdgeKind::HasField | EdgeKind::HasMethod | EdgeKind::HasMember => {
-                graph.insert_symbol_contains_edge(&edge.from, &edge.to);
+            EdgeKind::Extends => {
+                graph.insert_extends_edge(&edge.from, &edge.to);
+            }
+            EdgeKind::HasField => {
+                graph.insert_has_field_edge(&edge.from, &edge.to);
+            }
+            EdgeKind::HasMethod => {
+                graph.insert_has_method_edge(&edge.from, &edge.to);
+            }
+            EdgeKind::HasMember => {
+                graph.insert_has_member_edge(&edge.from, &edge.to);
             }
             _ => {
                 graph.insert_references_edge(&edge.from, &edge.to, &edge.kind, edge.line);

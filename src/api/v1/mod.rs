@@ -10,6 +10,8 @@ mod task_lists;
 mod tasks;
 
 #[cfg(test)]
+mod graph_test;
+#[cfg(test)]
 mod notes_test;
 #[cfg(test)]
 mod projects_test;

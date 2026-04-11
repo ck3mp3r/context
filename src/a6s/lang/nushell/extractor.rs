@@ -271,6 +271,7 @@ impl NushellExtractor {
                 language: "nushell".to_string(),
                 visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
                 entry_type,
+                module_path: None,
             });
             return;
         }
@@ -290,6 +291,7 @@ impl NushellExtractor {
                 language: "nushell".to_string(),
                 visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
                 entry_type: None,
+                module_path: None,
             });
             return;
         }
@@ -309,6 +311,7 @@ impl NushellExtractor {
                 language: "nushell".to_string(),
                 visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
                 entry_type: None,
+                module_path: None,
             });
             return;
         }
@@ -328,6 +331,7 @@ impl NushellExtractor {
                 language: "nushell".to_string(),
                 visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
                 entry_type: None,
+                module_path: None,
             });
             return;
         }
@@ -347,6 +351,7 @@ impl NushellExtractor {
                 language: "nushell".to_string(),
                 visibility: Some(if is_exported { "public" } else { "private" }.to_string()),
                 entry_type: None,
+                module_path: None,
             });
             return;
         }
@@ -624,7 +629,7 @@ impl NushellExtractor {
     /// Handles:
     /// 1. Test runner main detection (main functions that run tests)
     /// 2. File categorization (test_file, contains_tests)
-    /// 3. TestEntry edges (main -> test functions)
+    /// 3. Calls edges from test runner main to test functions
     fn process_test_features(code: &str, file_path: &str, parsed: &mut ParsedFile) {
         // 1. Detect if main is a test runner
         let main_idx = parsed.symbols.iter().position(|s| s.name == "main");
@@ -644,7 +649,7 @@ impl NushellExtractor {
         // 2. Categorize file based on path and content
         parsed.file_category = Self::categorize_file(file_path, &parsed.symbols);
 
-        // 3. Create TestEntry edges if main is a test runner
+        // 3. Create Calls edges if main is a test runner
         if is_test_runner && let Some(main_idx) = main_idx {
             let main_sym = &parsed.symbols[main_idx];
             let main_ref =
@@ -664,7 +669,7 @@ impl NushellExtractor {
                 parsed.edges.push(RawEdge {
                     from: main_ref.clone(),
                     to: test_ref,
-                    kind: EdgeKind::TestEntry,
+                    kind: EdgeKind::Calls,
                     line: Some(test_sym.start_line),
                 });
             }
