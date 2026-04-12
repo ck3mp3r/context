@@ -37,8 +37,8 @@ impl LanguageExtractor for GolangExtractor {
         }
     }
 
-    fn derive_module_path(&self, file_path: &str) -> String {
-        file_path.to_string()
+    fn derive_module_path(&self, _file_path: &str) -> Option<String> {
+        None // TODO: Implement proper Go module path derivation
     }
 
     fn normalise_import_path(&self, import_path: &str) -> String {

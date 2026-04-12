@@ -105,7 +105,7 @@ impl LanguageExtractor for NushellExtractor {
         parsed
     }
 
-    fn derive_module_path(&self, file_path: &str) -> String {
+    fn derive_module_path(&self, file_path: &str) -> Option<String> {
         let path = Path::new(file_path);
         let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
         let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
@@ -122,7 +122,12 @@ impl LanguageExtractor for NushellExtractor {
             }
         };
 
-        module_part.replace('/', "::")
+        let result = module_part.replace('/', "::");
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
 
     fn normalise_import_path(&self, import_path: &str) -> String {

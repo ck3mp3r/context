@@ -564,9 +564,17 @@
       // Compute node sizes from edge degree (capped to prevent huge nodes)
       graph.forEachNode(function(node) {
         var degree = graph.degree(node);
+        var kind = graph.getNodeAttribute(node, "kind");
         // Base size 3, scale by log to compress high-degree nodes
         // Max size ~12 even for nodes with 1000+ edges
         var size = 3 + Math.min(Math.log(degree + 1) * 2, 9);
+
+        // Boost size for structurally important but low-connectivity nodes
+        // Fields, constants, and types often have few edges but are important
+        if (kind === "field" || kind === "constant" || kind === "const" || kind === "type_alias" || kind === "type") {
+          size = Math.max(size, 6);  // Ensure above labelRenderedSizeThreshold
+        }
+
         graph.setNodeAttribute(node, "size", size);
       });
 

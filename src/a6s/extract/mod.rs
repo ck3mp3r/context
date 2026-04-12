@@ -22,7 +22,7 @@ pub trait LanguageExtractor: Send + Sync {
     /// Extract symbols, edges, and imports from a single file.
     fn extract(&self, code: &str, file_path: &str) -> ParsedFile;
 
-    fn derive_module_path(&self, file_path: &str) -> String;
+    fn derive_module_path(&self, file_path: &str) -> Option<String>;
     fn normalise_import_path(&self, import_path: &str) -> String;
     fn resolve_imports(
         &self,
@@ -86,7 +86,7 @@ macro_rules! define_extractors {
                 match self { $(Self::$type(e) => e.extract(code, file_path),)* }
             }
 
-            fn derive_module_path(&self, file_path: &str) -> String {
+            fn derive_module_path(&self, file_path: &str) -> Option<String> {
                 match self { $(Self::$type(e) => e.derive_module_path(file_path),)* }
             }
 

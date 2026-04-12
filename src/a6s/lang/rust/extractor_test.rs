@@ -1529,25 +1529,25 @@ fn fibonacci(n: u32) -> u32 {
 #[test]
 fn test_module_path_simple() {
     let path = derive_module_path("src/db/project.rs");
-    assert_eq!(path, Some("db::project".to_string()));
+    assert_eq!(path, Some("db".to_string())); // Parent module of project
 }
 
 #[test]
 fn test_module_path_nested() {
     let path = derive_module_path("src/api/v1/tasks.rs");
-    assert_eq!(path, Some("api::v1::tasks".to_string()));
+    assert_eq!(path, Some("api::v1".to_string())); // Parent module of tasks
 }
 
 #[test]
 fn test_module_path_mod_rs() {
     let path = derive_module_path("src/api/mod.rs");
-    assert_eq!(path, Some("api".to_string()));
+    assert_eq!(path, None); // api is top-level, no parent
 }
 
 #[test]
 fn test_module_path_nested_mod_rs() {
     let path = derive_module_path("src/db/sqlite/mod.rs");
-    assert_eq!(path, Some("db::sqlite".to_string()));
+    assert_eq!(path, Some("db".to_string())); // Parent module of sqlite
 }
 
 #[test]
@@ -1565,20 +1565,20 @@ fn test_module_path_lib_rs() {
 #[test]
 fn test_module_path_single_level() {
     let path = derive_module_path("src/config.rs");
-    assert_eq!(path, Some("config".to_string()));
+    assert_eq!(path, None); // config is top-level, no parent
 }
 
 #[test]
 fn test_module_path_without_src_prefix() {
     // Should handle paths without src/ prefix
     let path = derive_module_path("db/project.rs");
-    assert_eq!(path, Some("db::project".to_string()));
+    assert_eq!(path, Some("db".to_string())); // Parent module of project
 }
 
 #[test]
 fn test_module_path_deep_nesting() {
     let path = derive_module_path("src/analysis/lang/rust/extractor.rs");
-    assert_eq!(path, Some("analysis::lang::rust::extractor".to_string()));
+    assert_eq!(path, Some("analysis::lang::rust".to_string())); // Parent module of extractor
 }
 
 #[test]
@@ -1593,9 +1593,9 @@ fn test_module_path_root_only() {
     assert_eq!(path, None);
 }
 
-// Helper function that will be implemented in extractor.rs
+// Helper function that uses the trait method
 fn derive_module_path(file_path: &str) -> Option<String> {
-    super::extractor::derive_module_path(file_path)
+    RustExtractor.derive_module_path(file_path)
 }
 
 // ============================================================================
@@ -1610,12 +1610,13 @@ struct TestStruct {}
 "#;
     let parsed = RustExtractor.extract(code, "src/api/handlers.rs");
 
-    // All symbols should have module_path set to "api::handlers"
+    // Non-implicit symbols should have module_path set to "api" (their parent module)
+    // The implicit module "handlers" should also have module_path "api"
     for symbol in &parsed.symbols {
         assert_eq!(
             symbol.module_path.as_deref(),
-            Some("api::handlers"),
-            "Symbol {} should have module_path set to api::handlers",
+            Some("api"),
+            "Symbol {} should have module_path set to api (parent module)",
             symbol.name
         );
     }
@@ -1645,15 +1646,24 @@ fn helper() {}
 "#;
     let parsed = RustExtractor.extract(code, "src/api/mod.rs");
 
-    // mod.rs symbols should have parent directory as module_path
-    for symbol in &parsed.symbols {
-        assert_eq!(
-            symbol.module_path.as_deref(),
-            Some("api"),
-            "Symbol {} in api/mod.rs should have module_path api",
-            symbol.name
-        );
-    }
+    // Symbols in mod.rs should have module_path pointing to "api" (the module itself)
+    // The implicit module "api" should have module_path None (it's top-level)
+    let implicit_module = parsed.symbols.iter().find(|s| s.kind == "module");
+    assert!(implicit_module.is_some());
+    assert_eq!(
+        implicit_module.unwrap().module_path,
+        None,
+        "Implicit module 'api' should have None module_path (it's top-level)"
+    );
+
+    // Regular symbols should have module_path "api"
+    let func = parsed.symbols.iter().find(|s| s.name == "helper");
+    assert!(func.is_some());
+    assert_eq!(
+        func.unwrap().module_path.as_deref(),
+        Some("api"),
+        "Function in api/mod.rs should have module_path 'api'"
+    );
 }
 
 // ============================================================================
@@ -1865,4 +1875,117 @@ fn helper_function() {
         Some("test".to_string()),
         "helper_function should be marked as test after resolution"
     );
+}
+
+#[test]
+fn test_mod_rs_implicit_module_has_correct_name() {
+    // Test that mod.rs files create an implicit module with the parent directory name,
+    // and the module_path points to the PARENT module (not the module itself).
+    let code = r#"
+pub fn some_function() {
+    println!("Hello");
+}
+"#;
+
+    let parsed = RustExtractor.extract(code, "src/common/cmd/mod.rs");
+
+    // Should have an implicit module symbol
+    let implicit_module = parsed.symbols.iter().find(|s| {
+        s.kind == "module"
+            && s.signature
+                .as_ref()
+                .map(|sig| sig.contains("implicit_module: true"))
+                .unwrap_or(false)
+    });
+
+    assert!(
+        implicit_module.is_some(),
+        "Should have implicit module symbol"
+    );
+    let module = implicit_module.unwrap();
+
+    // Name should be "cmd" (parent directory), not "mod"
+    assert_eq!(
+        module.name, "cmd",
+        "Implicit module name should be 'cmd' (parent dir), not 'mod'"
+    );
+
+    // Module path should be "common" (the PARENT module, not common::cmd)
+    assert_eq!(
+        module.module_path,
+        Some("common".to_string()),
+        "Module path should be 'common' (parent module)"
+    );
+
+    // Other symbols in the file should have module_path = "common::cmd"
+    let func = parsed.symbols.iter().find(|s| s.name == "some_function");
+    assert!(func.is_some());
+    assert_eq!(
+        func.unwrap().module_path,
+        Some("common::cmd".to_string()),
+        "Functions in the file should have module_path 'common::cmd'"
+    );
+}
+
+#[test]
+fn test_cross_file_module_hasmember_edges() {
+    use crate::a6s::extract::LanguageExtractor;
+
+    // Scenario: src/app/mod.rs declares `mod manager;`
+    //           src/app/manager/mod.rs is the actual module definition
+    // Expected: resolve_file_modules() should create a HasMember edge
+    //           from app module (definition) to manager module (definition)
+
+    // File 1: src/app/mod.rs with module declaration
+    let app_mod_code = r#"
+mod manager;
+
+pub fn app_function() {}
+"#;
+    let mut app_parsed = RustExtractor.extract(app_mod_code, "src/app/mod.rs");
+
+    // File 2: src/app/manager/mod.rs - the actual manager module
+    let manager_code = r#"
+pub fn manager_function() {}
+"#;
+    let mut manager_parsed = RustExtractor.extract(manager_code, "src/app/manager/mod.rs");
+
+    // Call resolve_file_modules to create cross-file edges
+    let mut files = vec![app_parsed, manager_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // After resolution, find the cross-file edge
+    let edges_after: Vec<_> = files[0]
+        .edges
+        .iter()
+        .chain(files[1].edges.iter())
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
+        .collect();
+
+    // Find the cross-file edge pointing to the manager DEFINITION
+    let cross_file_edge = edges_after.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(target_id) = &e.to {
+            // SymbolId format: "symbol:file_path:name:line"
+            target_id.as_str() == "symbol:src/app/manager/mod.rs:manager:1"
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        cross_file_edge.is_some(),
+        "Should have HasMember edge pointing to manager module DEFINITION in src/app/manager/mod.rs:1"
+    );
+
+    // Verify the edge source is the app module DEFINITION (not declaration)
+    let edge = cross_file_edge.unwrap();
+    if let crate::a6s::types::SymbolRef::Resolved(source_id) = &edge.from {
+        assert_eq!(
+            source_id.as_str(),
+            "symbol:src/app/mod.rs:app:1",
+            "Edge source should be the app module definition at src/app/mod.rs:1"
+        );
+    } else {
+        panic!("Edge source should be resolved");
+    }
 }

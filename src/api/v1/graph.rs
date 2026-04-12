@@ -15,7 +15,6 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::a6s::store::CodeGraph;
-use crate::analysis::lang::{Analyser, LanguageAnalyser};
 use crate::api::AppState;
 use crate::db::{Database, RepoRepository};
 use crate::sync::GitOps;
@@ -42,6 +41,9 @@ pub struct GraphNode {
     pub entry_type: Option<String>,
     /// Deprecated: use entry_type == "test" instead
     pub is_test: bool,
+    /// DEBUG: module_path from database
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -283,6 +285,63 @@ async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
         all_edges.push((src_id, dst_id, "Extends".to_string()));
     }
 
+    // Query for Accepts edges (parameter types)
+    let accepts_rows = match graph.execute_query("accepts_edges", HashMap::new()).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("accepts_edges query failed: {}", e);
+            failed_queries.push("accepts_edges".to_string());
+            Vec::new()
+        }
+    };
+    for row in accepts_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "Accepts".to_string()));
+    }
+
+    // Query for Returns edges (return types)
+    let returns_rows = match graph.execute_query("returns_edges", HashMap::new()).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("returns_edges query failed: {}", e);
+            failed_queries.push("returns_edges".to_string());
+            Vec::new()
+        }
+    };
+    for row in returns_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "Returns".to_string()));
+    }
+
+    // Query for FieldType edges
+    let field_type_rows = match graph
+        .execute_query("field_type_edges", HashMap::new())
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("field_type_edges query failed: {}", e);
+            failed_queries.push("field_type_edges".to_string());
+            Vec::new()
+        }
+    };
+    for row in field_type_rows {
+        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
+        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
+        if src_id.is_empty() || dst_id.is_empty() {
+            continue;
+        }
+        all_edges.push((src_id, dst_id, "FieldType".to_string()));
+    }
+
     let total_symbols = symbol_map.len();
     let total_edges = all_edges.len();
 
@@ -296,14 +355,16 @@ async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
             let language = s["language"].as_str().unwrap_or("unknown");
             let entry_type = s["entry_type"].as_str().unwrap_or("");
 
-            let module_path = Analyser::for_language(language)
-                .map(|a| a.derive_module_path(file_path))
+            // Use module_path from database if available, otherwise construct it
+            let module_path_str = s["module_path"]
+                .as_str()
+                .map(|s| s.to_string())
                 .unwrap_or_default();
 
-            let qualified_name = if module_path.is_empty() {
+            let qualified_name = if module_path_str.is_empty() {
                 name.to_string()
             } else {
-                format!("{}::{}", module_path, name)
+                format!("{}::{}", module_path_str, name)
             };
 
             Some(GraphNode {
@@ -320,6 +381,11 @@ async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
                     Some(entry_type.to_string())
                 },
                 is_test: entry_type == "test",
+                module_path: if module_path_str.is_empty() {
+                    None
+                } else {
+                    Some(module_path_str)
+                },
             })
         })
         .collect();

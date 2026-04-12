@@ -9,6 +9,7 @@ SELECT
     language,
     file_path,
     start_line,
-    entry_type
+    entry_type,
+    module_path
 FROM symbol
 WHERE repo_id = $repo_id;

@@ -55,7 +55,7 @@ impl LanguageExtractor for RustExtractor {
             language: "rust".to_string(),
             visibility: Some("pub".to_string()),
             entry_type: None,
-            module_path: derive_module_path(file_path),
+            module_path: self.derive_module_path(file_path),
         };
         parsed.symbols.push(implicit_module);
 
@@ -92,10 +92,38 @@ impl LanguageExtractor for RustExtractor {
             );
         }
 
-        // Set module_path for all symbols based on file path
-        let module_path = derive_module_path(file_path);
+        // Set module_path for symbols based on file path
+        let module_path = self.derive_module_path(file_path);
+
+        // For mod.rs files, we need special handling:
+        // - Implicit module gets parent module path (already set above)
+        // - Other symbols get the current module's full path
+        let is_mod_rs = file_path.ends_with("/mod.rs");
+        let symbols_module_path = if is_mod_rs {
+            // For src/common/cmd/mod.rs:
+            // - module_name = "cmd"
+            // - parent_module_path = Some("common")
+            // - full_path = "common::cmd"
+            let module_name = Self::file_to_module_name(file_path);
+            match &module_path {
+                Some(parent) => Some(format!("{}::{}", parent, module_name)),
+                None => Some(module_name), // Top-level module like src/api/mod.rs
+            }
+        } else {
+            module_path.clone()
+        };
+
         for symbol in &mut parsed.symbols {
-            symbol.module_path = module_path.clone();
+            // Skip the implicit module - it already has the correct module_path
+            if symbol
+                .signature
+                .as_ref()
+                .map(|s| s.contains("implicit_module: true"))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            symbol.module_path = symbols_module_path.clone();
         }
 
         // Phase 2: Post-processing for edges and file categorization
@@ -108,8 +136,51 @@ impl LanguageExtractor for RustExtractor {
         parsed
     }
 
-    fn derive_module_path(&self, file_path: &str) -> String {
-        file_path.to_string()
+    fn derive_module_path(&self, file_path: &str) -> Option<String> {
+        if file_path.is_empty() {
+            return None;
+        }
+
+        // Strip src/ prefix if present
+        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
+
+        // Handle empty or root-only paths
+        if path.is_empty() || path == "/" {
+            return None;
+        }
+
+        // Remove .rs extension
+        let path = path.strip_suffix(".rs")?;
+
+        // Handle crate roots (main.rs, lib.rs)
+        if path == "main" || path == "lib" {
+            return None;
+        }
+
+        // Handle mod.rs - return GRANDPARENT directory path (parent's parent)
+        if path.ends_with("/mod") {
+            let dir_path = path.strip_suffix("/mod")?;
+
+            if dir_path.is_empty() {
+                return None; // src/mod.rs - no parent
+            }
+
+            // Get the parent of the directory (grandparent of the file)
+            let parent_path = std::path::Path::new(dir_path).parent();
+            match parent_path {
+                Some(p) if p.as_os_str().is_empty() => None, // Top-level module
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
+                None => None,
+            }
+        } else {
+            // Regular file - return containing directory's module path
+            let parent_path = std::path::Path::new(path).parent();
+            match parent_path {
+                Some(p) if p.as_os_str().is_empty() => None, // Top-level file
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
+                None => None,
+            }
+        }
     }
 
     fn normalise_import_path(&self, import_path: &str) -> String {
@@ -229,6 +300,85 @@ impl LanguageExtractor for RustExtractor {
                 }
             }
         }
+
+        // Create cross-file HasMember edges: parent module → child module definition
+        use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
+
+        // Build a map of module_path -> (file_path, module_name, start_line) for quick lookup
+        let mut module_map: HashMap<String, Vec<(String, String, usize)>> = HashMap::new();
+
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+
+            for sym in &pf.symbols {
+                if sym.kind == "module" {
+                    // Build qualified name from module_path + name
+                    let qualified = if let Some(parent_path) = &sym.module_path {
+                        format!("{}::{}", parent_path, sym.name)
+                    } else {
+                        sym.name.clone()
+                    };
+
+                    module_map.entry(qualified).or_default().push((
+                        pf.file_path.clone(),
+                        sym.name.clone(),
+                        sym.start_line,
+                    ));
+                }
+            }
+        }
+
+        // For each module definition, find its parent and create edge
+        for pf in parsed_files.iter_mut() {
+            if pf.language != "rust" {
+                continue;
+            }
+
+            // Collect edges to add (can't modify while iterating)
+            let mut edges_to_add: Vec<RawEdge> = Vec::new();
+
+            for sym in &pf.symbols {
+                if sym.kind != "module" {
+                    continue;
+                }
+
+                // Extract parent module path from module_path field
+                // E.g., for manager with module_path="app", parent is "app"
+                if let Some(parent_path) = &sym.module_path {
+                    // Find parent module symbol
+                    if let Some(parent_entries) = module_map.get(parent_path) {
+                        // Use first match (there might be duplicates like declarations + definitions)
+                        if let Some((parent_file_path, parent_name, parent_line)) =
+                            parent_entries.first()
+                        {
+                            // Create HasMember edge: parent -> this module
+                            let from = SymbolRef::resolved(SymbolId::new(
+                                parent_file_path,
+                                parent_name,
+                                *parent_line,
+                            ));
+                            let to = SymbolRef::resolved(SymbolId::new(
+                                &pf.file_path,
+                                &sym.name,
+                                sym.start_line,
+                            ));
+
+                            edges_to_add.push(RawEdge {
+                                from,
+                                to,
+                                kind: EdgeKind::HasMember,
+                                line: Some(sym.start_line),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Add collected edges to this file
+            pf.edges.extend(edges_to_add);
+        }
     }
 }
 
@@ -238,8 +388,20 @@ impl RustExtractor {
     /// src/lib.rs → "lib"
     /// src/main.rs → "main"
     fn file_to_module_name(file_path: &str) -> String {
-        std::path::Path::new(file_path)
-            .file_stem()
+        let path = std::path::Path::new(file_path);
+
+        // For mod.rs files, use the parent directory name
+        if path.file_name().and_then(|s| s.to_str()) == Some("mod.rs") {
+            return path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("mod")
+                .to_string();
+        }
+
+        // For regular files, use the file stem
+        path.file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string()
@@ -1093,7 +1255,7 @@ impl RustExtractor {
         });
     }
 
-    /// Extract edges between symbols (HasMember, HasField, HasMethod, Implements, Calls)
+    /// Extract edges between symbols (HasMember, HasField, HasMethod, Implements, Calls, Type References)
     fn extract_edges(
         file_path: &str,
         code: &str,
@@ -1113,6 +1275,9 @@ impl RustExtractor {
 
         // 5. Calls: function → called functions/methods/macros
         Self::extract_call_edges(file_path, code, tree, query, parsed);
+
+        // 6. Type References: parameter types, return types, field types
+        Self::extract_type_references(file_path, code, tree, parsed);
     }
 
     /// Extract HasMember edges: module → child symbols
@@ -1345,6 +1510,268 @@ impl RustExtractor {
         }
     }
 
+    /// Extract type reference edges: parameter types, return types, field types
+    fn extract_type_references(
+        file_path: &str,
+        code: &str,
+        tree: &tree_sitter::Tree,
+        parsed: &mut ParsedFile,
+    ) {
+        // Compile type reference query
+        let language = tree_sitter_rust::LANGUAGE.into();
+        let type_ref_query_str = include_str!("../../../analysis/lang/rust/queries/type_refs.scm");
+        let query = match Query::new(&language, type_ref_query_str) {
+            Ok(q) => q,
+            Err(e) => {
+                eprintln!("Failed to compile type_refs query: {}", e);
+                return;
+            }
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+        while let Some(m) = matches.next() {
+            let mut captures_map = std::collections::HashMap::new();
+            for cap in m.captures {
+                let name = &query.capture_names()[cap.index as usize];
+                captures_map.insert(name.as_ref(), cap.node);
+            }
+
+            // Process all type reference patterns
+            Self::process_param_type_refs(&captures_map, code, file_path, parsed);
+            Self::process_return_type_refs(&captures_map, code, file_path, parsed);
+            Self::process_field_type_refs(&captures_map, code, file_path, parsed);
+        }
+    }
+
+    /// Helper to create a type reference edge with automatic symbol resolution
+    fn create_type_edge(
+        from_name: &str,
+        from_line: usize,
+        type_name: &str,
+        edge_kind: crate::a6s::types::EdgeKind,
+        line: usize,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::{RawEdge, SymbolId, SymbolRef};
+
+        let from = SymbolRef::resolved(SymbolId::new(file_path, from_name, from_line));
+
+        // Try to resolve the type reference to a symbol in the same file
+        let to = if let Some(type_sym) = parsed.symbols.iter().find(|s| s.name == type_name) {
+            SymbolRef::resolved(SymbolId::new(
+                file_path,
+                &type_sym.name,
+                type_sym.start_line,
+            ))
+        } else {
+            SymbolRef::unresolved(type_name.to_string(), file_path)
+        };
+
+        parsed.edges.push(RawEdge {
+            from,
+            to,
+            kind: edge_kind,
+            line: Some(line),
+        });
+    }
+
+    /// Process parameter type references from captured nodes
+    fn process_param_type_refs(
+        captures: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::EdgeKind;
+
+        // All param type capture patterns
+        let param_patterns = [
+            ("param_type_fn", "param_type_name"),
+            ("param_ref_type_fn", "param_ref_type_name"),
+            ("param_generic_type_fn", "param_generic_type_name"),
+            ("param_ref_generic_type_fn", "param_ref_generic_type_name"),
+            ("method_param_type_fn", "method_param_type_name"),
+            ("method_param_ref_type_fn", "method_param_ref_type_name"),
+            (
+                "method_param_generic_type_fn",
+                "method_param_generic_type_name",
+            ),
+            (
+                "method_param_ref_generic_type_fn",
+                "method_param_ref_generic_type_name",
+            ),
+            ("trait_param_type_fn", "trait_param_type_name"),
+            ("trait_param_ref_type_fn", "trait_param_ref_type_name"),
+            (
+                "trait_param_generic_type_fn",
+                "trait_param_generic_type_name",
+            ),
+            (
+                "trait_param_ref_generic_type_fn",
+                "trait_param_ref_generic_type_name",
+            ),
+            ("param_slice_fn", "param_slice_name"),
+            ("param_array_fn", "param_array_name"),
+            ("method_param_slice_fn", "method_param_slice_name"),
+            ("method_param_array_fn", "method_param_array_name"),
+            ("trait_param_slice_fn", "trait_param_slice_name"),
+            ("trait_param_array_fn", "trait_param_array_name"),
+        ];
+
+        for (fn_capture, type_capture) in param_patterns {
+            if let (Some(&fn_node), Some(&type_node)) =
+                (captures.get(fn_capture), captures.get(type_capture))
+            {
+                let fn_name = Self::node_text(fn_node, code);
+                let type_name = Self::node_text(type_node, code);
+                let fn_line = fn_node.start_position().row + 1;
+
+                // Find the function symbol and create edge
+                if let Some(fn_sym) = parsed
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == fn_name && s.start_line == fn_line)
+                {
+                    let fn_name = fn_sym.name.clone();
+                    let fn_start = fn_sym.start_line;
+                    Self::create_type_edge(
+                        &fn_name,
+                        fn_start,
+                        type_name,
+                        EdgeKind::ParamType,
+                        fn_line,
+                        file_path,
+                        parsed,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Process return type references from captured nodes
+    fn process_return_type_refs(
+        captures: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::EdgeKind;
+
+        // All return type capture patterns
+        let return_patterns = [
+            ("ret_type_fn", "ret_type_name"),
+            ("ret_generic_type_fn", "ret_generic_type_name"),
+            ("ret_generic_inner_fn", "ret_generic_inner_name"),
+            ("ret_nested_inner_fn", "ret_nested_inner_name"),
+            ("method_ret_type_fn", "method_ret_type_name"),
+            ("method_ret_generic_type_fn", "method_ret_generic_type_name"),
+            (
+                "method_ret_generic_inner_fn",
+                "method_ret_generic_inner_name",
+            ),
+            ("method_ret_nested_inner_fn", "method_ret_nested_inner_name"),
+            ("trait_ret_type_fn", "trait_ret_type_name"),
+            ("trait_ret_generic_type_fn", "trait_ret_generic_type_name"),
+            ("trait_ret_generic_inner_fn", "trait_ret_generic_inner_name"),
+            ("trait_ret_nested_inner_fn", "trait_ret_nested_inner_name"),
+            ("ret_abstract_fn", "ret_abstract_name"),
+            ("method_ret_abstract_fn", "method_ret_abstract_name"),
+            ("trait_ret_abstract_fn", "trait_ret_abstract_name"),
+            ("ret_dyn_fn", "ret_dyn_name"),
+            ("ret_nested_dyn_fn", "ret_nested_dyn_name"),
+            ("method_ret_dyn_fn", "method_ret_dyn_name"),
+            ("method_ret_nested_dyn_fn", "method_ret_nested_dyn_name"),
+            ("trait_ret_dyn_fn", "trait_ret_dyn_name"),
+            ("trait_ret_nested_dyn_fn", "trait_ret_nested_dyn_name"),
+        ];
+
+        for (fn_capture, type_capture) in return_patterns {
+            if let (Some(&fn_node), Some(&type_node)) =
+                (captures.get(fn_capture), captures.get(type_capture))
+            {
+                let fn_name = Self::node_text(fn_node, code);
+                let type_name = Self::node_text(type_node, code);
+                let fn_line = fn_node.start_position().row + 1;
+
+                // Find the function symbol and create edge
+                if let Some(fn_sym) = parsed
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == fn_name && s.start_line == fn_line)
+                {
+                    let fn_name = fn_sym.name.clone();
+                    let fn_start = fn_sym.start_line;
+                    Self::create_type_edge(
+                        &fn_name,
+                        fn_start,
+                        type_name,
+                        EdgeKind::ReturnType,
+                        fn_line,
+                        file_path,
+                        parsed,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Process field type references from captured nodes
+    fn process_field_type_refs(
+        captures: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::EdgeKind;
+
+        // All field type capture patterns
+        let field_patterns = [
+            ("field_type_struct", "field_type_field", "field_type_name"),
+            (
+                "field_generic_type_struct",
+                "field_generic_type_field",
+                "field_generic_type_arg",
+            ),
+            (
+                "field_ref_type_struct",
+                "field_ref_type_field",
+                "field_ref_type_name",
+            ),
+        ];
+
+        for (struct_capture, field_capture, type_capture) in field_patterns {
+            if let (Some(&_struct_node), Some(&field_node), Some(&type_node)) = (
+                captures.get(struct_capture),
+                captures.get(field_capture),
+                captures.get(type_capture),
+            ) {
+                let field_name = Self::node_text(field_node, code);
+                let type_name = Self::node_text(type_node, code);
+                let field_line = field_node.start_position().row + 1;
+
+                // Find the field symbol and create edge
+                if let Some(field_sym) = parsed.symbols.iter().find(|s| {
+                    s.name == field_name && s.kind == "field" && s.start_line == field_line
+                }) {
+                    let field_name = field_sym.name.clone();
+                    let field_start = field_sym.start_line;
+                    Self::create_type_edge(
+                        &field_name,
+                        field_start,
+                        type_name,
+                        EdgeKind::FieldType,
+                        field_line,
+                        file_path,
+                        parsed,
+                    );
+                }
+            }
+        }
+    }
+
     /// Find the enclosing function symbol ID for a given line.
     /// Returns the innermost function that contains the line.
     fn find_enclosing_function(
@@ -1381,56 +1808,4 @@ impl RustExtractor {
         // Regular file without tests - no category
         parsed.file_category = None;
     }
-}
-
-// ============================================================================
-// Module Path Derivation
-// ============================================================================
-
-/// Derive module path from file path.
-///
-/// Converts file system paths to Rust module paths:
-/// - `src/db/project.rs` → `Some("db::project")`
-/// - `src/api/mod.rs` → `Some("api")`
-/// - `src/main.rs` → `None` (crate root)
-/// - `src/lib.rs` → `None` (crate root)
-///
-/// Rules:
-/// - Strip `src/` prefix if present
-/// - Convert `/` to `::`
-/// - Remove `.rs` extension
-/// - `mod.rs` becomes parent directory name
-/// - `main.rs` and `lib.rs` are crate root (return None)
-pub fn derive_module_path(file_path: &str) -> Option<String> {
-    if file_path.is_empty() {
-        return None;
-    }
-
-    // Strip src/ prefix if present
-    let path = file_path.strip_prefix("src/").unwrap_or(file_path);
-
-    // Handle empty or root-only paths
-    if path.is_empty() || path == "/" {
-        return None;
-    }
-
-    // Remove .rs extension
-    let path = path.strip_suffix(".rs")?;
-
-    // Handle crate roots (main.rs, lib.rs)
-    if path == "main" || path == "lib" {
-        return None;
-    }
-
-    // Handle mod.rs - return parent directory
-    if path.ends_with("/mod") {
-        let parent = path.strip_suffix("/mod")?;
-        if parent.is_empty() {
-            return None;
-        }
-        return Some(parent.replace('/', "::"));
-    }
-
-    // Regular file - convert path to module notation
-    Some(path.replace('/', "::"))
 }

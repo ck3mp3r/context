@@ -192,7 +192,9 @@ impl CodeGraph {
         if let Some(signature) = &symbol.signature {
             record["signature"] = serde_json::json!(signature);
         }
-        // Note: module_path is not in schema, content field exists but we don't use it
+        if let Some(module_path) = &symbol.module_path {
+            record["module_path"] = serde_json::json!(module_path);
+        }
 
         // Use compound ID to ensure uniqueness across repos
         let _: Option<serde_json::Value> = self

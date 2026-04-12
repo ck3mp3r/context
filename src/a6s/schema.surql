@@ -46,6 +46,8 @@ DEFINE FIELD signature ON symbol TYPE option<string>;
 
 DEFINE FIELD content ON symbol TYPE option<string>;
 
+DEFINE FIELD module_path ON symbol TYPE option<string>;
+
 -- Indexes for Symbol table
 -- Compound unique index: symbol_id is unique WITHIN each repo_id
 DEFINE INDEX idx_symbol_unique ON symbol FIELDS repo_id, symbol_id UNIQUE;

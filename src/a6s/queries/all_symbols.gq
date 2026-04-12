@@ -10,5 +10,6 @@ query all_symbols() {
         $sym.file_path as file_path
         $sym.start_line as start_line
         $sym.entry_type as entry_type
+        $sym.module_path as module_path
     }
 }

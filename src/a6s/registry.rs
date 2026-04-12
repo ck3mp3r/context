@@ -71,7 +71,9 @@ impl SymbolRegistry {
         for parsed in parsed_files {
             let module_path =
                 if let Some(extractor) = extract::Extractor::for_language(&parsed.language) {
-                    extractor.derive_module_path(&parsed.file_path)
+                    extractor
+                        .derive_module_path(&parsed.file_path)
+                        .unwrap_or_default()
                 } else {
                     parsed.file_path.clone()
                 };
