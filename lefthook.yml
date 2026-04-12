@@ -6,7 +6,7 @@ pre-commit:
         while IFS= read -r f; do sed -i 's/[[:space:]]*$//' "$f" && git add "$f"; done
       glob: "*.{rs,nix,toml,yml,yaml,md,json,js,css,html}"
     rustfmt:
-      run: cargo fmt -- --check
+      run: cargo fmt && git diff --name-only | xargs git add
       glob: "*.rs"
     clippy:
       run: cargo clippy -- -D warnings

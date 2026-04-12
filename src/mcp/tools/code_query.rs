@@ -1,9 +1,10 @@
 //! Code query tool implementations
 //!
-//! Provides MCP tools for querying the code graph using NanoGraph.
-//! Follows SOLID principles - thin MCP layer delegating to NanoGraph CLI.
+//! Provides MCP tools for querying the code graph using SurrealDB.
+//! Follows SOLID principles - thin MCP layer delegating to CodeGraph.
 
-use crate::common::command::format_command_error;
+use crate::a6s::store::CodeGraph;
+use crate::a6s::store::surrealdb;
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -12,62 +13,11 @@ use rmcp::{
     schemars::JsonSchema,
     tool, tool_router,
 };
-use sanitize_filename::sanitize;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use tempfile::NamedTempFile;
-use tracing::{debug, error, info, warn};
-
-// ============================================================================
-// Internal types for query execution
-// ============================================================================
-
-/// Extract query name from query definition
-/// Expects format: "query name(...) { ... }"
-fn extract_query_name(definition: &str) -> Option<String> {
-    let trimmed = definition.trim();
-    if !trimmed.starts_with("query ") {
-        return None;
-    }
-
-    let after_query = &trimmed[6..]; // Skip "query "
-    let name_end = after_query.find('(').or_else(|| after_query.find('{'))?;
-    let name = after_query[..name_end].trim();
-
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
-}
-
-struct PreparedQuery {
-    source: QuerySource,
-    name: String,
-    query_type: &'static str,
-}
-
-enum QuerySource {
-    Temporary {
-        _file: NamedTempFile, // Kept alive for auto-cleanup
-        path: PathBuf,
-    },
-    Saved {
-        path: PathBuf,
-    },
-}
-
-impl QuerySource {
-    fn path(&self) -> &PathBuf {
-        match self {
-            Self::Temporary { path, .. } => path,
-            Self::Saved { path } => path,
-        }
-    }
-}
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::{debug, info};
 
 // ============================================================================
 // Parameter types
@@ -85,9 +35,10 @@ pub struct ListQueriesParams {
     pub repo_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
 pub struct QueryCodeGraphParams {
     #[schemars(description = "Repository ID")]
+    #[serde(default)]
     pub repo_id: String,
 
     #[schemars(description = "Query name to execute or save (optional)")]
@@ -103,109 +54,6 @@ pub struct QueryCodeGraphParams {
 }
 
 // ============================================================================
-// NanoGraph CLI abstraction (for testing)
-// ============================================================================
-
-/// Trait for NanoGraph CLI operations (mockable for tests)
-#[cfg_attr(test, mockall::automock)]
-pub trait NanographCli: Send + Sync {
-    fn get_analysis_path(&self, repo_id: &str) -> PathBuf;
-    fn describe(&self, db_path: &Path) -> Result<Output, std::io::Error>;
-
-    fn run_query(
-        &self,
-        db_path: &Path,
-        query_file: &Path,
-        query_name: &str,
-        params: &serde_json::Map<String, serde_json::Value>,
-    ) -> Result<Output, std::io::Error>;
-
-    fn check_query(&self, db_path: &Path, query_file: &Path) -> Result<Output, std::io::Error>;
-}
-
-// Generate mock for testing
-#[cfg(test)]
-mockall::mock! {
-    pub CliStub {}
-
-    impl NanographCli for CliStub {
-        fn get_analysis_path(&self, repo_id: &str) -> PathBuf;
-
-        fn describe(&self, db_path: &Path) -> Result<Output, std::io::Error>;
-
-        fn run_query(
-            &self,
-            db_path: &Path,
-            query_file: &Path,
-            query_name: &str,
-            params: &serde_json::Map<String, serde_json::Value>,
-        ) -> Result<Output, std::io::Error>;
-
-        fn check_query(&self, db_path: &Path, query_file: &Path) -> Result<Output, std::io::Error>;
-    }
-}
-
-/// Real implementation using std::process::Command
-pub struct Nanograph;
-
-impl NanographCli for Nanograph {
-    fn get_analysis_path(&self, repo_id: &str) -> PathBuf {
-        crate::analysis::get_analysis_path(repo_id)
-    }
-
-    fn describe(&self, db_path: &Path) -> Result<Output, std::io::Error> {
-        Command::new("nanograph")
-            .arg("describe")
-            .arg("--db")
-            .arg(db_path)
-            .arg("--json")
-            .output()
-    }
-
-    fn run_query(
-        &self,
-        db_path: &Path,
-        query_file: &Path,
-        query_name: &str,
-        params: &serde_json::Map<String, serde_json::Value>,
-    ) -> Result<Output, std::io::Error> {
-        let mut cmd = Command::new("nanograph");
-        cmd.arg("run")
-            .arg("--db")
-            .arg(db_path)
-            .arg("--query")
-            .arg(query_file)
-            .arg("--name")
-            .arg(query_name)
-            .arg("--format")
-            .arg("json");
-
-        // Add parameters
-        for (key, value) in params {
-            cmd.arg("--param");
-            let param_str = if value.is_string() {
-                format!("{}={}", key, value.as_str().unwrap())
-            } else {
-                format!("{}={}", key, value)
-            };
-            cmd.arg(param_str);
-        }
-
-        cmd.output()
-    }
-
-    fn check_query(&self, db_path: &Path, query_file: &Path) -> Result<Output, std::io::Error> {
-        Command::new("nanograph")
-            .arg("check")
-            .arg("--db")
-            .arg(db_path)
-            .arg("--query")
-            .arg(query_file)
-            .output()
-    }
-}
-
-// ============================================================================
 // Code query tools
 // ============================================================================
 
@@ -213,102 +61,57 @@ impl NanographCli for Nanograph {
 ///
 /// # SOLID Principles
 /// - **Single Responsibility**: MCP interface only
-/// - **Dependency Inversion**: Depends on NanographCli trait
-pub struct CodeQueryTools<C: NanographCli> {
-    cli: C,
+/// - **Dependency Inversion**: Depends on CodeGraph abstraction
+pub struct CodeQueryTools {
+    analysis_db: Arc<surrealdb::SurrealDbConnection>,
     tool_router: ToolRouter<Self>,
 }
 
-// Default constructor for production use
-impl CodeQueryTools<Nanograph> {
-    pub fn new() -> Self {
+impl CodeQueryTools {
+    pub fn new(analysis_db: Arc<surrealdb::SurrealDbConnection>) -> Self {
         Self {
-            cli: Nanograph,
-            tool_router: Self::tool_router(),
-        }
-    }
-}
-
-impl Default for CodeQueryTools<Nanograph> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Test constructor with mock CLI
-#[cfg(test)]
-impl<C: NanographCli + 'static> CodeQueryTools<C> {
-    pub fn new_with_cli(cli: C) -> Self {
-        Self {
-            cli,
+            analysis_db,
             tool_router: Self::tool_router(),
         }
     }
 }
 
 #[tool_router]
-impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
+impl CodeQueryTools {
     pub fn router(&self) -> &ToolRouter<Self> {
         &self.tool_router
     }
 
     /// Get schema information for a repository's code graph
-    #[tool(description = "Get schema for a repository's code graph (nodes, edges, properties)")]
+    #[tool(
+        description = "Get schema information for a repository's code graph (nodes, edges, properties)"
+    )]
     pub async fn describe_schema(
         &self,
         params: Parameters<DescribeSchemaParams>,
     ) -> Result<CallToolResult, McpError> {
-        let db_path = self.cli.get_analysis_path(&params.0.repo_id);
-        let analysis_path = db_path.join("analysis.nano");
+        let repo_id = &params.0.repo_id;
 
-        // Check if analysis exists
-        if !analysis_path.exists() {
-            return Err(McpError::invalid_params(
-                "analysis_not_found",
-                Some(json!({
-                    "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
-                    "repo_id": params.0.repo_id
-                })),
-            ));
-        }
-
-        // Call nanograph describe
-        let output = self.cli.describe(&analysis_path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                McpError::internal_error(
-                    "nanograph_not_found",
+        // Connect to the analysis database
+        let graph = CodeGraph::with_connection_readonly(repo_id.clone(), Arc::clone(&self.analysis_db))
+            .await
+            .map_err(|e| {
+                McpError::invalid_params(
+                    "analysis_not_found",
                     Some(json!({
-                        "message": "NanoGraph CLI not found. Install with: brew install nanograph/tap/nanograph"
+                        "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", repo_id),
+                        "repo_id": repo_id,
+                        "error": e.to_string()
                     })),
                 )
-            } else {
-                McpError::internal_error(
-                    "nanograph_error",
-                    Some(json!({
-                        "message": e.to_string()
-                    })),
-                )
-            }
-        })?;
+            })?;
 
-        // Check if command succeeded
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(McpError::internal_error(
-                "nanograph_failed",
-                Some(json!({
-                    "message": format!("nanograph describe failed: {}", stderr)
-                })),
-            ));
-        }
-
-        // Parse JSON output
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let schema: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
+        // Get schema from SurrealDB
+        let schema = graph.get_schema().await.map_err(|e| {
             McpError::internal_error(
-                "json_parse_error",
+                "schema_query_failed",
                 Some(json!({
-                    "message": format!("Failed to parse schema JSON: {}", e)
+                    "message": format!("Failed to query schema: {}", e)
                 })),
             )
         })?;
@@ -326,7 +129,14 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
     }
 
     /// Execute queries (temporary or saved) against the code graph
-    #[tool(description = "Query the code graph with temporary or saved queries")]
+    ///
+    /// Supports 3 modes:
+    /// 1. Temporary query (query_definition only) - execute without saving
+    /// 2. Saved query (query_name only) - load from predefined or user-saved
+    /// 3. Save and execute (both) - save to user directory then execute
+    #[tool(
+        description = "Execute custom SurrealQL queries or run saved queries against the code graph"
+    )]
     pub async fn query_graph(
         &self,
         params: Parameters<QueryCodeGraphParams>,
@@ -348,26 +158,25 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
             ));
         }
 
-        let db_path = self.cli.get_analysis_path(&params.0.repo_id);
-        let analysis_path = db_path.join("analysis.nano");
+        // Connect to analysis database
+        let graph = CodeGraph::with_connection_readonly(params.0.repo_id.clone(), Arc::clone(&self.analysis_db))
+            .await
+            .map_err(|e| {
+                McpError::invalid_params(
+                    "analysis_not_found",
+                    Some(json!({
+                        "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
+                        "repo_id": params.0.repo_id,
+                        "error": e.to_string()
+                    })),
+                )
+            })?;
 
-        debug!("Analysis path: {:?}", analysis_path);
-
-        // Check if analysis exists
-        if !analysis_path.exists() {
-            warn!("Analysis not found at {:?}", analysis_path);
-            return Err(McpError::invalid_params(
-                "analysis_not_found",
-                Some(json!({
-                    "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
-                    "repo_id": params.0.repo_id
-                })),
-            ));
-        }
-
-        // Extract params as map
+        // Extract params as HashMap
         let query_params = match params.0.params {
-            Some(serde_json::Value::Object(map)) => map,
+            Some(serde_json::Value::Object(map)) => map
+                .into_iter()
+                .collect::<HashMap<String, serde_json::Value>>(),
             Some(_) => {
                 return Err(McpError::invalid_params(
                     "invalid_params",
@@ -376,234 +185,51 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
                     })),
                 ));
             }
-            None => serde_json::Map::new(),
+            None => HashMap::new(),
         };
 
-        // Determine behavior based on what's provided
-        let prepared = match (&params.0.query_name, &params.0.query_definition) {
-            (None, Some(definition)) => {
-                // Temp query: use NamedTempFile (automatically cleaned up on drop)
-                // Extract query name from definition
-                let query_name = extract_query_name(definition).ok_or_else(|| {
-                    McpError::invalid_params(
-                        "invalid_query",
-                        Some(json!({
-                            "message": "Could not extract query name from definition. Expected format: 'query name(...) { ... }'"
-                        })),
-                    )
-                })?;
-
-                let mut temp_file = NamedTempFile::new().map_err(|e| {
-                    McpError::internal_error(
-                        "fs_error",
-                        Some(json!({
-                            "message": format!("Failed to create temp file: {}", e)
-                        })),
-                    )
-                })?;
-
-                temp_file.write_all(definition.as_bytes()).map_err(|e| {
-                    McpError::internal_error(
-                        "fs_error",
-                        Some(json!({
-                            "message": format!("Failed to write temp query file: {}", e)
-                        })),
-                    )
-                })?;
-
-                temp_file.flush().map_err(|e| {
-                    McpError::internal_error(
-                        "fs_error",
-                        Some(json!({
-                            "message": format!("Failed to flush temp file: {}", e)
-                        })),
-                    )
-                })?;
-
-                let path = temp_file.path().to_path_buf();
-                debug!("Created temp query file with name: {}", query_name);
-                PreparedQuery {
-                    source: QuerySource::Temporary {
-                        _file: temp_file,
-                        path,
-                    },
-                    name: query_name,
-                    query_type: "temporary",
-                }
+        // Determine query mode and load/save query SQL
+        let (query_sql, query_type) = match (&params.0.query_name, &params.0.query_definition) {
+            // Mode 1: Temporary query - execute directly without saving
+            (None, Some(def)) => {
+                debug!("Executing temporary query");
+                (def.clone(), "temporary")
             }
+            // Mode 2: Saved query - load from predefined or user-saved directory
             (Some(name), None) => {
-                // Execute existing saved query from queries/{sanitized_name}.gq
-                let sanitized = sanitize(name);
-                let query_file = db_path.join("queries").join(format!("{}.gq", sanitized));
-
-                if !query_file.exists() {
-                    return Err(McpError::invalid_params(
-                        "query_not_found",
-                        Some(json!({
-                            "message": format!("Saved query '{}' not found at {}", name, query_file.display()),
-                            "query_name": name
-                        })),
-                    ));
-                }
-
-                // Extract query name from file to use with --name
-                let file_content = std::fs::read_to_string(&query_file).map_err(|e| {
-                    McpError::internal_error(
-                        "fs_error",
-                        Some(json!({
-                            "message": format!("Failed to read query file: {}", e)
-                        })),
-                    )
-                })?;
-
-                let query_name = extract_query_name(&file_content).ok_or_else(|| {
-                    McpError::internal_error(
-                        "invalid_query_file",
-                        Some(json!({
-                            "message": format!("Could not extract query name from {}", query_file.display())
-                        })),
-                    )
-                })?;
-
-                PreparedQuery {
-                    source: QuerySource::Saved { path: query_file },
-                    name: query_name,
-                    query_type: "saved",
-                }
+                debug!("Loading saved query: {}", name);
+                let query_sql = load_query(&graph, name)?;
+                (query_sql, "saved")
             }
-            (Some(name), Some(definition)) => {
-                // Save query to queries/{sanitized_name}.gq THEN execute
-                let queries_dir = db_path.join("queries");
-                std::fs::create_dir_all(&queries_dir).map_err(|e| {
-                    McpError::internal_error(
-                        "fs_error",
-                        Some(json!({
-                            "message": format!("Failed to create queries directory: {}", e)
-                        })),
-                    )
-                })?;
-
-                let sanitized = sanitize(name);
-                let query_file = queries_dir.join(format!("{}.gq", sanitized));
-
-                debug!("Saving query '{}' to {}", name, query_file.display());
-
-                // Write query definition to file (overwrites if exists)
-                std::fs::write(&query_file, definition).map_err(|e| {
-                    McpError::internal_error(
-                        "fs_error",
-                        Some(json!({
-                            "message": format!("Failed to write query file: {}", e)
-                        })),
-                    )
-                })?;
-
-                // Validate query syntax
-                let check_output =
-                    self.cli
-                        .check_query(&analysis_path, &query_file)
-                        .map_err(|e| {
-                            McpError::internal_error(
-                                "nanograph_error",
-                                Some(json!({
-                                    "message": e.to_string()
-                                })),
-                            )
-                        })?;
-
-                if !check_output.status.success() {
-                    let error_msg = format_command_error("nanograph check", &check_output);
-                    // Put the full error in the message parameter so it's visible
-                    return Err(McpError::invalid_params(
-                        error_msg, None, // No additional data needed
-                    ));
-                }
-
-                // Extract query name from definition for --name parameter
-                let query_name = extract_query_name(definition).ok_or_else(|| {
-                    McpError::invalid_params(
-                        "invalid_query",
-                        Some(json!({
-                            "message": "Could not extract query name from definition. Expected format: 'query name(...) { ... }'"
-                        })),
-                    )
-                })?;
-
-                PreparedQuery {
-                    source: QuerySource::Saved { path: query_file },
-                    name: query_name,
-                    query_type: "saved_and_executed",
-                }
+            // Mode 3: Save and execute - save to user directory then execute
+            (Some(name), Some(def)) => {
+                debug!("Saving query '{}' then executing", name);
+                save_query(&graph, name, def)?;
+                (def.clone(), "saved_and_executed")
             }
             (None, None) => unreachable!("Already validated above"),
         };
 
-        // Execute query (temp file will be auto-cleaned on drop)
-        debug!(
-            "Executing query: db={:?}, query_file={:?}, name={}",
-            analysis_path,
-            prepared.source.path(),
-            prepared.name
-        );
-
-        let output = self.cli.run_query(&analysis_path, prepared.source.path(), &prepared.name, &query_params)
+        // Execute query with auto-injected repo_id and user params
+        let results = graph
+            .execute_raw_query(&query_sql, query_params)
+            .await
             .map_err(|e| {
-                error!("Nanograph command failed: {}", e);
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    McpError::internal_error(
-                        "nanograph_not_found",
-                        Some(json!({
-                            "message": "NanoGraph CLI not found. Install with: brew install nanograph/tap/nanograph"
-                        })),
-                    )
-                } else {
-                    McpError::internal_error(
-                        "nanograph_error",
-                        Some(json!({
-                            "message": e.to_string()
-                        })),
-                    )
-                }
+                McpError::internal_error(
+                    "query_execution_failed",
+                    Some(json!({
+                        "message": format!("Query failed: {}", e)
+                    })),
+                )
             })?;
-
-        // Check if command succeeded
-        if !output.status.success() {
-            let error_msg = format_command_error("nanograph run", &output);
-
-            error!("{}", error_msg);
-
-            return Err(McpError::internal_error(
-                error_msg, // Put full error in message parameter
-                None,
-            ));
-        }
-
-        debug!("Query executed successfully");
-
-        // Parse JSON output
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let results: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
-            error!("Failed to parse JSON: {}. Raw output: {}", e, stdout);
-            McpError::internal_error(
-                "json_parse_error",
-                Some(json!({
-                    "message": format!("Failed to parse query results: {}", e)
-                })),
-            )
-        })?;
 
         info!(
             "Query completed successfully, returning {} results",
-            results
-                .get("rows")
-                .and_then(|r| r.as_array())
-                .map(|a| a.len())
-                .unwrap_or(0)
+            results.len()
         );
 
         let response = json!({
-            "query_type": prepared.query_type,
-            "query_name": prepared.name,
+            "query_type": query_type,
             "results": results,
         });
 
@@ -620,6 +246,8 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
     }
 
     /// List available queries for a repository's code graph
+    ///
+    /// Returns both predefined queries (from src/a6s/queries/) and user-saved queries
     #[tool(
         description = "List available queries with their parameters, descriptions, and usage instructions"
     )]
@@ -627,65 +255,76 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
         &self,
         params: Parameters<ListQueriesParams>,
     ) -> Result<CallToolResult, McpError> {
-        let db_path = self.cli.get_analysis_path(&params.0.repo_id);
-        let queries_dir = db_path.join("queries");
-
-        if !queries_dir.exists() {
-            return Err(McpError::invalid_params(
-                "queries_not_found",
-                Some(json!({
-                    "message": format!("No queries directory found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
-                    "repo_id": params.0.repo_id
-                })),
-            ));
-        }
-
-        let mut queries: Vec<QueryMetadata> = Vec::new();
-
-        let entries = std::fs::read_dir(&queries_dir).map_err(|e| {
+        // Get predefined queries
+        let predefined = CodeGraph::list_queries().map_err(|e| {
             McpError::internal_error(
                 "fs_error",
                 Some(json!({
-                    "message": format!("Failed to read queries directory: {}", e)
+                    "message": format!("Failed to list predefined queries: {}", e)
                 })),
             )
         })?;
 
-        for entry in entries {
-            let entry = entry.map_err(|e| {
-                McpError::internal_error(
-                    "fs_error",
+        // Connect to graph to get user-saved queries directory
+        let graph = CodeGraph::with_connection_readonly(params.0.repo_id.clone(), Arc::clone(&self.analysis_db))
+            .await
+            .map_err(|e| {
+                McpError::invalid_params(
+                    "analysis_not_found",
                     Some(json!({
-                        "message": format!("Failed to read directory entry: {}", e)
+                        "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
+                        "repo_id": params.0.repo_id,
+                        "error": e.to_string()
                     })),
                 )
             })?;
 
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("gq") {
-                continue;
-            }
+        let queries_dir = graph.get_queries_dir().map_err(|e| {
+            McpError::internal_error(
+                "fs_error",
+                Some(json!({
+                    "message": format!("Failed to get queries directory: {}", e)
+                })),
+            )
+        })?;
 
-            let content = std::fs::read_to_string(&path).map_err(|e| {
+        let mut user_saved = Vec::new();
+        if queries_dir.exists() {
+            let entries = std::fs::read_dir(&queries_dir).map_err(|e| {
                 McpError::internal_error(
                     "fs_error",
                     Some(json!({
-                        "message": format!("Failed to read query file {}: {}", path.display(), e)
+                        "message": format!("Failed to read queries directory: {}", e)
                     })),
                 )
             })?;
 
-            if let Some(metadata) = parse_query_metadata(&content) {
-                queries.push(metadata);
+            for entry in entries {
+                let entry = entry.map_err(|e| {
+                    McpError::internal_error(
+                        "fs_error",
+                        Some(json!({
+                            "message": format!("Failed to read directory entry: {}", e)
+                        })),
+                    )
+                })?;
+
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("surql")
+                    && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+                {
+                    user_saved.push(name.to_string());
+                }
             }
         }
 
-        queries.sort_by(|a, b| a.name.cmp(&b.name));
+        user_saved.sort();
 
         let response = json!({
             "repo_id": params.0.repo_id,
-            "total": queries.len(),
-            "queries": queries,
+            "predefined_queries": predefined,
+            "user_saved_queries": user_saved,
+            "total": predefined.len() + user_saved.len(),
         });
 
         let content = serde_json::to_string_pretty(&response).map_err(|e| {
@@ -702,88 +341,96 @@ impl<C: NanographCli + Send + Sync + 'static> CodeQueryTools<C> {
 }
 
 // ============================================================================
-// Query metadata parsing
-// ============================================================================
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct QueryParam {
-    pub name: String,
-    pub param_type: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct QueryMetadata {
-    pub name: String,
-    pub description: Option<String>,
-    pub instruction: Option<String>,
-    pub params: Vec<QueryParam>,
-}
-
-pub fn parse_query_metadata(content: &str) -> Option<QueryMetadata> {
-    let trimmed = content.trim();
-    if !trimmed.starts_with("query ") {
-        return None;
-    }
-
-    let after_query = &trimmed[6..];
-
-    let paren_open = after_query.find('(')?;
-    let name = after_query[..paren_open].trim().to_string();
-    if name.is_empty() {
-        return None;
-    }
-
-    let paren_close = after_query.find(')')?;
-    let params_str = after_query[paren_open + 1..paren_close].trim();
-
-    let params = if params_str.is_empty() {
-        Vec::new()
-    } else {
-        params_str
-            .split(',')
-            .filter_map(|p| {
-                let p = p.trim();
-                let parts: Vec<&str> = p.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    let param_name = parts[0].trim().trim_start_matches('$').to_string();
-                    let param_type = parts[1].trim().to_string();
-                    Some(QueryParam {
-                        name: param_name,
-                        param_type,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
-
-    let mut description = None;
-    let mut instruction = None;
-
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(desc) = line
-            .strip_prefix("@description(\"")
-            .and_then(|r| r.strip_suffix("\")"))
-        {
-            description = Some(desc.to_string());
-        } else if let Some(inst) = line
-            .strip_prefix("@instruction(\"")
-            .and_then(|r| r.strip_suffix("\")"))
-        {
-            instruction = Some(inst.to_string());
-        }
-    }
-
-    Some(QueryMetadata {
-        name,
-        description,
-        instruction,
-        params,
-    })
-}
-
-// ============================================================================
 // Helper functions
 // ============================================================================
+
+/// Load a query by name from predefined or user-saved directory.
+///
+/// Checks predefined queries first, then falls back to user-saved.
+fn load_query(graph: &CodeGraph, name: &str) -> Result<String, McpError> {
+    use std::path::PathBuf;
+
+    // 1. Check predefined queries first
+    let predefined = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/a6s/queries")
+        .join(format!("{}.surql", name));
+
+    if predefined.exists() {
+        return std::fs::read_to_string(predefined).map_err(|e| {
+            McpError::internal_error(
+                "fs_error",
+                Some(json!({
+                    "message": format!("Failed to read predefined query: {}", e)
+                })),
+            )
+        });
+    }
+
+    // 2. Check user-saved queries
+    let user_dir = graph.get_queries_dir().map_err(|e| {
+        McpError::internal_error(
+            "fs_error",
+            Some(json!({
+                "message": format!("Failed to get queries directory: {}", e)
+            })),
+        )
+    })?;
+
+    let user_saved = user_dir.join(format!("{}.surql", name));
+
+    if user_saved.exists() {
+        return std::fs::read_to_string(user_saved).map_err(|e| {
+            McpError::internal_error(
+                "fs_error",
+                Some(json!({
+                    "message": format!("Failed to read user-saved query: {}", e)
+                })),
+            )
+        });
+    }
+
+    // Not found in either location
+    let available = CodeGraph::list_queries().unwrap_or_default();
+    Err(McpError::invalid_params(
+        "query_not_found",
+        Some(json!({
+            "message": format!("Query '{}' not found", name),
+            "available_queries": available
+        })),
+    ))
+}
+
+/// Save a query to the user-saved queries directory.
+fn save_query(graph: &CodeGraph, name: &str, query_sql: &str) -> Result<(), McpError> {
+    let queries_dir = graph.get_queries_dir().map_err(|e| {
+        McpError::internal_error(
+            "fs_error",
+            Some(json!({
+                "message": format!("Failed to get queries directory: {}", e)
+            })),
+        )
+    })?;
+
+    // Create directory if it doesn't exist
+    std::fs::create_dir_all(&queries_dir).map_err(|e| {
+        McpError::internal_error(
+            "fs_error",
+            Some(json!({
+                "message": format!("Failed to create queries directory: {}", e)
+            })),
+        )
+    })?;
+
+    let query_file = queries_dir.join(format!("{}.surql", name));
+
+    std::fs::write(&query_file, query_sql).map_err(|e| {
+        McpError::internal_error(
+            "fs_error",
+            Some(json!({
+                "message": format!("Failed to write query file: {}", e)
+            })),
+        )
+    })?;
+
+    Ok(())
+}

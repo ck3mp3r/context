@@ -6,8 +6,10 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tower::ServiceExt;
 
+use crate::a6s::store::surrealdb;
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
 use tempfile::TempDir;
@@ -17,11 +19,13 @@ async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        analysis_db,
     );
     routes::create_router(state, false)
 }
@@ -32,11 +36,13 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
     let notifier = crate::api::notifier::ChangeNotifier::new();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
         temp_dir.path().join("skills"),
+        analysis_db,
     );
     (routes::create_router(state, false), notifier)
 }

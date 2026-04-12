@@ -6,8 +6,10 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tower::ServiceExt;
 
+use crate::a6s::store::surrealdb;
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use crate::db::utils::generate_entity_id;
@@ -40,6 +42,7 @@ async fn test_app() -> axum::Router {
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        Arc::new(surrealdb::init_db(None).await.unwrap()),
     );
     routes::create_router(state, false)
 }
@@ -68,6 +71,7 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         notifier.clone(),
         temp_dir.path().join("skills"),
+        Arc::new(surrealdb::init_db(None).await.unwrap()),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -318,11 +322,13 @@ async fn crud_operations() {
     assert_eq!(created.updated_at.as_ref().unwrap(), old_timestamp);
 
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        analysis_db,
     );
     let app = routes::create_router(state, false);
 

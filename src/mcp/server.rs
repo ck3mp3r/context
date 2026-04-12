@@ -13,6 +13,7 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 
+use crate::a6s::store::surrealdb;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::Database;
 use crate::sync::RealGit;
@@ -52,7 +53,7 @@ pub struct McpServer<D: Database> {
     skill_tools: SkillTools<D>,
     sync_tools: SyncTools<D, RealGit>,
     code_analysis_tools: CodeAnalysisTools<D>,
-    code_query_tools: CodeQueryTools<super::tools::code_query::Nanograph>,
+    code_query_tools: CodeQueryTools,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
@@ -65,10 +66,16 @@ impl<D: Database + 'static> McpServer<D> {
     /// * `db` - Database instance (can be Arc<D> or D)
     /// * `notifier` - ChangeNotifier for broadcasting updates
     /// * `skills_dir` - Path to skills cache directory
+    /// * `analysis_db` - SurrealDB connection for code analysis
     ///
     /// # Returns
     /// A new McpServer instance with all tool handlers initialized
-    pub fn new(db: impl Into<Arc<D>>, notifier: ChangeNotifier, skills_dir: PathBuf) -> Self {
+    pub fn new(
+        db: impl Into<Arc<D>>,
+        notifier: ChangeNotifier,
+        skills_dir: PathBuf,
+        analysis_db: Arc<surrealdb::SurrealDbConnection>,
+    ) -> Self {
         let db = db.into();
 
         Self {
@@ -79,8 +86,8 @@ impl<D: Database + 'static> McpServer<D> {
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone(), skills_dir),
             sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
-            code_analysis_tools: CodeAnalysisTools::new(Arc::clone(&db)),
-            code_query_tools: CodeQueryTools::new(),
+            code_analysis_tools: CodeAnalysisTools::new(Arc::clone(&db), Arc::clone(&analysis_db)),
+            code_query_tools: CodeQueryTools::new(analysis_db),
             tool_router: Self::tool_router(),
         }
     }

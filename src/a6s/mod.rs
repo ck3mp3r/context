@@ -47,3 +47,12 @@ mod store_test;
 
 #[cfg(test)]
 mod pipeline_test;
+
+#[cfg(test)]
+mod schema_test;
+
+#[cfg(test)]
+mod queries_test;
+
+#[cfg(test)]
+mod truncate_test;

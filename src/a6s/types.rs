@@ -11,7 +11,7 @@
 // ============================================================================
 
 /// Opaque identifier for a symbol node in the graph.
-/// Format: "symbol:{file_path}:{name}:{start_line}"
+/// Format: "symbol:{file_path}:{name}:{start_line}" (repo_id stored separately in DB)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolId(String);
 
@@ -40,7 +40,7 @@ impl std::fmt::Display for SymbolId {
 }
 
 /// Opaque identifier for a file node in the graph.
-/// Format: "file:{path}"
+/// Format: "file:{path}" (repo_id stored separately in DB)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FileId(String);
 
@@ -434,4 +434,15 @@ pub struct ResolveStats {
     pub edges_resolved: usize,
     pub edges_dropped: usize,
     pub imports_resolved: usize,
+}
+
+/// Statistics about the code graph.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphStats {
+    /// Total number of symbols in the graph
+    pub total_symbols: usize,
+    /// Total number of edges in the graph
+    pub total_edges: usize,
+    /// Symbol counts by kind (function, struct, etc.)
+    pub symbol_counts: std::collections::HashMap<String, usize>,
 }

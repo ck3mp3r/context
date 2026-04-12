@@ -35,6 +35,7 @@ backend = [
     "dep:rustls",
     "dep:rustls-platform-verifier",
     "dep:sqlx",
+    "dep:surrealdb",
     "dep:tabled",
     "dep:tokio",
     "dep:tokio-util",
@@ -158,6 +159,11 @@ features = [
     "json",
     "chrono",
 ]
+optional = true
+
+[dependencies.surrealdb]
+version = "3.0.5"
+features = ["kv-rocksdb", "kv-mem"]
 optional = true
 
 [dependencies.tabled]

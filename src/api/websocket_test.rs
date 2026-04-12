@@ -4,8 +4,10 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use std::sync::Arc;
 use tower::ServiceExt;
 
+use crate::a6s::store::surrealdb;
 use crate::api::notifier::ChangeNotifier;
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
@@ -19,8 +21,15 @@ async fn test_websocket_route_exists() {
     let temp_dir = TempDir::new().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
 
-    let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
+    let state = AppState::new(
+        db,
+        sync_manager,
+        notifier,
+        temp_dir.path().join("skills"),
+        analysis_db,
+    );
     let app = routes::create_router(state, false);
 
     // Create WebSocket upgrade request
@@ -52,8 +61,15 @@ async fn test_websocket_rejects_non_upgrade_requests() {
     let temp_dir = TempDir::new().unwrap();
     let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
 
-    let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
+    let state = AppState::new(
+        db,
+        sync_manager,
+        notifier,
+        temp_dir.path().join("skills"),
+        analysis_db,
+    );
     let app = routes::create_router(state, false);
 
     // Create regular GET request (no WebSocket headers)

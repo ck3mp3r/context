@@ -1,331 +1,887 @@
 use super::error::A6sError;
 use super::types::*;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::sync::Arc;
 use tracing::info;
 
-#[cfg(test)]
-use mockall::automock;
-
-/// Trait for NanoGraph CLI operations (mockable for tests).
-#[cfg_attr(test, automock)]
-pub trait NanoGraphCli {
-    fn init(&self, db_path: &Path, schema_path: &Path) -> Result<Output, std::io::Error>;
-    fn load(&self, db_path: &Path, batch_file: &Path) -> Result<Output, std::io::Error>;
+/// CodeGraph using SurrealDB for code analysis storage.
+///
+/// Uses a shared database at ~/.local/share/c5t/analysis.db where all repositories
+/// are stored together, differentiated by repo_id field.
+#[cfg(feature = "backend")]
+pub struct CodeGraph {
+    pub(crate) db: Arc<surrealdb::SurrealDbConnection>,
+    pub(crate) repo_id: String,
 }
 
-/// Real implementation that calls nanograph CLI.
-pub struct RealNanoGraphCli;
+#[cfg(feature = "backend")]
+impl CodeGraph {
+    /// Create a new CodeGraph for a repository using the shared database.
+    ///
+    /// This truncates any existing data for this repo_id before starting,
+    /// ensuring a clean slate for re-analysis.
+    pub async fn new(repo_id: String) -> Result<Self, A6sError> {
+        let db = surrealdb::init_shared_db().await?;
 
-impl NanoGraphCli for RealNanoGraphCli {
-    fn init(&self, db_path: &Path, schema_path: &Path) -> Result<Output, std::io::Error> {
-        Command::new("nanograph")
-            .arg("init")
-            .arg("--db")
-            .arg(db_path)
-            .arg("--schema")
-            .arg(schema_path)
-            .output()
+        // Truncate existing data for this repo (clean slate)
+        surrealdb::truncate_repo(&db, &repo_id).await?;
+
+        Ok(Self {
+            db: Arc::new(db),
+            repo_id,
+        })
     }
 
-    fn load(&self, db_path: &Path, batch_file: &Path) -> Result<Output, std::io::Error> {
-        Command::new("nanograph")
-            .arg("load")
-            .arg("--db")
-            .arg(db_path)
-            .arg("--data")
-            .arg(batch_file)
-            .arg("--mode")
-            .arg("merge")
-            .output()
+    /// Create a new CodeGraph using an existing shared database connection.
+    ///
+    /// This is the preferred method for production use with concurrent analysis.
+    /// The shared connection allows multiple analyses to run concurrently without
+    /// lock contention.
+    ///
+    /// This truncates any existing data for this repo_id before starting,
+    /// ensuring a clean slate for re-analysis.
+    pub async fn with_connection(
+        repo_id: String,
+        db: Arc<surrealdb::SurrealDbConnection>,
+    ) -> Result<Self, A6sError> {
+        // Truncate existing data for this repo (clean slate)
+        surrealdb::truncate_repo(&db, &repo_id).await?;
+
+        Ok(Self { db, repo_id })
     }
-}
 
-/// Buffered CodeGraph that collects JSONL in-memory.
-pub struct CodeGraph<C: NanoGraphCli = RealNanoGraphCli> {
-    buffer: Vec<String>,
-    analysis_path: PathBuf,
-    cli: C,
-}
+    /// Create a CodeGraph for read-only access using an existing connection.
+    ///
+    /// Preferred for concurrent query access with shared connection.
+    pub async fn with_connection_readonly(
+        repo_id: String,
+        db: Arc<surrealdb::SurrealDbConnection>,
+    ) -> Result<Self, A6sError> {
+        // Check if repo has any data (don't truncate!)
+        let mut result = db
+            .query("SELECT count() as total FROM symbol WHERE repo_id = $repo_id GROUP ALL")
+            .bind(("repo_id", repo_id.clone()))
+            .await
+            .map_err(|e| {
+                A6sError::Custom(format!("Failed to check for existing analysis: {}", e))
+            })?;
 
-impl CodeGraph<RealNanoGraphCli> {
-    /// Create a new CodeGraph with real CLI.
-    pub fn new(analysis_path: PathBuf) -> Self {
-        Self {
-            buffer: Vec::new(),
-            analysis_path,
-            cli: RealNanoGraphCli,
+        let counts: Vec<serde_json::Value> = result.take(0).expect("Failed to get count");
+        let has_data = counts
+            .first()
+            .and_then(|v| v.get("total"))
+            .and_then(|t| t.as_i64())
+            .map(|n| n > 0)
+            .unwrap_or(false);
+
+        if !has_data {
+            return Err(A6sError::NotFound(format!(
+                "No analysis found for repository {}",
+                repo_id
+            )));
         }
-    }
-}
 
-impl<C: NanoGraphCli> CodeGraph<C> {
-    /// Create a new CodeGraph with custom CLI (for testing).
-    #[cfg(test)]
-    pub fn new_with_cli(analysis_path: PathBuf, cli: C) -> Self {
-        Self {
-            buffer: Vec::new(),
-            analysis_path,
-            cli,
+        Ok(Self { db, repo_id })
+    }
+
+    /// Helper to create a compound record ID: {repo_id}_{original_id}
+    /// This ensures uniqueness across repos in the shared database.
+    fn compound_id(&self, original_id: &str) -> String {
+        format!("{}_{}", self.repo_id, original_id)
+    }
+
+    /// Create a CodeGraph for read-only access to existing analysis.
+    ///
+    /// Does NOT truncate - used for querying existing analysis data.
+    /// Returns an error if no analysis exists for this repo.
+    pub async fn new_readonly(repo_id: String) -> Result<Self, A6sError> {
+        let db = surrealdb::init_shared_db().await?;
+
+        // Check if repo has any data (don't truncate!)
+        let mut result = db
+            .query("SELECT count() as total FROM symbol WHERE repo_id = $repo_id GROUP ALL")
+            .bind(("repo_id", repo_id.clone()))
+            .await
+            .map_err(|e| {
+                A6sError::Custom(format!("Failed to check for existing analysis: {}", e))
+            })?;
+
+        let counts: Vec<serde_json::Value> = result.take(0).expect("Failed to get count");
+        let has_data = counts
+            .first()
+            .and_then(|v| v.get("total"))
+            .and_then(|t| t.as_i64())
+            .map(|n| n > 0)
+            .unwrap_or(false);
+
+        if !has_data {
+            return Err(A6sError::NotFound(format!(
+                "No analysis found for repository {}",
+                repo_id
+            )));
         }
+
+        Ok(Self {
+            db: Arc::new(db),
+            repo_id,
+        })
     }
 
-    /// Insert a file node into the buffer.
-    pub fn insert_file(&mut self, file_path: &str, language: &str, commit_hash: &str) {
+    /// Create a new CodeGraph with in-memory database for testing.
+    pub async fn new_in_memory(repo_id: String) -> Result<Self, A6sError> {
+        let db = surrealdb::init_db(None).await?;
+        Ok(Self {
+            db: Arc::new(db),
+            repo_id,
+        })
+    }
+
+    /// Insert a file node into the graph.
+    pub async fn insert_file(
+        &self,
+        file_path: &str,
+        language: &str,
+        commit_hash: &str,
+    ) -> Result<(), A6sError> {
         let file_id = FileId::new(file_path);
-        let line = serde_json::json!({
-            "type": "File",
-            "data": {
-                "file_id": file_id.as_str(),
-                "path": file_path,
-                "language": language,
-                "hash": commit_hash,
-                "repo_id": "unknown",  // TODO: pass repo_id
-            }
+        let compound_id = self.compound_id(file_id.as_str());
+
+        // Create a serde_json::Value which implements SurrealValue
+        let record = serde_json::json!({
+            "file_id": file_id.as_str(),
+            "repo_id": &self.repo_id,
+            "path": file_path,
+            "language": language,
+            "hash": commit_hash,
         });
-        self.buffer.push(line.to_string());
-    }
 
-    /// Insert a symbol node into the buffer.
-    pub fn insert_symbol(&mut self, symbol: &RawSymbol) {
-        let symbol_id = symbol.symbol_id();
-        let line = serde_json::json!({
-            "type": "Symbol",
-            "data": {
-                "symbol_id": symbol_id.as_str(),
-                "repo_id": "unknown",  // TODO: pass repo_id
-                "name": &symbol.name,
-                "kind": &symbol.kind,
-                "language": &symbol.language,
-                "file_path": &symbol.file_path,
-                "start_line": symbol.start_line,
-                "end_line": symbol.end_line,
-                "visibility": symbol.visibility.as_deref(),
-                "entry_type": symbol.entry_type.as_deref(),
-                "signature": symbol.signature.as_deref(),
-                "content": Option::<String>::None,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert a Contains edge (File -> Symbol) into the buffer.
-    pub fn insert_contains(&mut self, file_id: &FileId, symbol_id: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "FileContains",
-            "from": file_id.as_str(),
-            "to": symbol_id.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert a Calls edge into the buffer.
-    pub fn insert_calls_edge(&mut self, from: &SymbolId, to: &SymbolId, line: Option<usize>) {
-        let line_num = line.unwrap_or(0);
-        let edge = serde_json::json!({
-            "edge": "Calls",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-                "call_site_line": line_num,
-            }
-        });
-        self.buffer.push(edge.to_string());
-    }
-
-    /// Insert an Inherits edge into the buffer.
-    pub fn insert_inherits_edge(
-        &mut self,
-        from: &SymbolId,
-        to: &SymbolId,
-        inheritance_type: &InheritanceType,
-    ) {
-        let line = serde_json::json!({
-            "edge": "Inherits",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-                "inheritance_type": inheritance_type.as_str(),
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert an Implements edge (type → trait) into the buffer.
-    pub fn insert_implements_edge(&mut self, from: &SymbolId, to: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "Implements",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert an Extends edge (type → parent type) into the buffer.
-    pub fn insert_extends_edge(&mut self, from: &SymbolId, to: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "Extends",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert a HasField edge (struct → field) into the buffer.
-    pub fn insert_has_field_edge(&mut self, from: &SymbolId, to: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "HasField",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert a HasMethod edge (type → method) into the buffer.
-    pub fn insert_has_method_edge(&mut self, from: &SymbolId, to: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "HasMethod",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert a HasMember edge (module → symbol) into the buffer.
-    pub fn insert_has_member_edge(&mut self, from: &SymbolId, to: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "HasMember",
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Insert a References edge into the buffer.
-    pub fn insert_references_edge(
-        &mut self,
-        from: &SymbolId,
-        to: &SymbolId,
-        kind: &EdgeKind,
-        _line: Option<usize>,
-    ) {
-        let edge_name = match kind {
-            EdgeKind::Usage => "Uses",
-            EdgeKind::ReturnType => "Returns",
-            EdgeKind::ParamType => "Accepts",
-            EdgeKind::FieldType => "FieldType",
-            EdgeKind::TypeRef => "TypeAnnotation",
-            _ => "Uses",
-        };
-
-        let edge = serde_json::json!({
-            "edge": edge_name,
-            "from": from.as_str(),
-            "to": to.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(edge.to_string());
-    }
-
-    /// Insert a FileImports edge (File -> Symbol) into the buffer.
-    pub fn insert_file_imports_edge(&mut self, file_id: &FileId, symbol_id: &SymbolId) {
-        let line = serde_json::json!({
-            "edge": "FileImports",
-            "from": file_id.as_str(),
-            "to": symbol_id.as_str(),
-            "data": {
-                "confidence": 1.0,
-            }
-        });
-        self.buffer.push(line.to_string());
-    }
-
-    /// Commit the buffered JSONL to the code graph.
-    pub fn commit(&self) -> Result<(), A6sError> {
-        use std::fs;
-
-        if self.buffer.is_empty() {
-            info!("CodeGraph commit: no data to commit");
-            return Ok(());
-        }
-
-        info!("CodeGraph commit: {} lines buffered", self.buffer.len());
-
-        let db_path = self.analysis_path.join("analysis.nano");
-        let batch_file = self.analysis_path.join("batch.jsonl");
-        let schema_path = std::env::current_dir()?.join("src/a6s/schema.pg");
-
-        fs::create_dir_all(&self.analysis_path)?;
-
-        let batch_content = self.buffer.join("\n") + "\n";
-        fs::write(&batch_file, batch_content)?;
-
-        info!("Wrote {} lines to {:?}", self.buffer.len(), batch_file);
-
-        fs::create_dir_all(&db_path)?;
-
-        let output = self.cli.init(&db_path, &schema_path)?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(A6sError::Custom(format!(
-                "nanograph init failed: {}",
-                stderr
-            )));
-        }
-
-        info!("Initialized NanoGraph database");
-
-        let output = self.cli.load(&db_path, &batch_file)?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(A6sError::Custom(format!(
-                "nanograph load failed: {}",
-                stderr
-            )));
-        }
-
-        info!("Successfully loaded data into NanoGraph database");
-
-        fs::remove_file(&batch_file)?;
-
-        super::queries::install_bundled_queries(&self.analysis_path)?;
-
-        info!("Installed bundled queries");
+        // Use compound ID to ensure uniqueness across repos
+        let _: Option<serde_json::Value> = self
+            .db
+            .create(("file", compound_id.as_str()))
+            .content(record)
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert file: {}", e)))?;
 
         Ok(())
     }
 
-    /// Get the number of lines in the buffer (for testing).
-    pub fn buffer_len(&self) -> usize {
-        self.buffer.len()
+    /// Insert a symbol node into the graph.
+    pub async fn insert_symbol(&self, symbol: &RawSymbol) -> Result<(), A6sError> {
+        let symbol_id = symbol.symbol_id();
+        let compound_id = self.compound_id(symbol_id.as_str());
+
+        // Build record with only non-None optional fields to avoid JSON null vs SurrealDB NONE issues
+        let mut record = serde_json::json!({
+            "symbol_id": symbol_id.as_str(),
+            "repo_id": &self.repo_id,
+            "name": &symbol.name,
+            "kind": &symbol.kind,
+            "language": &symbol.language,
+            "file_path": &symbol.file_path,
+            "start_line": symbol.start_line as i32,
+            "end_line": symbol.end_line as i32,
+        });
+
+        // Add optional fields only if present (to avoid JSON null)
+        if let Some(visibility) = &symbol.visibility {
+            record["visibility"] = serde_json::json!(visibility);
+        }
+        if let Some(entry_type) = &symbol.entry_type {
+            record["entry_type"] = serde_json::json!(entry_type);
+        }
+        if let Some(signature) = &symbol.signature {
+            record["signature"] = serde_json::json!(signature);
+        }
+        // Note: module_path is not in schema, content field exists but we don't use it
+
+        // Use compound ID to ensure uniqueness across repos
+        let _: Option<serde_json::Value> = self
+            .db
+            .create(("symbol", compound_id.as_str()))
+            .content(record)
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert symbol: {}", e)))?;
+
+        Ok(())
     }
 
-    /// Get a reference to the buffer (for testing).
-    pub fn buffer(&self) -> &[String] {
-        &self.buffer
+    /// Insert a Contains edge (File -> Symbol).
+    pub async fn insert_contains(
+        &self,
+        file_id: &FileId,
+        symbol_id: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both file and symbol
+        let compound_file_id = self.compound_id(file_id.as_str());
+        let compound_symbol_id = self.compound_id(symbol_id.as_str());
+
+        let query = format!(
+            "RELATE file:`{}`->file_contains->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_file_id.replace("`", "\\`"),
+            compound_symbol_id.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert contains edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert a Calls edge between symbols.
+    pub async fn insert_calls_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+        line: Option<usize>,
+    ) -> Result<(), A6sError> {
+        let call_site_line = line.unwrap_or(0) as i32;
+
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->calls->symbol:`{}` SET confidence = 1.0, call_site_line = {}, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`"),
+            call_site_line
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert calls edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert an Inherits edge between symbols.
+    pub async fn insert_inherits_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+        inheritance_type: Option<&str>,
+    ) -> Result<(), A6sError> {
+        let inheritance_type = inheritance_type.unwrap_or("unknown");
+
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->inherits->symbol:`{}` SET confidence = 1.0, inheritance_type = '{}', repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`"),
+            inheritance_type.replace("'", "\\'")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert inherits edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert an Implements edge (type → trait).
+    pub async fn insert_implements_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->implements->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert implements edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert an Extends edge (type → parent type).
+    pub async fn insert_extends_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->extends->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert extends edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert a HasField edge (struct → field).
+    pub async fn insert_has_field_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->has_field->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert has_field edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert a HasMethod edge (type → method).
+    pub async fn insert_has_method_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->has_method->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert has_method edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert a HasMember edge (module → symbol).
+    pub async fn insert_has_member_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->has_member->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            compound_to.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert has_member edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Insert a References edge between symbols (generic type references).
+    pub async fn insert_references_edge(
+        &self,
+        from: &SymbolId,
+        to: &SymbolId,
+        kind: &EdgeKind,
+        _line: Option<usize>,
+    ) -> Result<(), A6sError> {
+        let edge_table = match kind {
+            EdgeKind::Usage => "uses",
+            EdgeKind::ReturnType => "returns",
+            EdgeKind::ParamType => "accepts",
+            EdgeKind::FieldType => "field_type",
+            EdgeKind::TypeRef => "type_annotation",
+            _ => "uses",
+        };
+
+        // Use compound IDs for both symbols
+        let compound_from = self.compound_id(from.as_str());
+        let compound_to = self.compound_id(to.as_str());
+
+        let query = format!(
+            "RELATE symbol:`{}`->{}->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_from.replace("`", "\\`"),
+            edge_table,
+            compound_to.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| {
+                A6sError::Custom(format!("Failed to insert {} edge: {}", edge_table, e))
+            })?;
+
+        Ok(())
+    }
+
+    /// Insert a FileImports edge (File -> Symbol).
+    pub async fn insert_file_imports_edge(
+        &self,
+        file_id: &FileId,
+        symbol_id: &SymbolId,
+    ) -> Result<(), A6sError> {
+        // Use compound IDs for both file and symbol
+        let compound_file_id = self.compound_id(file_id.as_str());
+        let compound_symbol_id = self.compound_id(symbol_id.as_str());
+
+        let query = format!(
+            "RELATE file:`{}`->file_imports->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
+            compound_file_id.replace("`", "\\`"),
+            compound_symbol_id.replace("`", "\\`")
+        );
+
+        let _ = self
+            .db
+            .query(&query)
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to insert file_imports edge: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Execute a named query from src/a6s/queries/*.surql
+    ///
+    /// # Arguments
+    /// * `query_name` - Name of the query file (without .surql extension)
+    /// * `params` - Parameters to bind to the query
+    ///
+    /// # Returns
+    /// Vector of JSON values representing query results
+    pub async fn execute_query(
+        &self,
+        query_name: &str,
+        params: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<Vec<serde_json::Value>, A6sError> {
+        use std::path::PathBuf;
+
+        // Load query from embedded file
+        let query_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src/a6s/queries")
+            .join(format!("{}.surql", query_name));
+
+        if !query_path.exists() {
+            return Err(A6sError::Custom(format!(
+                "Query '{}' not found at {}",
+                query_name,
+                query_path.display()
+            )));
+        }
+
+        let query_sql = std::fs::read_to_string(&query_path)
+            .map_err(|e| A6sError::Custom(format!("Failed to read query file: {}", e)))?;
+
+        // Build query with repo_id binding
+        let mut query_builder = self
+            .db
+            .query(&query_sql)
+            .bind(("repo_id", self.repo_id.clone()));
+
+        // Bind additional parameters
+        for (key, value) in params {
+            query_builder = query_builder.bind((key, value));
+        }
+
+        // Execute query
+        let mut response = query_builder
+            .await
+            .map_err(|e| A6sError::Custom(format!("Query execution failed: {}", e)))?;
+
+        // Extract results - use expect here since we control the query structure
+        let rows: Vec<serde_json::Value> =
+            response.take(0).expect("Failed to extract query results");
+
+        Ok(rows)
+    }
+
+    /// Get schema information about the code graph.
+    ///
+    /// Returns information about tables and edge types in the database.
+    pub async fn get_schema(&self) -> Result<serde_json::Value, A6sError> {
+        let mut result = self
+            .db
+            .query("INFO FOR DB")
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to get schema info: {}", e)))?;
+
+        let info: Option<serde_json::Value> = result.take(0).expect("Failed to parse schema info");
+
+        info.ok_or_else(|| A6sError::Custom("No schema info returned".to_string()))
+    }
+
+    /// List all available query names.
+    ///
+    /// Returns a sorted list of query names (without .surql extension).
+    pub fn list_queries() -> Result<Vec<String>, A6sError> {
+        use std::path::PathBuf;
+
+        let queries_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/a6s/queries");
+
+        let mut queries = Vec::new();
+        for entry in std::fs::read_dir(queries_dir)
+            .map_err(|e| A6sError::Custom(format!("Failed to read queries directory: {}", e)))?
+        {
+            let entry = entry
+                .map_err(|e| A6sError::Custom(format!("Failed to read directory entry: {}", e)))?;
+            let path = entry.path();
+
+            if path.extension().and_then(|s| s.to_str()) == Some("surql")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                queries.push(name.to_string());
+            }
+        }
+
+        queries.sort();
+        Ok(queries)
+    }
+
+    /// Execute raw SurrealQL query.
+    ///
+    /// Automatically binds repo_id and user-provided parameters.
+    /// This enables temporary ad-hoc queries without saving them.
+    ///
+    /// # Arguments
+    /// * `query_sql` - Raw SurrealQL query string
+    /// * `params` - Additional parameters to bind to the query
+    ///
+    /// # Returns
+    /// Vector of JSON values representing query results
+    pub async fn execute_raw_query(
+        &self,
+        query_sql: &str,
+        params: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<Vec<serde_json::Value>, A6sError> {
+        // Build query with repo_id auto-injection
+        let mut query_builder = self
+            .db
+            .query(query_sql)
+            .bind(("repo_id", self.repo_id.clone()));
+
+        // Bind user parameters
+        for (key, value) in params {
+            query_builder = query_builder.bind((key, value));
+        }
+
+        // Execute query
+        let mut response = query_builder
+            .await
+            .map_err(|e| A6sError::Custom(format!("Query execution failed: {}", e)))?;
+
+        // Extract results
+        let rows: Vec<serde_json::Value> =
+            response.take(0).expect("Failed to extract query results");
+
+        Ok(rows)
+    }
+
+    /// Get the directory for user-saved queries for this repository.
+    ///
+    /// Returns the path where user-defined queries are stored.
+    /// Format: ~/.local/share/c5t/queries/{repo_id}/
+    pub fn get_queries_dir(&self) -> Result<std::path::PathBuf, A6sError> {
+        use crate::sync::get_data_dir;
+
+        let base = get_data_dir();
+        let queries_dir = base.join("queries").join(&self.repo_id);
+
+        Ok(queries_dir)
+    }
+
+    /// Get graph statistics for this repository.
+    ///
+    /// Returns counts of symbols by kind and total edge counts.
+    pub async fn get_stats(&self) -> Result<GraphStats, A6sError> {
+        // Use the overview query to get symbol counts
+        let results = self
+            .execute_query("overview", std::collections::HashMap::new())
+            .await?;
+
+        let mut symbol_counts = std::collections::HashMap::new();
+        let mut total_symbols = 0;
+
+        for item in results {
+            if let Some(kind) = item.get("kind").and_then(|v| v.as_str())
+                && let Some(count) = item.get("total").and_then(|v| v.as_i64())
+            {
+                symbol_counts.insert(kind.to_string(), count as usize);
+                total_symbols += count as usize;
+            }
+        }
+
+        // Get total edge count
+        let mut edge_result = self
+            .db
+            .query(
+                "SELECT count() as total FROM calls WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM inherits WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM implements WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM extends WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM has_field WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM has_method WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM has_member WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id
+                 UNION
+                 SELECT count() as total FROM file_imports WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id"
+            )
+            .bind(("repo_id", self.repo_id.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to count edges: {}", e)))?;
+
+        let edge_counts: Vec<serde_json::Value> =
+            edge_result.take(0).expect("Failed to extract edge counts");
+
+        let total_edges: usize = edge_counts
+            .iter()
+            .filter_map(|v| v.get("total").and_then(|t| t.as_i64()))
+            .map(|t| t as usize)
+            .sum();
+
+        Ok(GraphStats {
+            total_symbols,
+            total_edges,
+            symbol_counts,
+        })
+    }
+
+    /// Commit the graph (SurrealDB auto-commits, this is a no-op for compatibility).
+    pub async fn commit(&self) -> Result<(), A6sError> {
+        info!("CodeGraph commit: SurrealDB auto-commits, operation complete");
+        Ok(())
+    }
+}
+
+// ============================================================================
+// SurrealDB Implementation
+// ============================================================================
+
+#[cfg(feature = "backend")]
+pub mod surrealdb {
+    use super::A6sError;
+    use serde::{Deserialize, Serialize};
+    use std::path::Path;
+    use surrealdb::{
+        Surreal,
+        engine::local::{Db, Mem, RocksDb},
+    };
+
+    /// Type alias for the SurrealDB connection type used in this crate
+    pub type SurrealDbConnection = Surreal<Db>;
+
+    /// Get the path to the shared SurrealDB analysis database.
+    ///
+    /// Uses a single shared database at ~/.local/share/c5t/analysis.db
+    /// All repos are stored in the same database, differentiated by repo_id.
+    pub fn get_analysis_db_path() -> std::path::PathBuf {
+        crate::sync::get_data_dir().join("analysis.db")
+    }
+
+    /// Initialize a SurrealDB instance.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the RocksDB database directory (None for in-memory tests)
+    ///
+    /// # Returns
+    /// A configured Surreal instance connected to the c5t/analysis namespace/database
+    ///
+    /// # Database Organization
+    /// - Single shared database at ~/.local/share/c5t/analysis.db
+    /// - All repositories share the same database
+    /// - Records are separated by repo_id field
+    /// - Schema enforces repo_id on all nodes and edges
+    pub async fn init_db(path: Option<&Path>) -> Result<Surreal<Db>, A6sError> {
+        let db = if let Some(path) = path {
+            // Create/open RocksDB database with file-based storage
+            // SurrealDB 3.x RocksDb::new() takes just the path, not a URL
+            // Note: new::<RocksDb>() returns Surreal<Db>, not Surreal<RocksDb>
+            Surreal::new::<RocksDb>(path).await.map_err(|e| {
+                A6sError::Custom(format!("Failed to create SurrealDB instance: {}", e))
+            })?
+        } else {
+            // Create in-memory database for tests
+            Surreal::new::<Mem>(()).await.map_err(|e| {
+                A6sError::Custom(format!("Failed to create in-memory SurrealDB: {}", e))
+            })?
+        };
+
+        // Use namespace and database
+        db.use_ns("c5t")
+            .use_db("analysis")
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to use namespace/database: {}", e)))?;
+
+        // Load schema for both file-based and in-memory databases
+        let schema_path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/a6s/schema.surql");
+        let schema_sql = std::fs::read_to_string(&schema_path)
+            .map_err(|e| A6sError::Custom(format!("Failed to read schema.surql: {}", e)))?;
+
+        db.query(&schema_sql)
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to apply schema: {}", e)))?;
+
+        Ok(db)
+    }
+
+    /// Initialize the shared analysis database (production).
+    ///
+    /// Uses the standard location: ~/.local/share/c5t/analysis.db
+    pub async fn init_shared_db() -> Result<Surreal<Db>, A6sError> {
+        let db_path = get_analysis_db_path();
+
+        // Ensure parent directory exists
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| A6sError::Custom(format!("Failed to create analysis dir: {}", e)))?;
+        }
+
+        init_db(Some(&db_path)).await
+    }
+
+    /// Delete all data for a specific repository.
+    ///
+    /// This is called before re-analysis to ensure clean state without
+    /// affecting other repositories in the shared database.
+    ///
+    /// # Arguments
+    /// * `db` - The SurrealDB instance
+    /// * `repo_id` - The repository ID to clean
+    ///
+    /// # Safety
+    /// Only deletes records WHERE repo_id = $repo_id, leaving all other repos intact.
+    pub async fn truncate_repo(db: &Surreal<Db>, repo_id: &str) -> Result<(), A6sError> {
+        tracing::info!("Truncating analysis data for repo: {}", repo_id);
+
+        let repo_id_owned = repo_id.to_string();
+
+        // Delete all symbols for this repo
+        db.query("DELETE FROM symbol WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id_owned.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to delete symbols: {}", e)))?;
+
+        // Delete all files for this repo
+        db.query("DELETE FROM file WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id_owned.clone()))
+            .await
+            .map_err(|e| A6sError::Custom(format!("Failed to delete files: {}", e)))?;
+
+        // Delete all edges for this repo (they reference symbols/files via record links)
+        // SurrealDB will cascade delete edges when their referenced records are deleted
+        // but we explicitly delete them for clarity
+        let edge_tables = vec![
+            "calls",
+            "inherits",
+            "implements",
+            "extends",
+            "has_field",
+            "has_method",
+            "has_member",
+            "file_contains",
+            "file_imports",
+            "uses",
+            "returns",
+            "accepts",
+            "field_type",
+            "type_annotation",
+        ];
+
+        for table in edge_tables {
+            // Edges don't have repo_id directly, but their in/out references do
+            // We rely on cascade deletion when symbols/files are deleted
+            // Or we can query and delete edges where in.repo_id or out.repo_id matches
+            let query = format!(
+                "DELETE FROM {} WHERE in.repo_id = $repo_id OR out.repo_id = $repo_id",
+                table
+            );
+            db.query(&query)
+                .bind(("repo_id", repo_id_owned.clone()))
+                .await
+                .map_err(|e| {
+                    A6sError::Custom(format!("Failed to delete {} edges: {}", table, e))
+                })?;
+        }
+
+        tracing::info!("Successfully truncated repo: {}", repo_id);
+        Ok(())
+    }
+
+    // Database model structures for SurrealDB
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+    pub struct SymbolRecord {
+        pub symbol_id: String,
+        pub repo_id: String,
+        pub name: String,
+        pub kind: String,
+        pub language: String,
+        pub file_path: String,
+        pub start_line: i32,
+        pub end_line: i32,
+        pub visibility: Option<String>,
+        pub entry_type: String,
+        pub signature: Option<String>,
+        pub module_path: Option<String>,
+        pub confidence: f32,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+    pub struct FileRecord {
+        pub file_id: String,
+        pub repo_id: String,
+        pub path: String,
+        pub language: String,
+        pub hash: String,
     }
 }

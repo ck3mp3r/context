@@ -20,6 +20,7 @@ mod websocket_test;
 
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -132,8 +133,15 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     // Create change notifier for WebSocket pub/sub
     let notifier = notifier::ChangeNotifier::new();
 
+    // Create shared SurrealDB connection (Composition Root pattern)
+    let analysis_db = Arc::new(
+        crate::a6s::store::surrealdb::init_shared_db()
+            .await
+            .expect("Failed to initialize shared analysis database"),
+    );
+
     // Create application state
-    let state = AppState::new(db, sync_manager, notifier, config.skills_dir);
+    let state = AppState::new(db, sync_manager, notifier, config.skills_dir, analysis_db);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

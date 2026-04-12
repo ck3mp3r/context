@@ -2,9 +2,20 @@
 //!
 //! Following TDD: These tests are written FIRST (RED), then we implement to make them pass (GREEN).
 
+use crate::a6s::store::surrealdb;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
+use std::sync::Arc;
 use tempfile::TempDir;
+
+/// Helper to create a test analysis database
+async fn test_analysis_db() -> Arc<surrealdb::SurrealDbConnection> {
+    Arc::new(
+        surrealdb::init_db(None)
+            .await
+            .expect("Failed to initialize test analysis database"),
+    )
+}
 
 /// Test that we can create an MCP server with a database
 ///
@@ -20,11 +31,16 @@ async fn test_create_mcp_server() {
         .expect("Failed to create in-memory database");
     db.migrate_async().await.expect("Failed to run migrations");
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = test_analysis_db().await;
 
     // Act: Create MCP server with the database
     // This should compile and run without errors
-    let _server =
-        super::server::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
+    let _server = super::server::McpServer::new(
+        db,
+        ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+        analysis_db,
+    );
 
     // Assert: If we got here, server was created successfully
     // More detailed assertions will come as we implement tools
@@ -46,8 +62,13 @@ async fn test_server_info() {
     db.migrate_async().await.expect("Failed to run migrations");
 
     let temp_dir = TempDir::new().unwrap();
-    let server =
-        super::server::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
+    let analysis_db = test_analysis_db().await;
+    let server = super::server::McpServer::new(
+        db,
+        ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+        analysis_db,
+    );
 
     // Act
     let info = server.get_info();
@@ -104,8 +125,13 @@ description: Test skill
     let created_skill = db.skills().create(&skill).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
-    let server =
-        super::server::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
+    let analysis_db = test_analysis_db().await;
+    let server = super::server::McpServer::new(
+        db,
+        ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+        analysis_db,
+    );
 
     // Act: Call update_skill via server (this will fail until tool is registered)
     let params = UpdateSkillParams {

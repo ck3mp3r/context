@@ -1,33 +1,23 @@
+#[cfg(feature = "backend")]
 use super::pipeline::*;
-use super::store::{CodeGraph, MockNanoGraphCli};
-use super::types::*;
-use std::os::unix::process::ExitStatusExt;
-use std::process::ExitStatus;
+#[cfg(feature = "backend")]
+use super::store::CodeGraph;
+#[cfg(feature = "backend")]
+use super::types::PipelineProgress;
+#[cfg(feature = "backend")]
 use tempfile::TempDir;
+#[cfg(feature = "backend")]
 use tokio::sync::mpsc;
 
-fn mock_success_output() -> std::process::Output {
-    std::process::Output {
-        status: ExitStatus::from_raw(0),
-        stdout: vec![],
-        stderr: vec![],
-    }
-}
-
+#[cfg(feature = "backend")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_analyze_empty_directory() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let analysis_path = temp_dir.path().join("analysis");
 
-    let mut mock_cli = MockNanoGraphCli::new();
-    mock_cli
-        .expect_init()
-        .returning(|_, _| Ok(mock_success_output()));
-    mock_cli
-        .expect_load()
-        .returning(|_, _| Ok(mock_success_output()));
+    let graph = CodeGraph::new_in_memory("test_repo".to_string())
+        .await
+        .expect("Failed to create graph");
 
-    let graph = CodeGraph::new_with_cli(analysis_path, mock_cli);
     let result = analyze_with_graph(temp_dir.path(), "test_commit", None, graph).await;
 
     assert!(result.is_ok());
@@ -38,22 +28,16 @@ async fn test_analyze_empty_directory() {
     assert_eq!(stats.imports_resolved, 0);
 }
 
+#[cfg(feature = "backend")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_progress_events_fire() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let analysis_path = temp_dir.path().join("analysis");
 
     let (tx, mut rx) = mpsc::channel(10);
 
-    let mut mock_cli = MockNanoGraphCli::new();
-    mock_cli
-        .expect_init()
-        .returning(|_, _| Ok(mock_success_output()));
-    mock_cli
-        .expect_load()
-        .returning(|_, _| Ok(mock_success_output()));
-
-    let graph = CodeGraph::new_with_cli(analysis_path, mock_cli);
+    let graph = CodeGraph::new_in_memory("test_repo".to_string())
+        .await
+        .expect("Failed to create graph");
 
     // Run analysis in background
     let repo_path = temp_dir.path().to_path_buf();
@@ -101,12 +85,10 @@ async fn test_progress_events_fire() {
         }
     }
 
-    assert!(saw_scanned);
-    assert!(saw_extracted);
-    assert!(saw_resolved);
-    assert!(saw_loaded);
+    assert!(saw_scanned && saw_extracted && saw_resolved && saw_loaded);
 }
 
+#[cfg(feature = "backend")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_nushell_multi_file_integration() {
     use std::fs;
@@ -164,17 +146,10 @@ def main [] {
     .unwrap();
 
     // Run analysis
-    let analysis_path = temp_dir.path().join("analysis");
+    let graph = CodeGraph::new_in_memory("test_repo".to_string())
+        .await
+        .expect("Failed to create graph");
 
-    let mut mock_cli = MockNanoGraphCli::new();
-    mock_cli
-        .expect_init()
-        .returning(|_, _| Ok(mock_success_output()));
-    mock_cli
-        .expect_load()
-        .returning(|_, _| Ok(mock_success_output()));
-
-    let graph = CodeGraph::new_with_cli(analysis_path, mock_cli);
     let result = analyze_with_graph(repo_path, "abc123", None, graph).await;
 
     assert!(result.is_ok(), "Analysis should succeed");

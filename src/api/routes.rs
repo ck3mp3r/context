@@ -170,6 +170,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         state.db_arc(),
         state.notifier().clone(),
         state.skills_dir().clone(),
+        state.analysis_db(),
         ct,
     );
 

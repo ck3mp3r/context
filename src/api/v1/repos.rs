@@ -530,17 +530,17 @@ pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
     })?;
 
     let repo_path = std::path::PathBuf::from(&repo_path_str);
-    let analysis_path = crate::analysis::get_analysis_path(&id).join("analysis.nano");
 
     // Spawn analysis in background
     let repo_id = id.clone();
+    let analysis_db = state.analysis_db(); // Clone Arc BEFORE spawn
     tokio::spawn(async move {
         tracing::info!("Starting a6s analysis for repo: {}", repo_id);
 
         // Get commit hash (stub - could get from git later)
         let commit_hash = "HEAD";
 
-        match crate::a6s::analyze(&repo_path, &analysis_path, commit_hash, None).await {
+        match crate::a6s::analyze(&repo_path, &repo_id, commit_hash, None, analysis_db).await {
             Ok(stats) => {
                 tracing::info!(
                     "a6s analysis complete for {}: {} symbols, {} edges resolved, {} dropped",

@@ -5,24 +5,23 @@ use super::registry::SymbolRegistry;
 use super::store::CodeGraph;
 use super::types::*;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::task::JoinSet;
 use tracing::{debug, info};
 
+use super::store::surrealdb;
+
 /// Main entry point for code analysis pipeline (production).
+#[cfg(feature = "backend")]
 pub async fn analyze(
     repo_path: &Path,
-    analysis_path: &Path,
+    repo_id: &str,
     commit_hash: &str,
     progress_tx: Option<tokio::sync::mpsc::Sender<PipelineProgress>>,
+    analysis_db: Arc<surrealdb::SurrealDbConnection>, // ADD THIS
 ) -> Result<ResolveStats, A6sError> {
-    // Remove existing database if it exists (like old analysis layer does)
-    let db_path = analysis_path.join("analysis.nano");
-    if db_path.exists() {
-        info!("Removing existing graph at {:?}", db_path);
-        std::fs::remove_dir_all(&db_path)?;
-    }
-
-    let graph = CodeGraph::new(analysis_path.to_path_buf());
+    // Create graph for this repo (truncates existing data safely)
+    let graph = CodeGraph::with_connection(repo_id.to_string(), analysis_db).await?;
     analyze_with_graph(repo_path, commit_hash, progress_tx, graph).await
 }
 
@@ -34,11 +33,12 @@ pub async fn analyze(
 /// 3. Build symbol registry
 /// 4. Resolve edges and imports (Layer 2)
 /// 5. Load graph and commit
-pub async fn analyze_with_graph<C: super::store::NanoGraphCli>(
+#[cfg(feature = "backend")]
+pub async fn analyze_with_graph(
     repo_path: &Path,
     commit_hash: &str,
     progress_tx: Option<tokio::sync::mpsc::Sender<PipelineProgress>>,
-    mut graph: super::store::CodeGraph<C>,
+    graph: super::store::CodeGraph,
 ) -> Result<ResolveStats, A6sError> {
     info!("=== a6s Pipeline Starting ===");
     info!("Repo path: {:?}", repo_path);
@@ -102,13 +102,14 @@ pub async fn analyze_with_graph<C: super::store::NanoGraphCli>(
     // Phase 7: Load graph and commit
     info!("Phase 7: Loading graph buffer...");
     load_and_commit(
-        &mut graph,
+        &graph,
         &parsed_files,
         &resolved_edges,
         &import_edges,
         commit_hash,
         &progress_tx,
-    )?;
+    )
+    .await?;
     info!("=== a6s Pipeline Complete ===");
     info!(
         "Final stats: {} symbols, {} edges resolved, {} dropped, {} imports",
@@ -289,9 +290,10 @@ fn resolve_imports(parsed_files: &[ParsedFile], registry: &SymbolRegistry) -> Ve
     all_resolved
 }
 
-/// Load all nodes and edges into the CodeGraph buffer and commit.
-fn load_and_commit<C: super::store::NanoGraphCli>(
-    graph: &mut super::store::CodeGraph<C>,
+/// Load all nodes and edges into the CodeGraph and commit.
+#[cfg(feature = "backend")]
+async fn load_and_commit(
+    graph: &super::store::CodeGraph,
     parsed_files: &[ParsedFile],
     resolved_edges: &[ResolvedEdge],
     import_edges: &[ResolvedImport],
@@ -300,16 +302,18 @@ fn load_and_commit<C: super::store::NanoGraphCli>(
 ) -> Result<(), A6sError> {
     // Insert File nodes
     for parsed in parsed_files {
-        graph.insert_file(&parsed.file_path, &parsed.language, commit_hash);
+        graph
+            .insert_file(&parsed.file_path, &parsed.language, commit_hash)
+            .await?;
     }
 
     // Insert Symbol nodes + Contains edges
     for parsed in parsed_files {
         let file_id = FileId::new(&parsed.file_path);
         for symbol in &parsed.symbols {
-            graph.insert_symbol(symbol);
+            graph.insert_symbol(symbol).await?;
             let symbol_id = symbol.symbol_id();
-            graph.insert_contains(&file_id, &symbol_id);
+            graph.insert_contains(&file_id, &symbol_id).await?;
         }
     }
 
@@ -317,35 +321,41 @@ fn load_and_commit<C: super::store::NanoGraphCli>(
     for edge in resolved_edges {
         match edge.kind {
             EdgeKind::Calls => {
-                graph.insert_calls_edge(&edge.from, &edge.to, edge.line);
+                graph
+                    .insert_calls_edge(&edge.from, &edge.to, edge.line)
+                    .await?;
             }
             EdgeKind::Implements => {
-                graph.insert_implements_edge(&edge.from, &edge.to);
+                graph.insert_implements_edge(&edge.from, &edge.to).await?;
             }
             EdgeKind::Extends => {
-                graph.insert_extends_edge(&edge.from, &edge.to);
+                graph.insert_extends_edge(&edge.from, &edge.to).await?;
             }
             EdgeKind::HasField => {
-                graph.insert_has_field_edge(&edge.from, &edge.to);
+                graph.insert_has_field_edge(&edge.from, &edge.to).await?;
             }
             EdgeKind::HasMethod => {
-                graph.insert_has_method_edge(&edge.from, &edge.to);
+                graph.insert_has_method_edge(&edge.from, &edge.to).await?;
             }
             EdgeKind::HasMember => {
-                graph.insert_has_member_edge(&edge.from, &edge.to);
+                graph.insert_has_member_edge(&edge.from, &edge.to).await?;
             }
             _ => {
-                graph.insert_references_edge(&edge.from, &edge.to, &edge.kind, edge.line);
+                graph
+                    .insert_references_edge(&edge.from, &edge.to, &edge.kind, edge.line)
+                    .await?;
             }
         }
     }
 
     // Insert import edges
     for import in import_edges {
-        graph.insert_file_imports_edge(&import.file_id, &import.target_symbol_id);
+        graph
+            .insert_file_imports_edge(&import.file_id, &import.target_symbol_id)
+            .await?;
     }
 
-    info!("✓ Loaded {} JSONL lines into buffer", graph.buffer_len());
+    info!("✓ Loaded all nodes and edges into SurrealDB");
 
     if let Some(tx) = progress_tx {
         let _ = tx.try_send(PipelineProgress::Loaded);
@@ -353,7 +363,7 @@ fn load_and_commit<C: super::store::NanoGraphCli>(
 
     // Commit
     info!("Phase 8: Committing to graph...");
-    graph.commit()?;
+    graph.commit().await?;
 
     Ok(())
 }

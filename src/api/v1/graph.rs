@@ -1,6 +1,6 @@
 //! Code graph visualization endpoint.
 //!
-//! Returns all symbols and edges from NanoGraph. Layout, filtering, and
+//! Returns all symbols and edges from SurrealDB. Layout, filtering, and
 //! truncation are handled entirely by the frontend (Sigma.js / Graphology).
 
 use axum::{
@@ -10,12 +10,11 @@ use axum::{
     response::IntoResponse,
 };
 use serde::Serialize;
-use std::process::Command;
+use std::collections::HashMap;
 use tracing::instrument;
 use utoipa::ToSchema;
 
-use crate::a6s::queries;
-use crate::analysis::get_analysis_path;
+use crate::a6s::store::CodeGraph;
 use crate::analysis::lang::{Analyser, LanguageAnalyser};
 use crate::api::AppState;
 use crate::db::{Database, RepoRepository};
@@ -71,53 +70,6 @@ pub struct GraphResponse {
 }
 
 // =============================================================================
-// NanoGraph query helpers
-// =============================================================================
-
-fn run_nanograph_query(
-    db_path: &std::path::Path,
-    query_content: &str,
-    query_name: &str,
-) -> Result<Vec<serde_json::Value>, String> {
-    let query_file = db_path.join(format!("_temp_{}.gq", query_name));
-    std::fs::write(&query_file, query_content)
-        .map_err(|e| format!("Failed to write query file: {}", e))?;
-
-    let output = Command::new("nanograph")
-        .arg("run")
-        .arg("--db")
-        .arg(db_path)
-        .arg("--query")
-        .arg(&query_file)
-        .arg("--name")
-        .arg(query_name)
-        .arg("--format")
-        .arg("jsonl")
-        .output()
-        .map_err(|e| format!("Failed to run nanograph: {}", e))?;
-
-    let _ = std::fs::remove_file(&query_file);
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("nanograph query failed: {}", stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut results = Vec::new();
-    for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let obj: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| format!("JSON parse error: {}", e))?;
-        results.push(obj);
-    }
-
-    Ok(results)
-}
-
-// =============================================================================
 // Handler
 // =============================================================================
 
@@ -145,6 +97,7 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
 ) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+    // Verify repo exists
     state.db().repos().get(&id).await.map_err(|_| {
         (
             StatusCode::NOT_FOUND,
@@ -154,40 +107,40 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
-    let analysis_dir = get_analysis_path(&id);
-    let db_path = analysis_dir.join("analysis.nano");
-    if !db_path.exists() {
-        return Ok(StatusCode::NO_CONTENT.into_response());
-    }
-
-    let result = tokio::task::spawn_blocking(move || build_graph_data(&db_path))
+    // Use shared database connection from AppState to avoid RocksDB lock contention
+    // Note: We DON'T call CodeGraph::new() because that truncates the repo!
+    // Instead, we create a CodeGraph without truncation for read-only access
+    let graph = CodeGraph::with_connection_readonly(id.clone(), state.analysis_db())
         .await
         .map_err(|e| {
+            tracing::warn!("Failed to access analysis for repo {}: {}", id, e);
+            // Return 204 No Content if analysis doesn't exist
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::NO_CONTENT,
                 Json(ErrorResponse {
-                    error: format!("Task join error: {}", e),
+                    error: format!("No analysis available for repository {}", id),
                 }),
             )
-        })?
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: e }),
-            )
         })?;
+
+    // Build graph data from SurrealDB
+    let result = build_graph_data(&graph).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
 
     Ok(Json(result).into_response())
 }
 
-fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> {
+async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
     let mut all_edges: Vec<(String, String, String)> = Vec::new();
-    let mut symbol_map: std::collections::HashMap<String, serde_json::Value> =
-        std::collections::HashMap::new();
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
     let mut failed_queries: Vec<String> = Vec::new();
 
     // Query ALL symbols first
-    let all_symbols = match run_nanograph_query(db_path, queries::ALL_SYMBOLS, "all_symbols") {
+    let all_symbols = match graph.execute_query("all_symbols", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
             tracing::warn!("all_symbols query failed: {}", e);
@@ -195,29 +148,21 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
             Vec::new()
         }
     };
+
     for row in all_symbols {
         let symbol_id = row["symbol_id"].as_str().unwrap_or("").to_string();
         if symbol_id.is_empty() {
             continue;
         }
-        let sym = serde_json::json!({
-            "symbol_id": row["symbol_id"],
-            "name": row["name"],
-            "kind": row["kind"],
-            "language": row["language"],
-            "file_path": row["file_path"],
-            "start_line": row["start_line"],
-            "entry_type": row["entry_type"],
-        });
-        symbol_map.insert(symbol_id, sym);
+        symbol_map.insert(symbol_id, row);
     }
 
-    // Query for Calls edges using pre-loaded query
-    let calls_rows = match run_nanograph_query(db_path, queries::CALLS_EDGES, "calls") {
+    // Query for Calls edges
+    let calls_rows = match graph.execute_query("calls_edges", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!("calls query failed: {}", e);
-            failed_queries.push("calls".to_string());
+            tracing::warn!("calls_edges query failed: {}", e);
+            failed_queries.push("calls_edges".to_string());
             Vec::new()
         }
     };
@@ -227,17 +172,15 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
         if src_id.is_empty() || dst_id.is_empty() {
             continue;
         }
-
         all_edges.push((src_id, dst_id, "Calls".to_string()));
     }
 
-    // Query for FileImports edges using pre-loaded query
-    let file_import_rows = match run_nanograph_query(db_path, queries::FILE_IMPORTS, "fileimports")
-    {
+    // Query for FileImports edges
+    let file_import_rows = match graph.execute_query("file_imports", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!("fileimports query failed: {}", e);
-            failed_queries.push("fileimports".to_string());
+            tracing::warn!("file_imports query failed: {}", e);
+            failed_queries.push("file_imports".to_string());
             Vec::new()
         }
     };
@@ -247,16 +190,15 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
         if src_id.is_empty() || dst_id.is_empty() {
             continue;
         }
-
         all_edges.push((src_id, dst_id, "FileImports".to_string()));
     }
 
     // Query for HasField edges
-    let field_rows = match run_nanograph_query(db_path, queries::HAS_FIELD, "hasfield") {
+    let field_rows = match graph.execute_query("has_field", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!("hasfield query failed: {}", e);
-            failed_queries.push("hasfield".to_string());
+            tracing::warn!("has_field query failed: {}", e);
+            failed_queries.push("has_field".to_string());
             Vec::new()
         }
     };
@@ -270,11 +212,11 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     }
 
     // Query for HasMethod edges
-    let method_rows = match run_nanograph_query(db_path, queries::HAS_METHOD, "hasmethod") {
+    let method_rows = match graph.execute_query("has_method", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!("hasmethod query failed: {}", e);
-            failed_queries.push("hasmethod".to_string());
+            tracing::warn!("has_method query failed: {}", e);
+            failed_queries.push("has_method".to_string());
             Vec::new()
         }
     };
@@ -288,11 +230,11 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     }
 
     // Query for HasMember edges
-    let member_rows = match run_nanograph_query(db_path, queries::HAS_MEMBER, "hasmember") {
+    let member_rows = match graph.execute_query("has_member", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!("hasmember query failed: {}", e);
-            failed_queries.push("hasmember".to_string());
+            tracing::warn!("has_member query failed: {}", e);
+            failed_queries.push("has_member".to_string());
             Vec::new()
         }
     };
@@ -306,7 +248,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     }
 
     // Query for Implements edges
-    let implements_rows = match run_nanograph_query(db_path, queries::IMPLEMENTS, "implements") {
+    let implements_rows = match graph.execute_query("implements", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
             tracing::warn!("implements query failed: {}", e);
@@ -324,7 +266,7 @@ fn build_graph_data(db_path: &std::path::Path) -> Result<GraphResponse, String> 
     }
 
     // Query for Extends edges
-    let extends_rows = match run_nanograph_query(db_path, queries::EXTENDS, "extends") {
+    let extends_rows = match graph.execute_query("extends", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
             tracing::warn!("extends query failed: {}", e);

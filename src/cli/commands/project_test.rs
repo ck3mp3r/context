@@ -1,3 +1,4 @@
+use crate::a6s::store::surrealdb;
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::PageParams;
@@ -5,6 +6,7 @@ use crate::cli::commands::project::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 
@@ -19,11 +21,13 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         .expect("Failed to create test database");
     db.migrate().expect("Failed to run migrations");
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        analysis_db,
     );
     let app = routes::create_router(state, false);
 

@@ -4,7 +4,7 @@
 //! Follows SOLID principles - thin MCP layer delegating to service layer.
 
 use crate::a6s;
-use crate::analysis::get_analysis_path;
+use crate::a6s::store::surrealdb;
 use crate::db::{Database, RepoRepository};
 use crate::mcp::tools::map_db_error;
 use rmcp::{
@@ -35,14 +35,16 @@ pub struct AnalyzeCodeParams {
 #[derive(Clone)]
 pub struct CodeAnalysisTools<D: Database> {
     db: Arc<D>,
+    analysis_db: Arc<surrealdb::SurrealDbConnection>,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: Database + 'static> CodeAnalysisTools<D> {
-    pub fn new(db: Arc<D>) -> Self {
+    pub fn new(db: Arc<D>, analysis_db: Arc<surrealdb::SurrealDbConnection>) -> Self {
         Self {
             db,
+            analysis_db,
             tool_router: Self::tool_router(),
         }
     }
@@ -71,11 +73,10 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             )
         })?;
 
-        let graph_path = get_analysis_path(&params.0.repo_id);
-
         // Spawn NEW a6s analysis pipeline in background
         let repo_id = params.0.repo_id.clone();
         let repo_path = PathBuf::from(&repo_path_str);
+        let analysis_db = Arc::clone(&self.analysis_db); // Clone BEFORE spawn
 
         tokio::spawn(async move {
             tracing::info!("Starting a6s analysis for repo: {}", repo_id);
@@ -83,7 +84,7 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             // Get commit hash (stub - could get from git later)
             let commit_hash = "HEAD";
 
-            match a6s::analyze(&repo_path, &graph_path, commit_hash, None).await {
+            match a6s::analyze(&repo_path, &repo_id, commit_hash, None, analysis_db).await {
                 Ok(stats) => {
                     tracing::info!(
                         "a6s analysis complete: {} symbols, {} edges resolved, {} dropped",
