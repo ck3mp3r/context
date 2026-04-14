@@ -1380,7 +1380,7 @@ impl RustExtractor {
         query: &Query,
         parsed: &mut ParsedFile,
     ) {
-        use crate::a6s::types::{EdgeKind, RawEdge, SymbolRef};
+        use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
 
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(query, tree.root_node(), code.as_bytes());
@@ -1400,9 +1400,12 @@ impl RustExtractor {
                 let trait_name = Self::node_text(trait_node, code);
                 let type_name = Self::node_text(type_node, code);
 
-                // Create Implements edge: Type -> Trait
-                let from = SymbolRef::unresolved(type_name.to_string(), file_path);
-                let to = SymbolRef::unresolved(trait_name.to_string(), file_path);
+                // Resolve from (the type): look up in same-file symbols
+                let from = Self::resolve_symbol_ref(parsed, type_name, file_path);
+
+                // Resolve to (the trait): look up in same-file symbols
+                let to = Self::resolve_symbol_ref(parsed, trait_name, file_path);
+
                 parsed.edges.push(RawEdge {
                     from,
                     to,
@@ -1419,14 +1422,30 @@ impl RustExtractor {
                 let type_name = Self::node_text(impl_type_node, code);
                 let method_name = Self::node_text(method_name_node, code);
 
-                // Create HasMethod edge: Type -> method
-                let from = SymbolRef::unresolved(type_name.to_string(), file_path);
-                let to = SymbolRef::unresolved(method_name.to_string(), file_path);
+                // Resolve from (the type): look up in same-file symbols
+                let from = Self::resolve_symbol_ref(parsed, type_name, file_path);
+
+                // Resolve to (the method): always in current file, match by name AND line
+                let method_line = method_name_node.start_position().row + 1;
+                let to = if let Some(method_sym) = parsed
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == method_name && s.start_line == method_line)
+                {
+                    SymbolRef::resolved(SymbolId::new(
+                        file_path,
+                        &method_sym.name,
+                        method_sym.start_line,
+                    ))
+                } else {
+                    SymbolRef::unresolved(method_name.to_string(), file_path)
+                };
+
                 parsed.edges.push(RawEdge {
                     from,
                     to,
                     kind: EdgeKind::HasMethod,
-                    line: Some(method_name_node.start_position().row + 1),
+                    line: Some(method_line),
                 });
             }
         }
@@ -1545,6 +1564,22 @@ impl RustExtractor {
         }
     }
 
+    /// Resolve a symbol name to a SymbolRef by looking up in the same file's symbols.
+    /// Returns Resolved if found, Unresolved otherwise.
+    fn resolve_symbol_ref(
+        parsed: &ParsedFile,
+        name: &str,
+        file_path: &str,
+    ) -> crate::a6s::types::SymbolRef {
+        use crate::a6s::types::{SymbolId, SymbolRef};
+
+        if let Some(sym) = parsed.symbols.iter().find(|s| s.name == name) {
+            SymbolRef::resolved(SymbolId::new(file_path, &sym.name, sym.start_line))
+        } else {
+            SymbolRef::unresolved(name.to_string(), file_path)
+        }
+    }
+
     /// Helper to create a type reference edge with automatic symbol resolution
     fn create_type_edge(
         from_name: &str,
@@ -1560,15 +1595,7 @@ impl RustExtractor {
         let from = SymbolRef::resolved(SymbolId::new(file_path, from_name, from_line));
 
         // Try to resolve the type reference to a symbol in the same file
-        let to = if let Some(type_sym) = parsed.symbols.iter().find(|s| s.name == type_name) {
-            SymbolRef::resolved(SymbolId::new(
-                file_path,
-                &type_sym.name,
-                type_sym.start_line,
-            ))
-        } else {
-            SymbolRef::unresolved(type_name.to_string(), file_path)
-        };
+        let to = Self::resolve_symbol_ref(parsed, type_name, file_path);
 
         parsed.edges.push(RawEdge {
             from,

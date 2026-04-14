@@ -657,6 +657,276 @@ impl MyTrait for MyStruct {
     );
 }
 
+#[test]
+fn test_hasmethod_same_file_resolved() {
+    let code = r#"
+struct Foo {}
+
+impl Foo {
+    fn bar(&self) {}
+}
+"#;
+    let parsed = extract(code);
+
+    let hasmethod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMethod))
+        .collect();
+
+    assert_eq!(
+        hasmethod_edges.len(),
+        1,
+        "Expected 1 HasMethod edge, got: {:?}",
+        hasmethod_edges
+    );
+
+    match &hasmethod_edges[0].from {
+        SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Foo:"),
+            "from should be Foo, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &hasmethod_edges[0].to {
+        SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":bar:"),
+            "to should be bar, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_hasmethod_multiple_methods() {
+    let code = r#"
+struct Server {}
+
+impl Server {
+    fn start(&self) {}
+    fn stop(&self) {}
+}
+"#;
+    let parsed = extract(code);
+
+    let hasmethod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMethod))
+        .collect();
+
+    assert_eq!(
+        hasmethod_edges.len(),
+        2,
+        "Expected 2 HasMethod edges, got: {:?}",
+        hasmethod_edges
+    );
+
+    // Both should have Resolved from and to
+    for edge in &hasmethod_edges {
+        match &edge.from {
+            SymbolRef::Resolved(_) => {}
+            other => panic!("from should be Resolved, got {:?}", other),
+        }
+        match &edge.to {
+            SymbolRef::Resolved(_) => {}
+            other => panic!("to should be Resolved, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn test_hasmethod_disambiguates_same_name() {
+    let code = r#"
+struct Foo {}
+struct Bar {}
+
+impl Foo {
+    fn process(&self) {}
+}
+
+impl Bar {
+    fn process(&self) {}
+}
+"#;
+    let parsed = extract(code);
+
+    let hasmethod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMethod))
+        .collect();
+
+    assert_eq!(
+        hasmethod_edges.len(),
+        2,
+        "Expected 2 HasMethod edges, got: {:?}",
+        hasmethod_edges
+    );
+
+    // All should be Resolved — no ambiguity because we match on line number
+    for edge in &hasmethod_edges {
+        match &edge.from {
+            SymbolRef::Resolved(_) => {}
+            other => panic!("from should be Resolved, got {:?}", other),
+        }
+        match &edge.to {
+            SymbolRef::Resolved(_) => {}
+            other => panic!("to should be Resolved, got {:?}", other),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Implements Edge Tests (Resolved vs Unresolved)
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_implements_same_file_both_resolved() {
+    let code = r#"
+trait Greeter {
+    fn greet(&self);
+}
+
+struct MyGreeter;
+
+impl Greeter for MyGreeter {
+    fn greet(&self) {}
+}
+"#;
+    let extractor = RustExtractor;
+    let parsed = extractor.extract(code, "test.rs");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    assert_eq!(
+        impl_edges.len(),
+        1,
+        "Expected 1 Implements edge, got: {:?}",
+        impl_edges
+    );
+
+    // from = MyGreeter (Resolved, same file)
+    match &impl_edges[0].from {
+        SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyGreeter:"),
+            "from should be MyGreeter, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    // to = Greeter (Resolved, same file)
+    match &impl_edges[0].to {
+        SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Greeter:"),
+            "to should be Greeter, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_implements_cross_file_trait_unresolved() {
+    let code = r#"
+struct MyType;
+
+impl Display for MyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        Ok(())
+    }
+}
+"#;
+    let extractor = RustExtractor;
+    let parsed = extractor.extract(code, "test.rs");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    assert_eq!(
+        impl_edges.len(),
+        1,
+        "Expected 1 Implements edge, got: {:?}",
+        impl_edges
+    );
+
+    // from = MyType (Resolved, same file)
+    match &impl_edges[0].from {
+        SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "from should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    // to = Display (Unresolved, foreign trait)
+    match &impl_edges[0].to {
+        SymbolRef::Unresolved { name, .. } => {
+            assert_eq!(name, "Display", "to should be Display, got {}", name)
+        }
+        other => panic!("to should be Unresolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_implements_multiple_traits_all_resolved() {
+    let code = r#"
+trait Readable {
+    fn read(&self) -> String;
+}
+
+trait Writable {
+    fn write(&self, data: &str);
+}
+
+struct File;
+
+impl Readable for File {
+    fn read(&self) -> String { String::new() }
+}
+
+impl Writable for File {
+    fn write(&self, data: &str) {}
+}
+"#;
+    let extractor = RustExtractor;
+    let parsed = extractor.extract(code, "test.rs");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    assert_eq!(
+        impl_edges.len(),
+        2,
+        "Expected 2 Implements edges, got: {:?}",
+        impl_edges
+    );
+
+    // All should be Resolved (same file)
+    for edge in &impl_edges {
+        match &edge.from {
+            SymbolRef::Resolved(_) => {}
+            other => panic!("from should be Resolved, got {:?}", other),
+        }
+        match &edge.to {
+            SymbolRef::Resolved(_) => {}
+            other => panic!("to should be Resolved, got {:?}", other),
+        }
+    }
+}
+
 // ============================================================================
 // Phase 3: Import Extraction Tests (RED → GREEN → REFACTOR)
 // ============================================================================

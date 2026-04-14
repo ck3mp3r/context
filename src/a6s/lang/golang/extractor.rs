@@ -291,6 +291,9 @@ impl GolangExtractor {
                 }
             }
         }
+
+        // Extract type reference edges (ParamType, ReturnType, FieldType)
+        Self::extract_type_references(file_path, code, tree, parsed);
     }
 
     /// Find the function/method symbol that encloses a given line
@@ -1018,5 +1021,299 @@ impl GolangExtractor {
             return true;
         }
         false
+    }
+
+    /// Check if a Go type name is a built-in type that should be skipped.
+    fn is_go_builtin(name: &str) -> bool {
+        matches!(
+            name,
+            "string"
+                | "int"
+                | "int8"
+                | "int16"
+                | "int32"
+                | "int64"
+                | "uint"
+                | "uint8"
+                | "uint16"
+                | "uint32"
+                | "uint64"
+                | "float32"
+                | "float64"
+                | "complex64"
+                | "complex128"
+                | "bool"
+                | "byte"
+                | "rune"
+                | "error"
+                | "any"
+                | "uintptr"
+        )
+    }
+
+    /// Helper to create a type reference edge with automatic symbol resolution.
+    fn create_type_edge(
+        from_name: &str,
+        from_line: usize,
+        type_name: &str,
+        edge_kind: crate::a6s::types::EdgeKind,
+        line: usize,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::{RawEdge, SymbolId, SymbolRef};
+
+        let from = SymbolRef::resolved(SymbolId::new(file_path, from_name, from_line));
+
+        // Try to resolve the type reference to a symbol in the same file
+        let to = if let Some(type_sym) = parsed.symbols.iter().find(|s| s.name == type_name) {
+            SymbolRef::resolved(SymbolId::new(
+                file_path,
+                &type_sym.name,
+                type_sym.start_line,
+            ))
+        } else {
+            SymbolRef::unresolved(type_name.to_string(), file_path)
+        };
+
+        parsed.edges.push(RawEdge {
+            from,
+            to,
+            kind: edge_kind,
+            line: Some(line),
+        });
+    }
+
+    /// Extract type references from function parameters, return types, and struct fields.
+    fn extract_type_references(
+        file_path: &str,
+        code: &str,
+        tree: &tree_sitter::Tree,
+        parsed: &mut ParsedFile,
+    ) {
+        let language = tree_sitter_go::LANGUAGE.into();
+        let type_refs_src = include_str!("../../../analysis/lang/golang/queries/type_refs.scm");
+        let query = match Query::new(&language, type_refs_src) {
+            Ok(q) => q,
+            Err(e) => {
+                eprintln!("Failed to compile Go type_refs query: {}", e);
+                return;
+            }
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
+
+        while let Some(m) = matches.next() {
+            let mut captures_map = std::collections::HashMap::new();
+            for cap in m.captures {
+                let name = &query.capture_names()[cap.index as usize];
+                captures_map.insert(name.as_ref(), cap.node);
+            }
+
+            Self::process_param_type_refs(&captures_map, code, file_path, parsed);
+            Self::process_return_type_refs(&captures_map, code, file_path, parsed);
+            Self::process_field_type_refs(&captures_map, code, file_path, parsed);
+        }
+    }
+
+    /// Process parameter type references from captured nodes.
+    fn process_param_type_refs(
+        captures_map: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::EdgeKind;
+
+        const PARAM_PATTERNS: &[(&str, &str)] = &[
+            // Function params
+            ("fn_param_direct_fn", "fn_param_direct_type"),
+            ("fn_param_ptr_fn", "fn_param_ptr_type"),
+            ("fn_param_slice_fn", "fn_param_slice_type"),
+            ("fn_param_slice_ptr_fn", "fn_param_slice_ptr_type"),
+            ("fn_param_map_fn", "fn_param_map_type"),
+            ("fn_param_map_key_fn", "fn_param_map_key_type"),
+            ("fn_param_qual_fn", "fn_param_qual_type"),
+            ("fn_param_ptr_qual_fn", "fn_param_ptr_qual_type"),
+            ("fn_param_chan_fn", "fn_param_chan_type"),
+            ("fn_param_generic_fn", "fn_param_generic_outer"),
+            ("fn_param_generic_inner_fn", "fn_param_generic_inner_type"),
+            ("fn_param_variadic_fn", "fn_param_variadic_type"),
+            ("fn_param_variadic_ptr_fn", "fn_param_variadic_ptr_type"),
+            // Method params
+            ("method_param_direct_fn", "method_param_direct_type"),
+            ("method_param_ptr_fn", "method_param_ptr_type"),
+            ("method_param_slice_fn", "method_param_slice_type"),
+            ("method_param_qual_fn", "method_param_qual_type"),
+            ("method_param_ptr_qual_fn", "method_param_ptr_qual_type"),
+            ("method_param_chan_fn", "method_param_chan_type"),
+            (
+                "method_param_generic_inner_fn",
+                "method_param_generic_inner_type",
+            ),
+        ];
+
+        for (fn_cap, type_cap) in PARAM_PATTERNS {
+            if let (Some(&fn_node), Some(&type_node)) =
+                (captures_map.get(*fn_cap), captures_map.get(*type_cap))
+            {
+                let fn_name = Self::node_text(fn_node, code);
+                let type_name = Self::node_text(type_node, code);
+                if Self::is_go_builtin(type_name) {
+                    continue;
+                }
+                let fn_line = fn_node.start_position().row + 1;
+                let type_line = type_node.start_position().row + 1;
+                Self::create_type_edge(
+                    fn_name,
+                    fn_line,
+                    type_name,
+                    EdgeKind::ParamType,
+                    type_line,
+                    file_path,
+                    parsed,
+                );
+            }
+        }
+    }
+
+    /// Process return type references from captured nodes.
+    fn process_return_type_refs(
+        captures_map: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::EdgeKind;
+
+        const RETURN_PATTERNS: &[(&str, &str)] = &[
+            // Function returns
+            ("fn_ret_direct_fn", "fn_ret_direct_type"),
+            ("fn_ret_ptr_fn", "fn_ret_ptr_type"),
+            ("fn_ret_slice_fn", "fn_ret_slice_type"),
+            ("fn_ret_qual_fn", "fn_ret_qual_type"),
+            ("fn_ret_ptr_qual_fn", "fn_ret_ptr_qual_type"),
+            ("fn_ret_tuple_fn", "fn_ret_tuple_type"),
+            ("fn_ret_tuple_ptr_fn", "fn_ret_tuple_ptr_type"),
+            ("fn_ret_tuple_slice_fn", "fn_ret_tuple_slice_type"),
+            ("fn_ret_tuple_slice_ptr_fn", "fn_ret_tuple_slice_ptr_type"),
+            ("fn_ret_tuple_slice_qual_fn", "fn_ret_tuple_slice_qual_type"),
+            ("fn_ret_tuple_ptr_qual_fn", "fn_ret_tuple_ptr_qual_type"),
+            ("fn_ret_generic_fn", "fn_ret_generic_outer"),
+            ("fn_ret_generic_inner_fn", "fn_ret_generic_inner_type"),
+            // Method returns
+            ("method_ret_direct_fn", "method_ret_direct_type"),
+            ("method_ret_ptr_fn", "method_ret_ptr_type"),
+            ("method_ret_slice_fn", "method_ret_slice_type"),
+            ("method_ret_qual_fn", "method_ret_qual_type"),
+            ("method_ret_ptr_qual_fn", "method_ret_ptr_qual_type"),
+            ("method_ret_tuple_fn", "method_ret_tuple_type"),
+            ("method_ret_tuple_ptr_fn", "method_ret_tuple_ptr_type"),
+            ("method_ret_tuple_slice_fn", "method_ret_tuple_slice_type"),
+            (
+                "method_ret_tuple_slice_ptr_fn",
+                "method_ret_tuple_slice_ptr_type",
+            ),
+            (
+                "method_ret_tuple_slice_qual_fn",
+                "method_ret_tuple_slice_qual_type",
+            ),
+            (
+                "method_ret_tuple_ptr_qual_fn",
+                "method_ret_tuple_ptr_qual_type",
+            ),
+            (
+                "method_ret_generic_inner_fn",
+                "method_ret_generic_inner_type",
+            ),
+        ];
+
+        for (fn_cap, type_cap) in RETURN_PATTERNS {
+            if let (Some(&fn_node), Some(&type_node)) =
+                (captures_map.get(*fn_cap), captures_map.get(*type_cap))
+            {
+                let fn_name = Self::node_text(fn_node, code);
+                let type_name = Self::node_text(type_node, code);
+                if Self::is_go_builtin(type_name) {
+                    continue;
+                }
+                let fn_line = fn_node.start_position().row + 1;
+                let type_line = type_node.start_position().row + 1;
+                Self::create_type_edge(
+                    fn_name,
+                    fn_line,
+                    type_name,
+                    EdgeKind::ReturnType,
+                    type_line,
+                    file_path,
+                    parsed,
+                );
+            }
+        }
+    }
+
+    /// Process field type references from captured nodes.
+    /// Field patterns use triples: (struct_capture, field_capture, type_capture).
+    /// The `from` is the FIELD symbol (not the struct), creating an edge
+    /// "field has type X". Struct→field is already captured by HasField edges.
+    fn process_field_type_refs(
+        captures_map: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+    ) {
+        use crate::a6s::types::EdgeKind;
+
+        const FIELD_PATTERNS: &[(&str, &str, &str)] = &[
+            (
+                "field_direct_struct",
+                "field_direct_name",
+                "field_direct_type",
+            ),
+            ("field_ptr_struct", "field_ptr_name", "field_ptr_type"),
+            ("field_slice_struct", "field_slice_name", "field_slice_type"),
+            (
+                "field_slice_ptr_struct",
+                "field_slice_ptr_name",
+                "field_slice_ptr_type",
+            ),
+            ("field_map_struct", "field_map_name", "field_map_type"),
+            ("field_qual_struct", "field_qual_name", "field_qual_type"),
+            (
+                "field_ptr_qual_struct",
+                "field_ptr_qual_name",
+                "field_ptr_qual_type",
+            ),
+            ("field_chan_struct", "field_chan_name", "field_chan_type"),
+            (
+                "field_generic_struct",
+                "field_generic_name",
+                "field_generic_type",
+            ),
+        ];
+
+        for (_struct_cap, field_cap, type_cap) in FIELD_PATTERNS {
+            if let (Some(&field_node), Some(&type_node)) =
+                (captures_map.get(*field_cap), captures_map.get(*type_cap))
+            {
+                let field_name = Self::node_text(field_node, code);
+                let type_name = Self::node_text(type_node, code);
+                if Self::is_go_builtin(type_name) {
+                    continue;
+                }
+                let field_line = field_node.start_position().row + 1;
+                let type_line = type_node.start_position().row + 1;
+                Self::create_type_edge(
+                    field_name,
+                    field_line,
+                    type_name,
+                    EdgeKind::FieldType,
+                    type_line,
+                    file_path,
+                    parsed,
+                );
+            }
+        }
     }
 }

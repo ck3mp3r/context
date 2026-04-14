@@ -1076,3 +1076,767 @@ func Hello() {}
         "Package should NOT have a self-edge"
     );
 }
+
+#[test]
+fn test_extract_param_type_edge_direct() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+func Process(item MyType) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert_eq!(
+        param_edges.len(),
+        1,
+        "Expected 1 ParamType edge, got: {:?}",
+        param_edges
+    );
+    let edge = &param_edges[0];
+
+    // from should be resolved to Process
+    match &edge.from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Process:"),
+            "from should be Process, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+
+    // to should be resolved to MyType (same file)
+    match &edge.to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_param_type_skips_builtins() {
+    let code = r#"
+package main
+
+func Process(name string, count int, flag bool) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert_eq!(
+        param_edges.len(),
+        0,
+        "Builtin types should not produce ParamType edges, got: {:?}",
+        param_edges
+    );
+}
+
+#[test]
+fn test_param_type_pointer() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+func Process(item *MyType) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert_eq!(
+        param_edges.len(),
+        1,
+        "Expected 1 ParamType edge, got: {:?}",
+        param_edges
+    );
+    match &param_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Process:"),
+            "from should be Process, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &param_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_param_type_slice() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+func Process(items []MyType) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert_eq!(
+        param_edges.len(),
+        1,
+        "Expected 1 ParamType edge, got: {:?}",
+        param_edges
+    );
+    match &param_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Process:"),
+            "from should be Process, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &param_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_param_type_multiple_params() {
+    let code = r#"
+package main
+
+type TypeA struct{}
+type TypeB struct{}
+
+func Convert(from TypeA, to TypeB) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert_eq!(
+        param_edges.len(),
+        2,
+        "Expected 2 ParamType edges, got: {:?}",
+        param_edges
+    );
+
+    // Both should be from Convert
+    for edge in &param_edges {
+        match &edge.from {
+            crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+                id.as_str().contains(":Convert:"),
+                "from should be Convert, got {:?}",
+                id
+            ),
+            other => panic!("from should be Resolved, got {:?}", other),
+        }
+    }
+
+    // Should have edges to both TypeA and TypeB
+    assert!(
+        param_edges.iter().any(|e| matches!(
+            &e.to,
+            crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":TypeA:")
+        )),
+        "Expected ParamType edge to TypeA"
+    );
+    assert!(
+        param_edges.iter().any(|e| matches!(
+            &e.to,
+            crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":TypeB:")
+        )),
+        "Expected ParamType edge to TypeB"
+    );
+}
+
+#[test]
+fn test_param_type_method() {
+    let code = r#"
+package main
+
+type Server struct{}
+type Request struct{}
+
+func (s *Server) Handle(req Request) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    // Should have 1 ParamType edge: Handle → Request
+    // The receiver (Server) is NOT a param type edge
+    assert_eq!(
+        param_edges.len(),
+        1,
+        "Expected 1 ParamType edge (Handle → Request), got: {:?}",
+        param_edges
+    );
+    match &param_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Handle:"),
+            "from should be Handle, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &param_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Request:"),
+            "to should be Request, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_param_type_mixed_builtin_and_custom() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+func Process(name string, item MyType, count int) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    // Only MyType should produce a ParamType edge (string and int are builtins)
+    assert_eq!(
+        param_edges.len(),
+        1,
+        "Expected 1 ParamType edge (only MyType), got: {:?}",
+        param_edges
+    );
+    match &param_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Process:"),
+            "from should be Process, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &param_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_param_type_variadic() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+func Process(items ...MyType) {}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert_eq!(
+        param_edges.len(),
+        1,
+        "Expected 1 ParamType edge, got: {:?}",
+        param_edges
+    );
+    match &param_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Process:"),
+            "from should be Process, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &param_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+// ==========================================================================
+// ReturnType edge tests
+// ==========================================================================
+
+#[test]
+fn test_return_type_direct() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+func Create() MyType { return MyType{} }
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let ret_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ReturnType)
+        .collect();
+
+    assert_eq!(
+        ret_edges.len(),
+        1,
+        "Expected 1 ReturnType edge, got: {:?}",
+        ret_edges
+    );
+    match &ret_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Create:"),
+            "from should be Create, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &ret_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_return_type_pointer() {
+    let code = r#"
+package main
+
+type Server struct{}
+
+func NewServer() *Server { return &Server{} }
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let ret_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ReturnType)
+        .collect();
+
+    assert_eq!(
+        ret_edges.len(),
+        1,
+        "Expected 1 ReturnType edge, got: {:?}",
+        ret_edges
+    );
+    match &ret_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":NewServer:"),
+            "from should be NewServer, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &ret_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Server:"),
+            "to should be Server, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_return_type_tuple_filters_builtins() {
+    let code = r#"
+package main
+
+type Item struct{}
+
+func GetItems() ([]Item, error) { return nil, nil }
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let ret_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ReturnType)
+        .collect();
+
+    // Only Item should produce a ReturnType edge (error is builtin)
+    assert_eq!(
+        ret_edges.len(),
+        1,
+        "Expected 1 ReturnType edge (Item only, error is builtin), got: {:?}",
+        ret_edges
+    );
+    match &ret_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":GetItems:"),
+            "from should be GetItems, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &ret_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Item:"),
+            "to should be Item, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_return_type_method() {
+    let code = r#"
+package main
+
+type Server struct{}
+type ServerStatus int
+
+func (s *Server) Status() ServerStatus { return 0 }
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let ret_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ReturnType)
+        .collect();
+
+    assert_eq!(
+        ret_edges.len(),
+        1,
+        "Expected 1 ReturnType edge (Status → ServerStatus), got: {:?}",
+        ret_edges
+    );
+    match &ret_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Status:"),
+            "from should be Status, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &ret_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":ServerStatus:"),
+            "to should be ServerStatus, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_return_type_no_edges_for_builtins() {
+    let code = r#"
+package main
+
+func GetName() string { return "" }
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let ret_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ReturnType)
+        .collect();
+
+    assert_eq!(
+        ret_edges.len(),
+        0,
+        "Builtin return types should not produce ReturnType edges, got: {:?}",
+        ret_edges
+    );
+}
+
+// ==========================================================================
+// FieldType edge tests
+// ==========================================================================
+
+#[test]
+fn test_field_type_direct() {
+    let code = r#"
+package main
+
+type MyType struct{}
+
+type Container struct {
+    Item MyType
+}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let field_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::FieldType)
+        .collect();
+
+    assert_eq!(
+        field_edges.len(),
+        1,
+        "Expected 1 FieldType edge, got: {:?}",
+        field_edges
+    );
+    match &field_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Item:"),
+            "from should be Item field, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    match &field_edges[0].to {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":MyType:"),
+            "to should be MyType, got {:?}",
+            id
+        ),
+        other => panic!("to should be Resolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_field_type_pointer_and_slice() {
+    let code = r#"
+package main
+
+type Handler struct{}
+type Item struct{}
+
+type Config struct {
+    Handler *Handler
+    Items   []Item
+}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let field_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::FieldType)
+        .collect();
+
+    assert_eq!(
+        field_edges.len(),
+        2,
+        "Expected 2 FieldType edges, got: {:?}",
+        field_edges
+    );
+
+    // Check Handler field → Handler type
+    assert!(
+        field_edges.iter().any(|e| {
+            matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Handler:"))
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Handler:"))
+        }),
+        "Expected FieldType edge Handler field → Handler type"
+    );
+
+    // Check Items field → Item type
+    assert!(
+        field_edges.iter().any(|e| {
+            matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Items:"))
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Item:"))
+        }),
+        "Expected FieldType edge Items field → Item type"
+    );
+}
+
+#[test]
+fn test_field_type_qualified_unresolved() {
+    let code = r#"
+package main
+
+type App struct {
+    Srv http.Server
+}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let field_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::FieldType)
+        .collect();
+
+    // qualified_type captures just the type_identifier "Server" — which is unresolved
+    // because http.Server is external and no Server symbol exists in this file
+    assert_eq!(
+        field_edges.len(),
+        1,
+        "Expected 1 FieldType edge, got: {:?}",
+        field_edges
+    );
+    match &field_edges[0].from {
+        crate::a6s::types::SymbolRef::Resolved(id) => assert!(
+            id.as_str().contains(":Srv:"),
+            "from should be Srv field, got {:?}",
+            id
+        ),
+        other => panic!("from should be Resolved, got {:?}", other),
+    }
+    // to should be Unresolved because http.Server is external
+    match &field_edges[0].to {
+        crate::a6s::types::SymbolRef::Unresolved { name, .. } => assert_eq!(
+            name, "Server",
+            "to should be unresolved Server, got {:?}",
+            name
+        ),
+        other => panic!("to should be Unresolved, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_field_type_skips_builtins() {
+    let code = r#"
+package main
+
+type Config struct {
+    Name   string
+    Count  int
+    Active bool
+}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let field_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::FieldType)
+        .collect();
+
+    assert_eq!(
+        field_edges.len(),
+        0,
+        "Builtin field types should not produce FieldType edges, got: {:?}",
+        field_edges
+    );
+}
+
+#[test]
+fn test_field_type_multiple_custom_types() {
+    let code = r#"
+package main
+
+type Config struct{}
+type Handler struct{}
+type Logger struct{}
+
+type Service struct {
+    Config  Config
+    Handler Handler
+    Logger  Logger
+}
+"#;
+    let extractor = GolangExtractor;
+    let parsed = extractor.extract(code, "main.go");
+
+    let field_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::FieldType)
+        .collect();
+
+    assert_eq!(
+        field_edges.len(),
+        3,
+        "Expected 3 FieldType edges, got: {:?}",
+        field_edges
+    );
+
+    // All should have from = field (Resolved) and to = type (Resolved)
+    for edge in &field_edges {
+        assert!(
+            edge.from.is_resolved(),
+            "from should be Resolved, got {:?}",
+            edge.from
+        );
+        assert!(
+            edge.to.is_resolved(),
+            "to should be Resolved, got {:?}",
+            edge.to
+        );
+    }
+
+    // Verify each specific field → type edge
+    for name in &["Config", "Handler", "Logger"] {
+        assert!(
+            field_edges.iter().any(|e| {
+                matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(&format!(":{}:", name)))
+            }),
+            "Expected FieldType edge from {} field",
+            name
+        );
+    }
+}
