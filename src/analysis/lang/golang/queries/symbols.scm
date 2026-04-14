@@ -26,11 +26,21 @@
             type: (interface_type))) @iface_def)
 
 ;;; type_declaration — type alias (top-level only)
+;;; Excludes struct_type and interface_type (they have dedicated patterns above)
 (source_file
     (type_declaration
         (type_spec
             name: (type_identifier) @type_alias_name
-            type: (_) @type_alias_value)) @type_alias_def)
+            type: [
+                (type_identifier)
+                (qualified_type)
+                (pointer_type)
+                (slice_type)
+                (array_type)
+                (map_type)
+                (channel_type)
+                (function_type)
+            ] @type_alias_value)) @type_alias_def)
 
 ;;; const_spec
 (const_declaration
