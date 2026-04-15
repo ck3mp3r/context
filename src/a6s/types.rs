@@ -60,26 +60,6 @@ impl std::fmt::Display for FileId {
     }
 }
 
-/// A symbol name used for cross-file resolution lookups.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SymbolName(String);
-
-impl SymbolName {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for SymbolName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
 /// A module-qualified symbol name for unambiguous cross-file resolution.
 ///
 /// Format: `"module_path::symbol_name"` (e.g., `"analysis::types::SymbolId"`).

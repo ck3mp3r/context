@@ -5,7 +5,7 @@
 //!
 //! Architecture:
 //! - Layer 1: Parallel per-file tree-sitter extraction via spawn_blocking
-//! - Layer 2: Sequential cross-file resolution via SymbolRegistry
+//! - Layer 2: Per-language cross-file resolution (edges + imports)
 //! - Buffered graph writes (single nanograph load at commit)
 
 #[cfg(feature = "backend")]
@@ -13,9 +13,6 @@ pub mod types;
 
 #[cfg(feature = "backend")]
 pub mod extract;
-
-#[cfg(feature = "backend")]
-pub mod registry;
 
 #[cfg(feature = "backend")]
 pub mod store;
@@ -38,9 +35,6 @@ pub use pipeline::analyze;
 
 #[cfg(test)]
 mod types_test;
-
-#[cfg(test)]
-mod registry_test;
 
 #[cfg(test)]
 mod store_test;

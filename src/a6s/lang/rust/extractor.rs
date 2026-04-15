@@ -1,6 +1,5 @@
 use crate::a6s::extract::LanguageExtractor;
-use crate::a6s::registry::SymbolRegistry;
-use crate::a6s::types::{ParsedFile, RawImport, ResolvedImport};
+use crate::a6s::types::{ParsedFile, ResolvedEdge, ResolvedImport};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 /// Rust language extractor (stub implementation).
@@ -134,65 +133,6 @@ impl LanguageExtractor for RustExtractor {
         Self::extract_imports(&tree, code, file_path, &mut parsed);
 
         parsed
-    }
-
-    fn derive_module_path(&self, file_path: &str) -> Option<String> {
-        if file_path.is_empty() {
-            return None;
-        }
-
-        // Strip src/ prefix if present
-        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
-
-        // Handle empty or root-only paths
-        if path.is_empty() || path == "/" {
-            return None;
-        }
-
-        // Remove .rs extension
-        let path = path.strip_suffix(".rs")?;
-
-        // Handle crate roots (main.rs, lib.rs)
-        if path == "main" || path == "lib" {
-            return None;
-        }
-
-        // Handle mod.rs - return GRANDPARENT directory path (parent's parent)
-        if path.ends_with("/mod") {
-            let dir_path = path.strip_suffix("/mod")?;
-
-            if dir_path.is_empty() {
-                return None; // src/mod.rs - no parent
-            }
-
-            // Get the parent of the directory (grandparent of the file)
-            let parent_path = std::path::Path::new(dir_path).parent();
-            match parent_path {
-                Some(p) if p.as_os_str().is_empty() => None, // Top-level module
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
-                None => None,
-            }
-        } else {
-            // Regular file - return containing directory's module path
-            let parent_path = std::path::Path::new(path).parent();
-            match parent_path {
-                Some(p) if p.as_os_str().is_empty() => None, // Top-level file
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
-                None => None,
-            }
-        }
-    }
-
-    fn normalise_import_path(&self, import_path: &str) -> String {
-        import_path.to_string()
-    }
-
-    fn resolve_imports(
-        &self,
-        _imports: &[RawImport],
-        _registry: &SymbolRegistry,
-    ) -> Vec<ResolvedImport> {
-        Vec::new()
     }
 
     /// Post-extraction: deduplicate module symbols and propagate test attributes.
@@ -380,9 +320,181 @@ impl LanguageExtractor for RustExtractor {
             pf.edges.extend(edges_to_add);
         }
     }
+
+    /// Resolve cross-file edges for Rust files.
+    ///
+    /// Walks all `RawEdge`s across parsed files and attempts to resolve
+    /// `SymbolRef::Unresolved` endpoints using:
+    /// 1. Same module path (QualifiedName lookup)
+    /// 2. Bare name fallback (only if exactly one candidate exists)
+    ///
+    /// Skips edges whose `from` is `Unresolved { name: "__file__", .. }`
+    /// because those are Import edges with a synthetic source.
+    fn resolve_cross_file(
+        &self,
+        parsed_files: &mut [ParsedFile],
+    ) -> (Vec<ResolvedEdge>, Vec<ResolvedImport>) {
+        use crate::a6s::types::{QualifiedName, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Step 1: Build module_path for each file
+        let file_module_paths: HashMap<String, String> = parsed_files
+            .iter()
+            .map(|pf| {
+                let mp = self.derive_module_path(&pf.file_path).unwrap_or_default();
+                (pf.file_path.clone(), mp)
+            })
+            .collect();
+
+        // Step 2: Build symbol index (QualifiedName -> SymbolId)
+        let mut symbol_index: HashMap<QualifiedName, SymbolId> = HashMap::new();
+        // Also build bare name -> Vec<SymbolId> for fallback
+        let mut bare_index: HashMap<String, Vec<SymbolId>> = HashMap::new();
+
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            let module_path = file_module_paths
+                .get(&pf.file_path)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            for sym in &pf.symbols {
+                let qname = QualifiedName::new(module_path, &sym.name);
+                symbol_index.insert(qname, sym.symbol_id());
+                bare_index
+                    .entry(sym.name.clone())
+                    .or_default()
+                    .push(sym.symbol_id());
+            }
+        }
+
+        // Step 3: Resolve unresolved edges
+        let mut resolved_edges = Vec::new();
+
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            let file_module = file_module_paths
+                .get(&pf.file_path)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
+            for edge in &pf.edges {
+                // Resolve `from`
+                let from_id = match &edge.from {
+                    SymbolRef::Resolved(id) => Some(id.clone()),
+                    SymbolRef::Unresolved { name, .. } => {
+                        // Skip __file__ synthetic symbols (Import edges)
+                        if name == "__file__" {
+                            continue;
+                        }
+                        Self::resolve_name(name, file_module, &symbol_index, &bare_index)
+                    }
+                };
+
+                // Resolve `to`
+                let to_id = match &edge.to {
+                    SymbolRef::Resolved(id) => Some(id.clone()),
+                    SymbolRef::Unresolved { name, .. } => {
+                        Self::resolve_name(name, file_module, &symbol_index, &bare_index)
+                    }
+                };
+
+                if let (Some(from), Some(to)) = (from_id, to_id) {
+                    resolved_edges.push(ResolvedEdge {
+                        from,
+                        to,
+                        kind: edge.kind.clone(),
+                        line: edge.line,
+                    });
+                }
+            }
+        }
+
+        // Step 4: No import resolution yet (Rust imports are handled by RawImport entries)
+        (resolved_edges, vec![])
+    }
 }
 
 impl RustExtractor {
+    pub(crate) fn derive_module_path(&self, file_path: &str) -> Option<String> {
+        if file_path.is_empty() {
+            return None;
+        }
+
+        // Strip src/ prefix if present
+        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
+
+        // Handle empty or root-only paths
+        if path.is_empty() || path == "/" {
+            return None;
+        }
+
+        // Remove .rs extension
+        let path = path.strip_suffix(".rs")?;
+
+        // Handle crate roots (main.rs, lib.rs)
+        if path == "main" || path == "lib" {
+            return None;
+        }
+
+        // Handle mod.rs - return GRANDPARENT directory path (parent's parent)
+        if path.ends_with("/mod") {
+            let dir_path = path.strip_suffix("/mod")?;
+
+            if dir_path.is_empty() {
+                return None; // src/mod.rs - no parent
+            }
+
+            // Get the parent of the directory (grandparent of the file)
+            let parent_path = std::path::Path::new(dir_path).parent();
+            match parent_path {
+                Some(p) if p.as_os_str().is_empty() => None, // Top-level module
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
+                None => None,
+            }
+        } else {
+            // Regular file - return containing directory's module path
+            let parent_path = std::path::Path::new(path).parent();
+            match parent_path {
+                Some(p) if p.as_os_str().is_empty() => None, // Top-level file
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
+                None => None,
+            }
+        }
+    }
+
+    /// Resolve a symbol name to a SymbolId using qualified name lookup
+    /// with bare-name fallback (only if exactly one candidate exists).
+    fn resolve_name(
+        name: &str,
+        file_module: &str,
+        symbol_index: &std::collections::HashMap<
+            crate::a6s::types::QualifiedName,
+            crate::a6s::types::SymbolId,
+        >,
+        bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
+    ) -> Option<crate::a6s::types::SymbolId> {
+        use crate::a6s::types::QualifiedName;
+
+        // Try same module first
+        let qname = QualifiedName::new(file_module, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        // Bare name fallback: only if exactly one candidate
+        if let Some(candidates) = bare_index.get(name)
+            && candidates.len() == 1
+        {
+            return Some(candidates[0].clone());
+        }
+
+        None
+    }
+
     /// Convert file path to module name
     /// src/api/v1/tasks.rs → "tasks"
     /// src/lib.rs → "lib"

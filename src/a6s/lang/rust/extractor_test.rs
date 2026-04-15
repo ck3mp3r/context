@@ -2012,7 +2012,7 @@ mod defaults;
 
 pub fn config_helper() {}
 "#;
-    let mut mod_parsed = RustExtractor.extract(mod_rs_code, "src/config/mod.rs");
+    let mod_parsed = RustExtractor.extract(mod_rs_code, "src/config/mod.rs");
 
     // File 2: defaults.rs with implicit module + content
     let defaults_code = r#"
@@ -2020,7 +2020,7 @@ pub fn get_defaults() -> String {
     "defaults".to_string()
 }
 "#;
-    let mut defaults_parsed = RustExtractor.extract(defaults_code, "src/config/defaults.rs");
+    let defaults_parsed = RustExtractor.extract(defaults_code, "src/config/defaults.rs");
 
     // Count modules before resolution
     let modules_before: Vec<_> = defaults_parsed
@@ -2086,7 +2086,7 @@ mod mod_test;
 
 pub fn regular_function() {}
 "#;
-    let mut mod_parsed = RustExtractor.extract(mod_rs_code, "src/config/mod.rs");
+    let mod_parsed = RustExtractor.extract(mod_rs_code, "src/config/mod.rs");
 
     // Verify the module declaration is marked as test
     let test_mod_decl = mod_parsed.symbols.iter().find(|s| s.name == "mod_test");
@@ -2108,7 +2108,7 @@ fn helper_function() {
     // Not marked as test, but should inherit from module declaration
 }
 "#;
-    let mut test_parsed = RustExtractor.extract(test_file_code, "src/config/mod_test.rs");
+    let test_parsed = RustExtractor.extract(test_file_code, "src/config/mod_test.rs");
 
     // Before resolution, helper_function is NOT marked as test
     let helper_before = test_parsed
@@ -2212,13 +2212,13 @@ mod manager;
 
 pub fn app_function() {}
 "#;
-    let mut app_parsed = RustExtractor.extract(app_mod_code, "src/app/mod.rs");
+    let app_parsed = RustExtractor.extract(app_mod_code, "src/app/mod.rs");
 
     // File 2: src/app/manager/mod.rs - the actual manager module
     let manager_code = r#"
 pub fn manager_function() {}
 "#;
-    let mut manager_parsed = RustExtractor.extract(manager_code, "src/app/manager/mod.rs");
+    let manager_parsed = RustExtractor.extract(manager_code, "src/app/manager/mod.rs");
 
     // Call resolve_file_modules to create cross-file edges
     let mut files = vec![app_parsed, manager_parsed];
@@ -2258,4 +2258,258 @@ pub fn manager_function() {}
     } else {
         panic!("Edge source should be resolved");
     }
+}
+
+// ============================================================================
+// Phase 6: Cross-File Resolution Tests (resolve_cross_file)
+// ============================================================================
+
+#[test]
+fn test_resolve_cross_file_calls_same_module() {
+    let extractor = RustExtractor;
+
+    // File 1: calls bar()
+    let code1 = r#"fn foo() { bar(); }"#;
+    let file1 = extractor.extract(code1, "src/utils/a.rs");
+
+    // File 2: defines bar()
+    let code2 = r#"fn bar() {}"#;
+    let file2 = extractor.extract(code2, "src/utils/b.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _imports) = extractor.resolve_cross_file(&mut files);
+
+    // Should resolve the Calls edge from foo -> bar
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":bar:")),
+        "Should resolve cross-file call to bar, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_different_modules_unique_name() {
+    let extractor = RustExtractor;
+
+    // File 1 in src/api/: calls helper()
+    let code1 = r#"fn handler() { helper(); }"#;
+    let file1 = extractor.extract(code1, "src/api/handler.rs");
+
+    // File 2 in src/db/: defines helper()
+    let code2 = r#"fn helper() {}"#;
+    let file2 = extractor.extract(code2, "src/db/utils.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With bare-name fallback (single candidate), this WILL resolve
+    // because helper() is the only function with that name across all files
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve via bare-name fallback when only one candidate exists, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_ambiguous_name_no_resolve() {
+    let extractor = RustExtractor;
+
+    // File 1: calls helper()
+    let code1 = r#"fn handler() { helper(); }"#;
+    let file1 = extractor.extract(code1, "src/api/handler.rs");
+
+    // File 2: defines helper()
+    let code2 = r#"fn helper() {}"#;
+    let file2 = extractor.extract(code2, "src/db/utils.rs");
+
+    // File 3: ALSO defines helper() — creates ambiguity
+    let code3 = r#"fn helper() {}"#;
+    let file3 = extractor.extract(code3, "src/core/helpers.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With 2 candidates for "helper", bare-name fallback should NOT resolve
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.is_empty(),
+        "Should NOT resolve ambiguous bare names, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_skips_file_imports() {
+    let extractor = RustExtractor;
+
+    let code = r#"use std::io::Result;"#;
+    let file = extractor.extract(code, "src/main.rs");
+
+    // Verify Import edges with __file__ exist in raw edges
+    let import_edges_with_file = file
+        .edges
+        .iter()
+        .filter(|e| {
+            matches!(
+                &e.from,
+                SymbolRef::Unresolved { name, .. } if name == "__file__"
+            )
+        })
+        .count();
+    assert!(
+        import_edges_with_file > 0,
+        "Should have at least one Import edge with __file__ from"
+    );
+
+    let mut files = [file];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // None of the __file__ Import edges should appear in resolved
+    let resolved_imports = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Import)
+        .count();
+    assert_eq!(
+        resolved_imports, 0,
+        "Import edges with __file__ should be skipped"
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_type_refs() {
+    let extractor = RustExtractor;
+
+    // File 1: function with unresolved type reference
+    let code1 = r#"
+struct Config {}
+fn get_config() -> Config {
+    Config {}
+}
+"#;
+    let file1 = extractor.extract(code1, "src/config.rs");
+
+    // File 2: function that uses Config type but it's defined elsewhere
+    let code2 = r#"
+fn process(c: Config) {}
+"#;
+    let file2 = extractor.extract(code2, "src/handler.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // ParamType edge for process -> Config should resolve (single candidate)
+    let param_types: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+    assert!(
+        param_types
+            .iter()
+            .any(|e| e.to.as_str().contains(":Config:")),
+        "Should resolve cross-file ParamType to Config, got: {:?}",
+        param_types
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_implements_trait() {
+    let extractor = RustExtractor;
+
+    // File 1: defines a trait
+    let code1 = r#"
+trait Processor {
+    fn process(&self);
+}
+"#;
+    let file1 = extractor.extract(code1, "src/traits.rs");
+
+    // File 2: implements the trait
+    let code2 = r#"
+struct MyProcessor;
+
+impl Processor for MyProcessor {
+    fn process(&self) {}
+}
+"#;
+    let file2 = extractor.extract(code2, "src/impl.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // Implements edge MyProcessor -> Processor should resolve (single candidate)
+    let impl_edges: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+    assert!(
+        impl_edges
+            .iter()
+            .any(|e| e.to.as_str().contains(":Processor:")),
+        "Should resolve cross-file Implements to Processor, got: {:?}",
+        impl_edges
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_already_resolved_edges_skipped() {
+    let extractor = RustExtractor;
+
+    // File with same-file resolved edges (HasMember, HasField, etc.)
+    let code = r#"
+struct Foo {
+    x: i32,
+}
+impl Foo {
+    fn bar(&self) {}
+}
+"#;
+    let file = extractor.extract(code, "src/foo.rs");
+
+    let mut files = [file];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // Already-resolved same-file edges will be passed through by resolve_cross_file
+    // since both from and to are Resolved. This test verifies the method handles
+    // fully-resolved edges correctly without panicking.
+    let _hasmember: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::HasMember)
+        .collect();
+    // Fully-resolved edges pass through (both from and to are Resolved)
+    assert!(
+        !resolved.is_empty(),
+        "Already-resolved edges should pass through resolve_cross_file"
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_no_imports_returned() {
+    let extractor = RustExtractor;
+
+    let code = r#"
+use std::io::Result;
+fn foo() {}
+"#;
+    let file = extractor.extract(code, "src/main.rs");
+
+    let mut files = [file];
+    let (_resolved, imports) = extractor.resolve_cross_file(&mut files);
+
+    // Rust doesn't resolve imports through this path yet
+    assert!(
+        imports.is_empty(),
+        "Rust resolve_cross_file should return empty imports for now"
+    );
 }

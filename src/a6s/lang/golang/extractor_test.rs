@@ -1840,3 +1840,419 @@ type Service struct {
         );
     }
 }
+
+// ============================================================================
+// Phase 6: Cross-file resolution tests
+// ============================================================================
+
+/// Two files in the same package (same directory). A Calls edge from file1
+/// to a function defined in file2 should resolve via same-package lookup.
+#[test]
+fn test_resolve_cross_file_calls_same_package() {
+    let extractor = GolangExtractor;
+
+    // File 1: main.go calls helper()
+    let code1 = r#"
+package main
+
+func main() {
+    helper()
+}
+"#;
+
+    // File 2: utils.go defines helper()
+    let code2 = r#"
+package main
+
+func helper() {
+    // do stuff
+}
+"#;
+
+    let file1 = extractor.extract(code1, "cmd/server/main.go");
+    let file2 = extractor.extract(code2, "cmd/server/utils.go");
+
+    // Verify file1 has an unresolved Calls edge to "helper"
+    let calls_edges: Vec<_> = file1
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        !calls_edges.is_empty(),
+        "Expected at least one Calls edge in file1"
+    );
+
+    // The call to helper() should be unresolved (helper is in a different file)
+    let helper_call = calls_edges
+        .iter()
+        .find(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "helper")
+        });
+    assert!(
+        helper_call.is_some(),
+        "Expected unresolved Calls edge to 'helper', edges: {:?}",
+        calls_edges
+    );
+
+    // Now resolve cross-file
+    let mut files = vec![file1, file2];
+    let (resolved, imports) = extractor.resolve_cross_file(&mut files);
+
+    // The helper() call should now be resolved
+    let resolved_calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+
+    let helper_resolved = resolved_calls
+        .iter()
+        .find(|e| e.to.as_str().contains(":helper:"));
+    assert!(
+        helper_resolved.is_some(),
+        "Expected resolved Calls edge to 'helper', resolved_calls: {:?}",
+        resolved_calls
+    );
+
+    // Imports should be empty
+    assert!(imports.is_empty(), "Go imports should be empty");
+}
+
+/// Two files in DIFFERENT packages. With unique bare names, the bare-name
+/// fallback should resolve the cross-package call.
+#[test]
+fn test_resolve_cross_file_different_packages_unique_name() {
+    let extractor = GolangExtractor;
+
+    // File 1 in cmd/server — calls UniqueHelper()
+    let code1 = r#"
+package main
+
+func main() {
+    UniqueHelper()
+}
+"#;
+
+    // File 2 in pkg/utils — defines UniqueHelper()
+    let code2 = r#"
+package utils
+
+func UniqueHelper() {}
+"#;
+
+    let file1 = extractor.extract(code1, "cmd/server/main.go");
+    let file2 = extractor.extract(code2, "pkg/utils/helpers.go");
+
+    let mut files = vec![file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // Should resolve via bare-name fallback (only one "UniqueHelper" exists)
+    let helper_resolved = resolved.iter().find(|e| {
+        e.kind == crate::a6s::types::EdgeKind::Calls && e.to.as_str().contains(":UniqueHelper:")
+    });
+    assert!(
+        helper_resolved.is_some(),
+        "Expected resolved Calls edge to 'UniqueHelper' via bare-name fallback, resolved: {:?}",
+        resolved
+    );
+}
+
+/// When a bare name appears in multiple packages, it should NOT resolve
+/// (ambiguous).
+#[test]
+fn test_resolve_cross_file_ambiguous_name_no_resolve() {
+    let extractor = GolangExtractor;
+
+    // File 1 calls Helper()
+    let code1 = r#"
+package main
+
+func main() {
+    Helper()
+}
+"#;
+
+    // File 2 defines Helper() in pkg/a
+    let code2 = r#"
+package a
+
+func Helper() {}
+"#;
+
+    // File 3 defines Helper() in pkg/b
+    let code3 = r#"
+package b
+
+func Helper() {}
+"#;
+
+    let file1 = extractor.extract(code1, "cmd/main.go");
+    let file2 = extractor.extract(code2, "pkg/a/helpers.go");
+    let file3 = extractor.extract(code3, "pkg/b/helpers.go");
+
+    let mut files = vec![file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // The call to Helper() should NOT resolve (ambiguous: 2 candidates)
+    let helper_resolved = resolved.iter().find(|e| {
+        e.kind == crate::a6s::types::EdgeKind::Calls && e.to.as_str().contains(":Helper:")
+    });
+    assert!(
+        helper_resolved.is_none(),
+        "Expected NO resolved Calls edge to 'Helper' (ambiguous), resolved: {:?}",
+        resolved
+    );
+}
+
+/// Cross-file Usage edge resolution: a struct literal in file1 referring
+/// to a type defined in file2 (same package).
+#[test]
+fn test_resolve_cross_file_usage_same_package() {
+    let extractor = GolangExtractor;
+
+    // File 1 uses Config{}
+    let code1 = r#"
+package server
+
+func NewServer() {
+    cfg := Config{}
+    _ = cfg
+}
+"#;
+
+    // File 2 defines Config struct
+    let code2 = r#"
+package server
+
+type Config struct {
+    Port int
+}
+"#;
+
+    let file1 = extractor.extract(code1, "internal/server/server.go");
+    let file2 = extractor.extract(code2, "internal/server/config.go");
+
+    let mut files = vec![file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // Usage edge from NewServer to Config should resolve
+    let config_usage = resolved.iter().find(|e| {
+        e.kind == crate::a6s::types::EdgeKind::Usage && e.to.as_str().contains(":Config:")
+    });
+    assert!(
+        config_usage.is_some(),
+        "Expected resolved Usage edge to 'Config', resolved: {:?}",
+        resolved
+    );
+}
+
+/// Cross-file HasMethod resolution: a method with a receiver type defined
+/// in another file (same package).
+#[test]
+fn test_resolve_cross_file_hasmethod_receiver() {
+    let extractor = GolangExtractor;
+
+    // File 1 defines the struct
+    let code1 = r#"
+package server
+
+type Server struct {
+    Port int
+}
+"#;
+
+    // File 2 defines a method on Server
+    let code2 = r#"
+package server
+
+func (s *Server) Start() {
+    // start the server
+}
+"#;
+
+    let file1 = extractor.extract(code1, "internal/server/types.go");
+    let file2 = extractor.extract(code2, "internal/server/server.go");
+
+    // In file2, the HasMethod edge should have unresolved `from` (Server is in file1)
+    let hasmethod_edges: Vec<_> = file2
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::HasMethod)
+        .collect();
+    assert!(
+        !hasmethod_edges.is_empty(),
+        "Expected HasMethod edges in file2"
+    );
+
+    // The from should be unresolved (Server is not in file2)
+    let unresolved_from = hasmethod_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "Server")
+    });
+    assert!(
+        unresolved_from.is_some(),
+        "Expected unresolved HasMethod from 'Server', edges: {:?}",
+        hasmethod_edges
+    );
+
+    let mut files = vec![file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // After resolution, the HasMethod edge should resolve
+    let server_method = resolved.iter().find(|e| {
+        e.kind == crate::a6s::types::EdgeKind::HasMethod
+            && e.from.as_str().contains(":Server:")
+            && e.to.as_str().contains(":Start:")
+    });
+    assert!(
+        server_method.is_some(),
+        "Expected resolved HasMethod edge Server→Start, resolved: {:?}",
+        resolved
+    );
+}
+
+/// Already-resolved edges should pass through unchanged.
+#[test]
+fn test_resolve_cross_file_already_resolved_edges() {
+    let extractor = GolangExtractor;
+
+    // A file with struct+field → HasField edges are already resolved
+    let code = r#"
+package main
+
+type Config struct {
+    Port int
+    Host string
+}
+"#;
+
+    let file = extractor.extract(code, "config.go");
+
+    // HasField edges should already be resolved
+    let hasfield_count = file
+        .edges
+        .iter()
+        .filter(|e| {
+            e.kind == crate::a6s::types::EdgeKind::HasField
+                && e.from.is_resolved()
+                && e.to.is_resolved()
+        })
+        .count();
+    assert!(hasfield_count > 0, "Expected resolved HasField edges");
+
+    let mut files = vec![file];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // Already-resolved HasField edges should appear in output
+    let resolved_hasfield = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::HasField)
+        .count();
+    assert_eq!(
+        resolved_hasfield, hasfield_count,
+        "All already-resolved HasField edges should pass through"
+    );
+}
+
+/// resolve_cross_file should return empty imports (Go import resolution
+/// is future work).
+#[test]
+fn test_resolve_cross_file_no_imports_returned() {
+    let extractor = GolangExtractor;
+
+    let code = r#"
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("hello")
+}
+"#;
+
+    let file = extractor.extract(code, "main.go");
+    let mut files = vec![file];
+    let (_, imports) = extractor.resolve_cross_file(&mut files);
+
+    assert!(
+        imports.is_empty(),
+        "Go imports should be empty, got: {:?}",
+        imports
+    );
+}
+
+/// derive_module_path should return the directory path as the Go package.
+#[test]
+fn test_derive_module_path_go() {
+    let extractor = GolangExtractor;
+
+    // Nested path
+    assert_eq!(
+        extractor.derive_module_path("cmd/server/main.go"),
+        Some("cmd/server".to_string())
+    );
+
+    // Root-level file
+    assert_eq!(
+        extractor.derive_module_path("main.go"),
+        Some("".to_string())
+    );
+
+    // Deeply nested
+    assert_eq!(
+        extractor.derive_module_path("internal/pkg/handler/routes.go"),
+        Some("internal/pkg/handler".to_string())
+    );
+}
+
+/// ParamType edge cross-file resolution: a function parameter type
+/// defined in another file of the same package should resolve.
+#[test]
+fn test_resolve_cross_file_param_type() {
+    let extractor = GolangExtractor;
+
+    // File 1: function with a Config parameter
+    let code1 = r#"
+package server
+
+func StartServer(cfg Config) {
+    _ = cfg
+}
+"#;
+
+    // File 2: defines Config struct
+    let code2 = r#"
+package server
+
+type Config struct {
+    Port int
+}
+"#;
+
+    let file1 = extractor.extract(code1, "internal/server/server.go");
+    let file2 = extractor.extract(code2, "internal/server/config.go");
+
+    // file1 should have a ParamType edge with unresolved 'to' (Config is in file2)
+    let param_edges: Vec<_> = file1
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+    assert!(
+        !param_edges.is_empty(),
+        "Expected ParamType edges in file1, edges: {:?}",
+        file1.edges
+    );
+
+    let mut files = vec![file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // ParamType edge should resolve
+    let config_param = resolved.iter().find(|e| {
+        e.kind == crate::a6s::types::EdgeKind::ParamType && e.to.as_str().contains(":Config:")
+    });
+    assert!(
+        config_param.is_some(),
+        "Expected resolved ParamType edge to 'Config', resolved: {:?}",
+        resolved
+    );
+}

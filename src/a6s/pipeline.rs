@@ -1,7 +1,6 @@
 use super::error::A6sError;
 use super::extract;
 use super::extract::LanguageExtractor;
-use super::registry::SymbolRegistry;
 use super::store::CodeGraph;
 use super::types::*;
 use std::path::{Path, PathBuf};
@@ -30,8 +29,8 @@ pub async fn analyze(
 /// Orchestrates the full analysis flow:
 /// 1. Scan repository for supported files
 /// 2. Extract symbols/edges in parallel (Layer 1)
-/// 3. Build symbol registry
-/// 4. Resolve edges and imports (Layer 2)
+/// 3. Resolve file modules (per-language fixups)
+/// 4. Per-language cross-file resolution (edges + imports)
 /// 5. Load graph and commit
 #[cfg(feature = "backend")]
 pub async fn analyze_with_graph(
@@ -66,32 +65,22 @@ pub async fn analyze_with_graph(
     info!("Phase 3: Resolving file modules (stub)...");
     resolve_file_modules(&mut parsed_files);
 
-    // Phase 4: Build symbol registry (Layer 2 setup)
-    info!("Phase 4: Building symbol registry...");
-    let registry = build_registry(&parsed_files);
+    // Phase 3b: Per-language cross-file resolution
+    info!("Phase 3b: Per-language cross-file resolution...");
+    let (resolved_edges, import_edges) = resolve_cross_file_per_language(&mut parsed_files);
     info!(
-        "✓ Built registry: {} symbols registered",
-        registry.stats().symbols_registered
-    );
-
-    // Phase 5: Resolve edges (Layer 2 resolution)
-    info!("Phase 5: Resolving edges...");
-    let (resolved_edges, edges_dropped) = resolve_edges(&parsed_files, &registry);
-    info!(
-        "✓ Resolved {} edges, dropped {}",
+        "✓ Resolved {} edges, {} imports",
         resolved_edges.len(),
-        edges_dropped
+        import_edges.len()
     );
 
-    // Phase 6: Resolve imports (Layer 2 resolution)
-    info!("Phase 6: Resolving imports (stub)...");
-    let import_edges = resolve_imports(&parsed_files, &registry);
-    info!("✓ Resolved {} import edges", import_edges.len());
+    // Compute symbol count directly from parsed files
+    let symbols_registered: usize = parsed_files.iter().map(|pf| pf.symbols.len()).sum();
 
     let stats = ResolveStats {
-        symbols_registered: registry.stats().symbols_registered,
+        symbols_registered,
         edges_resolved: resolved_edges.len(),
-        edges_dropped,
+        edges_dropped: 0,
         imports_resolved: import_edges.len(),
     };
 
@@ -99,8 +88,8 @@ pub async fn analyze_with_graph(
         let _ = tx.send(PipelineProgress::Resolved(stats.clone())).await;
     }
 
-    // Phase 7: Load graph and commit
-    info!("Phase 7: Loading graph buffer...");
+    // Phase 4: Load graph and commit
+    info!("Phase 4: Loading graph buffer...");
     load_and_commit(
         &graph,
         &parsed_files,
@@ -216,78 +205,39 @@ fn resolve_file_modules(parsed_files: &mut [ParsedFile]) {
     }
 }
 
-/// Build the symbol registry from all parsed files.
-fn build_registry(parsed_files: &[ParsedFile]) -> SymbolRegistry {
-    SymbolRegistry::build(parsed_files)
-}
+/// Per-language cross-file resolution.
+/// Each extractor resolves imports and edges using its own symbol index.
+fn resolve_cross_file_per_language(
+    parsed_files: &mut [ParsedFile],
+) -> (Vec<ResolvedEdge>, Vec<ResolvedImport>) {
+    use std::collections::HashMap;
 
-/// Resolve all edges by looking up SymbolRefs in the registry.
-///
-/// Returns: (resolved_edges, dropped_count)
-/// STUB: Since extractors return empty edges, this will return (vec![], 0).
-fn resolve_edges(
-    parsed_files: &[ParsedFile],
-    registry: &SymbolRegistry,
-) -> (Vec<ResolvedEdge>, usize) {
-    let mut resolved = Vec::new();
-    let mut dropped = 0;
+    let mut by_language: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, pf) in parsed_files.iter().enumerate() {
+        by_language
+            .entry(pf.language.clone())
+            .or_default()
+            .push(idx);
+    }
 
-    for parsed in parsed_files {
-        for edge in &parsed.edges {
-            let from_id = match &edge.from {
-                SymbolRef::Resolved(id) => Some(id.clone()),
-                SymbolRef::Unresolved { name, file_path } => registry.resolve(
-                    &SymbolRef::Unresolved {
-                        name: name.clone(),
-                        file_path: file_path.clone(),
-                    },
-                    file_path,
-                ),
-            };
+    let mut all_edges = Vec::new();
+    let mut all_imports = Vec::new();
 
-            let to_id = match &edge.to {
-                SymbolRef::Resolved(id) => Some(id.clone()),
-                SymbolRef::Unresolved { name, file_path } => registry.resolve(
-                    &SymbolRef::Unresolved {
-                        name: name.clone(),
-                        file_path: file_path.clone(),
-                    },
-                    file_path,
-                ),
-            };
-
-            match (from_id, to_id) {
-                (Some(from), Some(to)) => {
-                    resolved.push(ResolvedEdge {
-                        from,
-                        to,
-                        kind: edge.kind.clone(),
-                        line: edge.line,
-                    });
-                }
-                _ => {
-                    dropped += 1;
-                }
+    for (lang, indices) in by_language {
+        if let Some(extractor) = extract::Extractor::for_language(&lang) {
+            let mut lang_files: Vec<ParsedFile> =
+                indices.iter().map(|&i| parsed_files[i].clone()).collect();
+            let (edges, imports) = extractor.resolve_cross_file(&mut lang_files);
+            // Write back modified files
+            for (i, &idx) in indices.iter().enumerate() {
+                parsed_files[idx] = lang_files[i].clone();
             }
+            all_edges.extend(edges);
+            all_imports.extend(imports);
         }
     }
 
-    (resolved, dropped)
-}
-
-/// Resolve imports to target symbols.
-fn resolve_imports(parsed_files: &[ParsedFile], registry: &SymbolRegistry) -> Vec<ResolvedImport> {
-    let mut all_resolved = Vec::new();
-
-    for parsed in parsed_files {
-        if let Some(extractor) = extract::Extractor::for_language(&parsed.language) {
-            let resolved = extractor.resolve_imports(&parsed.imports, registry);
-            all_resolved.extend(resolved);
-        }
-    }
-
-    debug!("Resolved {} imports", all_resolved.len());
-    all_resolved
+    (all_edges, all_imports)
 }
 
 /// Load all nodes and edges into the CodeGraph and commit.
@@ -362,7 +312,7 @@ async fn load_and_commit(
     }
 
     // Commit
-    info!("Phase 8: Committing to graph...");
+    info!("Phase 5: Committing to graph...");
     graph.commit().await?;
 
     Ok(())

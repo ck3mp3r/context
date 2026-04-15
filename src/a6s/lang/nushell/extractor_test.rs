@@ -455,12 +455,11 @@ fn test_sibling_file_extraction() {
 
 #[test]
 fn test_resolve_imports_glob() {
-    use crate::a6s::registry::SymbolRegistry;
     use crate::a6s::types::{ImportEntry, ParsedFile, RawImport, RawSymbol};
 
     let extractor = NushellExtractor;
 
-    // Create parsed files with symbols in "std" module
+    // Create parsed file with symbols in "std" module
     let mut std_file = ParsedFile::new("std/mod.nu", "nushell");
     std_file.symbols.push(RawSymbol {
         name: "print".to_string(),
@@ -487,31 +486,33 @@ fn test_resolve_imports_glob() {
         module_path: None,
     });
 
-    // Build registry
-    let registry = SymbolRegistry::build(&[std_file]);
-
-    // Create import: use std *
-    let imports = vec![RawImport {
+    // Create main file with glob import: use std *
+    let mut main_file = ParsedFile::new("main.nu", "nushell");
+    main_file.imports.push(RawImport {
         file_path: "main.nu".to_string(),
         entry: ImportEntry::glob_import("std"),
-    }];
+    });
 
     // Resolve
-    let resolved = extractor.resolve_imports(&imports, &registry);
+    let (_resolved_edges, resolved_imports) =
+        extractor.resolve_cross_file(&mut [std_file, main_file]);
 
     // Should resolve to 2 symbols (print + length)
-    assert_eq!(resolved.len(), 2, "glob import should resolve to 2 symbols");
+    assert_eq!(
+        resolved_imports.len(),
+        2,
+        "glob import should resolve to 2 symbols"
+    );
     assert!(
-        resolved
+        resolved_imports
             .iter()
-            .any(|r| r.file_id.as_str() == "file:main.nu"),
+            .all(|r| r.file_id.as_str() == "file:main.nu"),
         "all resolved imports should reference the importing file"
     );
 }
 
 #[test]
 fn test_resolve_imports_named() {
-    use crate::a6s::registry::SymbolRegistry;
     use crate::a6s::types::{ImportEntry, ParsedFile, RawImport, RawSymbol};
 
     let extractor = NushellExtractor;
@@ -543,20 +544,24 @@ fn test_resolve_imports_named() {
         module_path: None,
     });
 
-    let registry = SymbolRegistry::build(&[std_file]);
-
-    // Create import: use std [print]
-    let imports = vec![RawImport {
+    // Create main file with named import: use std [print]
+    let mut main_file = ParsedFile::new("main.nu", "nushell");
+    main_file.imports.push(RawImport {
         file_path: "main.nu".to_string(),
         entry: ImportEntry::named_import("std", vec!["print".to_string()]),
-    }];
+    });
 
-    let resolved = extractor.resolve_imports(&imports, &registry);
+    let (_resolved_edges, resolved_imports) =
+        extractor.resolve_cross_file(&mut [std_file, main_file]);
 
     // Should resolve to 1 symbol (print only)
-    assert_eq!(resolved.len(), 1, "named import should resolve to 1 symbol");
     assert_eq!(
-        resolved[0].file_id.as_str(),
+        resolved_imports.len(),
+        1,
+        "named import should resolve to 1 symbol"
+    );
+    assert_eq!(
+        resolved_imports[0].file_id.as_str(),
         "file:main.nu",
         "resolved import should reference the importing file"
     );
@@ -564,7 +569,6 @@ fn test_resolve_imports_named() {
 
 #[test]
 fn test_resolve_imports_module_import() {
-    use crate::a6s::registry::SymbolRegistry;
     use crate::a6s::types::{ImportEntry, ParsedFile, RawImport, RawSymbol};
 
     let extractor = NushellExtractor;
@@ -584,19 +588,19 @@ fn test_resolve_imports_module_import() {
         module_path: None,
     });
 
-    let registry = SymbolRegistry::build(&[std_file]);
-
-    // Create import: use std
-    let imports = vec![RawImport {
+    // Create main file with module import: use std
+    let mut main_file = ParsedFile::new("main.nu", "nushell");
+    main_file.imports.push(RawImport {
         file_path: "main.nu".to_string(),
         entry: ImportEntry::module_import("std"),
-    }];
+    });
 
-    let resolved = extractor.resolve_imports(&imports, &registry);
+    let (_resolved_edges, resolved_imports) =
+        extractor.resolve_cross_file(&mut [std_file, main_file]);
 
     // Should resolve to the module symbol itself
     assert_eq!(
-        resolved.len(),
+        resolved_imports.len(),
         1,
         "module import should resolve to 1 symbol"
     );
@@ -604,24 +608,24 @@ fn test_resolve_imports_module_import() {
 
 #[test]
 fn test_resolve_imports_nonexistent() {
-    use crate::a6s::registry::SymbolRegistry;
-    use crate::a6s::types::{ImportEntry, RawImport};
+    use crate::a6s::types::{ImportEntry, ParsedFile, RawImport};
 
     let extractor = NushellExtractor;
-    let registry = SymbolRegistry::build(&[]); // Empty registry
 
-    let imports = vec![RawImport {
+    // Create main file with import to nonexistent module (no other files)
+    let mut main_file = ParsedFile::new("main.nu", "nushell");
+    main_file.imports.push(RawImport {
         file_path: "main.nu".to_string(),
         entry: ImportEntry::named_import("nonexistent", vec!["foo".to_string()]),
-    }];
+    });
 
-    let resolved = extractor.resolve_imports(&imports, &registry);
+    let (_resolved_edges, resolved_imports) = extractor.resolve_cross_file(&mut [main_file]);
 
     // Should resolve to nothing
     assert_eq!(
-        resolved.len(),
+        resolved_imports.len(),
         0,
-        "import from empty registry should resolve nothing"
+        "import from nonexistent module should resolve nothing"
     );
 }
 

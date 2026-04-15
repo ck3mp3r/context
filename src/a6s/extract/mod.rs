@@ -2,8 +2,7 @@
 //!
 //! Uses the same macro pattern as analysis/lang/analyser.rs for static dispatch.
 
-use crate::a6s::registry::SymbolRegistry;
-use crate::a6s::types::{ParsedFile, RawImport, ResolvedImport};
+use crate::a6s::types::{ParsedFile, ResolvedEdge, ResolvedImport};
 
 #[cfg(test)]
 mod extract_test;
@@ -22,16 +21,20 @@ pub trait LanguageExtractor: Send + Sync {
     /// Extract symbols, edges, and imports from a single file.
     fn extract(&self, code: &str, file_path: &str) -> ParsedFile;
 
-    fn derive_module_path(&self, file_path: &str) -> Option<String>;
-    fn normalise_import_path(&self, import_path: &str) -> String;
-    fn resolve_imports(
-        &self,
-        imports: &[RawImport],
-        registry: &SymbolRegistry,
-    ) -> Vec<ResolvedImport>;
-
     /// Post-extraction multi-file fixups (default: no-op).
     fn resolve_file_modules(&self, _parsed_files: &mut [ParsedFile]) {}
+
+    /// Resolve cross-file edges and imports for this language.
+    /// Called with all parsed files for this language.
+    /// Returns (resolved_edges, resolved_imports).
+    fn resolve_cross_file(
+        &self,
+        parsed_files: &mut [ParsedFile],
+    ) -> (Vec<ResolvedEdge>, Vec<ResolvedImport>) {
+        // Default: no-op, backward compat during migration
+        let _ = parsed_files;
+        (vec![], vec![])
+    }
 }
 
 /// Single source of truth for all supported languages.
@@ -86,24 +89,12 @@ macro_rules! define_extractors {
                 match self { $(Self::$type(e) => e.extract(code, file_path),)* }
             }
 
-            fn derive_module_path(&self, file_path: &str) -> Option<String> {
-                match self { $(Self::$type(e) => e.derive_module_path(file_path),)* }
-            }
-
-            fn normalise_import_path(&self, import_path: &str) -> String {
-                match self { $(Self::$type(e) => e.normalise_import_path(import_path),)* }
-            }
-
-            fn resolve_imports(
-                &self,
-                imports: &[RawImport],
-                registry: &SymbolRegistry,
-            ) -> Vec<ResolvedImport> {
-                match self { $(Self::$type(e) => e.resolve_imports(imports, registry),)* }
-            }
-
             fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
                 match self { $(Self::$type(e) => e.resolve_file_modules(parsed_files),)* }
+            }
+
+            fn resolve_cross_file(&self, parsed_files: &mut [ParsedFile]) -> (Vec<ResolvedEdge>, Vec<ResolvedImport>) {
+                match self { $(Self::$type(e) => e.resolve_cross_file(parsed_files),)* }
             }
         }
 

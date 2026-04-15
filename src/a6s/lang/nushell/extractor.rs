@@ -1,9 +1,9 @@
 use crate::a6s::extract::LanguageExtractor;
-use crate::a6s::registry::SymbolRegistry;
 use crate::a6s::types::{
-    EdgeKind, ImportEntry, ParsedFile, RawEdge, RawImport, RawSymbol, ResolvedImport, SymbolId,
-    SymbolRef,
+    EdgeKind, FileId, ImportEntry, ParsedFile, QualifiedName, RawEdge, RawImport, RawSymbol,
+    ResolvedEdge, ResolvedImport, SymbolId, SymbolRef,
 };
+use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
@@ -105,6 +105,202 @@ impl LanguageExtractor for NushellExtractor {
         parsed
     }
 
+    fn resolve_cross_file(
+        &self,
+        parsed_files: &mut [ParsedFile],
+    ) -> (Vec<ResolvedEdge>, Vec<ResolvedImport>) {
+        // Step 1: Build module_path for each file and symbol index
+        let file_module_paths: HashMap<String, String> = parsed_files
+            .iter()
+            .map(|pf| {
+                let module_path = self.derive_module_path(&pf.file_path).unwrap_or_default();
+                (pf.file_path.clone(), module_path)
+            })
+            .collect();
+
+        // QualifiedName -> SymbolId
+        let mut symbol_index: HashMap<QualifiedName, SymbolId> = HashMap::new();
+        for pf in parsed_files.iter() {
+            let module_path = file_module_paths
+                .get(&pf.file_path)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            for sym in &pf.symbols {
+                let qname = QualifiedName::new(module_path, &sym.name);
+                symbol_index.insert(qname, sym.symbol_id());
+            }
+        }
+
+        // Step 2: Build import tables per file
+        // file_path -> (glob_modules, name_to_module)
+        let mut import_tables: HashMap<String, (Vec<String>, HashMap<String, String>)> =
+            HashMap::new();
+
+        for pf in parsed_files.iter() {
+            let mut glob_modules = Vec::new();
+            let mut name_to_module: HashMap<String, String> = HashMap::new();
+
+            for raw_import in &pf.imports {
+                let entry = &raw_import.entry;
+                let module_path = self.normalise_import_path(&entry.module_path);
+
+                if entry.is_glob {
+                    glob_modules.push(module_path);
+                } else if entry.imported_names.is_empty() {
+                    // Module import: `use std` — maps the module name to itself
+                    let module_name = module_path
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or(&module_path)
+                        .to_string();
+                    name_to_module.insert(module_name, module_path);
+                } else {
+                    // Named import: `use std [print]` — maps each name to module_path
+                    for name in &entry.imported_names {
+                        name_to_module.insert(name.clone(), module_path.clone());
+                    }
+                }
+            }
+
+            import_tables.insert(pf.file_path.clone(), (glob_modules, name_to_module));
+        }
+
+        // Step 3: Resolve imports
+        let mut resolved_imports = Vec::new();
+
+        for pf in parsed_files.iter() {
+            for raw_import in &pf.imports {
+                let entry = &raw_import.entry;
+                let file_path = &raw_import.file_path;
+                let module_path = self.normalise_import_path(&entry.module_path);
+
+                if entry.is_glob {
+                    // Glob import: find ALL symbols where qname.module_path() == module_path
+                    let matches: Vec<_> = symbol_index
+                        .iter()
+                        .filter(|(qname, _)| qname.module_path() == module_path)
+                        .map(|(_, symbol_id)| ResolvedImport {
+                            file_id: FileId::new(file_path),
+                            target_symbol_id: symbol_id.clone(),
+                        })
+                        .collect();
+                    resolved_imports.extend(matches);
+                } else if entry.imported_names.is_empty() {
+                    // Module import: find module symbol itself by name
+                    let module_name = module_path.rsplit("::").next().unwrap_or(&module_path);
+                    let qname = QualifiedName::new(&module_path, module_name);
+                    if let Some(symbol_id) = symbol_index.get(&qname) {
+                        resolved_imports.push(ResolvedImport {
+                            file_id: FileId::new(file_path),
+                            target_symbol_id: symbol_id.clone(),
+                        });
+                    }
+                } else {
+                    // Named import: find specific symbols by QualifiedName
+                    for name in &entry.imported_names {
+                        let qname = QualifiedName::new(&module_path, name);
+                        if let Some(symbol_id) = symbol_index.get(&qname) {
+                            resolved_imports.push(ResolvedImport {
+                                file_id: FileId::new(file_path),
+                                target_symbol_id: symbol_id.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4: Resolve Calls edges where `to` is Unresolved
+        let mut resolved_edges = Vec::new();
+
+        for pf in parsed_files.iter() {
+            let file_module_path = file_module_paths
+                .get(&pf.file_path)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let empty_globs = Vec::new();
+            let empty_names = HashMap::new();
+            let (glob_modules, name_to_module) = import_tables
+                .get(&pf.file_path)
+                .map(|(g, n)| (g, n))
+                .unwrap_or((&empty_globs, &empty_names));
+
+            for edge in &pf.edges {
+                if edge.kind != EdgeKind::Calls {
+                    continue;
+                }
+
+                // Only resolve edges where `to` is Unresolved
+                let callee_name = match &edge.to {
+                    SymbolRef::Unresolved { name, .. } => name.as_str(),
+                    SymbolRef::Resolved(_) => continue,
+                };
+
+                // Resolve `from` — should already be Resolved for Nushell
+                let from_id = match &edge.from {
+                    SymbolRef::Resolved(id) => id.clone(),
+                    SymbolRef::Unresolved { name, file_path } => {
+                        // Try to resolve from in same module
+                        let qname = QualifiedName::new(file_module_path, name);
+                        match symbol_index.get(&qname) {
+                            Some(id) => id.clone(),
+                            None => {
+                                tracing::debug!(
+                                    "Could not resolve 'from' symbol '{}' in file '{}'",
+                                    name,
+                                    file_path
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                };
+
+                // Try to resolve `to`:
+                // 1. Same module (local scope)
+                let to_id = {
+                    let qname = QualifiedName::new(file_module_path, callee_name);
+                    symbol_index.get(&qname).cloned()
+                };
+
+                // 2. Glob imports
+                let to_id = to_id.or_else(|| {
+                    glob_modules.iter().find_map(|glob_module| {
+                        let qname = QualifiedName::new(glob_module, callee_name);
+                        symbol_index.get(&qname).cloned()
+                    })
+                });
+
+                // 3. Named imports
+                let to_id = to_id.or_else(|| {
+                    name_to_module.get(callee_name).and_then(|mapped_module| {
+                        let qname = QualifiedName::new(mapped_module, callee_name);
+                        symbol_index.get(&qname).cloned()
+                    })
+                });
+
+                if let Some(to_id) = to_id {
+                    resolved_edges.push(ResolvedEdge {
+                        from: from_id,
+                        to: to_id,
+                        kind: EdgeKind::Calls,
+                        line: edge.line,
+                    });
+                }
+            }
+        }
+
+        tracing::debug!(
+            "resolve_cross_file: resolved {} edges, {} imports",
+            resolved_edges.len(),
+            resolved_imports.len()
+        );
+
+        (resolved_edges, resolved_imports)
+    }
+}
+
+impl NushellExtractor {
     fn derive_module_path(&self, file_path: &str) -> Option<String> {
         let path = Path::new(file_path);
         let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
@@ -134,85 +330,6 @@ impl LanguageExtractor for NushellExtractor {
         import_path.replace('/', "::")
     }
 
-    fn resolve_imports(
-        &self,
-        imports: &[RawImport],
-        registry: &SymbolRegistry,
-    ) -> Vec<ResolvedImport> {
-        use crate::a6s::types::{FileId, QualifiedName};
-
-        let mut resolved = Vec::new();
-
-        tracing::debug!("Resolving {} imports", imports.len());
-
-        for raw_import in imports {
-            let entry = &raw_import.entry;
-            let file_path = &raw_import.file_path;
-
-            // Normalize module path (e.g., "std" -> "std", "lib/math" -> "lib::math")
-            let module_path = self.normalise_import_path(&entry.module_path);
-            tracing::debug!(
-                "Processing import: module_path={}, is_glob={}, names={:?}",
-                module_path,
-                entry.is_glob,
-                entry.imported_names
-            );
-
-            if entry.is_glob {
-                // Glob import: use module_path *
-                // Find ALL symbols in module_path and create FileImports edges
-                let matches: Vec<_> = registry
-                    .qualified_map()
-                    .iter()
-                    .filter(|(qname, _)| {
-                        let qname_module = qname.module_path();
-                        tracing::debug!(
-                            "  Checking qname {} (module_path={}",
-                            qname.as_str(),
-                            qname_module
-                        );
-                        qname_module == module_path
-                    })
-                    .map(|(_, symbol_id)| ResolvedImport {
-                        file_id: FileId::new(file_path),
-                        target_symbol_id: symbol_id.clone(),
-                    })
-                    .collect();
-
-                tracing::debug!("  Glob import matched {} symbols", matches.len());
-                resolved.extend(matches);
-            } else if entry.imported_names.is_empty() {
-                // Module import: use module_path
-                // Import the module symbol itself (if it exists)
-                let module_name = module_path.rsplit("::").next().unwrap_or(&module_path);
-                let qname = QualifiedName::new(&module_path, module_name);
-                if let Some(symbol_id) = registry.qualified_map().get(&qname) {
-                    resolved.push(ResolvedImport {
-                        file_id: FileId::new(file_path),
-                        target_symbol_id: symbol_id.clone(),
-                    });
-                }
-            } else {
-                // Named import: use module_path [name1, name2]
-                resolved.extend(entry.imported_names.iter().filter_map(|name| {
-                    let qname = QualifiedName::new(&module_path, name);
-                    registry
-                        .qualified_map()
-                        .get(&qname)
-                        .map(|symbol_id| ResolvedImport {
-                            file_id: FileId::new(file_path),
-                            target_symbol_id: symbol_id.clone(),
-                        })
-                }));
-            }
-        }
-
-        tracing::debug!("Resolved {} total imports", resolved.len());
-        resolved
-    }
-}
-
-impl NushellExtractor {
     fn process_match(
         query: &Query,
         m: &tree_sitter::QueryMatch,
