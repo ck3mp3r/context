@@ -163,7 +163,7 @@ optional = true
 
 [dependencies.surrealdb]
 version = "3.0.5"
-features = ["kv-rocksdb", "kv-mem"]
+features = ["kv-surrealkv", "kv-mem"]
 optional = true
 
 [dependencies.tabled]

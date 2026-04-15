@@ -716,7 +716,7 @@ pub mod surrealdb {
     use std::path::Path;
     use surrealdb::{
         Surreal,
-        engine::local::{Db, Mem, RocksDb},
+        engine::local::{Db, Mem, SurrealKv},
     };
 
     /// Type alias for the SurrealDB connection type used in this crate
@@ -745,10 +745,8 @@ pub mod surrealdb {
     /// - Schema enforces repo_id on all nodes and edges
     pub async fn init_db(path: Option<&Path>) -> Result<Surreal<Db>, A6sError> {
         let db = if let Some(path) = path {
-            // Create/open RocksDB database with file-based storage
-            // SurrealDB 3.x RocksDb::new() takes just the path, not a URL
-            // Note: new::<RocksDb>() returns Surreal<Db>, not Surreal<RocksDb>
-            Surreal::new::<RocksDb>(path).await.map_err(|e| {
+            // Create/open SurrealKV database with file-based storage (pure Rust engine)
+            Surreal::new::<SurrealKv>(path).await.map_err(|e| {
                 A6sError::Custom(format!("Failed to create SurrealDB instance: {}", e))
             })?
         } else {

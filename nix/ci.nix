@@ -23,10 +23,7 @@ in
       pkgs.nodejs
       pkgs.tailwindcss_4
       pkgs.protobuf # Required for NanoGraph (Lance dependency)
-      pkgs.llvmPackages.libclang
     ];
-
-    LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
     shellHook = ''
       echo "CI Testing Environment"
