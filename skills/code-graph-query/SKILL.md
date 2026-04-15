@@ -8,13 +8,13 @@ metadata:
 
 # Code Graph Queries
 
-c5t analyzes repositories using tree-sitter to extract symbols and relationships into a NanoGraph database. This skill covers how to query that graph.
+c5t analyzes repositories using tree-sitter to extract symbols and relationships into a SurrealDB graph database. This skill covers how to query that graph.
 
 ## Supported Languages
 
-- **Rust** - functions, structs, enums, traits, impls, modules, macros, consts, statics, type aliases, fields
-- **Go** - functions, structs, interfaces, packages, consts, fields, type aliases
-- **Nushell** - commands, modules, aliases
+- **Rust** — functions, structs, enums, traits, impls, modules, macros, consts, statics, type aliases, fields
+- **Go** — functions, structs, interfaces, packages, consts, fields, type aliases
+- **Nushell** — commands, modules, aliases
 
 ## MCP Tools
 
@@ -32,9 +32,13 @@ Returns file count, symbol count, and relationship count on completion.
 
 Returns the graph schema (node types, edge types, properties) for a repository.
 
+### `code_list_queries`
+
+Lists all available bundled and user-saved queries.
+
 ### `code_query`
 
-Executes a NanoGraph query against the code graph. Three modes:
+Executes a SurrealQL query against the code graph. Three modes:
 
 **Run a bundled query by name:**
 ```json
@@ -49,15 +53,24 @@ Executes a NanoGraph query against the code graph. Three modes:
 {
   "repo_id": "7104e891",
   "query_name": "file_symbols",
-  "params": { "path": "src/analysis/pipeline.rs" }
+  "params": { "path": "src/main.rs" }
 }
 ```
 
-**Run an ad-hoc query:**
+**Run an ad-hoc SurrealQL query:**
 ```json
 {
   "repo_id": "7104e891",
-  "query_definition": "query my_query() { match { $s: Symbol } return { $s.kind, count($s) as total } }"
+  "query_definition": "SELECT name, kind FROM symbol WHERE repo_id = $repo_id AND kind = 'function' LIMIT 10;"
+}
+```
+
+**Save a custom query for reuse:**
+```json
+{
+  "repo_id": "7104e891",
+  "query_name": "my_query",
+  "query_definition": "SELECT name FROM symbol WHERE repo_id = $repo_id AND visibility = 'public';"
 }
 ```
 
@@ -67,47 +80,56 @@ Executes a NanoGraph query against the code graph. Three modes:
 
 **File**
 ```
-File {
-  file_id: String @key
-  repo_id: String @index
-  path: String @index
-  language: String
-  hash: String
+file {
+  file_id: string     -- unique within repo
+  repo_id: string     -- repository identifier
+  path: string        -- relative file path
+  language: string    -- "rust", "go", "nushell"
+  hash: string        -- content hash
 }
 ```
 
 **Symbol**
 ```
-Symbol {
-  symbol_id: String @key
-  repo_id: String @index
-  name: String @index
-  kind: String @index        // "function", "struct", "enum", "trait", "module", etc.
-  language: String @index    // "rust", "go", "nushell"
-  file_path: String @index
-  start_line: I32
-  end_line: I32
-  visibility: String? @index // "public", "private", or null
-  entry_type: String? @index // "main", "init", "test", "benchmark", "fuzz", "example", "export" (null = not an entry point)
-  signature: String?         // e.g. "fn foo(a: i32) -> String"
-  content: String?           // code snippet
+symbol {
+  symbol_id: string       -- unique within repo
+  repo_id: string         -- repository identifier
+  name: string            -- symbol name
+  kind: string            -- "function", "struct", "enum", "trait", etc.
+  language: string        -- "rust", "go", "nushell"
+  file_path: string       -- file where defined
+  start_line: int         -- start line number
+  end_line: int           -- end line number
+  visibility: string?     -- "public", "private", or null
+  entry_type: string?     -- "main", "init", "test", "benchmark", etc.
+  signature: string?      -- e.g. "fn foo(a: i32) -> String"
+  content: string?        -- code snippet
+  module_path: string?    -- dot-separated module path
 }
 ```
 
 ### Edge Types
 
-| Edge | From | To | Description |
-|------|------|----|-------------|
-| `fileContains` | File | Symbol | File contains a symbol |
-| `symbolContains` | Symbol | Symbol | Container (impl/struct) contains member |
-| `calls` | Symbol | Symbol | Function calls function |
-| `import` | Symbol | Symbol | Import relationship |
-| `inherits` | Symbol | Symbol | Implements trait / extends type |
-| `typeAnnotation` | Symbol | Symbol | Type annotation in signature |
-| `fieldType` | Symbol | Symbol | Field type reference |
+All edges are SurrealDB relation tables connecting `symbol -> symbol` (or `file -> symbol`).
+
+| Edge Table | From | To | Description |
+|------------|------|----|-------------|
+| `file_contains` | File | Symbol | File contains a symbol |
+| `has_field` | Symbol | Symbol | Struct/class has a field |
+| `has_method` | Symbol | Symbol | Type has a method |
+| `has_member` | Symbol | Symbol | Module/package has a member |
+| `calls` | Symbol | Symbol | Function calls function (has `call_site_line`) |
+| `import` | Symbol | Symbol | Scoped import relationship |
+| `file_imports` | File | Symbol | File-level import |
+| `implements` | Symbol | Symbol | Implements trait/interface |
+| `extends` | Symbol | Symbol | Type extension/inheritance |
+| `type_annotation` | Symbol | Symbol | Type annotation in signature |
+| `field_type` | Symbol | Symbol | Field type reference |
 | `returns` | Symbol | Symbol | Function return type |
 | `accepts` | Symbol | Symbol | Function parameter type |
-| `uses` | Symbol | Symbol | References a variable/constant |
+| `uses` | Symbol | Symbol | References a variable/constant/type |
+
+All edges have a `confidence` field (float 0.0-1.0, default 1.0).
 
 ### Symbol Kinds
 
@@ -130,161 +152,136 @@ Symbol {
 
 ## Bundled Queries
 
-These are pre-installed for every analyzed repo. Run them by name.
-
 ### No parameters required
 
 | Query | Description |
 |-------|-------------|
-| `overview` | Symbol counts grouped by kind and visibility. **Run this first.** |
-| `public_api` | All public symbols (structs, traits, enums, consts, functions, fields). |
-| `module_map` | Module/package hierarchy showing file locations and visibility. |
-| `hub_symbols` | Top 30 most-called symbols. Core logic lives here. |
-| `type_hierarchy` | All inheritance/implementation relationships between types. |
+| `overview` | Symbol counts grouped by kind. **Run this first.** |
+| `all_symbols` | All symbols with name, kind, language, file_path, start_line, entry_type, module_path. |
+| `public_api` | All public symbols ordered by kind. |
+| `module_map` | Module/package hierarchy with file locations and visibility. |
+| `hub_symbols` | Top 30 most-called symbols by incoming call count. |
 | `entry_points` | All entry points: main, init, test, benchmark, fuzz, example, export. |
+| `type_hierarchy` | All inheritance/implementation relationships between types. |
+| `calls_edges` | All call relationships with full source and target details. |
+| `has_field` | All struct field membership edges. |
+| `has_method` | All type method membership edges. |
+| `has_member` | All module membership edges. |
+| `implements` | All trait/interface implementation edges. |
+| `extends` | All type extension edges. |
+| `file_imports` | All file-level import edges with imported symbol details. |
+| `accepts_edges` | All parameter type edges (function -> type). |
+| `returns_edges` | All return type edges (function -> type). |
+| `field_type_edges` | All field type edges (field -> type). |
 
-### Parameterized
+### Parameterized queries
 
 | Query | Parameters | Description |
 |-------|------------|-------------|
-| `file_symbols` | `path`: file path | All symbols in a specific file, ordered by line. |
-| `symbol_search` | `name`: symbol name | Find a symbol by exact name across the codebase. |
-| `callers` | `name`: symbol name | Find all functions that call the named function. |
-| `callees` | `name`: symbol name | Find all functions called by the named function. |
+| `file_symbols` | `path` — file path | All symbols in a specific file, ordered by line. |
+| `symbol_search` | `name` — symbol name | Find a symbol by exact name across the codebase. |
+| `callers` | `name` — symbol name | All functions that call the named function. |
+| `callees` | `name` — symbol name | All functions called by the named function. |
+| `annotates_type` | `name` — type name | Functions with type annotations referencing the named type. |
+| `uses_type` | `name` — type name | Functions that use/instantiate the named type. |
 
-## NanoGraph Query Syntax
+## SurrealQL Query Syntax
 
-Full reference: https://nanograph.io/docs/queries
+Queries use SurrealDB's SQL-like query language. Full reference: https://surrealdb.com/docs/surrealql
 
-### Structure
+### Querying nodes
 
-```
-query name($param: Type)
-  @description("Human-readable description")
-  @instruction("Usage guidance for agents")
-{
-  match {
-    // node bindings, edge traversals, filters
-  }
-  return {
-    // projections, aggregations
-  }
-  order { $v.prop desc }
-  limit 10
-}
-```
+```sql
+-- All functions in a repo
+SELECT name, file_path, start_line
+FROM symbol
+WHERE repo_id = $repo_id AND kind = 'function';
 
-Annotations are optional.
+-- Public structs
+SELECT name, file_path
+FROM symbol
+WHERE repo_id = $repo_id AND kind = 'struct' AND visibility = 'public';
 
-Parameter types: `String`, `I32`, `I64`, `U64`, `F32`, `F64`, `Bool`, `Date`, `DateTime`, `Vector(dim)`.
-
-### Node Binding
-
-```
-$s: Symbol
-$s: Symbol { name: "foo" }
-$s: Symbol { kind: "function", visibility: "public" }
-$s: Symbol { name: $param }
-$f: File { path: $p }
+-- Symbols by file
+SELECT name, kind, start_line
+FROM symbol
+WHERE repo_id = $repo_id AND file_path = 'src/main.rs'
+ORDER BY start_line ASC;
 ```
 
-Property matches in braces filter at bind time. Variables capture values for use elsewhere.
+### Querying edges
 
-### Edge Traversal
+Edges are stored in separate relation tables. Each edge has `in` (source) and `out` (target) fields pointing to the connected nodes.
 
-Edge names are camelCase versions of the schema PascalCase names:
+```sql
+-- All calls from a specific function
+SELECT out.name AS callee, out.file_path AS file
+FROM calls
+WHERE in.repo_id = $repo_id AND in.name = 'main'
+FETCH in, out;
 
-```
-$f fileContains $s
-$parent symbolContains $child
-$caller calls $callee
-$s import $t
-$s inherits $t
-$s returns $t
-$s accepts $t
-$s uses $t
-$s typeAnnotation $t
-$s fieldType $t
-```
+-- Struct fields
+SELECT in.name AS struct_name, out.name AS field_name
+FROM has_field
+WHERE in.repo_id = $repo_id
+FETCH in, out;
 
-**Edge binding with `via`:**
-```
-$caller calls $callee via $edge
-```
-Binds the edge itself to `$edge`, allowing access to edge properties in return clauses.
-
-**Bounded multi-hop traversal:**
-```
-$a calls{1,3} $b
-```
-Expands to a finite union of 1-hop, 2-hop, and 3-hop traversals. Bounds: min >= 1, max >= min, max is finite.
-
-### Filters
-
-Comparison operators: `=`, `!=`, `>`, `<`, `>=`, `<=`.
-
-```
-$s.kind = "function"
-$s.name != "main"
-$s.start_line > 100
+-- Trait implementations
+SELECT in.name AS implementor, out.name AS trait_name
+FROM implements
+WHERE in.repo_id = $repo_id
+FETCH in, out;
 ```
 
-No regex, prefix, or contains operators exist. For text matching, use search predicates instead.
+### Aggregation
 
-### Search Predicates
+```sql
+-- Count symbols by kind
+SELECT kind, count() AS total
+FROM symbol
+WHERE repo_id = $repo_id
+GROUP BY kind;
 
-These go in the `match` block and act as filters.
-
-| Predicate | Description |
-|-----------|-------------|
-| `search($s.name, "test")` | Token-based keyword match (all query tokens must be present) |
-| `fuzzy($s.name, "Skywaker")` | Approximate match (tolerates typos) |
-| `match_text($s.name, "main")` | Contiguous token / phrase match |
-
-Use `search()` to find symbols whose name contains certain tokens. Use `fuzzy()` for typo-tolerant lookups.
-
-### Negation
-
-```
-not { $s calls $_ }
+-- Most-called functions
+SELECT out, count() AS incoming_calls
+FROM calls
+WHERE in.repo_id = $repo_id
+GROUP BY out
+ORDER BY incoming_calls DESC
+LIMIT 20;
 ```
 
-At least one variable in the negated block must be bound outside it. `$_` is an anonymous wildcard.
+### CRITICAL: Always filter by repo_id
 
-### Return Clause
+The SurrealDB database is **shared across all repositories**. Every query MUST include a `WHERE repo_id = $repo_id` clause for node queries, or `WHERE in.repo_id = $repo_id` for edge queries. Without this filter, results from all analyzed repos will be mixed together.
 
+```sql
+-- WRONG: returns data from ALL repos
+SELECT name FROM symbol WHERE kind = 'function';
+
+-- CORRECT: scoped to one repo
+SELECT name FROM symbol WHERE repo_id = $repo_id AND kind = 'function';
+
+-- WRONG: edge query without repo filter
+SELECT * FROM calls;
+
+-- CORRECT: edge query with repo filter
+SELECT * FROM calls WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id;
 ```
-return {
-  $s.name
-  $s.kind
-  $s.file_path as file
-  count($s) as total
-  min($s.start_line) as first_line
-}
+
+### Using FETCH for edge queries
+
+Edge queries return record IDs by default. Use `FETCH in, out` to resolve the connected nodes and access their properties:
+
+```sql
+-- Without FETCH: returns opaque record IDs
+SELECT in, out FROM calls WHERE in.repo_id = $repo_id;
+-- Result: { in: symbol:abc123, out: symbol:def456 }
+
+-- With FETCH: returns full node data
+SELECT in.name, out.name FROM calls WHERE in.repo_id = $repo_id FETCH in, out;
+-- Result: { in: { name: "main" }, out: { name: "process" } }
 ```
-
-Aggregation functions: `count`, `sum`, `avg`, `min`, `max`.
-
-### Literals
-
-| Type | Example |
-|------|---------|
-| String | `"Alice"` |
-| Integer | `42` |
-| Float | `3.14` |
-| Boolean | `true`, `false` |
-| Date | `date("2026-01-15")` |
-| DateTime | `datetime("2026-01-15T10:00:00Z")` |
-| List | `[1, 2, 3]`, `["a", "b"]` |
-
-Built-in: `now()` returns the current UTC timestamp.
-
-### Limitations
-
-- No edge property access (cannot filter/return `call_site_line`, `inheritance_type`, etc.)
-- No `or {}` or `maybe {}` (not implemented despite appearing in the EBNF grammar)
-- No regex, prefix, or glob matching on strings (use `search()` / `fuzzy()` instead)
-- CAN filter on node properties in binding syntax
 
 ## Exploration Workflow
 
@@ -298,7 +295,7 @@ Run `module_map` to see how code is organized.
 
 ### 3. Find the important code
 
-Run `hub_symbols` to find the most-called functions.
+Run `hub_symbols` to find the most-called functions — core logic lives here.
 
 ### 4. Explore a specific file
 
@@ -310,108 +307,90 @@ Run `callers` or `callees` to understand call chains.
 
 ### 6. Understand type relationships
 
-Run `type_hierarchy` to see trait implementations and struct embedding.
+Run `type_hierarchy` to see trait implementations and interface satisfaction.
 
 ### 7. Write custom queries for specific questions
 
-```
-query unused_functions() {
-  match {
-    $s: Symbol { kind: "function", visibility: "private" }
-    not { $_ calls $s }
-  }
-  return { $s.name, $s.file_path, $s.start_line }
-}
+```sql
+-- Find private functions that are never called (potential dead code)
+SELECT name, file_path, start_line
+FROM symbol
+WHERE repo_id = $repo_id
+  AND kind = 'function'
+  AND visibility = 'private'
+  AND id NOT IN (SELECT out FROM calls WHERE out.repo_id = $repo_id);
 ```
 
 ## Example Custom Queries
 
 ### Find functions with many dependencies
 
-```
-query complex_functions() {
-  match {
-    $s: Symbol { kind: "function" }
-    $t: Symbol
-    $s calls $t
-  }
-  return { $s.name, $s.file_path, count($t) as dependency_count }
-  order { dependency_count desc }
-  limit 20
-}
+```sql
+SELECT
+    in.name AS function_name,
+    in.file_path AS file,
+    count() AS dependency_count
+FROM calls
+WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
+GROUP BY in
+ORDER BY dependency_count DESC
+LIMIT 20;
 ```
 
 ### Find files with the most symbols
 
-```
-query large_files() {
-  match {
-    $f: File
-    $s: Symbol
-    $f fileContains $s
-  }
-  return { $f.path, count($s) as symbol_count }
-  order { symbol_count desc }
-  limit 20
-}
+```sql
+SELECT
+    in.path AS file_path,
+    count() AS symbol_count
+FROM file_contains
+WHERE in.repo_id = $repo_id
+GROUP BY in
+ORDER BY symbol_count DESC
+LIMIT 20;
 ```
 
 ### Find all implementations of a trait
 
-```
-query trait_impls($trait_name: String) {
-  match {
-    $impl: Symbol
-    $trait: Symbol { name: $trait_name }
-    $impl inherits $trait
-  }
-  return { $impl.name, $impl.kind, $impl.file_path, $impl.start_line }
-}
-```
-
-### Two-hop call chain
-
-```
-query call_chain($name: String) {
-  match {
-    $a: Symbol { name: $name }
-    $b: Symbol
-    $c: Symbol
-    $a calls $b
-    $b calls $c
-  }
-  return { $a.name, $b.name as via, $c.name as reaches }
-}
+```sql
+SELECT
+    in.name AS implementor,
+    in.kind AS kind,
+    in.file_path AS file,
+    in.start_line AS line
+FROM implements
+WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id AND out.name = $name
+FETCH in, out;
 ```
 
-### Find symbols by name pattern
+### Find functions by name pattern
 
-```
-query find_test_functions() {
-  match {
-    $s: Symbol { kind: "function" }
-    search($s.name, "test")
-  }
-  return { $s.name, $s.file_path, $s.start_line }
-  limit 20
-}
+```sql
+SELECT name, kind, file_path, start_line
+FROM symbol
+WHERE repo_id = $repo_id
+  AND kind = 'function'
+  AND name CONTAINS 'test';
 ```
 
-### Find entry points
+### Find all entry points and what they call
 
-```
-query main_functions() {
-  match {
-    $s: Symbol { kind: "function", name: "main" }
-  }
-  return { $s.name, $s.file_path, $s.language, $s.start_line }
-}
+```sql
+SELECT
+    in.name AS entry_point,
+    in.entry_type AS type,
+    out.name AS calls_function
+FROM calls
+WHERE in.repo_id = $repo_id AND in.entry_type != NONE
+FETCH in, out;
 ```
 
 ## Troubleshooting
 
-**No results:** Check that analysis has been run for the repo. Verify symbol names are exact (case-sensitive).
+**No results:** Check that analysis has been run for the repo (`code_analyze`). Verify symbol names are exact (case-sensitive).
 
-**Query syntax errors:** Ensure variable names start with `$`. Check matching braces. Match clause statements are separated by newlines, not commas.
+**Mixed results from multiple repos:** Ensure every query includes `WHERE repo_id = $repo_id` (nodes) or `WHERE in.repo_id = $repo_id` (edges).
 
-**Parameter errors:** Parameter names in `params` JSON must match the `$param` names in the query definition (without the `$` prefix).
+**Edge queries return record IDs instead of data:** Add `FETCH in, out` to resolve the connected nodes.
+
+**Parameter errors:** Parameter names in `params` JSON must match the `$param` names in the query (without the `$` prefix).

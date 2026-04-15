@@ -399,7 +399,7 @@ impl<D: Database + 'static> McpServer<D> {
 
     #[tool(
         name = "code_query",
-        description = "Execute custom NanoGraph queries (temporary or saved) against the code graph"
+        description = "Execute custom queries (temporary or saved) against the code graph"
     )]
     pub async fn code_query(
         &self,

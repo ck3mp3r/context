@@ -1,7 +1,7 @@
-//! Tests for SurrealQL query translation from NanoGraph
+//! Tests for bundled SurrealQL queries
 //!
-//! This module tests all translated queries to ensure they produce
-//! the expected results matching the original NanoGraph behavior.
+//! This module tests all bundled queries to ensure they produce
+//! the expected results against the SurrealDB code graph.
 
 use super::store::surrealdb::init_db;
 

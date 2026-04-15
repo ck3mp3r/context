@@ -6,7 +6,7 @@
 //! Architecture:
 //! - Layer 1: Parallel per-file tree-sitter extraction via spawn_blocking
 //! - Layer 2: Per-language cross-file resolution (edges + imports)
-//! - Buffered graph writes (single nanograph load at commit)
+//! - Buffered graph writes to SurrealDB
 
 #[cfg(feature = "backend")]
 pub mod types;

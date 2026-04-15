@@ -104,14 +104,14 @@ async fn test_nonexistent_repo_returns_404() {
 }
 
 // Note: Testing actual query failures would require either:
-// 1. Creating a real NanoGraph database with failing queries (complex, requires nanograph CLI)
-// 2. Mocking the run_nanograph_query function (would require refactoring to inject dependency)
+// 1. Creating a real SurrealDB database with failing queries
+// 2. Mocking the query execution function (would require refactoring to inject dependency)
 // 3. Integration tests with real analysis data
 //
 // For now, we'll verify the schema change and that the API returns the field.
 // The actual error handling will be verified by:
 // - Code review
-// - Manual testing with real NanoGraph databases
+// - Manual testing with real analysis databases
 // - Observing tracing::warn! logs in production
 //
 // Future improvement: Refactor build_graph_data to accept a trait for query execution,
