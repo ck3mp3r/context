@@ -581,8 +581,26 @@
       // Run ForceAtlas2 layout in animated batches
       if (typeof ForceAtlas2Layout === "function" && graph.order > 0) {
         var settings = ForceAtlas2Layout.inferSettings(graph);
-        var totalIterations = Math.min(300, 100 + Math.floor(graph.order / 5));
-        var batchSize = 5;
+
+        // Override inferred settings for better spatial distribution
+        settings.strongGravityMode = true;   // Constant gravity prevents hubs from flying to edges
+        settings.linLogMode = true;          // Log-attraction: tighter clusters, more separation between them
+        settings.gravity = 1;                // Standard gravity with strongGravityMode keeps layout centered
+        settings.outboundAttractionDistribution = true;  // Normalize attraction by degree so hubs don't dominate
+        settings.adjustSizes = true;         // Prevent node overlap based on sizes
+
+        // Moderate repulsion scaling — enough to spread, not enough to fling hubs out
+        settings.scalingRatio = Math.max(settings.scalingRatio || 1, 1 + Math.log10(graph.order));
+
+        // Enable Barnes-Hut approximation for larger graphs (O(N log N) vs O(N²))
+        if (graph.order > 100) {
+          settings.barnesHutOptimize = true;
+          settings.barnesHutTheta = 0.5;
+        }
+
+        // Scale iterations with graph size; larger graphs need more to converge
+        var totalIterations = Math.min(600, 150 + Math.floor(graph.order / 2));
+        var batchSize = 10;
         var currentIteration = 0;
         inst.layoutRunning = true;
 
