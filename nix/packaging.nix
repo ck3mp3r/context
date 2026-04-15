@@ -92,6 +92,10 @@
     src = srcWithFrontend;
     packageName = "context";
     archiveAndHash = false;
+    nativeBuildInputs = [pkgs.llvmPackages.libclang];
+    extraArgs = {
+      LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+    };
   };
 
   # Build archive packages (creates archive with system name)
@@ -110,6 +114,10 @@
     src = srcWithFrontend;
     packageName = "archive";
     archiveAndHash = true;
+    nativeBuildInputs = [pkgs.llvmPackages.libclang];
+    extraArgs = {
+      LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+    };
   };
 
   # Custom minimal git for container

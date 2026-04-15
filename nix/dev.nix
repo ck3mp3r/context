@@ -29,7 +29,10 @@ in
       pkgs.protobuf
       pkgs.lefthook
       pkgs.tree-sitter
+      pkgs.llvmPackages.libclang
     ];
+
+    LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
     shellHook = ''
       lefthook install
