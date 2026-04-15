@@ -327,9 +327,6 @@ impl LanguageExtractor for RustExtractor {
     /// `SymbolRef::Unresolved` endpoints using:
     /// 1. Same module path (QualifiedName lookup)
     /// 2. Bare name fallback (only if exactly one candidate exists)
-    ///
-    /// Skips edges whose `from` is `Unresolved { name: "__file__", .. }`
-    /// because those are Import edges with a synthetic source.
     fn resolve_cross_file(
         &self,
         parsed_files: &mut [ParsedFile],
@@ -386,10 +383,6 @@ impl LanguageExtractor for RustExtractor {
                 let from_id = match &edge.from {
                     SymbolRef::Resolved(id) => Some(id.clone()),
                     SymbolRef::Unresolved { name, .. } => {
-                        // Skip __file__ synthetic symbols (Import edges)
-                        if name == "__file__" {
-                            continue;
-                        }
                         Self::resolve_name(name, file_module, &symbol_index, &bare_index)
                     }
                 };
@@ -1203,11 +1196,11 @@ impl RustExtractor {
             } else if child.kind() == "scoped_identifier" {
                 // Handle simple imports: use std::collections::HashMap;
                 let path = Self::node_text(child, code);
-                Self::create_import_edge(path, path, file_path, parsed, false);
+                Self::create_import_entry(path, path, file_path, parsed, false);
             } else if child.kind() == "identifier" {
                 // Handle single identifier imports: use HashMap;
                 let name = Self::node_text(child, code);
-                Self::create_import_edge(name, name, file_path, parsed, false);
+                Self::create_import_entry(name, name, file_path, parsed, false);
             }
         }
     }
@@ -1258,13 +1251,13 @@ impl RustExtractor {
                     } else {
                         format!("{}::{}", base_path, name)
                     };
-                    Self::create_import_edge(&full_path, name, file_path, parsed, false);
+                    Self::create_import_entry(&full_path, name, file_path, parsed, false);
                 }
                 "use_as_clause" => {
                     Self::extract_use_as_clause(child, code, file_path, parsed);
                 }
                 "use_wildcard" => {
-                    Self::create_import_edge(base_path, "*", file_path, parsed, true);
+                    Self::create_import_entry(base_path, "*", file_path, parsed, true);
                 }
                 "scoped_use_list" => {
                     // Nested scoped list (e.g., collections::{HashMap, BTreeMap})
@@ -1304,7 +1297,7 @@ impl RustExtractor {
             } else {
                 &alias
             };
-            Self::create_import_edge(&path, import_name, file_path, parsed, false);
+            Self::create_import_entry(&path, import_name, file_path, parsed, false);
         }
     }
 
@@ -1327,28 +1320,18 @@ impl RustExtractor {
             full_text
         };
 
-        Self::create_import_edge(module_path, "*", file_path, parsed, true);
+        Self::create_import_entry(module_path, "*", file_path, parsed, true);
     }
 
-    /// Create an Import edge and add RawImport entry
-    fn create_import_edge(
+    /// Create a RawImport entry for a use statement
+    fn create_import_entry(
         module_path: &str,
         imported_name: &str,
         file_path: &str,
         parsed: &mut ParsedFile,
         is_glob: bool,
     ) {
-        use crate::a6s::types::{EdgeKind, ImportEntry, RawEdge, RawImport, SymbolRef};
-
-        // Create Import edge (file-level import)
-        // Use a synthetic "__file__" symbol as the "from" to represent file-level scope
-        let edge = RawEdge {
-            from: SymbolRef::unresolved("__file__", file_path),
-            to: SymbolRef::unresolved(imported_name, file_path),
-            kind: EdgeKind::Import,
-            line: None,
-        };
-        parsed.edges.push(edge);
+        use crate::a6s::types::{ImportEntry, RawImport};
 
         // Create RawImport entry
         let entry = if is_glob {

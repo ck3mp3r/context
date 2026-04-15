@@ -928,7 +928,7 @@ impl Writable for File {
 }
 
 // ============================================================================
-// Phase 3: Import Extraction Tests (RED → GREEN → REFACTOR)
+// Phase 3: Import Extraction Tests (RawImport entries, not Import edges)
 // ============================================================================
 
 #[test]
@@ -938,10 +938,8 @@ use std::collections::HashMap;
 "#;
     let parsed = extract(code);
 
-    // Should extract Import edge
-    assert_eq!(parsed.edges.len(), 1, "Expected 1 Import edge");
-    let edge = &parsed.edges[0];
-    assert_eq!(edge.kind.as_str(), "Import");
+    // Should extract RawImport entry (not Import edge)
+    assert_eq!(parsed.imports.len(), 1, "Expected 1 RawImport entry");
 }
 
 #[test]
@@ -951,18 +949,11 @@ use std::{fs, io};
 "#;
     let parsed = extract(code);
 
-    // Should extract 2 Import edges
+    // Should extract 2 RawImport entries
     assert!(
-        parsed.edges.len() >= 2,
-        "Expected at least 2 Import edges for nested use"
-    );
-    assert!(
-        parsed
-            .edges
-            .iter()
-            .filter(|e| e.kind.as_str() == "Import")
-            .count()
-            >= 2
+        parsed.imports.len() >= 2,
+        "Expected at least 2 RawImport entries for nested use, got {}",
+        parsed.imports.len()
     );
 }
 
@@ -973,8 +964,11 @@ use crate::db::Database;
 "#;
     let parsed = extract(code);
 
-    // Should have Import edge with crate:: prefix
-    assert!(parsed.edges.iter().any(|e| e.kind.as_str() == "Import"));
+    // Should have RawImport entry with crate:: prefix
+    assert!(
+        !parsed.imports.is_empty(),
+        "Expected at least 1 RawImport entry"
+    );
 }
 
 #[test]
@@ -984,8 +978,11 @@ use super::utils::helper;
 "#;
     let parsed = extract(code);
 
-    // Should have Import edge with super:: prefix
-    assert!(parsed.edges.iter().any(|e| e.kind.as_str() == "Import"));
+    // Should have RawImport entry with super:: prefix
+    assert!(
+        !parsed.imports.is_empty(),
+        "Expected at least 1 RawImport entry"
+    );
 }
 
 #[test]
@@ -995,8 +992,11 @@ use std::io::Result as IoResult;
 "#;
     let parsed = extract(code);
 
-    // Should extract aliased import
-    assert!(parsed.edges.iter().any(|e| e.kind.as_str() == "Import"));
+    // Should extract aliased import as RawImport entry
+    assert!(
+        !parsed.imports.is_empty(),
+        "Expected at least 1 RawImport entry"
+    );
 }
 
 #[test]
@@ -1006,8 +1006,11 @@ pub use crate::types::Symbol;
 "#;
     let parsed = extract(code);
 
-    // Should extract pub use
-    assert!(parsed.edges.iter().any(|e| e.kind.as_str() == "Import"));
+    // Should extract pub use as RawImport entry
+    assert!(
+        !parsed.imports.is_empty(),
+        "Expected at least 1 RawImport entry"
+    );
 }
 
 #[test]
@@ -1017,8 +1020,11 @@ use std::prelude::*;
 "#;
     let parsed = extract(code);
 
-    // Should extract glob import
-    assert!(parsed.edges.iter().any(|e| e.kind.as_str() == "Import"));
+    // Should extract glob import as RawImport entry
+    assert!(
+        !parsed.imports.is_empty(),
+        "Expected at least 1 RawImport entry"
+    );
 }
 
 #[test]
@@ -1028,15 +1034,11 @@ use std::collections::{HashMap, HashSet, BTreeMap};
 "#;
     let parsed = extract(code);
 
-    // Should extract 3 Import edges
+    // Should extract 3 RawImport entries
     assert!(
-        parsed
-            .edges
-            .iter()
-            .filter(|e| e.kind.as_str() == "Import")
-            .count()
-            >= 3,
-        "Expected at least 3 Import edges for deep nested use"
+        parsed.imports.len() >= 3,
+        "Expected at least 3 RawImport entries for deep nested use, got {}",
+        parsed.imports.len()
     );
 }
 
@@ -1048,14 +1050,11 @@ use std::io::Read;
 "#;
     let parsed = extract(code);
 
-    // Should extract 2 Import edges
+    // Should extract 2 RawImport entries
     assert!(
-        parsed
-            .edges
-            .iter()
-            .filter(|e| e.kind.as_str() == "Import")
-            .count()
-            >= 2
+        parsed.imports.len() >= 2,
+        "Expected at least 2 RawImport entries, got {}",
+        parsed.imports.len()
     );
 }
 
@@ -1066,8 +1065,11 @@ use self::inner::function;
 "#;
     let parsed = extract(code);
 
-    // Should extract self:: import
-    assert!(parsed.edges.iter().any(|e| e.kind.as_str() == "Import"));
+    // Should extract self:: import as RawImport entry
+    assert!(
+        !parsed.imports.is_empty(),
+        "Expected at least 1 RawImport entry"
+    );
 }
 
 #[test]
@@ -1075,12 +1077,8 @@ fn test_imports_fixture() {
     let fixture = load_testdata("imports.rs");
     let parsed = extract(&fixture);
 
-    // The fixture has many imports, verify we extract them
-    let import_count = parsed
-        .edges
-        .iter()
-        .filter(|e| e.kind.as_str() == "Import")
-        .count();
+    // The fixture has many imports, verify we extract them as RawImport entries
+    let import_count = parsed.imports.len();
 
     assert!(
         import_count >= 10,
@@ -2357,33 +2355,29 @@ fn test_resolve_cross_file_skips_file_imports() {
     let code = r#"use std::io::Result;"#;
     let file = extractor.extract(code, "src/main.rs");
 
-    // Verify Import edges with __file__ exist in raw edges
-    let import_edges_with_file = file
+    // After fix: no Import edges should be created at all in raw edges.
+    // Imports are captured via RawImport entries, not RawEdge.
+    let import_edge_count = file
         .edges
         .iter()
-        .filter(|e| {
-            matches!(
-                &e.from,
-                SymbolRef::Unresolved { name, .. } if name == "__file__"
-            )
-        })
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Import)
         .count();
-    assert!(
-        import_edges_with_file > 0,
-        "Should have at least one Import edge with __file__ from"
+    assert_eq!(
+        import_edge_count, 0,
+        "Should have ZERO Import edges in raw edges; imports use RawImport entries instead"
     );
 
     let mut files = [file];
     let (resolved, _) = extractor.resolve_cross_file(&mut files);
 
-    // None of the __file__ Import edges should appear in resolved
+    // No Import edges in resolved output either
     let resolved_imports = resolved
         .iter()
         .filter(|e| e.kind == crate::a6s::types::EdgeKind::Import)
         .count();
     assert_eq!(
         resolved_imports, 0,
-        "Import edges with __file__ should be skipped"
+        "No Import edges should appear in resolved output"
     );
 }
 

@@ -270,6 +270,9 @@ impl GolangExtractor {
         // Extract HasMethod edges: interface → interface_method, receiver type → method
         Self::extract_hasmethod_edges(file_path, parsed);
 
+        // Extract Implements edges: concrete type → interface (implicit satisfaction)
+        Self::extract_implements_edges(file_path, parsed);
+
         // Extract HasMember edges: package → top-level symbols
         Self::extract_package_members(file_path, parsed);
 
@@ -336,8 +339,8 @@ impl GolangExtractor {
                 let type_name = Self::node_text(node, code);
                 let use_line = node.start_position().row + 1;
 
-                // Check if this identifier refers to a type (uppercase = exported type)
-                if Self::is_exported(type_name)
+                // Check if this identifier refers to a type (skip builtins like string, int, etc.)
+                if !Self::is_go_builtin(type_name)
                     && let Some(context_id) =
                         Self::find_enclosing_context(parsed, file_path, use_line)
                 {
@@ -355,7 +358,7 @@ impl GolangExtractor {
                 let type_name = Self::node_text(node, code);
                 let use_line = node.start_position().row + 1;
 
-                if Self::is_exported(type_name)
+                if !Self::is_go_builtin(type_name)
                     && let Some(context_id) =
                         Self::find_enclosing_context(parsed, file_path, use_line)
                 {
@@ -373,7 +376,7 @@ impl GolangExtractor {
                 let type_name = Self::node_text(node, code);
                 let use_line = node.start_position().row + 1;
 
-                if Self::is_exported(type_name)
+                if !Self::is_go_builtin(type_name)
                     && let Some(context_id) =
                         Self::find_enclosing_context(parsed, file_path, use_line)
                 {
@@ -385,7 +388,7 @@ impl GolangExtractor {
                     });
                 }
             }
-            // Pattern 4: Composite literal - Server{} or pkg.Server{}
+            // Pattern 4: Composite literal - Server{}
             // Query: @composite_type from symbols.scm line 88
             else if let Some(&node) = captures_map.get("composite_type") {
                 let type_name = Self::node_text(node, code);
@@ -401,6 +404,118 @@ impl GolangExtractor {
                     });
                 }
             }
+            // Pattern 5: Binary expression left/right operand - if x > MaxSize
+            // Query: @uses_binop_left, @uses_binop_right from symbols.scm lines 161-166
+            else if let Some(&node) = captures_map.get("uses_binop_left") {
+                let type_name = Self::node_text(node, code);
+                let use_line = node.start_position().row + 1;
+                if !Self::is_go_builtin(type_name)
+                    && let Some(context_id) =
+                        Self::find_enclosing_context(parsed, file_path, use_line)
+                {
+                    parsed.edges.push(crate::a6s::types::RawEdge {
+                        from: SymbolRef::resolved(context_id),
+                        to: SymbolRef::unresolved(type_name.to_string(), file_path),
+                        kind: EdgeKind::Usage,
+                        line: Some(use_line),
+                    });
+                }
+            } else if let Some(&node) = captures_map.get("uses_binop_right") {
+                let type_name = Self::node_text(node, code);
+                let use_line = node.start_position().row + 1;
+                if !Self::is_go_builtin(type_name)
+                    && let Some(context_id) =
+                        Self::find_enclosing_context(parsed, file_path, use_line)
+                {
+                    parsed.edges.push(crate::a6s::types::RawEdge {
+                        from: SymbolRef::resolved(context_id),
+                        to: SymbolRef::unresolved(type_name.to_string(), file_path),
+                        kind: EdgeKind::Usage,
+                        line: Some(use_line),
+                    });
+                }
+            }
+            // Pattern 6: Call argument identifier - foo(myConst)
+            // Query: @uses_call_arg_ident from symbols.scm lines 168-172
+            else if let Some(&node) = captures_map.get("uses_call_arg_ident") {
+                let type_name = Self::node_text(node, code);
+                let use_line = node.start_position().row + 1;
+                if !Self::is_go_builtin(type_name)
+                    && let Some(context_id) =
+                        Self::find_enclosing_context(parsed, file_path, use_line)
+                {
+                    parsed.edges.push(crate::a6s::types::RawEdge {
+                        from: SymbolRef::resolved(context_id),
+                        to: SymbolRef::unresolved(type_name.to_string(), file_path),
+                        kind: EdgeKind::Usage,
+                        line: Some(use_line),
+                    });
+                }
+            }
+            // Pattern 7: Qualified composite literal - pkg.Server{}
+            // Query: @composite_pkg + @composite_qual_type from symbols.scm lines 100-104
+            else if let (Some(&pkg_node), Some(&type_node)) = (
+                captures_map.get("composite_pkg"),
+                captures_map.get("composite_qual_type"),
+            ) {
+                let pkg = Self::node_text(pkg_node, code);
+                let type_name = Self::node_text(type_node, code);
+                let qualified_name = format!("{}.{}", pkg, type_name);
+                let use_line = type_node.start_position().row + 1;
+                if let Some(context_id) = Self::find_enclosing_context(parsed, file_path, use_line)
+                {
+                    parsed.edges.push(crate::a6s::types::RawEdge {
+                        from: SymbolRef::resolved(context_id),
+                        to: SymbolRef::unresolved(qualified_name, file_path),
+                        kind: EdgeKind::Usage,
+                        line: Some(use_line),
+                    });
+                }
+            }
+
+            // Qualified usage patterns (pkg.Symbol) — standalone checks, not
+            // part of the else-if chain since a match may contain both a simple
+            // capture and a qualified capture.
+            Self::process_qualified_usage(
+                &captures_map,
+                code,
+                file_path,
+                parsed,
+                "uses_qual_call_pkg",
+                "uses_qual_call_name",
+            );
+            Self::process_qualified_usage(
+                &captures_map,
+                code,
+                file_path,
+                parsed,
+                "uses_qual_var_pkg",
+                "uses_qual_var_name",
+            );
+            Self::process_qualified_usage(
+                &captures_map,
+                code,
+                file_path,
+                parsed,
+                "uses_qual_short_pkg",
+                "uses_qual_short_name",
+            );
+            Self::process_qualified_usage(
+                &captures_map,
+                code,
+                file_path,
+                parsed,
+                "uses_qual_assign_pkg",
+                "uses_qual_assign_name",
+            );
+            Self::process_qualified_usage(
+                &captures_map,
+                code,
+                file_path,
+                parsed,
+                "uses_qual_return_pkg",
+                "uses_qual_return_name",
+            );
         }
 
         // Extract type reference edges (ParamType, ReturnType, FieldType)
@@ -608,6 +723,109 @@ impl GolangExtractor {
         }
 
         Some(bare_name.to_string())
+    }
+
+    /// Extract Implements edges for implicit interface satisfaction (single-file).
+    ///
+    /// In Go, a type satisfies an interface if it has all the interface's methods
+    /// with matching names. This function checks all (concrete type, interface) pairs
+    /// within the same file and creates `Implements` edges where satisfaction holds.
+    ///
+    /// Limitations:
+    /// - Single-file only — cross-package interface satisfaction not detected
+    /// - Name-only matching — may produce false positives (same name, different signature)
+    /// - Embedded interface methods not followed (e.g., `type RW interface { Reader; Writer }`)
+    /// - Generic interfaces not handled
+    fn extract_implements_edges(file_path: &str, parsed: &mut ParsedFile) {
+        use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Step 1: Build interface method table.
+        // For each interface, collect its interface_method children by line-range containment.
+        let interfaces: Vec<(&str, usize, usize)> = parsed
+            .symbols
+            .iter()
+            .filter(|s| s.kind == "interface")
+            .map(|s| (s.name.as_str(), s.start_line, s.end_line))
+            .collect();
+
+        let mut iface_methods: HashMap<&str, Vec<&str>> = HashMap::new();
+        for &(iface_name, start, end) in &interfaces {
+            let methods: Vec<&str> = parsed
+                .symbols
+                .iter()
+                .filter(|s| {
+                    s.kind == "interface_method" && s.start_line > start && s.start_line <= end
+                })
+                .map(|s| s.name.as_str())
+                .collect();
+            if !methods.is_empty() {
+                iface_methods.insert(iface_name, methods);
+            }
+        }
+
+        if iface_methods.is_empty() {
+            return; // No interfaces with methods — nothing to do
+        }
+
+        // Step 2: Build concrete type method table from receiver methods.
+        // Parse receiver type from each method's signature (reusing parse_receiver_type).
+        let mut type_methods: HashMap<String, Vec<&str>> = HashMap::new();
+        for sym in parsed.symbols.iter().filter(|s| s.kind == "method") {
+            if let Some(sig) = sym.signature.as_deref()
+                && let Some(receiver_type) = Self::parse_receiver_type(sig)
+            {
+                // Skip methods whose receiver is an interface (not a concrete type)
+                if interfaces.iter().any(|&(name, _, _)| name == receiver_type) {
+                    continue;
+                }
+                type_methods
+                    .entry(receiver_type)
+                    .or_default()
+                    .push(sym.name.as_str());
+            }
+        }
+
+        // Step 3: Check satisfaction — for each (type, interface) pair,
+        // if the type's methods are a superset of the interface's methods, emit edge.
+        let mut new_edges = Vec::new();
+        for (&iface_name, iface_meths) in &iface_methods {
+            for (type_name, type_meths) in &type_methods {
+                if type_name == iface_name {
+                    continue; // Don't match interface with itself
+                }
+                if iface_meths.iter().all(|m| type_meths.contains(m)) {
+                    // Find start_line for the concrete type symbol
+                    let type_start = parsed
+                        .symbols
+                        .iter()
+                        .find(|s| {
+                            s.name == *type_name
+                                && (s.kind == "struct"
+                                    || s.kind == "type_alias"
+                                    || s.kind == "interface")
+                        })
+                        .map(|s| s.start_line);
+
+                    // Find start_line for the interface symbol
+                    let iface_start = interfaces
+                        .iter()
+                        .find(|&&(name, _, _)| name == iface_name)
+                        .map(|&(_, start, _)| start);
+
+                    if let (Some(ts), Some(is)) = (type_start, iface_start) {
+                        new_edges.push(RawEdge {
+                            from: SymbolRef::resolved(SymbolId::new(file_path, type_name, ts)),
+                            to: SymbolRef::resolved(SymbolId::new(file_path, iface_name, is)),
+                            kind: EdgeKind::Implements,
+                            line: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        parsed.edges.extend(new_edges);
     }
 
     /// Extract HasMember edges: package → top-level symbol.
@@ -1162,6 +1380,41 @@ impl GolangExtractor {
         )
     }
 
+    /// Process qualified usage: pkg.Symbol patterns → Usage edge with "pkg.Symbol" as target.
+    ///
+    /// This is used for patterns like `fmt.Println()`, `os.Stdout`, etc. where
+    /// a package-qualified identifier is used in various contexts (call args,
+    /// var decls, short var decls, assignments, returns).
+    fn process_qualified_usage(
+        captures_map: &std::collections::HashMap<&str, tree_sitter::Node>,
+        code: &str,
+        file_path: &str,
+        parsed: &mut ParsedFile,
+        pkg_capture: &str,
+        name_capture: &str,
+    ) {
+        use crate::a6s::types::{EdgeKind, RawEdge, SymbolRef};
+
+        if let (Some(&pkg_node), Some(&name_node)) = (
+            captures_map.get(pkg_capture),
+            captures_map.get(name_capture),
+        ) {
+            let pkg = Self::node_text(pkg_node, code);
+            let name = Self::node_text(name_node, code);
+            let qualified_name = format!("{}.{}", pkg, name);
+            let use_line = name_node.start_position().row + 1;
+
+            if let Some(context_id) = Self::find_enclosing_context(parsed, file_path, use_line) {
+                parsed.edges.push(RawEdge {
+                    from: SymbolRef::resolved(context_id),
+                    to: SymbolRef::unresolved(qualified_name, file_path),
+                    kind: EdgeKind::Usage,
+                    line: Some(use_line),
+                });
+            }
+        }
+    }
+
     /// Helper to create a type reference edge with automatic symbol resolution.
     fn create_type_edge(
         from_name: &str,
@@ -1263,6 +1516,10 @@ impl GolangExtractor {
                 "method_param_generic_inner_fn",
                 "method_param_generic_inner_type",
             ),
+            // Interface method params
+            ("iface_param_direct_fn", "iface_param_direct_type"),
+            ("iface_param_ptr_fn", "iface_param_ptr_type"),
+            ("iface_param_slice_fn", "iface_param_slice_type"),
         ];
 
         for (fn_cap, type_cap) in PARAM_PATTERNS {
@@ -1338,6 +1595,10 @@ impl GolangExtractor {
                 "method_ret_generic_inner_fn",
                 "method_ret_generic_inner_type",
             ),
+            // Interface method returns
+            ("iface_ret_direct_fn", "iface_ret_direct_type"),
+            ("iface_ret_ptr_fn", "iface_ret_ptr_type"),
+            ("iface_ret_slice_fn", "iface_ret_slice_type"),
         ];
 
         for (fn_cap, type_cap) in RETURN_PATTERNS {

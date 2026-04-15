@@ -2256,3 +2256,498 @@ type Config struct {
         resolved
     );
 }
+
+#[test]
+fn test_usage_edges_for_unexported_types() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("usage_edges.go");
+    let parsed = extractor.extract(&code, "usage_edges.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "globalVal")
+        }),
+        "Expected Usage edge to unexported ident 'globalVal', got: {:?}",
+        usage_edges
+    );
+}
+
+#[test]
+fn test_no_usage_edges_for_builtin_types() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("usage_edges.go");
+    let parsed = extractor.extract(&code, "usage_edges.go");
+
+    // string and int are builtins — should NOT create Usage edges
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        !usage_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "string" || name == "int")
+        }),
+        "Should NOT create Usage edges for builtin types, got: {:?}",
+        usage_edges
+    );
+}
+
+// ============================================================================
+// Binary expression Usage edge tests
+// ============================================================================
+
+#[test]
+fn test_binary_expression_usage_edges() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("usage_edges.go");
+    let parsed = extractor.extract(&code, "usage_edges.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "MaxSize")
+        }),
+        "Expected Usage edge to MaxSize in binary expression, got: {:?}",
+        usage_edges
+    );
+}
+
+#[test]
+fn test_binary_expression_skips_builtins() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("usage_edges.go");
+    let parsed = extractor.extract(&code, "usage_edges.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    // a, b are local variables — they should not match the query
+    // (binary_expression captures identifiers, but locals like 'a'/'b' are fine
+    // as long as they aren't builtins — we just verify no builtin leaks)
+    assert!(
+        !usage_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. }
+                if name == "int" || name == "bool")
+        }),
+        "Should NOT create Usage edges for builtin types in binary expressions, got: {:?}",
+        usage_edges
+    );
+}
+
+// ============================================================================
+// Call argument Usage edge tests
+// ============================================================================
+
+#[test]
+fn test_call_arg_usage_edges() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("usage_edges.go");
+    let parsed = extractor.extract(&code, "usage_edges.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "DefaultTimeout")
+        }),
+        "Expected Usage edge to DefaultTimeout in call argument, got: {:?}",
+        usage_edges
+    );
+}
+
+// ============================================================================
+// Qualified composite literal Usage edge tests
+// ============================================================================
+
+#[test]
+fn test_qualified_composite_literal_usage() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("qualified_usage.go");
+    let parsed = extractor.extract(&code, "qualified_usage.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "http.Server")
+        }),
+        "Expected Usage edge to qualified 'http.Server', got: {:?}",
+        usage_edges
+    );
+}
+
+// ============================================================================
+// Qualified usage (pkg.Symbol) edge tests
+// ============================================================================
+
+#[test]
+fn test_qualified_usage_in_short_var() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("qualified_usage.go");
+    let parsed = extractor.extract(&code, "qualified_usage.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    let qualified_usages: Vec<_> = usage_edges
+        .iter()
+        .filter(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name.contains('.'))
+        })
+        .collect();
+
+    assert!(
+        qualified_usages
+            .iter()
+            .any(|e| matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "os.Stdout")),
+        "Expected qualified Usage edge to 'os.Stdout', got: {:?}",
+        qualified_usages
+    );
+}
+
+#[test]
+fn test_qualified_usage_in_var_decl() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("qualified_usage.go");
+    let parsed = extractor.extract(&code, "qualified_usage.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges
+            .iter()
+            .any(|e| matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "os.Stdout")),
+        "Expected qualified Usage edge to 'os.Stdout', got: {:?}",
+        usage_edges
+    );
+}
+
+#[test]
+fn test_qualified_usage_in_assign() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("qualified_usage.go");
+    let parsed = extractor.extract(&code, "qualified_usage.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges
+            .iter()
+            .any(|e| matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "os.Stdin")),
+        "Expected qualified Usage edge to 'os.Stdin', got: {:?}",
+        usage_edges
+    );
+}
+
+#[test]
+fn test_qualified_usage_in_return() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("qualified_usage.go");
+    let parsed = extractor.extract(&code, "qualified_usage.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges
+            .iter()
+            .any(|e| matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "os.Stdout")),
+        "Expected qualified Usage edge to 'os.Stdout' in return, got: {:?}",
+        usage_edges
+    );
+}
+
+#[test]
+fn test_qualified_usage_in_call_arg() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("qualified_usage.go");
+    let parsed = extractor.extract(&code, "qualified_usage.go");
+
+    let usage_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
+        .collect();
+
+    assert!(
+        usage_edges
+            .iter()
+            .any(|e| matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "os.Stdout")),
+        "Expected qualified Usage edge to 'os.Stdout' in call arg, got: {:?}",
+        usage_edges
+    );
+}
+
+// ============================================================================
+// Interface method type reference tests (ParamType + ReturnType)
+// ============================================================================
+
+#[test]
+fn test_interface_method_param_type_refs() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("interface_type_refs.go");
+    let parsed = extractor.extract(&code, "interface_type_refs.go");
+
+    // Should have ParamType edge from Handle to Request
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert!(
+        param_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Request:"))
+                || matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "Request")
+        }),
+        "Expected ParamType edge to Request from interface method Handle, got: {:?}",
+        param_edges
+    );
+}
+
+#[test]
+fn test_interface_method_return_type_refs() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("interface_type_refs.go");
+    let parsed = extractor.extract(&code, "interface_type_refs.go");
+
+    // Should have ReturnType edge from Handle to Response
+    let return_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ReturnType)
+        .collect();
+
+    assert!(
+        return_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Response:"))
+                || matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "Response")
+        }),
+        "Expected ReturnType edge to Response from interface method Handle, got: {:?}",
+        return_edges
+    );
+}
+
+#[test]
+fn test_interface_method_builtin_types_skipped() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("interface_type_refs.go");
+    let parsed = extractor.extract(&code, "interface_type_refs.go");
+
+    // Filter for ParamType/ReturnType edges that reference the Reader2
+    // interface method Read — byte, int, error are builtins and should be skipped.
+    // We check that no type ref edges target builtin names.
+    let type_ref_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.kind,
+                crate::a6s::types::EdgeKind::ParamType | crate::a6s::types::EdgeKind::ReturnType
+            )
+        })
+        .filter(|e| {
+            // Only check edges from the Read interface_method (in Reader2)
+            matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Read:"))
+        })
+        .collect();
+
+    assert!(
+        type_ref_edges.is_empty(),
+        "Should have NO type ref edges for builtins (byte, int, error) from Reader2.Read, got: {:?}",
+        type_ref_edges
+    );
+}
+
+#[test]
+fn test_interface_method_ptr_param_type_refs() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("interface_type_refs.go");
+    let parsed = extractor.extract(&code, "interface_type_refs.go");
+
+    let param_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::ParamType)
+        .collect();
+
+    assert!(
+        param_edges.iter().any(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Config:"))
+                || matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "Config")
+        }),
+        "Expected ParamType edge to Config from interface method Init (pointer param), got: {:?}",
+        param_edges
+    );
+}
+
+// ============================================================================
+// Implements edge tests (implicit interface satisfaction)
+// ============================================================================
+
+#[test]
+fn test_implements_edge_simple() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("implements.go");
+    let parsed = extractor.extract(&code, "implements.go");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    // FROM MyGreeter TO Greeter
+    let greeter_edge = impl_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":MyGreeter:"))
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Greeter:"))
+    });
+    assert!(
+        greeter_edge.is_some(),
+        "Expected Implements edge from MyGreeter to Greeter, got: {:?}",
+        impl_edges
+    );
+}
+
+#[test]
+fn test_implements_edge_no_match() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("implements.go");
+    let parsed = extractor.extract(&code, "implements.go");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    // BadSender has Receive() but Sender wants Send() — no Implements edge
+    let bad_sender_edge = impl_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":BadSender:"))
+    });
+    assert!(
+        bad_sender_edge.is_none(),
+        "Should have NO Implements edges from BadSender (methods don't match), got: {:?}",
+        impl_edges
+    );
+}
+
+#[test]
+fn test_implements_edge_partial_match() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("implements.go");
+    let parsed = extractor.extract(&code, "implements.go");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    // MyRCX has ReadX() but ReadCloserX wants ReadX()+CloseX() — no Implements edge
+    let myrcx_to_readcloserx = impl_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":MyRCX:"))
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":ReadCloserX:"))
+    });
+    assert!(
+        myrcx_to_readcloserx.is_none(),
+        "Partial match (ReadX but not CloseX) should NOT create Implements edge to ReadCloserX, got: {:?}",
+        impl_edges
+    );
+}
+
+#[test]
+fn test_implements_edge_multiple_interfaces() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("implements.go");
+    let parsed = extractor.extract(&code, "implements.go");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    // PingPonger should implement both Pinger and Ponger
+    let pinger_edge = impl_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":PingPonger:"))
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Pinger:"))
+    });
+    assert!(
+        pinger_edge.is_some(),
+        "PingPonger should implement Pinger, got: {:?}",
+        impl_edges
+    );
+
+    let ponger_edge = impl_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":PingPonger:"))
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Ponger:"))
+    });
+    assert!(
+        ponger_edge.is_some(),
+        "PingPonger should implement Ponger, got: {:?}",
+        impl_edges
+    );
+}
+
+#[test]
+fn test_implements_edge_pointer_receiver() {
+    let extractor = GolangExtractor;
+    let code = load_testdata("implements.go");
+    let parsed = extractor.extract(&code, "implements.go");
+
+    let impl_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+
+    // *MyCloser should satisfy Closer
+    let closer_edge = impl_edges.iter().find(|e| {
+        matches!(&e.from, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":MyCloser:"))
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains(":Closer:"))
+    });
+    assert!(
+        closer_edge.is_some(),
+        "Pointer receiver should still satisfy interface, got: {:?}",
+        impl_edges
+    );
+}
