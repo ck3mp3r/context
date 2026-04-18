@@ -626,19 +626,44 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                                             <p class="text-ctp-overlay0 text-[10px] truncate" title=format!("{}:{}", info.file_path, info.start_line)>
                                                 {format!("{}:{}", info.file_path, info.start_line)}
                                             </p>
-                                            <button
-                                                class="text-ctp-overlay0 hover:text-ctp-text flex-shrink-0"
-                                                title="Copy path"
-                                                on:click={
-                                                    let path = format!("{}:{}", info.file_path, info.start_line);
-                                                    move |_| copy_to_clipboard(&path)
+                                            {
+                                                let path = format!("{}:{}", info.file_path, info.start_line);
+                                                let (path_copied, set_path_copied) = signal(false);
+                                                view! {
+                                                    <button
+                                                        class="text-ctp-overlay0 hover:text-ctp-text flex-shrink-0 transition-colors"
+                                                        title="Copy path"
+                                                        on:click={
+                                                            let path = path.clone();
+                                                            move |_| {
+                                                                copy_to_clipboard(&path);
+                                                                set_path_copied.set(true);
+                                                                set_timeout(
+                                                                    move || set_path_copied.set(false),
+                                                                    std::time::Duration::from_secs(2),
+                                                                );
+                                                            }
+                                                        }
+                                                    >
+                                                        {move || {
+                                                            if path_copied.get() {
+                                                                view! {
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-ctp-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                                                    </svg>
+                                                                }.into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                                    </svg>
+                                                                }.into_any()
+                                                            }
+                                                        }}
+                                                    </button>
                                                 }
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                                </svg>
-                                            </button>
+                                            }
                                         </div>
                                     </div>
                                 }.into_any()
