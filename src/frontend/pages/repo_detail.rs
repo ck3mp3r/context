@@ -610,6 +610,11 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
 
                 // Side panel: detail card + legends
                 <div class="w-64 flex flex-col gap-4">
+                    // Experimental feature banner
+                    <div class="bg-ctp-yellow/10 border border-ctp-yellow/30 rounded-lg px-3 py-2 flex items-center gap-2">
+                        <span class="text-ctp-yellow text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 bg-ctp-yellow/15 rounded">"Experimental"</span>
+                        <span class="text-ctp-subtext0 text-[10px]">"Results may be incomplete."</span>
+                    </div>
                     // Selected node info card
                     <div class="bg-ctp-base border border-ctp-surface2 rounded-lg p-3">
                         <h4 class="text-xs font-semibold text-ctp-overlay0 mb-2">"Selected Node"</h4>
