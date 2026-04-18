@@ -50,7 +50,7 @@ pub struct QueryCodeGraphParams {
     pub query_definition: Option<String>,
 
     #[schemars(description = "Query parameters as JSON object (optional)")]
-    pub params: Option<serde_json::Value>,
+    pub variables: Option<HashMap<String, serde_json::Value>>,
 }
 
 // ============================================================================
@@ -173,20 +173,7 @@ impl CodeQueryTools {
             })?;
 
         // Extract params as HashMap
-        let query_params = match params.0.params {
-            Some(serde_json::Value::Object(map)) => map
-                .into_iter()
-                .collect::<HashMap<String, serde_json::Value>>(),
-            Some(_) => {
-                return Err(McpError::invalid_params(
-                    "invalid_params",
-                    Some(json!({
-                        "message": "params must be a JSON object"
-                    })),
-                ));
-            }
-            None => HashMap::new(),
-        };
+        let query_params = params.0.variables.unwrap_or_default();
 
         // Determine query mode and load/save query SQL
         let (query_sql, query_type) = match (&params.0.query_name, &params.0.query_definition) {
@@ -322,7 +309,15 @@ impl CodeQueryTools {
 
         let response = json!({
             "repo_id": params.0.repo_id,
-            "predefined_queries": predefined,
+            "predefined_queries": predefined.iter().map(|q| json!({
+                "name": q.name,
+                "description": q.description,
+                "params": q.params.iter().map(|p| json!({
+                    "name": p.name,
+                    "type": p.param_type,
+                    "description": p.description,
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
             "user_saved_queries": user_saved,
             "total": predefined.len() + user_saved.len(),
         });
@@ -390,7 +385,11 @@ fn load_query(graph: &CodeGraph, name: &str) -> Result<String, McpError> {
     }
 
     // Not found in either location
-    let available = CodeGraph::list_queries().unwrap_or_default();
+    let available: Vec<String> = CodeGraph::list_queries()
+        .unwrap_or_default()
+        .iter()
+        .map(|q| q.name.clone())
+        .collect();
     Err(McpError::invalid_params(
         "query_not_found",
         Some(json!({

@@ -526,9 +526,10 @@ impl CodeGraph {
             .query(&query_sql)
             .bind(("repo_id", self.repo_id.clone()));
 
-        // Bind additional parameters
+        // Bind additional parameters, unwrapping string values to prevent
+        // double-serialization (Value::String("foo") -> "\"foo\"")
         for (key, value) in params {
-            query_builder = query_builder.bind((key, value));
+            query_builder = Self::bind_value(query_builder, key, value);
         }
 
         // Execute query
@@ -558,10 +559,10 @@ impl CodeGraph {
         info.ok_or_else(|| A6sError::Custom("No schema info returned".to_string()))
     }
 
-    /// List all available query names.
+    /// List all available queries with metadata parsed from .surql file comments.
     ///
-    /// Returns a sorted list of query names (without .surql extension).
-    pub fn list_queries() -> Result<Vec<String>, A6sError> {
+    /// Returns a sorted list of QueryInfo with name, description, and parameter info.
+    pub fn list_queries() -> Result<Vec<QueryInfo>, A6sError> {
         use std::path::PathBuf;
 
         let queries_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/a6s/queries");
@@ -577,12 +578,80 @@ impl CodeGraph {
             if path.extension().and_then(|s| s.to_str()) == Some("surql")
                 && let Some(name) = path.file_stem().and_then(|s| s.to_str())
             {
-                queries.push(name.to_string());
+                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let (description, params) = Self::parse_query_comments(&content);
+                queries.push(QueryInfo {
+                    name: name.to_string(),
+                    description,
+                    params,
+                });
             }
         }
 
-        queries.sort();
+        queries.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(queries)
+    }
+
+    /// Parse comment headers from a .surql file to extract description and parameters.
+    fn parse_query_comments(content: &str) -> (Option<String>, Vec<QueryParam>) {
+        let mut description = None;
+        let mut params = Vec::new();
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("--") {
+                break; // Stop at first non-comment line
+            }
+            let comment = trimmed.trim_start_matches("--").trim();
+            if comment.is_empty() {
+                continue;
+            }
+
+            if let Some(rest) = comment.strip_prefix("Parameter:") {
+                // Parse: $name (Type) - description
+                let rest = rest.trim();
+                if let Some(dollar_pos) = rest.find('$') {
+                    let after_dollar = &rest[dollar_pos..];
+                    let name_end = after_dollar
+                        .find(|c: char| c.is_whitespace() || c == '(')
+                        .unwrap_or(after_dollar.len());
+                    let param_name = after_dollar[..name_end].to_string();
+
+                    let mut param_type = None;
+                    let mut param_desc = None;
+                    let remaining = &after_dollar[name_end..].trim_start();
+
+                    if let Some(stripped) = remaining.strip_prefix('(') {
+                        if let Some(close) = stripped.find(')') {
+                            param_type = Some(stripped[..close].trim().to_string());
+                            let after_type = stripped[close + 1..].trim();
+                            let desc = after_type.strip_prefix('-').unwrap_or(after_type).trim();
+                            if !desc.is_empty() {
+                                param_desc = Some(desc.to_string());
+                            }
+                        }
+                    } else if let Some(stripped) = remaining.strip_prefix('-') {
+                        let desc = stripped.trim();
+                        if !desc.is_empty() {
+                            param_desc = Some(desc.to_string());
+                        }
+                    }
+
+                    params.push(QueryParam {
+                        name: param_name,
+                        param_type,
+                        description: param_desc,
+                    });
+                }
+            } else if description.is_none()
+                && !comment.starts_with("Query:")
+                && !comment.starts_with("Returns:")
+            {
+                description = Some(comment.to_string());
+            }
+        }
+
+        (description, params)
     }
 
     /// Execute raw SurrealQL query.
@@ -607,9 +676,10 @@ impl CodeGraph {
             .query(query_sql)
             .bind(("repo_id", self.repo_id.clone()));
 
-        // Bind user parameters
+        // Bind user parameters, unwrapping string values to prevent
+        // double-serialization (Value::String("foo") -> "\"foo\"")
         for (key, value) in params {
-            query_builder = query_builder.bind((key, value));
+            query_builder = Self::bind_value(query_builder, key, value);
         }
 
         // Execute query
@@ -622,6 +692,29 @@ impl CodeGraph {
             response.take(0).expect("Failed to extract query results");
 
         Ok(rows)
+    }
+
+    /// Bind a serde_json::Value to a SurrealDB query, unwrapping primitive types
+    /// to prevent double-serialization (e.g. Value::String("foo") becoming "\"foo\"").
+    fn bind_value<'a>(
+        query_builder: ::surrealdb::method::Query<'a, ::surrealdb::engine::local::Db>,
+        key: String,
+        value: serde_json::Value,
+    ) -> ::surrealdb::method::Query<'a, ::surrealdb::engine::local::Db> {
+        match value {
+            serde_json::Value::String(s) => query_builder.bind((key, s)),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    query_builder.bind((key, i))
+                } else if let Some(f) = n.as_f64() {
+                    query_builder.bind((key, f))
+                } else {
+                    query_builder.bind((key, serde_json::Value::Number(n)))
+                }
+            }
+            serde_json::Value::Bool(b) => query_builder.bind((key, b)),
+            other => query_builder.bind((key, other)),
+        }
     }
 
     /// Get the directory for user-saved queries for this repository.

@@ -70,7 +70,11 @@ pub fn create_mcp_service<D: Database + 'static>(
     };
 
     // Configure Streamable HTTP server
+    // rmcp 1.5+ enforces DNS rebinding protection via allowed_hosts.
+    // Default only permits localhost/127.0.0.1/::1, but c5t binds to 0.0.0.0
+    // so we must include it to avoid 403 Forbidden on MCP client connections.
     let config = StreamableHttpServerConfig::default()
+        .with_allowed_hosts(["localhost", "127.0.0.1", "::1", "0.0.0.0"])
         .with_sse_keep_alive(None)
         .with_sse_retry(None)
         .with_stateful_mode(true)

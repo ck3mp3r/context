@@ -52,6 +52,15 @@
     "macro":    "--ctp-pink",
     "alias":    "--ctp-maroon",
     "extern":   "--ctp-sapphire",
+    "class":    "--ctp-green",
+    "object":   "--ctp-teal",
+    "property": "--ctp-flamingo",
+    "extension_function": "--ctp-sapphire",
+    "field":    "--ctp-flamingo",
+    "interface_method": "--ctp-blue",
+    "enum_entry": "--ctp-yellow",
+    "test":     "--ctp-yellow",
+    "package":  "--ctp-peach",
   };
 
   // Entry type border color CSS variables
@@ -75,6 +84,12 @@
     "Inherits":       "--ctp-mauve",
     "Import":         "--ctp-sapphire",
     "Contains":       "--ctp-surface2",
+    "HasField":       "--ctp-surface2",
+    "HasMethod":      "--ctp-surface2",
+    "HasMember":      "--ctp-surface2",
+    "Implements":     "--ctp-mauve",
+    "Extends":        "--ctp-mauve",
+    "FileImports":    "--ctp-sapphire",
   };
 
   function kindColor(kind) {
@@ -399,6 +414,46 @@
         }
       });
 
+      // Node dragging support
+      var draggedNode = null;
+      var isDragging = false;
+
+      renderer.on("downNode", function(event) {
+        draggedNode = event.node;
+        isDragging = true;
+        // Disable camera panning while dragging a node
+        renderer.getCamera().disable();
+      });
+
+      renderer.getMouseCaptor().on("mousemovebody", function(event) {
+        if (!isDragging || !draggedNode) return;
+        // Convert viewport coordinates to graph coordinates
+        var pos = renderer.viewportToGraph(event);
+        graph.setNodeAttribute(draggedNode, "x", pos.x);
+        graph.setNodeAttribute(draggedNode, "y", pos.y);
+        // Prevent sigma from showing hover while dragging
+        event.preventSigmaDefault();
+        event.original.preventDefault();
+        event.original.stopPropagation();
+      });
+
+      renderer.getMouseCaptor().on("mouseup", function() {
+        if (isDragging) {
+          isDragging = false;
+          draggedNode = null;
+          renderer.getCamera().enable();
+        }
+      });
+
+      // Also handle mouse leaving the container
+      renderer.getMouseCaptor().on("mouseleave", function() {
+        if (isDragging) {
+          isDragging = false;
+          draggedNode = null;
+          renderer.getCamera().enable();
+        }
+      });
+
       // Node reducer: handles focus, hover dimming, kind/language/test filtering, entry type styling
       renderer.setSetting("nodeReducer", function(node, data) {
         var res = Object.assign({}, data);
@@ -571,7 +626,7 @@
 
         // Boost size for structurally important but low-connectivity nodes
         // Fields, constants, and types often have few edges but are important
-        if (kind === "field" || kind === "constant" || kind === "const" || kind === "type_alias" || kind === "type") {
+        if (kind === "field" || kind === "property" || kind === "constant" || kind === "const" || kind === "type_alias" || kind === "type") {
           size = Math.max(size, 6);  // Ensure above labelRenderedSizeThreshold
         }
 

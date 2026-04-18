@@ -146,8 +146,8 @@ impl SymbolRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EdgeKind {
     // Membership (parent contains child)
-    HasField,  // struct → field
-    HasMethod, // impl/trait → method
+    HasField,  // class/struct → field/property
+    HasMethod, // class/trait/interface → method
     HasMember, // module → symbol
 
     // Heritage
@@ -425,4 +425,26 @@ pub struct GraphStats {
     pub total_edges: usize,
     /// Symbol counts by kind (function, struct, etc.)
     pub symbol_counts: std::collections::HashMap<String, usize>,
+}
+
+/// Metadata about a bundled query, parsed from .surql file comments.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QueryInfo {
+    /// Query name (filename without .surql extension)
+    pub name: String,
+    /// Description from the first comment line
+    pub description: Option<String>,
+    /// Parameters extracted from `-- Parameter:` comment lines
+    pub params: Vec<QueryParam>,
+}
+
+/// A parameter required by a query.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QueryParam {
+    /// Parameter name (e.g. "$name")
+    pub name: String,
+    /// Parameter type (e.g. "String")
+    pub param_type: Option<String>,
+    /// Description of the parameter
+    pub description: Option<String>,
 }

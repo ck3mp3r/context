@@ -18,6 +18,7 @@ mod placeholder {
     use crate::mcp::tools::code_query::{
         CodeQueryTools, DescribeSchemaParams, ListQueriesParams, QueryCodeGraphParams,
     };
+    use rmcp::schemars;
     use std::sync::Arc;
 
     #[tokio::test(flavor = "multi_thread")]
@@ -41,8 +42,23 @@ mod placeholder {
             repo_id: "test".to_string(),
             query_name: None,
             query_definition: Some("SELECT * FROM file".to_string()),
-            params: None,
+            variables: None,
         };
+
+        // Test deserialization from JSON object (simulates rmcp's from_context_part)
+        let json_with_variables = serde_json::json!({
+            "repo_id": "test1234",
+            "query_name": "symbol_search",
+            "variables": {"name": "MyClass"}
+        });
+        let deserialized: QueryCodeGraphParams =
+            serde_json::from_value(json_with_variables).expect("should deserialize with variables");
+        assert_eq!(deserialized.repo_id, "test1234");
+        assert_eq!(deserialized.query_name, Some("symbol_search".to_string()));
+        assert!(deserialized.variables.is_some());
+        // Verify it's a proper HashMap now
+        let vars = deserialized.variables.unwrap();
+        assert_eq!(vars.get("name").unwrap(), &serde_json::Value::String("MyClass".to_string()));
 
         // All 3 modes are represented
         let _temp_query = QueryCodeGraphParams {
@@ -62,6 +78,59 @@ mod placeholder {
             query_definition: Some("SELECT *".to_string()),
             ..Default::default()
         };
+    }
+
+    #[test]
+    fn test_schema_for_query_code_graph_params() {
+        let settings = schemars::generate::SchemaSettings::draft2020_12();
+        let generator = settings.into_generator();
+        let schema = generator.into_root_schema_for::<QueryCodeGraphParams>();
+        let schema_json = serde_json::to_value(&schema).unwrap();
+        eprintln!(
+            "QueryCodeGraphParams schema:\n{}",
+            serde_json::to_string_pretty(&schema_json).unwrap()
+        );
+        assert_eq!(schema_json["type"], "object");
+        assert!(schema_json["properties"]["variables"].is_object());
+    }
+
+    #[test]
+    fn test_schema_for_describe_schema_params() {
+        let settings = schemars::generate::SchemaSettings::draft2020_12();
+        let generator = settings.into_generator();
+        let schema = generator.into_root_schema_for::<DescribeSchemaParams>();
+        let schema_json = serde_json::to_value(&schema).unwrap();
+        eprintln!(
+            "DescribeSchemaParams schema:\n{}",
+            serde_json::to_string_pretty(&schema_json).unwrap()
+        );
+        assert_eq!(schema_json["type"], "object");
+    }
+
+    #[test]
+    fn test_schema_for_hashmap_params() {
+        use rmcp::schemars::JsonSchema;
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+        struct TestParamsWithHashMap {
+            #[serde(default)]
+            pub repo_id: String,
+            pub query_name: Option<String>,
+            pub query_definition: Option<String>,
+            pub variables: Option<std::collections::HashMap<String, String>>,
+        }
+
+        let settings = schemars::generate::SchemaSettings::draft2020_12();
+        let generator = settings.into_generator();
+        let schema = generator.into_root_schema_for::<TestParamsWithHashMap>();
+        let schema_json = serde_json::to_value(&schema).unwrap();
+        eprintln!(
+            "TestParamsWithHashMap schema:\n{}",
+            serde_json::to_string_pretty(&schema_json).unwrap()
+        );
+        assert_eq!(schema_json["type"], "object");
+        assert!(schema_json["properties"]["variables"].is_object());
     }
 }
 

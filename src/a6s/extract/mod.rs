@@ -112,4 +112,5 @@ define_extractors!(
     rust::RustExtractor,
     golang::GolangExtractor,
     nushell::NushellExtractor,
+    kotlin::KotlinExtractor,
 );

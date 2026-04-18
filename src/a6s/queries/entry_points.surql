@@ -8,5 +8,5 @@ SELECT
     start_line,
     language
 FROM symbol
-WHERE repo_id = $repo_id AND entry_type != ""
+WHERE repo_id = $repo_id AND entry_type != NONE AND entry_type != ""
 ORDER BY entry_type ASC;

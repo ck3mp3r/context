@@ -8,3 +8,6 @@ pub mod golang;
 
 #[cfg(feature = "backend")]
 pub mod nushell;
+
+#[cfg(feature = "backend")]
+pub mod kotlin;

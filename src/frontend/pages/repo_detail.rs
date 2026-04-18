@@ -10,6 +10,13 @@ use crate::models::{Project, Repo, UpdateMessage};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
 
+#[wasm_bindgen(
+    inline_js = "export function copy_to_clipboard(text) { navigator.clipboard.writeText(text); }"
+)]
+extern "C" {
+    fn copy_to_clipboard(text: &str);
+}
+
 #[component]
 pub fn RepoDetail() -> impl IntoView {
     let params = use_params_map();
@@ -614,8 +621,25 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                                             <span class="text-ctp-blue font-semibold">{info.kind}</span>
                                             <span class="text-ctp-overlay0">{info.language}</span>
                                         </div>
-                                        <p class="text-ctp-text break-all">{info.qualified_name}</p>
-                                        <p class="text-ctp-overlay0 text-[10px]">{format!("{}:{}", info.file_path, info.start_line)}</p>
+                                        <p class="text-ctp-text break-all">{info.qualified_name.clone()}</p>
+                                        <div class="flex items-center gap-1">
+                                            <p class="text-ctp-overlay0 text-[10px] truncate" title=format!("{}:{}", info.file_path, info.start_line)>
+                                                {format!("{}:{}", info.file_path, info.start_line)}
+                                            </p>
+                                            <button
+                                                class="text-ctp-overlay0 hover:text-ctp-text flex-shrink-0"
+                                                title="Copy path"
+                                                on:click={
+                                                    let path = format!("{}:{}", info.file_path, info.start_line);
+                                                    move |_| copy_to_clipboard(&path)
+                                                }
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 }.into_any()
                             }).unwrap_or_else(|| {

@@ -8,6 +8,8 @@ fn test_get_extractor_for_known_extensions() {
     assert!(Extractor::for_extension("rs").is_some());
     assert!(Extractor::for_extension("go").is_some());
     assert!(Extractor::for_extension("nu").is_some());
+    assert!(Extractor::for_extension("kt").is_some());
+    assert!(Extractor::for_extension("kts").is_some());
 }
 
 #[test]
@@ -19,10 +21,12 @@ fn test_get_extractor_for_unknown_extension() {
 #[test]
 fn test_supported_extensions() {
     let exts = supported_extensions();
-    assert_eq!(exts.len(), 3);
+    assert_eq!(exts.len(), 5);
     assert!(exts.contains(&"rs"));
     assert!(exts.contains(&"go"));
     assert!(exts.contains(&"nu"));
+    assert!(exts.contains(&"kt"));
+    assert!(exts.contains(&"kts"));
 }
 
 // Compile-time trait checks
