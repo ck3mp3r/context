@@ -29,6 +29,9 @@ pub mod queries;
 #[cfg(feature = "backend")]
 pub mod error;
 
+#[cfg(feature = "backend")]
+pub mod tracker;
+
 // Public API
 #[cfg(feature = "backend")]
 pub use pipeline::analyze;
@@ -47,6 +50,9 @@ mod schema_test;
 
 #[cfg(test)]
 mod queries_test;
+
+#[cfg(test)]
+mod tracker_test;
 
 #[cfg(test)]
 mod truncate_test;

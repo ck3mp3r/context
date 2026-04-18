@@ -27,6 +27,7 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 

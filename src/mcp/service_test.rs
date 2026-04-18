@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::AnalysisTracker;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
 use tempfile::TempDir;
@@ -49,6 +50,7 @@ async fn test_create_mcp_service() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
         ct,
     );
 
@@ -77,6 +79,7 @@ async fn test_mcp_service_with_router() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
         ct,
     );
 
@@ -117,6 +120,7 @@ async fn test_mcp_session_management_configured() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
         ct,
     );
     let app = Router::new().nest_service("/mcp", service);

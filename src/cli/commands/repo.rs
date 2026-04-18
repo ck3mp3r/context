@@ -73,6 +73,53 @@ impl From<&Repo> for RepoDisplay {
     }
 }
 
+/// Check analysis status for a repository
+pub async fn analyze_status(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .get(&format!("/api/v1/repos/{}/analyze/status", id))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let body: serde_json::Value = response.json().await?;
+        let status = body["status"].as_str().unwrap_or("unknown");
+        let output = match status {
+            "idle" => format!(
+                "  Status: idle\n  No analysis has been run for repository {}",
+                id
+            ),
+            "analyzing" => {
+                let phase = body["phase"].as_str().unwrap_or("unknown");
+                format!("  Status: analyzing\n  Phase: {}", phase)
+            }
+            "complete" => {
+                let symbols = body["stats"]["total_symbols"].as_u64().unwrap_or(0);
+                let edges = body["stats"]["total_edges"].as_u64().unwrap_or(0);
+                format!(
+                    "  Status: complete\n  Symbols: {}\n  Edges: {}",
+                    symbols, edges
+                )
+            }
+            "failed" => {
+                let error = body["error"].as_str().unwrap_or("unknown");
+                format!("  Status: failed\n  Error: {}", error)
+            }
+            _ => format!("  Status: {}", status),
+        };
+        Ok(output)
+    } else {
+        let status = response.status().as_u16();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        Err(crate::cli::error::CliError::ApiError {
+            status,
+            message: error_text,
+        })
+    }
+}
+
 /// List repos with optional filtering
 pub async fn list_repos(
     api_client: &ApiClient,

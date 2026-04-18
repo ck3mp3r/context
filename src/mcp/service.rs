@@ -11,6 +11,7 @@ use rmcp::transport::streamable_http_server::{
 use tokio_util::sync::CancellationToken;
 
 use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::AnalysisTracker;
 use crate::db::Database;
 
 use super::server::McpServer;
@@ -53,6 +54,7 @@ pub fn create_mcp_service<D: Database + 'static>(
     notifier: crate::api::notifier::ChangeNotifier,
     skills_dir: std::path::PathBuf,
     analysis_db: Arc<surrealdb::SurrealDbConnection>,
+    tracker: AnalysisTracker,
     cancellation_token: CancellationToken,
 ) -> StreamableHttpService<McpServer<D>, LocalSessionManager> {
     let db = db.into();
@@ -65,6 +67,7 @@ pub fn create_mcp_service<D: Database + 'static>(
             notifier.clone(),
             skills_dir.clone(),
             Arc::clone(&analysis_db),
+            tracker.clone(),
         );
         Ok(server)
     };

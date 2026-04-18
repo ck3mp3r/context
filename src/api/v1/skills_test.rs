@@ -30,6 +30,7 @@ async fn test_app() -> axum::Router {
         ChangeNotifier::new(),
         skills_dir,
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     routes::create_router(state, false)
 }

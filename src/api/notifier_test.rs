@@ -79,6 +79,16 @@ async fn test_all_message_types_are_cloneable() {
         UpdateMessage::TaskDeleted {
             task_id: "t3".to_string(),
         },
+        UpdateMessage::AnalysisStarted {
+            repo_id: "a1".to_string(),
+        },
+        UpdateMessage::AnalysisCompleted {
+            repo_id: "a2".to_string(),
+        },
+        UpdateMessage::AnalysisFailed {
+            repo_id: "a3".to_string(),
+            error: "test error".to_string(),
+        },
     ];
 
     // All should clone without error
@@ -151,4 +161,32 @@ async fn test_late_subscriber_does_not_receive_old_messages() {
 
     // No more messages should be available
     assert!(sub.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn test_analysis_update_messages_serialize() {
+    let started = UpdateMessage::AnalysisStarted {
+        repo_id: "abc123".into(),
+    };
+    let json = serde_json::to_string(&started).unwrap();
+    assert!(json.contains("AnalysisStarted"));
+    let deserialized: UpdateMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(started, deserialized);
+
+    let completed = UpdateMessage::AnalysisCompleted {
+        repo_id: "abc123".into(),
+    };
+    let json = serde_json::to_string(&completed).unwrap();
+    assert!(json.contains("AnalysisCompleted"));
+    let deserialized: UpdateMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(completed, deserialized);
+
+    let failed = UpdateMessage::AnalysisFailed {
+        repo_id: "abc123".into(),
+        error: "something broke".into(),
+    };
+    let json = serde_json::to_string(&failed).unwrap();
+    assert!(json.contains("AnalysisFailed"));
+    let deserialized: UpdateMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(failed, deserialized);
 }

@@ -531,16 +531,47 @@ pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
 
     let repo_path = std::path::PathBuf::from(&repo_path_str);
 
+    // Guard against concurrent analysis
+    if !state.tracker().try_set_analyzing(&id) {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: format!(
+                    "Analysis is already in progress for repository '{}'",
+                    id
+                ),
+            }),
+        ));
+    }
+
     // Spawn analysis in background
     let repo_id = id.clone();
-    let analysis_db = state.analysis_db(); // Clone Arc BEFORE spawn
+    let analysis_db = state.analysis_db();
+    let tracker = state.tracker().clone();
     tokio::spawn(async move {
         tracing::info!("Starting a6s analysis for repo: {}", repo_id);
 
-        // Get commit hash (stub - could get from git later)
+        let (progress_tx, mut progress_rx) =
+            tokio::sync::mpsc::channel::<crate::a6s::types::PipelineProgress>(16);
+        let tracker_for_progress = tracker.clone();
+        let repo_id_for_progress = repo_id.clone();
+
+        // Relay pipeline progress to tracker phases
+        tokio::spawn(async move {
+            while let Some(progress) = progress_rx.recv().await {
+                let phase = match &progress {
+                    crate::a6s::types::PipelineProgress::Scanned(_) => "Scanning",
+                    crate::a6s::types::PipelineProgress::Extracted(_) => "Extracting",
+                    crate::a6s::types::PipelineProgress::Resolved(_) => "Resolving",
+                    crate::a6s::types::PipelineProgress::Loaded => "Loading",
+                };
+                tracker_for_progress.set_phase(&repo_id_for_progress, phase);
+            }
+        });
+
         let commit_hash = "HEAD";
 
-        match crate::a6s::analyze(&repo_path, &repo_id, commit_hash, None, analysis_db).await {
+        match crate::a6s::analyze(&repo_path, &repo_id, commit_hash, Some(progress_tx), analysis_db).await {
             Ok(stats) => {
                 tracing::info!(
                     "a6s analysis complete for {}: {} symbols, {} edges resolved, {} dropped",
@@ -549,12 +580,75 @@ pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
                     stats.edges_resolved,
                     stats.edges_dropped
                 );
+                tracker.set_complete(
+                    &repo_id,
+                    crate::a6s::types::GraphStats {
+                        total_symbols: stats.symbols_registered,
+                        total_edges: stats.edges_resolved,
+                        symbol_counts: std::collections::HashMap::new(),
+                    },
+                );
             }
             Err(e) => {
                 tracing::error!("a6s analysis failed for {}: {:?}", repo_id, e);
+                tracker.set_failed(&repo_id, e.to_string());
             }
         }
     });
 
     Ok(StatusCode::ACCEPTED)
+}
+
+// =============================================================================
+// Analyze Status
+// =============================================================================
+
+/// Get analysis status for a repository
+#[utoipa::path(
+    get,
+    path = "/api/v1/repos/{id}/analyze/status",
+    tag = "repos",
+    params(
+        ("id" = String, Path, description = "Repo ID (8-character hex)")
+    ),
+    responses(
+        (status = 200, description = "Analysis status")
+    )
+)]
+pub async fn analyze_status<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> impl axum::response::IntoResponse {
+    use crate::a6s::tracker::AnalysisStatus;
+
+    let status = state.tracker().get(&id);
+    let response = match status {
+        None => serde_json::json!({
+            "status": "idle",
+            "message": format!("No analysis has been run for repository {}.", id),
+        }),
+        Some(AnalysisStatus::Analyzing { phase }) => {
+            let mut r = serde_json::json!({
+                "status": "analyzing",
+                "message": format!("Analysis is in progress for repository {}.", id),
+            });
+            if let Some(p) = phase {
+                r["phase"] = serde_json::json!(p);
+            }
+            r
+        }
+        Some(AnalysisStatus::Complete { stats }) => serde_json::json!({
+            "status": "complete",
+            "stats": {
+                "total_symbols": stats.total_symbols,
+                "total_edges": stats.total_edges,
+                "symbol_counts": stats.symbol_counts,
+            },
+        }),
+        Some(AnalysisStatus::Failed { error }) => serde_json::json!({
+            "status": "failed",
+            "error": error,
+        }),
+    };
+    (StatusCode::OK, Json(response))
 }

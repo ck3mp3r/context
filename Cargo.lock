@@ -962,6 +962,7 @@ dependencies = [
  "clap",
  "codee",
  "console_error_panic_hook",
+ "dashmap",
  "futures-util",
  "gloo-net 0.7.0",
  "gloo-storage",

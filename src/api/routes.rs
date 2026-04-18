@@ -171,6 +171,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         state.notifier().clone(),
         state.skills_dir().clone(),
         state.analysis_db(),
+        state.tracker().clone(),
         ct,
     );
 
@@ -194,6 +195,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         get "/repos/{id}/graph" => super::v1::get_repo_graph,
         post "/repos" => super::v1::create_repo,
         post "/repos/{id}/analyze" => super::v1::analyze_repo,
+        get "/repos/{id}/analyze/status" => super::v1::analyze_status,
         put "/repos/{id}" => super::v1::update_repo,
         patch "/repos/{id}" => super::v1::patch_repo,
         delete "/repos/{id}" => super::v1::delete_repo,

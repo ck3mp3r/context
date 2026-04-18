@@ -3,6 +3,7 @@
 //! Following TDD: These tests are written FIRST (RED), then we implement to make them pass (GREEN).
 
 use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::AnalysisTracker;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
 use std::sync::Arc;
@@ -40,6 +41,7 @@ async fn test_create_mcp_server() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
     );
 
     // Assert: If we got here, server was created successfully
@@ -68,6 +70,7 @@ async fn test_server_info() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
     );
 
     // Act
@@ -131,6 +134,7 @@ description: Test skill
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
     );
 
     // Act: Call update_skill via server (this will fail until tool is registered)

@@ -27,6 +27,7 @@ async fn test_app() -> axum::Router {
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     routes::create_router(state, false)
 }
@@ -44,6 +45,7 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
         notifier.clone(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -297,6 +299,7 @@ async fn crud_and_patch_operations() {
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 

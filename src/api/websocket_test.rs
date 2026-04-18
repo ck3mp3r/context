@@ -29,6 +29,7 @@ async fn test_websocket_route_exists() {
         notifier,
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 
@@ -69,6 +70,7 @@ async fn test_websocket_rejects_non_upgrade_requests() {
         notifier,
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 

@@ -14,6 +14,7 @@ use rmcp::{
 };
 
 use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::AnalysisTracker;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::Database;
 use crate::sync::RealGit;
@@ -75,6 +76,7 @@ impl<D: Database + 'static> McpServer<D> {
         notifier: ChangeNotifier,
         skills_dir: PathBuf,
         analysis_db: Arc<surrealdb::SurrealDbConnection>,
+        tracker: AnalysisTracker,
     ) -> Self {
         let db = db.into();
 
@@ -86,8 +88,8 @@ impl<D: Database + 'static> McpServer<D> {
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone(), skills_dir),
             sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
-            code_analysis_tools: CodeAnalysisTools::new(Arc::clone(&db), Arc::clone(&analysis_db)),
-            code_query_tools: CodeQueryTools::new(analysis_db),
+            code_analysis_tools: CodeAnalysisTools::new(Arc::clone(&db), Arc::clone(&analysis_db), tracker.clone()),
+            code_query_tools: CodeQueryTools::new(analysis_db, tracker),
             tool_router: Self::tool_router(),
         }
     }

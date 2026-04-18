@@ -5,6 +5,7 @@
 
 use crate::a6s::store::CodeGraph;
 use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::{AnalysisStatus, AnalysisTracker};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -67,15 +68,53 @@ pub struct QueryCodeGraphParams {
 /// - **Dependency Inversion**: Depends on CodeGraph abstraction
 pub struct CodeQueryTools {
     analysis_db: Arc<surrealdb::SurrealDbConnection>,
+    tracker: AnalysisTracker,
     tool_router: ToolRouter<Self>,
 }
 
 impl CodeQueryTools {
-    pub fn new(analysis_db: Arc<surrealdb::SurrealDbConnection>) -> Self {
+    pub fn new(analysis_db: Arc<surrealdb::SurrealDbConnection>, tracker: AnalysisTracker) -> Self {
         Self {
             analysis_db,
+            tracker,
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// Build a tracker-aware error when analysis data is not available.
+    pub fn analysis_not_ready_error_static(
+        tracker: &AnalysisTracker,
+        repo_id: &str,
+        original_error: &str,
+    ) -> McpError {
+        let status_msg = match tracker.get(repo_id) {
+            Some(AnalysisStatus::Analyzing { .. }) => {
+                format!(
+                    "Analysis is currently in progress for repository {}. Try again shortly.",
+                    repo_id
+                )
+            }
+            Some(AnalysisStatus::Failed { error }) => {
+                format!(
+                    "Analysis failed for repository {}: {}. Re-run code_analyze to retry. (Original error: {})",
+                    repo_id, error, original_error
+                )
+            }
+            _ => {
+                format!(
+                    "No analysis found for repository {}. Run code_analyze first. (Original error: {})",
+                    repo_id, original_error
+                )
+            }
+        };
+        McpError::invalid_params(
+            "analysis_not_ready",
+            Some(json!({ "message": status_msg, "repo_id": repo_id })),
+        )
+    }
+
+    fn analysis_not_ready_error(&self, repo_id: &str, original_error: &str) -> McpError {
+        Self::analysis_not_ready_error_static(&self.tracker, repo_id, original_error)
     }
 }
 
@@ -98,16 +137,7 @@ impl CodeQueryTools {
         // Connect to the analysis database
         let graph = CodeGraph::with_connection_readonly(repo_id.clone(), Arc::clone(&self.analysis_db))
             .await
-            .map_err(|e| {
-                McpError::invalid_params(
-                    "analysis_not_found",
-                    Some(json!({
-                        "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", repo_id),
-                        "repo_id": repo_id,
-                        "error": e.to_string()
-                    })),
-                )
-            })?;
+            .map_err(|e| self.analysis_not_ready_error(repo_id, &e.to_string()))?;
 
         // Get schema from SurrealDB
         let schema = graph.get_schema().await.map_err(|e| {
@@ -164,16 +194,7 @@ impl CodeQueryTools {
         // Connect to analysis database
         let graph = CodeGraph::with_connection_readonly(params.0.repo_id.clone(), Arc::clone(&self.analysis_db))
             .await
-            .map_err(|e| {
-                McpError::invalid_params(
-                    "analysis_not_found",
-                    Some(json!({
-                        "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
-                        "repo_id": params.0.repo_id,
-                        "error": e.to_string()
-                    })),
-                )
-            })?;
+            .map_err(|e| self.analysis_not_ready_error(&params.0.repo_id, &e.to_string()))?;
 
         // Extract params as HashMap
         let query_params = params.0.variables.unwrap_or_default();
@@ -258,16 +279,7 @@ impl CodeQueryTools {
         // Connect to graph to get user-saved queries directory
         let graph = CodeGraph::with_connection_readonly(params.0.repo_id.clone(), Arc::clone(&self.analysis_db))
             .await
-            .map_err(|e| {
-                McpError::invalid_params(
-                    "analysis_not_found",
-                    Some(json!({
-                        "message": format!("No analysis found for repository {}. Run c5t_code_analyze first.", params.0.repo_id),
-                        "repo_id": params.0.repo_id,
-                        "error": e.to_string()
-                    })),
-                )
-            })?;
+            .map_err(|e| self.analysis_not_ready_error(&params.0.repo_id, &e.to_string()))?;
 
         let queries_dir = graph.get_queries_dir().map_err(|e| {
             McpError::internal_error(

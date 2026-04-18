@@ -43,6 +43,7 @@ async fn test_app() -> axum::Router {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         Arc::new(surrealdb::init_db(None).await.unwrap()),
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     routes::create_router(state, false)
 }
@@ -72,6 +73,7 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
         notifier.clone(),
         temp_dir.path().join("skills"),
         Arc::new(surrealdb::init_db(None).await.unwrap()),
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -329,6 +331,7 @@ async fn crud_operations() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 

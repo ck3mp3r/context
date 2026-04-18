@@ -29,6 +29,7 @@ async fn test_app() -> axum::Router {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     routes::create_router(state, false)
 }
@@ -47,6 +48,7 @@ async fn test_app_with_notifier() -> (axum::Router, ChangeNotifier) {
         notifier.clone(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -84,6 +86,7 @@ async fn patch_updates_timestamp() {
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 

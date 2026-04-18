@@ -26,6 +26,7 @@ async fn test_app() -> axum::Router {
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     routes::create_router(state, false)
 }
@@ -43,6 +44,7 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
         notifier.clone(),
         temp_dir.path().join("skills"),
         analysis_db,
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     (routes::create_router(state, false), notifier)
 }
@@ -626,4 +628,91 @@ async fn fts5_search_comprehensive() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
     assert_eq!(body["total"], 4); // All 4 repos we created
+}
+
+// =============================================================================
+// Analyze Status Endpoint Tests
+// =============================================================================
+
+async fn test_app_with_tracker() -> (axum::Router, crate::a6s::tracker::AnalysisTracker) {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
+    let tracker =
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new());
+    let state = AppState::new(
+        db,
+        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        crate::api::notifier::ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+        analysis_db,
+        tracker.clone(),
+    );
+    (routes::create_router(state, false), tracker)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_analyze_status_idle() {
+    let (app, _tracker) = test_app_with_tracker().await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos/deadbeef/analyze/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["status"], "idle");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_analyze_status_analyzing() {
+    let (app, tracker) = test_app_with_tracker().await;
+    tracker.set_analyzing("repo1234");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos/repo1234/analyze/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["status"], "analyzing");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_analyze_status_complete() {
+    let (app, tracker) = test_app_with_tracker().await;
+    tracker.set_complete(
+        "repo1234",
+        crate::a6s::types::GraphStats {
+            total_symbols: 42,
+            total_edges: 10,
+            symbol_counts: std::collections::HashMap::new(),
+        },
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/repos/repo1234/analyze/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["status"], "complete");
+    assert_eq!(body["stats"]["total_symbols"], 42);
+    assert_eq!(body["stats"]["total_edges"], 10);
 }

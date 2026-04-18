@@ -5,6 +5,8 @@
 
 use crate::a6s;
 use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::{AnalysisStatus, AnalysisTracker};
+use crate::a6s::types::{GraphStats, PipelineProgress};
 use crate::db::{Database, RepoRepository};
 use crate::mcp::tools::map_db_error;
 use rmcp::{
@@ -17,6 +19,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -25,6 +28,11 @@ use std::sync::Arc;
 pub struct AnalyzeCodeParams {
     #[schemars(description = "Repository ID from c5t database")]
     pub repo_id: String,
+
+    #[schemars(
+        description = "Action to perform: 'analyze' (start analysis, default) or 'status' (check current status)"
+    )]
+    pub action: Option<String>,
 }
 
 /// Code analysis tools
@@ -36,15 +44,17 @@ pub struct AnalyzeCodeParams {
 pub struct CodeAnalysisTools<D: Database> {
     db: Arc<D>,
     analysis_db: Arc<surrealdb::SurrealDbConnection>,
+    tracker: AnalysisTracker,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl<D: Database + 'static> CodeAnalysisTools<D> {
-    pub fn new(db: Arc<D>, analysis_db: Arc<surrealdb::SurrealDbConnection>) -> Self {
+    pub fn new(db: Arc<D>, analysis_db: Arc<surrealdb::SurrealDbConnection>, tracker: AnalysisTracker) -> Self {
         Self {
             db,
             analysis_db,
+            tracker,
             tool_router: Self::tool_router(),
         }
     }
@@ -53,8 +63,59 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         &self.tool_router
     }
 
-    #[tool(description = "Start analyzing a repository's code in the background")]
+    #[tool(description = "Analyze a repository's code or check analysis status")]
     pub async fn analyze_code(
+        &self,
+        params: Parameters<AnalyzeCodeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = params.0.action.as_deref().unwrap_or("analyze");
+        match action {
+            "status" => self.check_status(&params.0.repo_id),
+            _ => self.start_analysis(params).await,
+        }
+    }
+
+    fn check_status(&self, repo_id: &str) -> Result<CallToolResult, McpError> {
+        let response = match self.tracker.get(repo_id) {
+            None => json!({
+                "status": "idle",
+                "message": format!("No analysis has been run for repository {}.", repo_id),
+            }),
+            Some(AnalysisStatus::Analyzing { phase }) => {
+                let mut response = json!({
+                    "status": "analyzing",
+                    "message": format!("Analysis is in progress for repository {}.", repo_id),
+                });
+                if let Some(p) = phase {
+                    response["phase"] = json!(p);
+                }
+                response
+            }
+            Some(AnalysisStatus::Complete { stats }) => json!({
+                "status": "complete",
+                "stats": {
+                    "total_symbols": stats.total_symbols,
+                    "total_edges": stats.total_edges,
+                    "symbol_counts": stats.symbol_counts,
+                },
+            }),
+            Some(AnalysisStatus::Failed { error }) => json!({
+                "status": "failed",
+                "error": error,
+            }),
+        };
+
+        let content = serde_json::to_string_pretty(&response).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::text(content)]))
+    }
+
+    async fn start_analysis(
         &self,
         params: Parameters<AnalyzeCodeParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -73,18 +134,46 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             )
         })?;
 
-        // Spawn NEW a6s analysis pipeline in background
+        // Set tracker to analyzing before spawning
         let repo_id = params.0.repo_id.clone();
+        if !self.tracker.try_set_analyzing(&repo_id) {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&json!({
+                    "status": "already_analyzing",
+                    "message": format!("Analysis is already in progress for repository {}. Check status with action='status'.", repo_id),
+                    "repo_id": repo_id,
+                }))
+                .unwrap(),
+            )]));
+        }
+
         let repo_path = PathBuf::from(&repo_path_str);
-        let analysis_db = Arc::clone(&self.analysis_db); // Clone BEFORE spawn
+        let analysis_db = Arc::clone(&self.analysis_db);
+        let tracker = self.tracker.clone();
 
         tokio::spawn(async move {
             tracing::info!("Starting a6s analysis for repo: {}", repo_id);
 
-            // Get commit hash (stub - could get from git later)
+            let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<PipelineProgress>(16);
+            let tracker_for_progress = tracker.clone();
+            let repo_id_for_progress = repo_id.clone();
+
+            // Relay pipeline progress to tracker phases
+            tokio::spawn(async move {
+                while let Some(progress) = progress_rx.recv().await {
+                    let phase = match &progress {
+                        PipelineProgress::Scanned(_) => "Scanning",
+                        PipelineProgress::Extracted(_) => "Extracting",
+                        PipelineProgress::Resolved(_) => "Resolving",
+                        PipelineProgress::Loaded => "Loading",
+                    };
+                    tracker_for_progress.set_phase(&repo_id_for_progress, phase);
+                }
+            });
+
             let commit_hash = "HEAD";
 
-            match a6s::analyze(&repo_path, &repo_id, commit_hash, None, analysis_db).await {
+            match a6s::analyze(&repo_path, &repo_id, commit_hash, Some(progress_tx), analysis_db).await {
                 Ok(stats) => {
                     tracing::info!(
                         "a6s analysis complete: {} symbols, {} edges resolved, {} dropped",
@@ -92,9 +181,18 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
                         stats.edges_resolved,
                         stats.edges_dropped
                     );
+                    tracker.set_complete(
+                        &repo_id,
+                        GraphStats {
+                            total_symbols: stats.symbols_registered,
+                            total_edges: stats.edges_resolved,
+                            symbol_counts: HashMap::new(),
+                        },
+                    );
                 }
                 Err(e) => {
                     tracing::error!("a6s analysis failed: {:?}", e);
+                    tracker.set_failed(&repo_id, e.to_string());
                 }
             }
         });

@@ -15,6 +15,8 @@ mod placeholder {
     //! Placeholder tests to ensure the module compiles
 
     use crate::a6s::store::surrealdb;
+    use crate::a6s::tracker::AnalysisTracker;
+    use crate::api::notifier::ChangeNotifier;
     use crate::mcp::tools::code_query::{
         CodeQueryTools, DescribeSchemaParams, ListQueriesParams, QueryCodeGraphParams,
     };
@@ -24,7 +26,7 @@ mod placeholder {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_tools_can_be_created() {
         let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
-        let _tools = CodeQueryTools::new(analysis_db);
+        let _tools = CodeQueryTools::new(analysis_db, AnalysisTracker::new(ChangeNotifier::new()));
         // If this compiles, the API is correct
     }
 
@@ -131,6 +133,60 @@ mod placeholder {
         );
         assert_eq!(schema_json["type"], "object");
         assert!(schema_json["properties"]["variables"].is_object());
+    }
+
+    #[test]
+    fn test_error_message_when_analyzing() {
+        let notifier = ChangeNotifier::new();
+        let tracker = AnalysisTracker::new(notifier);
+        tracker.set_analyzing("repo1");
+        let err = CodeQueryTools::analysis_not_ready_error_static(&tracker, "repo1", "not found");
+        let data = err.data.unwrap();
+        let msg = data["message"].as_str().unwrap();
+        assert!(
+            msg.contains("in progress"),
+            "Expected 'in progress', got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_error_message_when_failed() {
+        let notifier = ChangeNotifier::new();
+        let tracker = AnalysisTracker::new(notifier);
+        tracker.set_failed("repo1", "segfault".into());
+        let err = CodeQueryTools::analysis_not_ready_error_static(&tracker, "repo1", "not found");
+        let data = err.data.unwrap();
+        let msg = data["message"].as_str().unwrap();
+        assert!(
+            msg.contains("segfault"),
+            "Expected failure message, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("Original error: not found"),
+            "Expected original error in failed message, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_error_message_when_idle() {
+        let notifier = ChangeNotifier::new();
+        let tracker = AnalysisTracker::new(notifier);
+        let err = CodeQueryTools::analysis_not_ready_error_static(&tracker, "repo1", "not found");
+        let data = err.data.unwrap();
+        let msg = data["message"].as_str().unwrap();
+        assert!(
+            msg.contains("Run code_analyze first"),
+            "Expected idle message, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("Original error: not found"),
+            "Expected original error in idle message, got: {}",
+            msg
+        );
     }
 }
 
