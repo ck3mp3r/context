@@ -23,18 +23,21 @@ use tracing::{debug, info};
 // Parameter types
 // ============================================================================
 
+/// Parameters for the `describe_schema` MCP tool.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DescribeSchemaParams {
     #[schemars(description = "Repository ID from c5t database")]
     pub repo_id: String,
 }
 
+/// Parameters for the `list_queries` MCP tool.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListQueriesParams {
     #[schemars(description = "Repository ID from c5t database")]
     pub repo_id: String,
 }
 
+/// Parameters for the `query_code_graph` MCP tool.
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
 pub struct QueryCodeGraphParams {
     #[schemars(description = "Repository ID")]

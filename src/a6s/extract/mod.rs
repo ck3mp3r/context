@@ -12,10 +12,15 @@ mod extract_test;
 /// Implementations must be Send + Sync — they are shared across
 /// spawn_blocking tasks. Typically unit structs with no mutable state.
 pub trait LanguageExtractor: Send + Sync {
+    /// The language name this extractor handles (e.g., "rust", "kotlin").
     fn language(&self) -> &'static str;
+    /// File extensions this extractor supports (e.g., &["rs"], &["kt", "kts"]).
     fn extensions(&self) -> &'static [&'static str];
+    /// The tree-sitter grammar for this language.
     fn grammar(&self) -> tree_sitter::Language;
+    /// Tree-sitter query patterns for extracting symbols.
     fn symbol_queries(&self) -> &'static str;
+    /// Tree-sitter query patterns for extracting type references.
     fn type_ref_queries(&self) -> &'static str;
 
     /// Extract symbols, edges, and imports from a single file.

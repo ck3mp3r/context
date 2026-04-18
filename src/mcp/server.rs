@@ -63,7 +63,7 @@ impl<D: Database + 'static> McpServer<D> {
     /// Create a new MCP server with the given database and notifier
     ///
     /// # Arguments
-    /// * `db` - Database instance (can be Arc<D> or D)
+    /// * `db` - Database instance (can be `Arc<D>` or `D`)
     /// * `notifier` - ChangeNotifier for broadcasting updates
     /// * `skills_dir` - Path to skills cache directory
     /// * `analysis_db` - SurrealDB connection for code analysis

@@ -238,6 +238,7 @@ pub struct ResolvedEdge {
 // InheritanceType
 // ============================================================================
 
+/// Classifies how one type inherits from another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InheritanceType {
     Extends,
@@ -272,6 +273,8 @@ impl std::str::FromStr for InheritanceType {
 // Symbol (used by store for graph queries)
 // ============================================================================
 
+/// A symbol extracted from source code, generic over the kind type.
+/// Used by the graph store for queries and serialization.
 #[derive(Debug, Clone)]
 pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
     pub name: String,
@@ -290,6 +293,7 @@ pub struct Symbol<K: AsRef<str> + std::fmt::Debug> {
 // Import entry (shared between old and new pipeline)
 // ============================================================================
 
+/// A parsed import statement from source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportEntry {
     pub module_path: String,
@@ -331,6 +335,7 @@ impl ImportEntry {
 // Raw extraction types
 // ============================================================================
 
+/// A symbol as emitted by Layer 1 extraction, before graph insertion.
 #[derive(Debug, Clone)]
 pub struct RawSymbol {
     pub name: String,
@@ -351,6 +356,7 @@ impl RawSymbol {
     }
 }
 
+/// A raw import statement tied to the file it was found in.
 #[derive(Debug, Clone)]
 pub struct RawImport {
     pub file_path: String,
@@ -361,6 +367,8 @@ pub struct RawImport {
 // MODIFIED: ParsedFile — edges now use SymbolRef
 // ============================================================================
 
+/// The result of extracting a single source file.
+/// Contains all symbols, edges, and imports found in the file.
 #[derive(Debug, Clone)]
 pub struct ParsedFile {
     pub file_path: String,
@@ -408,6 +416,7 @@ pub enum PipelineProgress {
     Loaded,                 // graph loaded, ready to commit
 }
 
+/// Statistics from the Layer 2 resolution pass.
 #[derive(Debug, Clone)]
 pub struct ResolveStats {
     pub symbols_registered: usize,
