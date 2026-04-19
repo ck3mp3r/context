@@ -11,3 +11,6 @@ pub mod nushell;
 
 #[cfg(feature = "backend")]
 pub mod kotlin;
+
+#[cfg(feature = "backend")]
+pub mod typescript;

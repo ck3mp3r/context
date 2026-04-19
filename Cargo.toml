@@ -48,6 +48,7 @@ backend = [
     "dep:tree-sitter-rust",
      "dep:tree-sitter-nu",
      "dep:tree-sitter-kotlin",
+     "dep:tree-sitter-typescript",
      "dep:tree-sitter-language",
     "dep:utoipa",
     "dep:utoipa-axum",
@@ -226,6 +227,10 @@ optional = true
 
 [dependencies.tree-sitter-kotlin]
 git = "https://github.com/fwcd/tree-sitter-kotlin"
+optional = true
+
+[dependencies.tree-sitter-typescript]
+git = "https://github.com/tree-sitter/tree-sitter-typescript"
 optional = true
 
 [dependencies.utoipa]

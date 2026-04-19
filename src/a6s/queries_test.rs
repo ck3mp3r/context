@@ -301,9 +301,16 @@ async fn test_public_api_query() {
         .expect("Query failed");
     let symbols: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
 
-    assert_eq!(symbols.len(), 2, "Should return only public symbols (both 'public' and 'pub')");
+    assert_eq!(
+        symbols.len(),
+        2,
+        "Should return only public symbols (both 'public' and 'pub')"
+    );
     let names: Vec<&str> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
-    assert!(names.contains(&"PublicFn"), "Should include 'public' visibility");
+    assert!(
+        names.contains(&"PublicFn"),
+        "Should include 'public' visibility"
+    );
     assert!(names.contains(&"PubFn"), "Should include 'pub' visibility");
 }
 
@@ -434,7 +441,10 @@ async fn test_hub_symbols_query() {
     assert_eq!(hubs[0]["name"], "helper");
     assert_eq!(hubs[0]["kind"], "function");
     assert_eq!(hubs[0]["file_path"], "src/lib.rs");
-    assert!(hubs[0]["start_line"].is_number(), "start_line should be a number");
+    assert!(
+        hubs[0]["start_line"].is_number(),
+        "start_line should be a number"
+    );
     assert_eq!(hubs[0]["incoming_calls"].as_u64().unwrap(), 3);
 }
 
@@ -634,7 +644,9 @@ async fn test_list_queries_returns_structured_metadata() {
 }
 
 /// Helper to create a CodeGraph for testing (read-only, no truncation)
-fn make_test_graph(db: surrealdb::Surreal<surrealdb::engine::local::Db>) -> super::store::CodeGraph {
+fn make_test_graph(
+    db: surrealdb::Surreal<surrealdb::engine::local::Db>,
+) -> super::store::CodeGraph {
     use std::sync::Arc;
     super::store::CodeGraph {
         db: Arc::new(db),

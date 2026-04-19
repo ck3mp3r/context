@@ -60,7 +60,10 @@ mod placeholder {
         assert!(deserialized.variables.is_some());
         // Verify it's a proper HashMap now
         let vars = deserialized.variables.unwrap();
-        assert_eq!(vars.get("name").unwrap(), &serde_json::Value::String("MyClass".to_string()));
+        assert_eq!(
+            vars.get("name").unwrap(),
+            &serde_json::Value::String("MyClass".to_string())
+        );
 
         // All 3 modes are represented
         let _temp_query = QueryCodeGraphParams {

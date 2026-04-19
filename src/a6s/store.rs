@@ -489,6 +489,229 @@ impl CodeGraph {
         Ok(())
     }
 
+    // ========================================================================
+    // Batch insert methods — true bulk inserts using SurrealDB's
+    // INSERT INTO [array] syntax for maximum throughput.
+    // ========================================================================
+
+    /// Batch size for chunking inserts to avoid overly large queries.
+    const BATCH_SIZE: usize = 500;
+
+    /// Escape a string value for SurrealQL string literals.
+    /// Escapes single quotes and backslashes.
+    fn escape_surql(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('\'', "\\'")
+    }
+
+    /// Batch insert file nodes using INSERT IGNORE INTO file [...] RETURN NONE.
+    pub async fn insert_files_batch(
+        &self,
+        files: &[(&str, &str)], // (file_path, language)
+        commit_hash: &str,
+    ) -> Result<(), A6sError> {
+        for chunk in files.chunks(Self::BATCH_SIZE) {
+            let records: Vec<String> = chunk
+                .iter()
+                .map(|(file_path, language)| {
+                    let file_id = FileId::new(file_path);
+                    let compound_id = self.compound_id(file_id.as_str());
+                    format!(
+                        "{{ id: file:`{}`, file_id: '{}', repo_id: '{}', path: '{}', language: '{}', hash: '{}' }}",
+                        Self::escape_surql(&compound_id),
+                        Self::escape_surql(file_id.as_str()),
+                        Self::escape_surql(&self.repo_id),
+                        Self::escape_surql(file_path),
+                        Self::escape_surql(language),
+                        Self::escape_surql(commit_hash),
+                    )
+                })
+                .collect();
+
+            let sql = format!(
+                "INSERT IGNORE INTO file [{}] RETURN NONE",
+                records.join(", ")
+            );
+            self.db
+                .query(&sql)
+                .await
+                .map_err(|e| A6sError::Custom(format!("Failed to batch insert files: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    /// Build a SurrealQL object literal for a symbol record.
+    fn symbol_record_sql(&self, symbol: &RawSymbol) -> (String, String, String) {
+        let symbol_id = symbol.symbol_id();
+        let compound_sym = self.compound_id(symbol_id.as_str());
+        let file_id = FileId::new(&symbol.file_path);
+        let compound_file = self.compound_id(file_id.as_str());
+
+        let mut fields = format!(
+            "id: symbol:`{}`, symbol_id: '{}', repo_id: '{}', name: '{}', kind: '{}', language: '{}', file_path: '{}', start_line: {}, end_line: {}",
+            Self::escape_surql(&compound_sym),
+            Self::escape_surql(symbol_id.as_str()),
+            Self::escape_surql(&self.repo_id),
+            Self::escape_surql(&symbol.name),
+            Self::escape_surql(&symbol.kind),
+            Self::escape_surql(&symbol.language),
+            Self::escape_surql(&symbol.file_path),
+            symbol.start_line as i32,
+            symbol.end_line as i32,
+        );
+        if let Some(v) = &symbol.visibility {
+            fields.push_str(&format!(", visibility: '{}'", Self::escape_surql(v)));
+        }
+        if let Some(v) = &symbol.entry_type {
+            fields.push_str(&format!(", entry_type: '{}'", Self::escape_surql(v)));
+        }
+        if let Some(v) = &symbol.signature {
+            fields.push_str(&format!(", signature: '{}'", Self::escape_surql(v)));
+        }
+        if let Some(v) = &symbol.module_path {
+            fields.push_str(&format!(", module_path: '{}'", Self::escape_surql(v)));
+        }
+
+        let sym_record = format!("{{ {} }}", fields);
+        (sym_record, compound_file, compound_sym)
+    }
+
+    /// Batch insert symbol nodes and their file_contains edges.
+    ///
+    /// Uses INSERT IGNORE INTO symbol [...] for symbols, then
+    /// INSERT RELATION INTO file_contains [...] for contains edges.
+    pub async fn insert_symbols_batch(&self, symbols: &[RawSymbol]) -> Result<(), A6sError> {
+        for chunk in symbols.chunks(Self::BATCH_SIZE) {
+            let mut sym_records = Vec::with_capacity(chunk.len());
+            let mut contains_records = Vec::with_capacity(chunk.len());
+
+            for symbol in chunk {
+                let (sym_record, compound_file, compound_sym) = self.symbol_record_sql(symbol);
+                sym_records.push(sym_record);
+                contains_records.push(format!(
+                    "{{ in: file:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}' }}",
+                    Self::escape_surql(&compound_file),
+                    Self::escape_surql(&compound_sym),
+                    Self::escape_surql(&self.repo_id),
+                ));
+            }
+
+            // Two statements in one query call
+            let sql = format!(
+                "INSERT IGNORE INTO symbol [{}] RETURN NONE;\nINSERT RELATION INTO file_contains [{}] RETURN NONE",
+                sym_records.join(", "),
+                contains_records.join(", "),
+            );
+            self.db
+                .query(&sql)
+                .await
+                .map_err(|e| A6sError::Custom(format!("Failed to batch insert symbols: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    /// Get the SurrealDB edge table name for an EdgeKind.
+    fn edge_table(kind: &EdgeKind) -> &'static str {
+        match kind {
+            EdgeKind::Calls => "calls",
+            EdgeKind::HasField => "has_field",
+            EdgeKind::HasMethod => "has_method",
+            EdgeKind::HasMember => "has_member",
+            EdgeKind::Implements => "implements",
+            EdgeKind::Extends => "extends",
+            EdgeKind::Usage => "uses",
+            EdgeKind::ReturnType => "returns",
+            EdgeKind::ParamType => "accepts",
+            EdgeKind::FieldType => "field_type",
+            EdgeKind::TypeRef => "type_annotation",
+            EdgeKind::FileImports | EdgeKind::Import => "file_imports",
+        }
+    }
+
+    /// Batch insert resolved edges.
+    ///
+    /// Groups edges by table, then uses INSERT RELATION INTO table [...] for each group.
+    pub async fn insert_edges_batch(&self, edges: &[ResolvedEdge]) -> Result<(), A6sError> {
+        use std::collections::HashMap;
+
+        for chunk in edges.chunks(Self::BATCH_SIZE) {
+            // Group by edge table
+            let mut groups: HashMap<&str, Vec<String>> = HashMap::new();
+
+            for edge in chunk {
+                let table = Self::edge_table(&edge.kind);
+                let compound_from = self.compound_id(edge.from.as_str());
+                let compound_to = self.compound_id(edge.to.as_str());
+
+                let mut fields = format!(
+                    "in: symbol:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}'",
+                    Self::escape_surql(&compound_from),
+                    Self::escape_surql(&compound_to),
+                    Self::escape_surql(&self.repo_id),
+                );
+                if let Some(l) = edge.line
+                    && matches!(edge.kind, EdgeKind::Calls)
+                {
+                    fields.push_str(&format!(", call_site_line: {}", l as i32));
+                }
+
+                groups
+                    .entry(table)
+                    .or_default()
+                    .push(format!("{{ {} }}", fields));
+            }
+
+            // Build one INSERT RELATION per table, all in one query
+            let stmts: Vec<String> = groups
+                .into_iter()
+                .map(|(table, records)| {
+                    format!(
+                        "INSERT RELATION INTO {} [{}] RETURN NONE",
+                        table,
+                        records.join(", ")
+                    )
+                })
+                .collect();
+
+            let sql = stmts.join(";\n");
+            self.db
+                .query(&sql)
+                .await
+                .map_err(|e| A6sError::Custom(format!("Failed to batch insert edges: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    /// Batch insert import edges (File -> Symbol).
+    ///
+    /// Uses INSERT RELATION INTO file_imports [...] RETURN NONE.
+    pub async fn insert_imports_batch(&self, imports: &[ResolvedImport]) -> Result<(), A6sError> {
+        for chunk in imports.chunks(Self::BATCH_SIZE) {
+            let records: Vec<String> = chunk
+                .iter()
+                .map(|import| {
+                    let compound_file = self.compound_id(import.file_id.as_str());
+                    let compound_sym = self.compound_id(import.target_symbol_id.as_str());
+                    format!(
+                        "{{ in: file:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}' }}",
+                        Self::escape_surql(&compound_file),
+                        Self::escape_surql(&compound_sym),
+                        Self::escape_surql(&self.repo_id),
+                    )
+                })
+                .collect();
+
+            let sql = format!(
+                "INSERT RELATION INTO file_imports [{}] RETURN NONE",
+                records.join(", ")
+            );
+            self.db
+                .query(&sql)
+                .await
+                .map_err(|e| A6sError::Custom(format!("Failed to batch insert imports: {}", e)))?;
+        }
+        Ok(())
+    }
+
     /// Execute a named query from src/a6s/queries/*.surql
     ///
     /// # Arguments

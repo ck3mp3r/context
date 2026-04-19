@@ -250,60 +250,25 @@ async fn load_and_commit(
     commit_hash: &str,
     progress_tx: &Option<tokio::sync::mpsc::Sender<PipelineProgress>>,
 ) -> Result<(), A6sError> {
-    // Insert File nodes
-    for parsed in parsed_files {
-        graph
-            .insert_file(&parsed.file_path, &parsed.language, commit_hash)
-            .await?;
-    }
+    // Batch insert File nodes
+    let files: Vec<(&str, &str)> = parsed_files
+        .iter()
+        .map(|p| (p.file_path.as_str(), p.language.as_str()))
+        .collect();
+    graph.insert_files_batch(&files, commit_hash).await?;
 
-    // Insert Symbol nodes + Contains edges
-    for parsed in parsed_files {
-        let file_id = FileId::new(&parsed.file_path);
-        for symbol in &parsed.symbols {
-            graph.insert_symbol(symbol).await?;
-            let symbol_id = symbol.symbol_id();
-            graph.insert_contains(&file_id, &symbol_id).await?;
-        }
-    }
+    // Batch insert Symbol nodes + Contains edges
+    let all_symbols: Vec<RawSymbol> = parsed_files
+        .iter()
+        .flat_map(|p| p.symbols.iter().cloned())
+        .collect();
+    graph.insert_symbols_batch(&all_symbols).await?;
 
-    // Insert resolved edges
-    for edge in resolved_edges {
-        match edge.kind {
-            EdgeKind::Calls => {
-                graph
-                    .insert_calls_edge(&edge.from, &edge.to, edge.line)
-                    .await?;
-            }
-            EdgeKind::Implements => {
-                graph.insert_implements_edge(&edge.from, &edge.to).await?;
-            }
-            EdgeKind::Extends => {
-                graph.insert_extends_edge(&edge.from, &edge.to).await?;
-            }
-            EdgeKind::HasField => {
-                graph.insert_has_field_edge(&edge.from, &edge.to).await?;
-            }
-            EdgeKind::HasMethod => {
-                graph.insert_has_method_edge(&edge.from, &edge.to).await?;
-            }
-            EdgeKind::HasMember => {
-                graph.insert_has_member_edge(&edge.from, &edge.to).await?;
-            }
-            _ => {
-                graph
-                    .insert_references_edge(&edge.from, &edge.to, &edge.kind, edge.line)
-                    .await?;
-            }
-        }
-    }
+    // Batch insert resolved edges
+    graph.insert_edges_batch(resolved_edges).await?;
 
-    // Insert import edges
-    for import in import_edges {
-        graph
-            .insert_file_imports_edge(&import.file_id, &import.target_symbol_id)
-            .await?;
-    }
+    // Batch insert import edges
+    graph.insert_imports_batch(import_edges).await?;
 
     info!("✓ Loaded all nodes and edges into SurrealDB");
 

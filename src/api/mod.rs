@@ -144,7 +144,14 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     );
 
     // Create application state
-    let state = AppState::new(db, sync_manager, notifier, config.skills_dir, analysis_db, tracker);
+    let state = AppState::new(
+        db,
+        sync_manager,
+        notifier,
+        config.skills_dir,
+        analysis_db,
+        tracker,
+    );
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

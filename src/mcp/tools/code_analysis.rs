@@ -50,7 +50,11 @@ pub struct CodeAnalysisTools<D: Database> {
 
 #[tool_router]
 impl<D: Database + 'static> CodeAnalysisTools<D> {
-    pub fn new(db: Arc<D>, analysis_db: Arc<surrealdb::SurrealDbConnection>, tracker: AnalysisTracker) -> Self {
+    pub fn new(
+        db: Arc<D>,
+        analysis_db: Arc<surrealdb::SurrealDbConnection>,
+        tracker: AnalysisTracker,
+    ) -> Self {
         Self {
             db,
             analysis_db,
@@ -162,10 +166,10 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             tokio::spawn(async move {
                 while let Some(progress) = progress_rx.recv().await {
                     let phase = match &progress {
-                        PipelineProgress::Scanned(_) => "Scanning",
-                        PipelineProgress::Extracted(_) => "Extracting",
-                        PipelineProgress::Resolved(_) => "Resolving",
-                        PipelineProgress::Loaded => "Loading",
+                        PipelineProgress::Scanned(_) => "Extracting",
+                        PipelineProgress::Extracted(_) => "Resolving",
+                        PipelineProgress::Resolved(_) => "Loading",
+                        PipelineProgress::Loaded => "Committing",
                     };
                     tracker_for_progress.set_phase(&repo_id_for_progress, phase);
                 }
@@ -173,7 +177,15 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
 
             let commit_hash = "HEAD";
 
-            match a6s::analyze(&repo_path, &repo_id, commit_hash, Some(progress_tx), analysis_db).await {
+            match a6s::analyze(
+                &repo_path,
+                &repo_id,
+                commit_hash,
+                Some(progress_tx),
+                analysis_db,
+            )
+            .await
+            {
                 Ok(stats) => {
                     tracing::info!(
                         "a6s analysis complete: {} symbols, {} edges resolved, {} dropped",

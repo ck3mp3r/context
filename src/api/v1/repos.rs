@@ -536,10 +536,7 @@ pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
         return Err((
             StatusCode::CONFLICT,
             Json(ErrorResponse {
-                error: format!(
-                    "Analysis is already in progress for repository '{}'",
-                    id
-                ),
+                error: format!("Analysis is already in progress for repository '{}'", id),
             }),
         ));
     }
@@ -560,10 +557,10 @@ pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
         tokio::spawn(async move {
             while let Some(progress) = progress_rx.recv().await {
                 let phase = match &progress {
-                    crate::a6s::types::PipelineProgress::Scanned(_) => "Scanning",
-                    crate::a6s::types::PipelineProgress::Extracted(_) => "Extracting",
-                    crate::a6s::types::PipelineProgress::Resolved(_) => "Resolving",
-                    crate::a6s::types::PipelineProgress::Loaded => "Loading",
+                    crate::a6s::types::PipelineProgress::Scanned(_) => "Extracting",
+                    crate::a6s::types::PipelineProgress::Extracted(_) => "Resolving",
+                    crate::a6s::types::PipelineProgress::Resolved(_) => "Loading",
+                    crate::a6s::types::PipelineProgress::Loaded => "Committing",
                 };
                 tracker_for_progress.set_phase(&repo_id_for_progress, phase);
             }
@@ -571,7 +568,15 @@ pub async fn analyze_repo<D: Database, G: GitOps + Send + Sync>(
 
         let commit_hash = "HEAD";
 
-        match crate::a6s::analyze(&repo_path, &repo_id, commit_hash, Some(progress_tx), analysis_db).await {
+        match crate::a6s::analyze(
+            &repo_path,
+            &repo_id,
+            commit_hash,
+            Some(progress_tx),
+            analysis_db,
+        )
+        .await
+        {
             Ok(stats) => {
                 tracing::info!(
                     "a6s analysis complete for {}: {} symbols, {} edges resolved, {} dropped",

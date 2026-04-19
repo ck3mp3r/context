@@ -1,7 +1,7 @@
 //! In-memory tracker for per-repo analysis status.
 
-use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::a6s::types::GraphStats;
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use dashmap::DashMap;
 use std::sync::Arc;
 
@@ -47,11 +47,15 @@ impl AnalysisTracker {
                 false
             }
             Entry::Occupied(mut entry) => {
-                entry.insert(AnalysisStatus::Analyzing { phase: None });
+                entry.insert(AnalysisStatus::Analyzing {
+                    phase: Some("Scanning".to_string()),
+                });
                 true
             }
             Entry::Vacant(entry) => {
-                entry.insert(AnalysisStatus::Analyzing { phase: None });
+                entry.insert(AnalysisStatus::Analyzing {
+                    phase: Some("Scanning".to_string()),
+                });
                 true
             }
         };
@@ -67,8 +71,12 @@ impl AnalysisTracker {
 
     /// Mark a repo as currently being analyzed.
     pub fn set_analyzing(&self, repo_id: &str) {
-        self.state
-            .insert(repo_id.to_string(), AnalysisStatus::Analyzing { phase: None });
+        self.state.insert(
+            repo_id.to_string(),
+            AnalysisStatus::Analyzing {
+                phase: Some("Scanning".to_string()),
+            },
+        );
         self.notifier.notify(UpdateMessage::AnalysisStarted {
             repo_id: repo_id.to_string(),
         });

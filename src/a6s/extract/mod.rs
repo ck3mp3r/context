@@ -118,4 +118,5 @@ define_extractors!(
     golang::GolangExtractor,
     nushell::NushellExtractor,
     kotlin::KotlinExtractor,
+    typescript::TypeScriptExtractor,
 );

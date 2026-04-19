@@ -21,12 +21,14 @@ fn test_get_extractor_for_unknown_extension() {
 #[test]
 fn test_supported_extensions() {
     let exts = supported_extensions();
-    assert_eq!(exts.len(), 5);
+    assert_eq!(exts.len(), 7);
     assert!(exts.contains(&"rs"));
     assert!(exts.contains(&"go"));
     assert!(exts.contains(&"nu"));
     assert!(exts.contains(&"kt"));
     assert!(exts.contains(&"kts"));
+    assert!(exts.contains(&"ts"));
+    assert!(exts.contains(&"tsx"));
 }
 
 // Compile-time trait checks

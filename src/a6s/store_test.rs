@@ -1097,4 +1097,306 @@ mod surrealdb_tests {
         assert_eq!(result3.len(), 1, "Should have exactly 1 symbol from repo2");
         assert_eq!(result3[0]["name"], "repo2_func");
     }
+
+    // ========================================================================
+    // Batch insert tests
+    // ========================================================================
+
+    fn make_symbol(name: &str, kind: &str, file_path: &str, start: usize, end: usize) -> RawSymbol {
+        RawSymbol {
+            name: name.to_string(),
+            kind: kind.to_string(),
+            file_path: file_path.to_string(),
+            start_line: start,
+            end_line: end,
+            signature: None,
+            language: "rust".to_string(),
+            visibility: None,
+            entry_type: None,
+            module_path: None,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_batch_insert_files() {
+        let graph = CodeGraph::new_in_memory("test_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        let files: Vec<(&str, &str)> = vec![
+            ("src/main.rs", "rust"),
+            ("src/lib.rs", "rust"),
+            ("src/utils.rs", "rust"),
+            ("src/config.rs", "rust"),
+            ("src/db.rs", "rust"),
+        ];
+
+        graph
+            .insert_files_batch(&files, "abc123")
+            .await
+            .expect("Batch insert files should succeed");
+
+        // Verify all files inserted
+        let mut result = graph
+            .db
+            .query("SELECT * FROM file WHERE repo_id = $repo_id")
+            .bind(("repo_id", "test_repo"))
+            .await
+            .expect("Query should succeed");
+        let rows: Vec<serde_json::Value> = result.take(0).expect("Should get results");
+        assert_eq!(rows.len(), 5, "Should have 5 files");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_batch_insert_symbols_with_contains() {
+        let graph = CodeGraph::new_in_memory("test_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        // Insert file first
+        graph
+            .insert_file("src/main.rs", "rust", "abc123")
+            .await
+            .expect("Insert file should succeed");
+
+        let symbols = vec![
+            make_symbol("foo", "function", "src/main.rs", 1, 10),
+            make_symbol("bar", "function", "src/main.rs", 12, 20),
+            make_symbol("MyStruct", "struct", "src/main.rs", 22, 30),
+            make_symbol("baz", "function", "src/main.rs", 32, 40),
+            make_symbol("Config", "struct", "src/main.rs", 42, 50),
+            make_symbol("init", "function", "src/main.rs", 52, 60),
+            make_symbol("run", "function", "src/main.rs", 62, 70),
+            make_symbol("cleanup", "function", "src/main.rs", 72, 80),
+            make_symbol("helper", "function", "src/main.rs", 82, 90),
+            make_symbol("utils", "function", "src/main.rs", 92, 100),
+        ];
+
+        graph
+            .insert_symbols_batch(&symbols)
+            .await
+            .expect("Batch insert symbols should succeed");
+
+        // Verify all symbols inserted
+        let mut result = graph
+            .db
+            .query("SELECT * FROM symbol WHERE repo_id = $repo_id")
+            .bind(("repo_id", "test_repo"))
+            .await
+            .expect("Query should succeed");
+        let rows: Vec<serde_json::Value> = result.take(0).expect("Should get results");
+        assert_eq!(rows.len(), 10, "Should have 10 symbols");
+
+        // Verify contains edges
+        let mut edge_result = graph
+            .db
+            .query("SELECT * FROM file_contains WHERE repo_id = $repo_id")
+            .bind(("repo_id", "test_repo"))
+            .await
+            .expect("Query should succeed");
+        let edges: Vec<serde_json::Value> = edge_result.take(0).expect("Should get results");
+        assert_eq!(edges.len(), 10, "Should have 10 contains edges");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_batch_insert_edges() {
+        let graph = CodeGraph::new_in_memory("test_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        // Insert prerequisite symbols
+        let symbols = vec![
+            make_symbol("foo", "function", "src/main.rs", 1, 10),
+            make_symbol("bar", "function", "src/main.rs", 12, 20),
+            make_symbol("MyStruct", "struct", "src/main.rs", 22, 30),
+            make_symbol("field_x", "field", "src/main.rs", 23, 23),
+            make_symbol("my_method", "method", "src/main.rs", 25, 28),
+            make_symbol("MyTrait", "trait", "src/lib.rs", 1, 10),
+            make_symbol("Parent", "class", "src/lib.rs", 12, 20),
+        ];
+        for s in &symbols {
+            graph.insert_symbol(s).await.expect("Insert should succeed");
+        }
+
+        let edges = vec![
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "foo", 1),
+                to: SymbolId::new("src/main.rs", "bar", 12),
+                kind: EdgeKind::Calls,
+                line: Some(5),
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "MyStruct", 22),
+                to: SymbolId::new("src/main.rs", "field_x", 23),
+                kind: EdgeKind::HasField,
+                line: None,
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "MyStruct", 22),
+                to: SymbolId::new("src/main.rs", "my_method", 25),
+                kind: EdgeKind::HasMethod,
+                line: None,
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "MyStruct", 22),
+                to: SymbolId::new("src/lib.rs", "MyTrait", 1),
+                kind: EdgeKind::Implements,
+                line: None,
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "MyStruct", 22),
+                to: SymbolId::new("src/lib.rs", "Parent", 12),
+                kind: EdgeKind::Extends,
+                line: None,
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "foo", 1),
+                to: SymbolId::new("src/lib.rs", "MyTrait", 1),
+                kind: EdgeKind::TypeRef,
+                line: Some(3),
+            },
+        ];
+
+        graph
+            .insert_edges_batch(&edges)
+            .await
+            .expect("Batch insert edges should succeed");
+
+        // Verify calls edge
+        let mut r = graph.db.query("SELECT * FROM calls").await.unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 1, "Should have 1 calls edge");
+
+        // Verify has_field edge
+        let mut r = graph.db.query("SELECT * FROM has_field").await.unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 1, "Should have 1 has_field edge");
+
+        // Verify has_method edge
+        let mut r = graph.db.query("SELECT * FROM has_method").await.unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 1, "Should have 1 has_method edge");
+
+        // Verify implements edge
+        let mut r = graph.db.query("SELECT * FROM implements").await.unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 1, "Should have 1 implements edge");
+
+        // Verify extends edge
+        let mut r = graph.db.query("SELECT * FROM extends").await.unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 1, "Should have 1 extends edge");
+
+        // Verify type_annotation edge
+        let mut r = graph
+            .db
+            .query("SELECT * FROM type_annotation")
+            .await
+            .unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 1, "Should have 1 type_annotation edge");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_batch_insert_imports() {
+        let graph = CodeGraph::new_in_memory("test_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        // Insert prerequisites
+        graph
+            .insert_file("src/main.rs", "rust", "abc123")
+            .await
+            .unwrap();
+        let symbols = vec![
+            make_symbol("foo", "function", "src/lib.rs", 1, 10),
+            make_symbol("bar", "function", "src/lib.rs", 12, 20),
+            make_symbol("baz", "function", "src/utils.rs", 1, 10),
+        ];
+        for s in &symbols {
+            graph.insert_symbol(s).await.unwrap();
+        }
+
+        let imports = vec![
+            ResolvedImport {
+                file_id: FileId::new("src/main.rs"),
+                target_symbol_id: SymbolId::new("src/lib.rs", "foo", 1),
+            },
+            ResolvedImport {
+                file_id: FileId::new("src/main.rs"),
+                target_symbol_id: SymbolId::new("src/lib.rs", "bar", 12),
+            },
+            ResolvedImport {
+                file_id: FileId::new("src/main.rs"),
+                target_symbol_id: SymbolId::new("src/utils.rs", "baz", 1),
+            },
+        ];
+
+        graph
+            .insert_imports_batch(&imports)
+            .await
+            .expect("Batch insert imports should succeed");
+
+        // Verify
+        let mut r = graph.db.query("SELECT * FROM file_imports").await.unwrap();
+        let rows: Vec<serde_json::Value> = r.take(0).unwrap();
+        assert_eq!(rows.len(), 3, "Should have 3 import edges");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_batch_insert_symbols_with_optional_fields() {
+        let graph = CodeGraph::new_in_memory("test_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        graph
+            .insert_file("src/main.rs", "rust", "abc123")
+            .await
+            .unwrap();
+
+        let symbols = vec![
+            RawSymbol {
+                name: "pub_fn".to_string(),
+                kind: "function".to_string(),
+                file_path: "src/main.rs".to_string(),
+                start_line: 1,
+                end_line: 10,
+                signature: Some("fn pub_fn() -> i32".to_string()),
+                language: "rust".to_string(),
+                visibility: Some("pub".to_string()),
+                entry_type: Some("entrypoint".to_string()),
+                module_path: Some("main".to_string()),
+            },
+            RawSymbol {
+                name: "priv_fn".to_string(),
+                kind: "function".to_string(),
+                file_path: "src/main.rs".to_string(),
+                start_line: 12,
+                end_line: 20,
+                signature: None,
+                language: "rust".to_string(),
+                visibility: None,
+                entry_type: None,
+                module_path: None,
+            },
+        ];
+
+        graph
+            .insert_symbols_batch(&symbols)
+            .await
+            .expect("Batch insert should succeed");
+
+        // Verify both inserted with correct fields
+        let mut result = graph
+            .db
+            .query("SELECT * FROM symbol WHERE name = 'pub_fn'")
+            .await
+            .unwrap();
+        let rows: Vec<serde_json::Value> = result.take(0).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["visibility"], "pub");
+        assert_eq!(rows[0]["signature"], "fn pub_fn() -> i32");
+        assert_eq!(rows[0]["entry_type"], "entrypoint");
+        assert_eq!(rows[0]["module_path"], "main");
+    }
 }

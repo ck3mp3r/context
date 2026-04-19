@@ -135,9 +135,10 @@ impl CodeQueryTools {
         let repo_id = &params.0.repo_id;
 
         // Connect to the analysis database
-        let graph = CodeGraph::with_connection_readonly(repo_id.clone(), Arc::clone(&self.analysis_db))
-            .await
-            .map_err(|e| self.analysis_not_ready_error(repo_id, &e.to_string()))?;
+        let graph =
+            CodeGraph::with_connection_readonly(repo_id.clone(), Arc::clone(&self.analysis_db))
+                .await
+                .map_err(|e| self.analysis_not_ready_error(repo_id, &e.to_string()))?;
 
         // Get schema from SurrealDB
         let schema = graph.get_schema().await.map_err(|e| {
@@ -192,9 +193,12 @@ impl CodeQueryTools {
         }
 
         // Connect to analysis database
-        let graph = CodeGraph::with_connection_readonly(params.0.repo_id.clone(), Arc::clone(&self.analysis_db))
-            .await
-            .map_err(|e| self.analysis_not_ready_error(&params.0.repo_id, &e.to_string()))?;
+        let graph = CodeGraph::with_connection_readonly(
+            params.0.repo_id.clone(),
+            Arc::clone(&self.analysis_db),
+        )
+        .await
+        .map_err(|e| self.analysis_not_ready_error(&params.0.repo_id, &e.to_string()))?;
 
         // Extract params as HashMap
         let query_params = params.0.variables.unwrap_or_default();
@@ -277,9 +281,12 @@ impl CodeQueryTools {
         })?;
 
         // Connect to graph to get user-saved queries directory
-        let graph = CodeGraph::with_connection_readonly(params.0.repo_id.clone(), Arc::clone(&self.analysis_db))
-            .await
-            .map_err(|e| self.analysis_not_ready_error(&params.0.repo_id, &e.to_string()))?;
+        let graph = CodeGraph::with_connection_readonly(
+            params.0.repo_id.clone(),
+            Arc::clone(&self.analysis_db),
+        )
+        .await
+        .map_err(|e| self.analysis_not_ready_error(&params.0.repo_id, &e.to_string()))?;
 
         let queries_dir = graph.get_queries_dir().map_err(|e| {
             McpError::internal_error(

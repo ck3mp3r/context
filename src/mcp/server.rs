@@ -88,7 +88,11 @@ impl<D: Database + 'static> McpServer<D> {
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone(), skills_dir),
             sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
-            code_analysis_tools: CodeAnalysisTools::new(Arc::clone(&db), Arc::clone(&analysis_db), tracker.clone()),
+            code_analysis_tools: CodeAnalysisTools::new(
+                Arc::clone(&db),
+                Arc::clone(&analysis_db),
+                tracker.clone(),
+            ),
             code_query_tools: CodeQueryTools::new(analysis_db, tracker),
             tool_router: Self::tool_router(),
         }

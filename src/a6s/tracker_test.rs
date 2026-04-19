@@ -15,7 +15,10 @@ fn test_set_analyzing() {
     let tracker = AnalysisTracker::new(ChangeNotifier::new());
     tracker.set_analyzing("repo1");
     let status = tracker.get("repo1").unwrap();
-    assert!(matches!(status, AnalysisStatus::Analyzing { phase: None }));
+    assert!(matches!(
+        status,
+        AnalysisStatus::Analyzing { phase: Some(_) }
+    ));
 }
 
 #[test]
@@ -42,7 +45,10 @@ fn test_set_phase_noop_when_complete() {
     };
     tracker.set_complete("repo1", stats);
     tracker.set_phase("repo1", "Scanning");
-    assert!(matches!(tracker.get("repo1"), Some(AnalysisStatus::Complete { .. })));
+    assert!(matches!(
+        tracker.get("repo1"),
+        Some(AnalysisStatus::Complete { .. })
+    ));
 }
 
 #[test]
@@ -50,7 +56,10 @@ fn test_set_phase_noop_when_failed() {
     let tracker = AnalysisTracker::new(ChangeNotifier::new());
     tracker.set_failed("repo1", "boom".into());
     tracker.set_phase("repo1", "Scanning");
-    assert!(matches!(tracker.get("repo1"), Some(AnalysisStatus::Failed { .. })));
+    assert!(matches!(
+        tracker.get("repo1"),
+        Some(AnalysisStatus::Failed { .. })
+    ));
 }
 
 #[test]
@@ -87,7 +96,10 @@ fn test_set_failed() {
 fn test_state_transitions() {
     let tracker = AnalysisTracker::new(ChangeNotifier::new());
     tracker.set_analyzing("repo1");
-    assert!(matches!(tracker.get("repo1"), Some(AnalysisStatus::Analyzing { .. })));
+    assert!(matches!(
+        tracker.get("repo1"),
+        Some(AnalysisStatus::Analyzing { .. })
+    ));
 
     let stats = crate::a6s::types::GraphStats {
         total_symbols: 5,
@@ -95,7 +107,10 @@ fn test_state_transitions() {
         symbol_counts: HashMap::new(),
     };
     tracker.set_complete("repo1", stats);
-    assert!(matches!(tracker.get("repo1"), Some(AnalysisStatus::Complete { .. })));
+    assert!(matches!(
+        tracker.get("repo1"),
+        Some(AnalysisStatus::Complete { .. })
+    ));
 }
 
 #[test]
@@ -104,7 +119,7 @@ fn test_try_set_analyzing_returns_true_when_idle() {
     assert!(tracker.try_set_analyzing("repo1"));
     assert!(matches!(
         tracker.get("repo1"),
-        Some(AnalysisStatus::Analyzing { phase: None })
+        Some(AnalysisStatus::Analyzing { phase: Some(_) })
     ));
 }
 
