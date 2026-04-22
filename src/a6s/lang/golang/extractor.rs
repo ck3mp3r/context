@@ -119,7 +119,21 @@ impl LanguageExtractor for GolangExtractor {
             }
         }
 
-        // Step 3: Resolve unresolved edges
+        // Step 3: Build per-file import map
+        let mut file_imports: HashMap<String, Vec<&crate::a6s::types::RawImport>> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "go" {
+                continue;
+            }
+            for imp in &pf.imports {
+                file_imports
+                    .entry(pf.file_path.clone())
+                    .or_default()
+                    .push(imp);
+            }
+        }
+
+        // Step 4: Resolve unresolved edges
         let mut resolved_edges = Vec::new();
 
         for pf in parsed_files.iter() {
@@ -130,13 +144,17 @@ impl LanguageExtractor for GolangExtractor {
                 .get(&pf.file_path)
                 .map(|s| s.as_str())
                 .unwrap_or("");
+            let imports = file_imports
+                .get(&pf.file_path)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             for edge in &pf.edges {
                 // Resolve `from`
                 let from_id = match &edge.from {
                     SymbolRef::Resolved(id) => Some(id.clone()),
                     SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index)
+                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
                     }
                 };
 
@@ -144,7 +162,7 @@ impl LanguageExtractor for GolangExtractor {
                 let to_id = match &edge.to {
                     SymbolRef::Resolved(id) => Some(id.clone()),
                     SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index)
+                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
                     }
                 };
 
@@ -159,8 +177,28 @@ impl LanguageExtractor for GolangExtractor {
             }
         }
 
-        // Step 4: No import resolution (cross-package resolution is future work)
-        (resolved_edges, vec![])
+        // Step 5: Resolve imports
+        let mut resolved_imports = Vec::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "go" {
+                continue;
+            }
+            let file_id = crate::a6s::types::FileId::new(&pf.file_path);
+            for imp in &pf.imports {
+                let entry = &imp.entry;
+                // For Go module imports, find all symbols in the target package
+                for (qname, sym_id) in &symbol_index {
+                    if qname.module_path() == entry.module_path {
+                        resolved_imports.push(crate::a6s::types::ResolvedImport {
+                            file_id: file_id.clone(),
+                            target_symbol_id: sym_id.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        (resolved_edges, resolved_imports)
     }
 }
 
@@ -176,7 +214,7 @@ impl GolangExtractor {
     }
 
     /// Resolve a symbol name to a SymbolId using same-package QualifiedName
-    /// lookup with bare-name fallback (only if exactly one candidate exists).
+    /// lookup, import-aware resolution for dotted names, and bare-name fallback.
     fn resolve_name(
         name: &str,
         file_module: &str,
@@ -185,16 +223,96 @@ impl GolangExtractor {
             crate::a6s::types::SymbolId,
         >,
         bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
+        imports: &[&crate::a6s::types::RawImport],
     ) -> Option<crate::a6s::types::SymbolId> {
         use crate::a6s::types::QualifiedName;
 
-        // Try same package first (Go packages are flat — same directory)
+        // Skip Go builtins
+        if Self::is_go_builtin(name) {
+            return None;
+        }
+
+        // 1. Try same package first (Go packages are flat — same directory)
         let qname = QualifiedName::new(file_module, name);
         if let Some(id) = symbol_index.get(&qname) {
             return Some(id.clone());
         }
 
-        // Bare name fallback: only if exactly one candidate
+        // 2. Import resolution for dotted names (e.g., "db.Query", "mydb.Query")
+        if let Some(dot_pos) = name.find('.') {
+            let prefix = &name[..dot_pos];
+            let func_name = &name[dot_pos + 1..];
+
+            for imp in imports {
+                let entry = &imp.entry;
+
+                // Check alias match first
+                if let Some(alias) = &entry.alias {
+                    if alias == prefix {
+                        let qname = QualifiedName::new(&entry.module_path, func_name);
+                        if let Some(id) = symbol_index.get(&qname) {
+                            return Some(id.clone());
+                        }
+                    }
+                    continue;
+                }
+
+                // Check package name match (last segment of module_path)
+                let pkg_name = entry
+                    .module_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&entry.module_path);
+                if pkg_name == prefix {
+                    let qname = QualifiedName::new(&entry.module_path, func_name);
+                    if let Some(id) = symbol_index.get(&qname) {
+                        return Some(id.clone());
+                    }
+                }
+            }
+        } else {
+            // Non-dotted names: try import resolution
+            // In Go, module imports make all exported symbols from that package available
+            for imp in imports {
+                let entry = &imp.entry;
+
+                if let Some(alias) = &entry.alias {
+                    if alias == name && !entry.imported_names.is_empty() {
+                        let real_name = &entry.imported_names[0];
+                        let qname = QualifiedName::new(&entry.module_path, real_name);
+                        if let Some(id) = symbol_index.get(&qname) {
+                            return Some(id.clone());
+                        }
+                    }
+                    continue;
+                }
+
+                if entry.imported_names.contains(&name.to_string()) {
+                    let qname = QualifiedName::new(&entry.module_path, name);
+                    if let Some(id) = symbol_index.get(&qname) {
+                        return Some(id.clone());
+                    }
+                }
+
+                // Go module imports: try resolving name in the imported module
+                // (module imports have empty imported_names and are not glob)
+                if entry.imported_names.is_empty() && !entry.is_glob {
+                    let qname = QualifiedName::new(&entry.module_path, name);
+                    if let Some(id) = symbol_index.get(&qname) {
+                        return Some(id.clone());
+                    }
+                }
+
+                if entry.is_glob {
+                    let qname = QualifiedName::new(&entry.module_path, name);
+                    if let Some(id) = symbol_index.get(&qname) {
+                        return Some(id.clone());
+                    }
+                }
+            }
+        }
+
+        // 3. Bare name fallback: only if exactly one candidate
         if let Some(candidates) = bare_index.get(name)
             && candidates.len() == 1
         {

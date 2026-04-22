@@ -2507,3 +2507,217 @@ fn foo() {}
         "Rust resolve_cross_file should return empty imports for now"
     );
 }
+
+// ============================================================================
+// Phase 7: Import-Aware Cross-File Resolution Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_cross_file_ambiguous_name_with_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = RustExtractor;
+
+    // File 1: calls helper(), has import pointing to db::utils
+    let code1 = r#"
+use crate::db::utils::helper;
+fn handler() { helper(); }
+"#;
+    let mut file1 = extractor.extract(code1, "src/api/handler.rs");
+    // Add a RawImport that maps to the symbol_index module_path
+    // src/db/utils.rs → derive_module_path → "db"
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.rs".to_string(),
+        entry: ImportEntry::named_import("db", vec!["helper".to_string()]),
+    });
+
+    // File 2: defines helper() in src/db/utils.rs (module_path = "db")
+    let code2 = r#"fn helper() {}"#;
+    let file2 = extractor.extract(code2, "src/db/utils.rs");
+
+    // File 3: ALSO defines helper() in src/core/helpers.rs (module_path = "core")
+    let code3 = r#"fn helper() {}"#;
+    let file3 = extractor.extract(code3, "src/core/helpers.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With import, should resolve to db's helper despite ambiguity
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve ambiguous name via import, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_alias_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = RustExtractor;
+
+    // File 1: calls db_helper(), which is an alias for helper
+    let code1 = r#"
+use crate::db::utils::helper as db_helper;
+fn handler() { db_helper(); }
+"#;
+    let mut file1 = extractor.extract(code1, "src/api/handler.rs");
+    // Aliased import: db_helper → helper in module "db"
+    let mut entry = ImportEntry::named_import("db", vec!["helper".to_string()]);
+    entry.alias = Some("db_helper".to_string());
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.rs".to_string(),
+        entry,
+    });
+
+    // File 2: defines helper()
+    let code2 = r#"fn helper() {}"#;
+    let file2 = extractor.extract(code2, "src/db/utils.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve aliased import db_helper → helper, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_glob_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = RustExtractor;
+
+    // File 1: calls helper(), has glob import from db
+    let code1 = r#"
+use crate::db::utils::*;
+fn handler() { helper(); }
+"#;
+    let mut file1 = extractor.extract(code1, "src/api/handler.rs");
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.rs".to_string(),
+        entry: ImportEntry::glob_import("db"),
+    });
+
+    // File 2: defines helper() in module "db"
+    let code2 = r#"fn helper() {}"#;
+    let file2 = extractor.extract(code2, "src/db/utils.rs");
+
+    // File 3: ALSO defines helper() in module "core"
+    let code3 = r#"fn helper() {}"#;
+    let file3 = extractor.extract(code3, "src/core/helpers.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve via glob import despite ambiguity, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_returns_resolved_imports() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = RustExtractor;
+
+    // File 1: has import for helper
+    let code1 = r#"
+use crate::db::utils::helper;
+fn handler() {}
+"#;
+    let mut file1 = extractor.extract(code1, "src/api/handler.rs");
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.rs".to_string(),
+        entry: ImportEntry::named_import("db", vec!["helper".to_string()]),
+    });
+
+    // File 2: defines helper()
+    let code2 = r#"fn helper() {}"#;
+    let file2 = extractor.extract(code2, "src/db/utils.rs");
+
+    let mut files = [file1, file2];
+    let (_resolved, imports) = extractor.resolve_cross_file(&mut files);
+
+    assert!(
+        !imports.is_empty(),
+        "Should return resolved imports, got empty"
+    );
+    assert!(
+        imports
+            .iter()
+            .any(|ri| ri.target_symbol_id.as_str().contains(":helper:")),
+        "Resolved imports should contain helper, got: {:?}",
+        imports
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_import_priority_over_bare() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = RustExtractor;
+
+    // File 1: calls run(), has import pointing to module_a
+    let code1 = r#"
+use crate::module_a::run;
+fn main() { run(); }
+"#;
+    let mut file1 = extractor.extract(code1, "src/main.rs");
+    // src/module_a.rs → derive_module_path → None (top-level file, parent is empty)
+    // Actually for top-level files, module_path is None/empty string
+    // So QualifiedName is ("", "run") — but that would collide with other top-level files
+    // Let's use subdirectory files instead to have distinct module paths
+    file1.imports.push(RawImport {
+        file_path: "src/main.rs".to_string(),
+        entry: ImportEntry::named_import("module_a", vec!["run".to_string()]),
+    });
+
+    // File 2: defines run() in src/module_a/lib.rs → module "module_a"
+    // Actually, use a subdirectory to get a real module_path
+    let code2 = r#"fn run() {}"#;
+    let file2 = extractor.extract(code2, "src/module_a/runner.rs");
+
+    // File 3: defines run() in src/module_b/runner.rs
+    let code3 = r#"fn run() {}"#;
+    let file3 = extractor.extract(code3, "src/module_b/runner.rs");
+
+    // File 4: defines run() in src/module_c/runner.rs
+    let code4 = r#"fn run() {}"#;
+    let file4 = extractor.extract(code4, "src/module_c/runner.rs");
+
+    let mut files = [file1, file2, file3, file4];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":run:")),
+        "Should resolve via import despite 3 bare candidates, got: {:?}",
+        calls
+    );
+    // Verify it resolved to module_a's run, not module_b or module_c
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains("module_a")),
+        "Should resolve to module_a's run specifically, got: {:?}",
+        calls
+    );
+}

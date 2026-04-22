@@ -1181,3 +1181,200 @@ fn test_no_duplicate_symbol_ids() {
         assert!(seen.insert(id.clone()), "Duplicate symbol ID: {}", id);
     }
 }
+
+// ============================================================================
+// Import-Aware Cross-File Resolution Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_cross_file_ambiguous_name_with_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let ext = TypeScriptExtractor;
+
+    // File 1: calls helper(), has named import from src/utils
+    let code1 = r#"
+import { helper } from '../utils';
+export function handler() { helper(); }
+"#;
+    let mut file1 = ext.extract(code1, "src/api/handler.ts");
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.ts".to_string(),
+        entry: ImportEntry::named_import("src/utils", vec!["helper".to_string()]),
+    });
+
+    // File 2: defines helper()
+    let code2 = r#"export function helper() {}"#;
+    let file2 = ext.extract(code2, "src/utils.ts");
+
+    // File 3: ALSO defines helper()
+    let code3 = r#"export function helper() {}"#;
+    let file3 = ext.extract(code3, "src/core/helpers.ts");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = ext.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve ambiguous name via import, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_alias_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let ext = TypeScriptExtractor;
+
+    // File 1: calls dbHelper(), aliased import
+    let code1 = r#"
+import { helper as dbHelper } from '../utils';
+export function handler() { dbHelper(); }
+"#;
+    let mut file1 = ext.extract(code1, "src/api/handler.ts");
+    let mut entry = ImportEntry::named_import("src/utils", vec!["helper".to_string()]);
+    entry.alias = Some("dbHelper".to_string());
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.ts".to_string(),
+        entry,
+    });
+
+    // File 2: defines helper()
+    let code2 = r#"export function helper() {}"#;
+    let file2 = ext.extract(code2, "src/utils.ts");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = ext.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve aliased import dbHelper → helper, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_glob_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let ext = TypeScriptExtractor;
+
+    // File 1: calls helper(), has namespace import from src/utils
+    let code1 = r#"
+import * as utils from '../utils';
+export function handler() { helper(); }
+"#;
+    let mut file1 = ext.extract(code1, "src/api/handler.ts");
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.ts".to_string(),
+        entry: ImportEntry::glob_import("src/utils"),
+    });
+
+    // File 2: defines helper()
+    let code2 = r#"export function helper() {}"#;
+    let file2 = ext.extract(code2, "src/utils.ts");
+
+    // File 3: ALSO defines helper()
+    let code3 = r#"export function helper() {}"#;
+    let file3 = ext.extract(code3, "src/core/helpers.ts");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = ext.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":helper:")),
+        "Should resolve via glob import despite ambiguity, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_returns_resolved_imports() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let ext = TypeScriptExtractor;
+
+    // File 1: has import for helper
+    let code1 = r#"
+import { helper } from '../utils';
+export function handler() {}
+"#;
+    let mut file1 = ext.extract(code1, "src/api/handler.ts");
+    file1.imports.push(RawImport {
+        file_path: "src/api/handler.ts".to_string(),
+        entry: ImportEntry::named_import("src/utils", vec!["helper".to_string()]),
+    });
+
+    // File 2: defines helper()
+    let code2 = r#"export function helper() {}"#;
+    let file2 = ext.extract(code2, "src/utils.ts");
+
+    let mut files = [file1, file2];
+    let (_resolved, imports) = ext.resolve_cross_file(&mut files);
+
+    assert!(
+        !imports.is_empty(),
+        "Should return resolved imports, got empty"
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_import_priority_over_bare() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let ext = TypeScriptExtractor;
+
+    // File 1: calls run(), has import from src/module_a
+    let code1 = r#"
+import { run } from '../module_a/runner';
+export function main() { run(); }
+"#;
+    let mut file1 = ext.extract(code1, "src/app/main.ts");
+    file1.imports.push(RawImport {
+        file_path: "src/app/main.ts".to_string(),
+        entry: ImportEntry::named_import("src/module_a/runner", vec!["run".to_string()]),
+    });
+
+    // File 2: defines run()
+    let code2 = r#"export function run() {}"#;
+    let file2 = ext.extract(code2, "src/module_a/runner.ts");
+
+    // File 3: ALSO defines run()
+    let code3 = r#"export function run() {}"#;
+    let file3 = ext.extract(code3, "src/module_b/runner.ts");
+
+    // File 4: ALSO defines run()
+    let code4 = r#"export function run() {}"#;
+    let file4 = ext.extract(code4, "src/module_c/runner.ts");
+
+    let mut files = [file1, file2, file3, file4];
+    let (resolved, _) = ext.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":run:")),
+        "Should resolve via import despite 3 bare candidates, got: {:?}",
+        calls
+    );
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains("module_a")),
+        "Should resolve to module_a's run specifically, got: {:?}",
+        calls
+    );
+}

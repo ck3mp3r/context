@@ -2751,3 +2751,210 @@ fn test_implements_edge_pointer_receiver() {
         impl_edges
     );
 }
+
+// ============================================================================
+// Import-Aware Cross-File Resolution Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_cross_file_ambiguous_name_with_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = GolangExtractor;
+
+    // File 1: calls Helper(), has import for pkg/a
+    let code1 = r#"
+package main
+
+import "myapp/pkg/a"
+
+func main() {
+    a.Helper()
+}
+"#;
+    let mut file1 = extractor.extract(code1, "cmd/main.go");
+    // Add import that maps to the symbol_index module path
+    // pkg/a/helpers.go → derive_module_path → "pkg/a"
+    file1.imports.push(RawImport {
+        file_path: "cmd/main.go".to_string(),
+        entry: ImportEntry::module_import("pkg/a"),
+    });
+
+    // File 2: defines Helper() in pkg/a
+    let code2 = r#"
+package a
+
+func Helper() {}
+"#;
+    let file2 = extractor.extract(code2, "pkg/a/helpers.go");
+
+    // File 3: ALSO defines Helper() in pkg/b
+    let code3 = r#"
+package b
+
+func Helper() {}
+"#;
+    let file3 = extractor.extract(code3, "pkg/b/helpers.go");
+
+    let mut files = vec![file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With import, should resolve to pkg/a's Helper despite ambiguity
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":Helper:")),
+        "Should resolve ambiguous name via import, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_alias_import() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = GolangExtractor;
+
+    // File 1: calls mydb.Query(), aliased import
+    let code1 = r#"
+package main
+
+import mydb "myapp/db"
+
+func main() {
+    mydb.Query()
+}
+"#;
+    let mut file1 = extractor.extract(code1, "cmd/main.go");
+    let mut entry = ImportEntry::module_import("db");
+    entry.alias = Some("mydb".to_string());
+    file1.imports.push(RawImport {
+        file_path: "cmd/main.go".to_string(),
+        entry,
+    });
+
+    // File 2: defines Query() in db/
+    let code2 = r#"
+package db
+
+func Query() {}
+"#;
+    let file2 = extractor.extract(code2, "db/queries.go");
+
+    let mut files = vec![file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":Query:")),
+        "Should resolve aliased import mydb.Query → Query, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_returns_resolved_imports() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = GolangExtractor;
+
+    // File 1: has import for db package
+    let code1 = r#"
+package main
+
+import "myapp/db"
+
+func main() {}
+"#;
+    let mut file1 = extractor.extract(code1, "cmd/main.go");
+    file1.imports.push(RawImport {
+        file_path: "cmd/main.go".to_string(),
+        entry: ImportEntry::module_import("db"),
+    });
+
+    // File 2: defines Query() in db/
+    let code2 = r#"
+package db
+
+func Query() {}
+"#;
+    let file2 = extractor.extract(code2, "db/queries.go");
+
+    let mut files = vec![file1, file2];
+    let (_resolved, imports) = extractor.resolve_cross_file(&mut files);
+
+    assert!(
+        !imports.is_empty(),
+        "Should return resolved imports, got empty"
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_import_priority_over_bare() {
+    use crate::a6s::types::{ImportEntry, RawImport};
+
+    let extractor = GolangExtractor;
+
+    // File 1: calls a.Run(), has import for pkg/a
+    let code1 = r#"
+package main
+
+import "myapp/pkg/a"
+
+func main() {
+    a.Run()
+}
+"#;
+    let mut file1 = extractor.extract(code1, "cmd/main.go");
+    file1.imports.push(RawImport {
+        file_path: "cmd/main.go".to_string(),
+        entry: ImportEntry::module_import("pkg/a"),
+    });
+
+    // File 2: defines Run() in pkg/a
+    let code2 = r#"
+package a
+
+func Run() {}
+"#;
+    let file2 = extractor.extract(code2, "pkg/a/runner.go");
+
+    // File 3: defines Run() in pkg/b
+    let code3 = r#"
+package b
+
+func Run() {}
+"#;
+    let file3 = extractor.extract(code3, "pkg/b/runner.go");
+
+    // File 4: defines Run() in pkg/c
+    let code4 = r#"
+package c
+
+func Run() {}
+"#;
+    let file4 = extractor.extract(code4, "pkg/c/runner.go");
+
+    let mut files = vec![file1, file2, file3, file4];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":Run:")),
+        "Should resolve via import despite 3 bare candidates, got: {:?}",
+        calls
+    );
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains("pkg/a")),
+        "Should resolve to pkg/a's Run specifically, got: {:?}",
+        calls
+    );
+}

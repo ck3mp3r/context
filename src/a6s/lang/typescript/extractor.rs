@@ -179,6 +179,20 @@ impl LanguageExtractor for TypeScriptExtractor {
             }
         }
 
+        // Build per-file import map
+        let mut file_imports: HashMap<String, Vec<&crate::a6s::types::RawImport>> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "typescript" {
+                continue;
+            }
+            for imp in &pf.imports {
+                file_imports
+                    .entry(pf.file_path.clone())
+                    .or_default()
+                    .push(imp);
+            }
+        }
+
         // Resolve edges
         let mut resolved_edges = Vec::new();
         for pf in parsed_files.iter() {
@@ -186,21 +200,34 @@ impl LanguageExtractor for TypeScriptExtractor {
                 continue;
             }
             let source_file = &pf.file_path;
+            let file_module = pf
+                .symbols
+                .first()
+                .and_then(|s| s.module_path.clone())
+                .unwrap_or_default();
+            let imports = file_imports
+                .get(&pf.file_path)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             for edge in &pf.edges {
                 let from_id = Self::resolve_ref(
                     &edge.from,
                     source_file,
+                    &file_module,
                     &symbol_index,
                     &bare_index,
                     &symbol_visibility,
+                    imports,
                 );
                 let to_id = Self::resolve_ref(
                     &edge.to,
                     source_file,
+                    &file_module,
                     &symbol_index,
                     &bare_index,
                     &symbol_visibility,
+                    imports,
                 );
 
                 if let (Some(from), Some(to)) = (from_id, to_id) {
@@ -1717,22 +1744,65 @@ impl TypeScriptExtractor {
     fn resolve_ref(
         sym_ref: &SymbolRef,
         source_file: &str,
-        _symbol_index: &std::collections::HashMap<
+        file_module: &str,
+        symbol_index: &std::collections::HashMap<
             crate::a6s::types::QualifiedName,
             crate::a6s::types::SymbolId,
         >,
         bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
         visibility_index: &std::collections::HashMap<crate::a6s::types::SymbolId, (String, String)>,
+        imports: &[&crate::a6s::types::RawImport],
     ) -> Option<crate::a6s::types::SymbolId> {
+        use crate::a6s::types::QualifiedName;
+
         match sym_ref {
             SymbolRef::Resolved(id) => Some(id.clone()),
             SymbolRef::Unresolved { name, .. } => {
                 if Self::is_ts_builtin(name) {
                     return None;
                 }
-                // Try bare name
+
+                // 1. Same module lookup
+                let qname = QualifiedName::new(file_module, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+
+                // 2. Import resolution
+                for imp in imports {
+                    let entry = &imp.entry;
+
+                    // Aliased import
+                    if let Some(alias) = &entry.alias {
+                        if alias == name && !entry.imported_names.is_empty() {
+                            let real_name = &entry.imported_names[0];
+                            let qname = QualifiedName::new(&entry.module_path, real_name);
+                            if let Some(id) = symbol_index.get(&qname) {
+                                return Some(id.clone());
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Explicit import
+                    if entry.imported_names.contains(&name.to_string()) {
+                        let qname = QualifiedName::new(&entry.module_path, name);
+                        if let Some(id) = symbol_index.get(&qname) {
+                            return Some(id.clone());
+                        }
+                    }
+
+                    // Wildcard import
+                    if entry.is_glob {
+                        let qname = QualifiedName::new(&entry.module_path, name);
+                        if let Some(id) = symbol_index.get(&qname) {
+                            return Some(id.clone());
+                        }
+                    }
+                }
+
+                // 3. Bare name fallback with visibility filter
                 if let Some(candidates) = bare_index.get(name) {
-                    // Filter by visibility
                     let visible: Vec<_> = candidates
                         .iter()
                         .filter(|id| {

@@ -366,7 +366,21 @@ impl LanguageExtractor for RustExtractor {
             }
         }
 
-        // Step 3: Resolve unresolved edges
+        // Step 3: Build per-file import map
+        let mut file_imports: HashMap<String, Vec<&crate::a6s::types::RawImport>> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            for imp in &pf.imports {
+                file_imports
+                    .entry(pf.file_path.clone())
+                    .or_default()
+                    .push(imp);
+            }
+        }
+
+        // Step 4: Resolve unresolved edges
         let mut resolved_edges = Vec::new();
 
         for pf in parsed_files.iter() {
@@ -377,13 +391,17 @@ impl LanguageExtractor for RustExtractor {
                 .get(&pf.file_path)
                 .map(|s| s.as_str())
                 .unwrap_or("");
+            let imports = file_imports
+                .get(&pf.file_path)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             for edge in &pf.edges {
                 // Resolve `from`
                 let from_id = match &edge.from {
                     SymbolRef::Resolved(id) => Some(id.clone()),
                     SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index)
+                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
                     }
                 };
 
@@ -391,7 +409,7 @@ impl LanguageExtractor for RustExtractor {
                 let to_id = match &edge.to {
                     SymbolRef::Resolved(id) => Some(id.clone()),
                     SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index)
+                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
                     }
                 };
 
@@ -406,8 +424,41 @@ impl LanguageExtractor for RustExtractor {
             }
         }
 
-        // Step 4: No import resolution yet (Rust imports are handled by RawImport entries)
-        (resolved_edges, vec![])
+        // Step 5: Resolve imports
+        let mut resolved_imports = Vec::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            let file_id = crate::a6s::types::FileId::new(&pf.file_path);
+            for imp in &pf.imports {
+                let entry = &imp.entry;
+                if entry.is_glob {
+                    // Glob: resolve all symbols in the target module
+                    for (qname, sym_id) in &symbol_index {
+                        if qname.module_path() == entry.module_path {
+                            resolved_imports.push(ResolvedImport {
+                                file_id: file_id.clone(),
+                                target_symbol_id: sym_id.clone(),
+                            });
+                        }
+                    }
+                } else {
+                    // Named imports
+                    for name in &entry.imported_names {
+                        let qname = QualifiedName::new(&entry.module_path, name);
+                        if let Some(sym_id) = symbol_index.get(&qname) {
+                            resolved_imports.push(ResolvedImport {
+                                file_id: file_id.clone(),
+                                target_symbol_id: sym_id.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        (resolved_edges, resolved_imports)
     }
 }
 
@@ -459,8 +510,8 @@ impl RustExtractor {
         }
     }
 
-    /// Resolve a symbol name to a SymbolId using qualified name lookup
-    /// with bare-name fallback (only if exactly one candidate exists).
+    /// Resolve a symbol name to a SymbolId using qualified name lookup,
+    /// import-aware resolution, and bare-name fallback.
     fn resolve_name(
         name: &str,
         file_module: &str,
@@ -469,16 +520,55 @@ impl RustExtractor {
             crate::a6s::types::SymbolId,
         >,
         bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
+        imports: &[&crate::a6s::types::RawImport],
     ) -> Option<crate::a6s::types::SymbolId> {
         use crate::a6s::types::QualifiedName;
 
-        // Try same module first
+        // Skip Rust builtins — they're not in the symbol_index
+        if Self::is_rust_builtin(name) {
+            return None;
+        }
+
+        // 1. Same module first
         let qname = QualifiedName::new(file_module, name);
         if let Some(id) = symbol_index.get(&qname) {
             return Some(id.clone());
         }
 
-        // Bare name fallback: only if exactly one candidate
+        // 2. Import resolution
+        for imp in imports {
+            let entry = &imp.entry;
+
+            // Aliased import: if alias matches name, resolve using real name
+            if let Some(alias) = &entry.alias {
+                if alias == name && !entry.imported_names.is_empty() {
+                    let real_name = &entry.imported_names[0];
+                    let qname = QualifiedName::new(&entry.module_path, real_name);
+                    if let Some(id) = symbol_index.get(&qname) {
+                        return Some(id.clone());
+                    }
+                }
+                continue;
+            }
+
+            // Explicit import: imported_names contains name
+            if entry.imported_names.contains(&name.to_string()) {
+                let qname = QualifiedName::new(&entry.module_path, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+            }
+
+            // Wildcard import
+            if entry.is_glob {
+                let qname = QualifiedName::new(&entry.module_path, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+            }
+        }
+
+        // 3. Bare name fallback: only if exactly one candidate
         if let Some(candidates) = bare_index.get(name)
             && candidates.len() == 1
         {
@@ -486,6 +576,65 @@ impl RustExtractor {
         }
 
         None
+    }
+
+    /// Check if a type name is a Rust standard library builtin
+    fn is_rust_builtin(name: &str) -> bool {
+        matches!(
+            name,
+            "Option"
+                | "Result"
+                | "Vec"
+                | "String"
+                | "Box"
+                | "Arc"
+                | "Rc"
+                | "HashMap"
+                | "HashSet"
+                | "BTreeMap"
+                | "BTreeSet"
+                | "Iterator"
+                | "Display"
+                | "Debug"
+                | "Clone"
+                | "Copy"
+                | "Send"
+                | "Sync"
+                | "Sized"
+                | "Drop"
+                | "Fn"
+                | "FnMut"
+                | "FnOnce"
+                | "From"
+                | "Into"
+                | "AsRef"
+                | "AsMut"
+                | "Default"
+                | "PartialEq"
+                | "Eq"
+                | "PartialOrd"
+                | "Ord"
+                | "Hash"
+                | "Self"
+                | "self"
+                | "bool"
+                | "char"
+                | "str"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "f32"
+                | "f64"
+        )
     }
 
     /// Convert file path to module name
