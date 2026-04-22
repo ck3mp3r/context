@@ -96,10 +96,30 @@ impl LanguageExtractor for GolangExtractor {
             })
             .collect();
 
-        // Step 2: Build symbol index (QualifiedName -> SymbolId)
+        // Step 2: Build parent map from HasMethod edges
+        let mut parent_names: HashMap<SymbolId, String> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "go" {
+                continue;
+            }
+            for edge in &pf.edges {
+                if matches!(edge.kind, crate::a6s::types::EdgeKind::HasMethod)
+                    && let (SymbolRef::Resolved(parent_id), SymbolRef::Resolved(child_id)) =
+                        (&edge.from, &edge.to)
+                    && let Some(parent_sym) =
+                        pf.symbols.iter().find(|s| s.symbol_id() == *parent_id)
+                {
+                    parent_names.insert(child_id.clone(), parent_sym.name.clone());
+                }
+            }
+        }
+
+        // Step 3: Build symbol index (QualifiedName -> SymbolId)
         let mut symbol_index: HashMap<QualifiedName, SymbolId> = HashMap::new();
         // Bare name -> Vec<SymbolId> for fallback
         let mut bare_index: HashMap<String, Vec<SymbolId>> = HashMap::new();
+        // Kind map for filtering resolved symbols by edge type
+        let mut symbol_kinds: HashMap<SymbolId, String> = HashMap::new();
 
         for pf in parsed_files.iter() {
             if pf.language != "go" {
@@ -110,12 +130,23 @@ impl LanguageExtractor for GolangExtractor {
                 .map(|s| s.as_str())
                 .unwrap_or("");
             for sym in &pf.symbols {
-                let qname = QualifiedName::new(module_path, &sym.name);
-                symbol_index.insert(qname, sym.symbol_id());
+                let sym_id = sym.symbol_id();
+                let qname = if let Some(parent_name) = parent_names.get(&sym_id) {
+                    let parent_qualified = if module_path.is_empty() {
+                        parent_name.clone()
+                    } else {
+                        format!("{}::{}", module_path, parent_name)
+                    };
+                    QualifiedName::new(&parent_qualified, &sym.name)
+                } else {
+                    QualifiedName::new(module_path, &sym.name)
+                };
+                symbol_index.insert(qname, sym_id.clone());
                 bare_index
                     .entry(sym.name.clone())
                     .or_default()
-                    .push(sym.symbol_id());
+                    .push(sym_id.clone());
+                symbol_kinds.insert(sym_id, sym.kind.clone());
             }
         }
 
@@ -158,11 +189,40 @@ impl LanguageExtractor for GolangExtractor {
                     }
                 };
 
-                // Resolve `to`
+                // Resolve `to` with qualifier-aware lookup and kind filtering
                 let to_id = match &edge.to {
                     SymbolRef::Resolved(id) => Some(id.clone()),
-                    SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
+                    SymbolRef::Unresolved {
+                        name, qualifier, ..
+                    } => {
+                        let resolved = if let Some(q) = qualifier {
+                            Self::resolve_qualified_name(
+                                name,
+                                q,
+                                file_module,
+                                &symbol_index,
+                                imports,
+                            )
+                            .or_else(|| {
+                                Self::resolve_name(
+                                    name,
+                                    file_module,
+                                    &symbol_index,
+                                    &bare_index,
+                                    imports,
+                                )
+                            })
+                        } else {
+                            Self::resolve_name(
+                                name,
+                                file_module,
+                                &symbol_index,
+                                &bare_index,
+                                imports,
+                            )
+                        };
+                        resolved
+                            .filter(|id| Self::is_kind_compatible(&edge.kind, id, &symbol_kinds))
                     }
                 };
 
@@ -213,8 +273,85 @@ impl GolangExtractor {
             .map(|s| s.to_string())
     }
 
+    /// Check if a resolved symbol's kind is compatible with the edge kind.
+    fn is_kind_compatible(
+        edge_kind: &crate::a6s::types::EdgeKind,
+        sym_id: &crate::a6s::types::SymbolId,
+        symbol_kinds: &std::collections::HashMap<crate::a6s::types::SymbolId, String>,
+    ) -> bool {
+        use crate::a6s::types::EdgeKind;
+
+        let Some(kind) = symbol_kinds.get(sym_id) else {
+            return true;
+        };
+        let kind = kind.as_str();
+
+        match edge_kind {
+            EdgeKind::Calls => matches!(kind, "function" | "method" | "macro" | "closure"),
+            EdgeKind::TypeRef
+            | EdgeKind::FieldType
+            | EdgeKind::ParamType
+            | EdgeKind::ReturnType => {
+                matches!(
+                    kind,
+                    "struct" | "enum" | "trait" | "interface" | "type_alias" | "class"
+                )
+            }
+            EdgeKind::Implements => matches!(kind, "trait" | "interface"),
+            EdgeKind::Extends => {
+                matches!(kind, "struct" | "enum" | "trait" | "interface" | "class")
+            }
+            _ => true,
+        }
+    }
+
     /// Resolve a symbol name to a SymbolId using same-package QualifiedName
     /// lookup, import-aware resolution for dotted names, and bare-name fallback.
+    /// Resolve a symbol name using qualifier context (e.g., obj.Method → module::Obj::Method).
+    fn resolve_qualified_name(
+        name: &str,
+        qualifier: &str,
+        file_module: &str,
+        symbol_index: &std::collections::HashMap<
+            crate::a6s::types::QualifiedName,
+            crate::a6s::types::SymbolId,
+        >,
+        imports: &[&crate::a6s::types::RawImport],
+    ) -> Option<crate::a6s::types::SymbolId> {
+        use crate::a6s::types::QualifiedName;
+
+        // Try module::Qualifier::name (same module)
+        let parent_path = if file_module.is_empty() {
+            qualifier.to_string()
+        } else {
+            format!("{}::{}", file_module, qualifier)
+        };
+        let qname = QualifiedName::new(&parent_path, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        // Try via imports: if qualifier is imported, use its module path
+        for imp in imports {
+            let entry = &imp.entry;
+            if entry.imported_names.contains(&qualifier.to_string()) || entry.is_glob {
+                let parent_path = format!("{}::{}", entry.module_path, qualifier);
+                let qname = QualifiedName::new(&parent_path, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+            }
+        }
+
+        // Try just Qualifier::name (no module prefix)
+        let qname = QualifiedName::new(qualifier, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        None
+    }
+
     fn resolve_name(
         name: &str,
         file_module: &str,
@@ -427,12 +564,20 @@ impl GolangExtractor {
             else if let Some(&node) = captures_map.get("call_selector_name") {
                 let callee_name = Self::node_text(node, code).to_string();
                 let call_line = node.start_position().row + 1;
+                let qualifier = captures_map
+                    .get("call_selector_operand")
+                    .map(|&r| Self::node_text(r, code).to_string());
 
                 if let Some(caller_id) = Self::find_enclosing_function(parsed, file_path, call_line)
                 {
+                    let to = if let Some(q) = qualifier {
+                        SymbolRef::unresolved_with_qualifier(callee_name, file_path, q)
+                    } else {
+                        SymbolRef::unresolved(callee_name, file_path)
+                    };
                     parsed.edges.push(crate::a6s::types::RawEdge {
                         from: SymbolRef::resolved(caller_id),
-                        to: SymbolRef::unresolved(callee_name, file_path),
+                        to,
                         kind: EdgeKind::Calls,
                         line: Some(call_line),
                     });

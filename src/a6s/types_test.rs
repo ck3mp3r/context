@@ -17,7 +17,9 @@ fn test_symbol_ref_unresolved() {
 
     assert!(!sym_ref.is_resolved());
     match sym_ref {
-        SymbolRef::Unresolved { name, file_path } => {
+        SymbolRef::Unresolved {
+            name, file_path, ..
+        } => {
             assert_eq!(name, "Foo");
             assert_eq!(file_path, "src/main.rs");
         }

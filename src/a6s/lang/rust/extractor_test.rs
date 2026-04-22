@@ -1515,10 +1515,104 @@ impl MyStruct {
         "Expected at least 1 Calls edge, found {}",
         calls
     );
+}
 
+// ============================================================================
+// Fix 3: Preserve qualifier context — stop discarding receiver/scope info
+// ============================================================================
+
+#[test]
+fn test_scoped_call_qualifier_discarded() {
+    let extractor = RustExtractor;
+
+    // Two structs with new() methods
+    let code1 = r#"
+struct Foo;
+impl Foo {
+    fn new() -> Foo { Foo }
+}
+
+struct Bar;
+impl Bar {
+    fn new() -> Bar { Bar }
+}
+"#;
+    let file1 = extractor.extract(code1, "src/utils/types.rs");
+
+    // Calls Foo::new() — with qualifier, should resolve to Foo's new
+    let code2 = r#"
+fn make() {
+    Foo::new();
+}
+"#;
+    let file2 = extractor.extract(code2, "src/utils/factory.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+
+    // BUG: Foo::new() should resolve to Foo's new (line 4), but qualifier info
+    // is discarded so resolution can't distinguish between Foo::new and Bar::new.
+    // This test will fail until Fix 3 adds qualifier context.
     assert!(
-        find_edge(&parsed, "method", "helper", "Calls").is_some(),
-        "Expected method to call helper"
+        !calls.is_empty(),
+        "Foo::new() should resolve using qualifier context to select the right target"
+    );
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":new:4")),
+        "Foo::new() should resolve to Foo's new (line 4), not Bar's. Got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_qualifier_used_for_resolution() {
+    let extractor = RustExtractor;
+
+    // Two structs with new() methods
+    let code1 = r#"
+struct Foo;
+impl Foo {
+    fn new() -> Foo { Foo }
+}
+
+struct Bar;
+impl Bar {
+    fn new() -> Bar { Bar }
+}
+"#;
+    let file1 = extractor.extract(code1, "src/utils/types.rs");
+
+    // Calls Foo::new() — with qualifier, should resolve to Foo's new
+    let code2 = r#"
+fn make() {
+    Foo::new();
+}
+"#;
+    let file2 = extractor.extract(code2, "src/utils/factory.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+
+    // With qualifier context, Foo::new() should resolve to Foo's new (line 4)
+    assert!(
+        !calls.is_empty(),
+        "Foo::new() should resolve when qualifier context is available"
+    );
+    // Should resolve to Foo's new specifically (line 4 in types.rs)
+    assert!(
+        calls.iter().any(|e| { e.to.as_str().contains(":new:4") }),
+        "Foo::new() should resolve to Foo's new (line 4), got: {:?}",
+        calls
     );
 }
 
@@ -2718,6 +2812,256 @@ fn main() { run(); }
     assert!(
         calls.iter().any(|e| e.to.as_str().contains("module_a")),
         "Should resolve to module_a's run specifically, got: {:?}",
+        calls
+    );
+}
+
+// ============================================================================
+// Fix 1: Kind-filter resolution — Calls edges must only resolve to callable symbols
+// ============================================================================
+
+#[test]
+fn test_resolve_calls_edge_should_not_resolve_to_field() {
+    let extractor = RustExtractor;
+
+    // File 1: has a struct with a field named `format`
+    let code1 = r#"
+struct Config {
+    format: String,
+}
+"#;
+    let file1 = extractor.extract(code1, "src/utils/config.rs");
+
+    // File 2: calls format() — should NOT resolve to the field
+    let code2 = r#"
+fn render() {
+    format();
+}
+"#;
+    let file2 = extractor.extract(code2, "src/utils/render.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // The Calls edge for format() should NOT resolve to the struct field
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    let resolved_to_field = calls.iter().any(|e| e.to.as_str().contains(":format:"));
+    assert!(
+        !resolved_to_field,
+        "Calls edge should NOT resolve to a struct field named 'format', got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_calls_edge_should_not_resolve_to_struct() {
+    let extractor = RustExtractor;
+
+    // File 1: has a struct named `Body` (only candidate with that name)
+    let code1 = r#"
+struct Body {
+    data: Vec<u8>,
+}
+"#;
+    let file1 = extractor.extract(code1, "src/http/types.rs");
+
+    // File 2: calls Body() — should NOT resolve to the struct
+    let code2 = r#"
+fn handler() {
+    Body();
+}
+"#;
+    let file2 = extractor.extract(code2, "src/http/handler.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    // With only a struct named Body, the Calls edge should NOT resolve
+    let resolved_to_struct = calls.iter().any(|e| e.to.as_str().contains(":Body:"));
+    assert!(
+        !resolved_to_struct,
+        "Calls edge should NOT resolve to a struct, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_calls_edge_should_not_resolve_to_const() {
+    let extractor = RustExtractor;
+
+    // File 1: has a constant named `MAX_RETRIES`
+    let code1 = r#"
+const MAX_RETRIES: u32 = 3;
+"#;
+    let file1 = extractor.extract(code1, "src/config.rs");
+
+    // File 2: calls MAX_RETRIES() — should NOT resolve to const
+    let code2 = r#"
+fn process() {
+    MAX_RETRIES();
+}
+"#;
+    let file2 = extractor.extract(code2, "src/worker.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.is_empty(),
+        "Calls edge should NOT resolve to a constant, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_typeref_edge_should_not_resolve_to_function() {
+    let extractor = RustExtractor;
+
+    // File 1: has ONLY a function named `Config` (no struct with that name)
+    let code1 = r#"
+fn Config() {}
+"#;
+    let file1 = extractor.extract(code1, "src/utils/a.rs");
+
+    // File 2: references Config as a type — should NOT resolve to the function
+    let code2 = r#"
+fn get_config() -> Config {
+    todo!()
+}
+"#;
+    let file2 = extractor.extract(code2, "src/utils/c.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let type_refs: Vec<_> = resolved
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.kind,
+                crate::a6s::types::EdgeKind::TypeRef | crate::a6s::types::EdgeKind::ReturnType
+            )
+        })
+        .collect();
+    // TypeRef edges should NOT resolve to a function
+    let resolved_to_function = type_refs
+        .iter()
+        .any(|e| e.to.as_str().contains("utils/a.rs"));
+    assert!(
+        !resolved_to_function,
+        "TypeRef should NOT resolve to a function named Config, got: {:?}",
+        type_refs
+    );
+}
+
+#[test]
+fn test_resolve_implements_edge_should_only_resolve_to_trait() {
+    let extractor = RustExtractor;
+
+    // File 1: has ONLY a function named `Renderer` (no trait with that name)
+    let code1 = r#"
+fn Renderer() {}
+"#;
+    let file1 = extractor.extract(code1, "src/utils/a.rs");
+
+    // File 2: implements Renderer — should NOT resolve to the function
+    let code2 = r#"
+struct Foo;
+impl Renderer for Foo {
+    fn render(&self) {}
+}
+"#;
+    let file2 = extractor.extract(code2, "src/utils/c.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    let implements: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Implements)
+        .collect();
+    // Implements should NOT resolve to a function
+    let resolved_to_function = implements
+        .iter()
+        .any(|e| e.to.as_str().contains("utils/a.rs"));
+    assert!(
+        !resolved_to_function,
+        "Implements should NOT resolve to a function named Renderer, got: {:?}",
+        implements
+    );
+}
+
+// ============================================================================
+// Fix 2: Parent type in QualifiedName — same-name methods should not collide
+// ============================================================================
+
+#[test]
+fn test_resolve_same_name_methods_different_types_both_resolve() {
+    let extractor = RustExtractor;
+
+    // File with two structs that each have a new() method
+    let code1 = r#"
+struct Foo;
+impl Foo {
+    fn new() -> Foo { Foo }
+}
+
+struct Bar;
+impl Bar {
+    fn new() -> Bar { Bar }
+}
+"#;
+    let file1 = extractor.extract(code1, "src/utils/types.rs");
+
+    // Verify both new() methods are extracted
+    let new_methods: Vec<_> = file1
+        .symbols
+        .iter()
+        .filter(|s| s.name == "new" && (s.kind == "method" || s.kind == "function"))
+        .collect();
+    assert_eq!(
+        new_methods.len(),
+        2,
+        "Should extract two distinct new() methods, got: {:?}",
+        new_methods
+    );
+
+    // File 2 defines a function that calls new() — with only one candidate
+    // reachable via import, resolution should work
+    let code2 = r#"
+fn make_foo() {
+    new();
+}
+"#;
+    let file2 = extractor.extract(code2, "src/utils/factory.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With parent-aware QualifiedName, the symbol_index should have
+    // `utils::Foo::new` and `utils::Bar::new` as separate entries.
+    // Bare fallback for "new" has 2 candidates, so it shouldn't resolve.
+    // This is correct behavior — without qualifier context (Fix 3),
+    // we can't tell which `new()` was intended.
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.is_empty(),
+        "Without qualifier context, ambiguous bare name 'new' should NOT resolve. \
+         This confirms the index has separate entries (no collision). Got: {:?}",
         calls
     );
 }

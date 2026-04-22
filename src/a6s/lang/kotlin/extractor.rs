@@ -177,9 +177,28 @@ impl LanguageExtractor for KotlinExtractor {
             })
             .collect();
 
-        // Step 2: Build symbol index (QualifiedName → SymbolId) + bare index + visibility index
+        // Step 2: Build parent map from HasMethod edges
+        let mut parent_names: HashMap<SymbolId, String> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "kotlin" {
+                continue;
+            }
+            for edge in &pf.edges {
+                if matches!(edge.kind, crate::a6s::types::EdgeKind::HasMethod)
+                    && let (SymbolRef::Resolved(parent_id), SymbolRef::Resolved(child_id)) =
+                        (&edge.from, &edge.to)
+                    && let Some(parent_sym) =
+                        pf.symbols.iter().find(|s| s.symbol_id() == *parent_id)
+                {
+                    parent_names.insert(child_id.clone(), parent_sym.name.clone());
+                }
+            }
+        }
+
+        // Step 3: Build symbol index (QualifiedName → SymbolId) + bare index + visibility index
         let mut symbol_index: HashMap<QualifiedName, SymbolId> = HashMap::new();
         let mut bare_index: HashMap<String, Vec<SymbolId>> = HashMap::new();
+        let mut symbol_kinds: HashMap<SymbolId, String> = HashMap::new();
 
         // Visibility info per symbol: (visibility, file_path, module_path)
         let mut symbol_visibility: HashMap<SymbolId, (String, String, String)> = HashMap::new();
@@ -193,13 +212,23 @@ impl LanguageExtractor for KotlinExtractor {
                 .map(|s| s.as_str())
                 .unwrap_or("");
             for sym in &pf.symbols {
-                let qname = QualifiedName::new(module_path, &sym.name);
                 let sym_id = sym.symbol_id();
+                let qname = if let Some(parent_name) = parent_names.get(&sym_id) {
+                    let parent_qualified = if module_path.is_empty() {
+                        parent_name.clone()
+                    } else {
+                        format!("{}::{}", module_path, parent_name)
+                    };
+                    QualifiedName::new(&parent_qualified, &sym.name)
+                } else {
+                    QualifiedName::new(module_path, &sym.name)
+                };
                 symbol_index.insert(qname, sym_id.clone());
                 bare_index
                     .entry(sym.name.clone())
                     .or_default()
                     .push(sym_id.clone());
+                symbol_kinds.insert(sym_id.clone(), sym.kind.clone());
                 let vis = sym.visibility.as_deref().unwrap_or("pub").to_string();
                 symbol_visibility
                     .insert(sym_id, (vis, pf.file_path.clone(), module_path.to_string()));
@@ -260,20 +289,50 @@ impl LanguageExtractor for KotlinExtractor {
 
                 let to_id = match &edge.to {
                     SymbolRef::Resolved(id) => Some(id.clone()),
-                    SymbolRef::Unresolved { name, .. } => {
+                    SymbolRef::Unresolved {
+                        name, qualifier, ..
+                    } => {
                         if Self::is_kotlin_builtin(name) {
                             None
                         } else {
-                            Self::resolve_name(
-                                name,
-                                file_module,
-                                &symbol_index,
-                                &bare_index,
-                                imports,
-                            )
-                            .filter(|id| {
-                                Self::is_visible(id, source_file, file_module, &symbol_visibility)
-                            })
+                            let resolved = if let Some(q) = qualifier {
+                                Self::resolve_qualified_name(
+                                    name,
+                                    q,
+                                    file_module,
+                                    &symbol_index,
+                                    imports,
+                                )
+                                .or_else(|| {
+                                    Self::resolve_name(
+                                        name,
+                                        file_module,
+                                        &symbol_index,
+                                        &bare_index,
+                                        imports,
+                                    )
+                                })
+                            } else {
+                                Self::resolve_name(
+                                    name,
+                                    file_module,
+                                    &symbol_index,
+                                    &bare_index,
+                                    imports,
+                                )
+                            };
+                            resolved
+                                .filter(|id| {
+                                    Self::is_visible(
+                                        id,
+                                        source_file,
+                                        file_module,
+                                        &symbol_visibility,
+                                    )
+                                })
+                                .filter(|id| {
+                                    Self::is_kind_compatible(&edge.kind, id, &symbol_kinds)
+                                })
                         }
                     }
                 };
@@ -331,6 +390,38 @@ impl LanguageExtractor for KotlinExtractor {
 }
 
 impl KotlinExtractor {
+    /// Check if a resolved symbol's kind is compatible with the edge kind.
+    fn is_kind_compatible(
+        edge_kind: &crate::a6s::types::EdgeKind,
+        sym_id: &crate::a6s::types::SymbolId,
+        symbol_kinds: &std::collections::HashMap<crate::a6s::types::SymbolId, String>,
+    ) -> bool {
+        use crate::a6s::types::EdgeKind;
+
+        let Some(kind) = symbol_kinds.get(sym_id) else {
+            return true;
+        };
+        let kind = kind.as_str();
+
+        match edge_kind {
+            EdgeKind::Calls => matches!(kind, "function" | "method" | "macro" | "closure"),
+            EdgeKind::TypeRef
+            | EdgeKind::FieldType
+            | EdgeKind::ParamType
+            | EdgeKind::ReturnType => {
+                matches!(
+                    kind,
+                    "struct" | "enum" | "trait" | "interface" | "type_alias" | "class"
+                )
+            }
+            EdgeKind::Implements => matches!(kind, "trait" | "interface"),
+            EdgeKind::Extends => {
+                matches!(kind, "struct" | "enum" | "trait" | "interface" | "class")
+            }
+            _ => true,
+        }
+    }
+
     /// Helper to extract text from a tree-sitter node
     fn node_text<'a>(node: Node, code: &'a str) -> &'a str {
         &code[node.byte_range()]
@@ -1635,13 +1726,19 @@ impl KotlinExtractor {
         if node.kind() == "call_expression" {
             let call_line = node.start_position().row + 1;
 
-            // Extract callee name
-            if let Some(callee_name) = Self::extract_callee_name(node, code)
+            // Extract callee name with qualifier
+            if let Some((callee_name, qualifier)) =
+                Self::extract_callee_name_with_qualifier(node, code)
                 && let Some(caller_id) = Self::find_enclosing_function(parsed, file_path, call_line)
             {
+                let to = if let Some(q) = qualifier {
+                    SymbolRef::unresolved_with_qualifier(callee_name, file_path, q)
+                } else {
+                    SymbolRef::unresolved(callee_name, file_path)
+                };
                 parsed.edges.push(RawEdge {
                     from: SymbolRef::resolved(caller_id),
-                    to: SymbolRef::unresolved(callee_name, file_path),
+                    to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
                 });
@@ -1654,41 +1751,48 @@ impl KotlinExtractor {
         }
     }
 
-    /// Extract the callee name from a call_expression node.
-    /// Handles:
-    /// - Simple calls: `foo()` → "foo"
-    /// - Method calls: `obj.method()` → "method"
-    /// - Constructor calls: `MyClass()` → "MyClass"
-    fn extract_callee_name(call_node: Node, code: &str) -> Option<String> {
-        // call_expression has children: the callee expression, then call_suffix
-        // The callee is the first named child (before call_suffix)
+    /// Extract callee name and optional qualifier from a call_expression node.
+    fn extract_callee_name_with_qualifier(
+        call_node: Node,
+        code: &str,
+    ) -> Option<(String, Option<String>)> {
         let first_child = call_node.named_child(0)?;
 
         match first_child.kind() {
-            "simple_identifier" => Some(Self::node_text(first_child, code).to_string()),
+            "simple_identifier" => Some((Self::node_text(first_child, code).to_string(), None)),
             "navigation_expression" => {
-                // obj.method → extract "method" (the last simple_identifier)
+                // obj.method → extract "method" and "obj" as qualifier
                 let child_count = first_child.named_child_count() as u32;
                 if child_count >= 2 {
                     let last = first_child.named_child(child_count - 1)?;
-                    if last.kind() == "navigation_suffix" {
-                        // navigation_suffix contains simple_identifier
+                    let method_name = if last.kind() == "navigation_suffix" {
                         let mut cursor = last.walk();
+                        let mut name = None;
                         for c in last.children(&mut cursor) {
                             if c.kind() == "simple_identifier" {
-                                return Some(Self::node_text(c, code).to_string());
+                                name = Some(Self::node_text(c, code).to_string());
                             }
                         }
+                        name
                     } else if last.kind() == "simple_identifier" {
-                        return Some(Self::node_text(last, code).to_string());
-                    }
+                        Some(Self::node_text(last, code).to_string())
+                    } else {
+                        None
+                    };
+                    // Qualifier is the first child (the object/receiver)
+                    let qualifier = first_child.named_child(0).and_then(|obj| {
+                        if obj.kind() == "simple_identifier" {
+                            Some(Self::node_text(obj, code).to_string())
+                        } else {
+                            None
+                        }
+                    });
+                    method_name.map(|name| (name, qualifier))
+                } else {
+                    None
                 }
-                None
             }
-            _ => {
-                // Fallback: try to get text of the callee
-                Some(Self::node_text(first_child, code).to_string())
-            }
+            _ => Some((Self::node_text(first_child, code).to_string(), None)),
         }
     }
 
@@ -1697,7 +1801,7 @@ impl KotlinExtractor {
     // ========================================================================
 
     /// Check if a function declaration has a test-related annotation.
-    /// Detects: @Test, @Before, @After, @BeforeClass, @AfterClass
+    /// Detects: `@Test`, `@Before`, `@After`, `@BeforeClass`, `@AfterClass`
     fn has_test_annotation(func_node: Node, code: &str) -> bool {
         let mut cursor = func_node.walk();
         for child in func_node.children(&mut cursor) {
@@ -1745,6 +1849,52 @@ impl KotlinExtractor {
     /// 1. Same package (QualifiedName match)
     /// 2. Imported symbols (explicit, wildcard, aliased)
     /// 3. Bare name fallback (only if exactly one candidate)
+    ///
+    /// Resolve a symbol name using qualifier context (e.g., `obj.method` → `module::Obj::method`).
+    fn resolve_qualified_name(
+        name: &str,
+        qualifier: &str,
+        file_module: &str,
+        symbol_index: &std::collections::HashMap<
+            crate::a6s::types::QualifiedName,
+            crate::a6s::types::SymbolId,
+        >,
+        imports: &[&crate::a6s::types::RawImport],
+    ) -> Option<crate::a6s::types::SymbolId> {
+        use crate::a6s::types::QualifiedName;
+
+        // Try module::Qualifier::name (same module)
+        let parent_path = if file_module.is_empty() {
+            qualifier.to_string()
+        } else {
+            format!("{}::{}", file_module, qualifier)
+        };
+        let qname = QualifiedName::new(&parent_path, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        // Try via imports
+        for imp in imports {
+            let entry = &imp.entry;
+            if entry.imported_names.contains(&qualifier.to_string()) || entry.is_glob {
+                let parent_path = format!("{}::{}", entry.module_path, qualifier);
+                let qname = QualifiedName::new(&parent_path, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+            }
+        }
+
+        // Try just Qualifier::name (no module prefix)
+        let qname = QualifiedName::new(qualifier, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        None
+    }
+
     pub(crate) fn resolve_name(
         name: &str,
         file_module: &str,

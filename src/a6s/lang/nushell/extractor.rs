@@ -239,7 +239,9 @@ impl LanguageExtractor for NushellExtractor {
                 // Resolve `from` — should already be Resolved for Nushell
                 let from_id = match &edge.from {
                     SymbolRef::Resolved(id) => id.clone(),
-                    SymbolRef::Unresolved { name, file_path } => {
+                    SymbolRef::Unresolved {
+                        name, file_path, ..
+                    } => {
                         // Try to resolve from in same module
                         let qname = QualifiedName::new(file_module_path, name);
                         match symbol_index.get(&qname) {

@@ -117,7 +117,11 @@ pub enum SymbolRef {
 
     /// Unresolved — name extracted but target unknown.
     /// Needs cross-file resolution via SymbolRegistry.
-    Unresolved { name: String, file_path: String },
+    Unresolved {
+        name: String,
+        file_path: String,
+        qualifier: Option<String>,
+    },
 }
 
 impl SymbolRef {
@@ -129,11 +133,31 @@ impl SymbolRef {
         Self::Unresolved {
             name: name.into(),
             file_path: file_path.into(),
+            qualifier: None,
+        }
+    }
+
+    pub fn unresolved_with_qualifier(
+        name: impl Into<String>,
+        file_path: impl Into<String>,
+        qualifier: impl Into<String>,
+    ) -> Self {
+        Self::Unresolved {
+            name: name.into(),
+            file_path: file_path.into(),
+            qualifier: Some(qualifier.into()),
         }
     }
 
     pub fn is_resolved(&self) -> bool {
         matches!(self, Self::Resolved(_))
+    }
+
+    pub fn qualifier(&self) -> Option<&str> {
+        match self {
+            Self::Unresolved { qualifier, .. } => qualifier.as_deref(),
+            Self::Resolved(_) => None,
+        }
     }
 }
 

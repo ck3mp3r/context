@@ -151,10 +151,31 @@ impl LanguageExtractor for TypeScriptExtractor {
         use crate::a6s::types::{FileId, QualifiedName, SymbolId};
         use std::collections::HashMap;
 
+        // Build parent map from HasMethod edges
+        let mut parent_names: HashMap<SymbolId, String> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "typescript" {
+                continue;
+            }
+            for edge in &pf.edges {
+                if matches!(edge.kind, crate::a6s::types::EdgeKind::HasMethod)
+                    && let (
+                        crate::a6s::types::SymbolRef::Resolved(parent_id),
+                        crate::a6s::types::SymbolRef::Resolved(child_id),
+                    ) = (&edge.from, &edge.to)
+                    && let Some(parent_sym) =
+                        pf.symbols.iter().find(|s| s.symbol_id() == *parent_id)
+                {
+                    parent_names.insert(child_id.clone(), parent_sym.name.clone());
+                }
+            }
+        }
+
         // Build symbol index
         let mut symbol_index: HashMap<QualifiedName, SymbolId> = HashMap::new();
         let mut bare_index: HashMap<String, Vec<SymbolId>> = HashMap::new();
         let mut symbol_visibility: HashMap<SymbolId, (String, String)> = HashMap::new();
+        let mut symbol_kinds: HashMap<SymbolId, String> = HashMap::new();
 
         for pf in parsed_files.iter() {
             if pf.language != "typescript" {
@@ -167,15 +188,25 @@ impl LanguageExtractor for TypeScriptExtractor {
                 .unwrap_or_default();
 
             for sym in &pf.symbols {
-                let qname = QualifiedName::new(&module_path, &sym.name);
                 let sym_id = sym.symbol_id();
+                let qname = if let Some(parent_name) = parent_names.get(&sym_id) {
+                    let parent_qualified = if module_path.is_empty() {
+                        parent_name.clone()
+                    } else {
+                        format!("{}::{}", module_path, parent_name)
+                    };
+                    QualifiedName::new(&parent_qualified, &sym.name)
+                } else {
+                    QualifiedName::new(&module_path, &sym.name)
+                };
                 symbol_index.insert(qname, sym_id.clone());
                 bare_index
                     .entry(sym.name.clone())
                     .or_default()
                     .push(sym_id.clone());
                 let vis = sym.visibility.as_deref().unwrap_or("pub").to_string();
-                symbol_visibility.insert(sym_id, (vis, pf.file_path.clone()));
+                symbol_visibility.insert(sym_id.clone(), (vis, pf.file_path.clone()));
+                symbol_kinds.insert(sym_id, sym.kind.clone());
             }
         }
 
@@ -228,7 +259,8 @@ impl LanguageExtractor for TypeScriptExtractor {
                     &bare_index,
                     &symbol_visibility,
                     imports,
-                );
+                )
+                .filter(|id| Self::is_kind_compatible(&edge.kind, id, &symbol_kinds));
 
                 if let (Some(from), Some(to)) = (from_id, to_id) {
                     resolved_edges.push(ResolvedEdge {
@@ -1155,12 +1187,18 @@ impl TypeScriptExtractor {
         if node.kind() == "call_expression" {
             let call_line = node.start_position().row + 1;
 
-            if let Some(callee_name) = Self::extract_callee_name(node, code)
+            if let Some((callee_name, qualifier)) =
+                Self::extract_callee_name_with_qualifier(node, code)
                 && let Some(caller_id) = Self::find_enclosing_function(parsed, file_path, call_line)
             {
+                let to = if let Some(q) = qualifier {
+                    SymbolRef::unresolved_with_qualifier(callee_name, file_path, q)
+                } else {
+                    SymbolRef::unresolved(callee_name, file_path)
+                };
                 parsed.edges.push(RawEdge {
                     from: SymbolRef::resolved(caller_id),
-                    to: SymbolRef::unresolved(callee_name, file_path),
+                    to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
                 });
@@ -1173,22 +1211,33 @@ impl TypeScriptExtractor {
         }
     }
 
-    fn extract_callee_name(call_node: Node, code: &str) -> Option<String> {
+    fn extract_callee_name_with_qualifier(
+        call_node: Node,
+        code: &str,
+    ) -> Option<(String, Option<String>)> {
         let first_child = call_node.named_child(0)?;
 
         match first_child.kind() {
-            "identifier" => Some(Self::node_text(first_child, code).to_string()),
+            "identifier" => Some((Self::node_text(first_child, code).to_string(), None)),
             "member_expression" => {
-                // obj.method → extract "method" (property_identifier)
+                // obj.method → extract "method" and "obj" as qualifier
+                let mut method_name = None;
+                let mut qualifier = None;
                 let mut cursor = first_child.walk();
                 for child in first_child.children(&mut cursor) {
                     if child.kind() == "property_identifier" {
-                        return Some(Self::node_text(child, code).to_string());
+                        method_name = Some(Self::node_text(child, code).to_string());
                     }
                 }
-                None
+                // The object is the first named child
+                if let Some(obj) = first_child.named_child(0)
+                    && obj.kind() == "identifier"
+                {
+                    qualifier = Some(Self::node_text(obj, code).to_string());
+                }
+                method_name.map(|name| (name, qualifier))
             }
-            _ => Some(Self::node_text(first_child, code).to_string()),
+            _ => Some((Self::node_text(first_child, code).to_string(), None)),
         }
     }
 
@@ -1741,6 +1790,83 @@ impl TypeScriptExtractor {
     // Cross-file resolution helpers
     // ========================================================================
 
+    /// Check if a resolved symbol's kind is compatible with the edge kind.
+    fn is_kind_compatible(
+        edge_kind: &crate::a6s::types::EdgeKind,
+        sym_id: &crate::a6s::types::SymbolId,
+        symbol_kinds: &std::collections::HashMap<crate::a6s::types::SymbolId, String>,
+    ) -> bool {
+        use crate::a6s::types::EdgeKind;
+
+        let Some(kind) = symbol_kinds.get(sym_id) else {
+            return true;
+        };
+        let kind = kind.as_str();
+
+        match edge_kind {
+            EdgeKind::Calls => matches!(kind, "function" | "method" | "macro" | "closure"),
+            EdgeKind::TypeRef
+            | EdgeKind::FieldType
+            | EdgeKind::ParamType
+            | EdgeKind::ReturnType => {
+                matches!(
+                    kind,
+                    "struct" | "enum" | "trait" | "interface" | "type_alias" | "class"
+                )
+            }
+            EdgeKind::Implements => matches!(kind, "trait" | "interface"),
+            EdgeKind::Extends => {
+                matches!(kind, "struct" | "enum" | "trait" | "interface" | "class")
+            }
+            _ => true,
+        }
+    }
+
+    /// Resolve a symbol name using qualifier context (e.g., obj.method → module::Obj::method).
+    fn resolve_qualified_name(
+        name: &str,
+        qualifier: &str,
+        file_module: &str,
+        symbol_index: &std::collections::HashMap<
+            crate::a6s::types::QualifiedName,
+            crate::a6s::types::SymbolId,
+        >,
+        imports: &[&crate::a6s::types::RawImport],
+    ) -> Option<crate::a6s::types::SymbolId> {
+        use crate::a6s::types::QualifiedName;
+
+        // Try module::Qualifier::name (same module)
+        let parent_path = if file_module.is_empty() {
+            qualifier.to_string()
+        } else {
+            format!("{}::{}", file_module, qualifier)
+        };
+        let qname = QualifiedName::new(&parent_path, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        // Try via imports
+        for imp in imports {
+            let entry = &imp.entry;
+            if entry.imported_names.contains(&qualifier.to_string()) || entry.is_glob {
+                let parent_path = format!("{}::{}", entry.module_path, qualifier);
+                let qname = QualifiedName::new(&parent_path, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+            }
+        }
+
+        // Try just Qualifier::name (no module prefix)
+        let qname = QualifiedName::new(qualifier, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        None
+    }
+
     fn resolve_ref(
         sym_ref: &SymbolRef,
         source_file: &str,
@@ -1757,9 +1883,19 @@ impl TypeScriptExtractor {
 
         match sym_ref {
             SymbolRef::Resolved(id) => Some(id.clone()),
-            SymbolRef::Unresolved { name, .. } => {
+            SymbolRef::Unresolved {
+                name, qualifier, ..
+            } => {
                 if Self::is_ts_builtin(name) {
                     return None;
+                }
+
+                // 0. Qualifier-aware lookup (if qualifier available)
+                if let Some(q) = qualifier
+                    && let Some(id) =
+                        Self::resolve_qualified_name(name, q, file_module, symbol_index, imports)
+                {
+                    return Some(id);
                 }
 
                 // 1. Same module lookup

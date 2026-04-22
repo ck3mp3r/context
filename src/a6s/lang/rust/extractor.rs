@@ -343,10 +343,30 @@ impl LanguageExtractor for RustExtractor {
             })
             .collect();
 
-        // Step 2: Build symbol index (QualifiedName -> SymbolId)
+        // Step 2: Build parent map from HasMethod/HasMember edges (child_id -> parent_name)
+        let mut parent_names: HashMap<SymbolId, String> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            for edge in &pf.edges {
+                if matches!(edge.kind, crate::a6s::types::EdgeKind::HasMethod)
+                    && let (SymbolRef::Resolved(parent_id), SymbolRef::Resolved(child_id)) =
+                        (&edge.from, &edge.to)
+                    && let Some(parent_sym) =
+                        pf.symbols.iter().find(|s| s.symbol_id() == *parent_id)
+                {
+                    parent_names.insert(child_id.clone(), parent_sym.name.clone());
+                }
+            }
+        }
+
+        // Step 3: Build symbol index (QualifiedName -> SymbolId)
         let mut symbol_index: HashMap<QualifiedName, SymbolId> = HashMap::new();
         // Also build bare name -> Vec<SymbolId> for fallback
         let mut bare_index: HashMap<String, Vec<SymbolId>> = HashMap::new();
+        // Kind map for filtering resolved symbols by edge type
+        let mut symbol_kinds: HashMap<SymbolId, String> = HashMap::new();
 
         for pf in parsed_files.iter() {
             if pf.language != "rust" {
@@ -357,12 +377,26 @@ impl LanguageExtractor for RustExtractor {
                 .map(|s| s.as_str())
                 .unwrap_or("");
             for sym in &pf.symbols {
-                let qname = QualifiedName::new(module_path, &sym.name);
-                symbol_index.insert(qname, sym.symbol_id());
+                let sym_id = sym.symbol_id();
+
+                // For methods with a parent type, use module::ParentType::method_name
+                let qname = if let Some(parent_name) = parent_names.get(&sym_id) {
+                    let parent_qualified = if module_path.is_empty() {
+                        parent_name.clone()
+                    } else {
+                        format!("{}::{}", module_path, parent_name)
+                    };
+                    QualifiedName::new(&parent_qualified, &sym.name)
+                } else {
+                    QualifiedName::new(module_path, &sym.name)
+                };
+
+                symbol_index.insert(qname, sym_id.clone());
                 bare_index
                     .entry(sym.name.clone())
                     .or_default()
-                    .push(sym.symbol_id());
+                    .push(sym_id.clone());
+                symbol_kinds.insert(sym_id, sym.kind.clone());
             }
         }
 
@@ -405,11 +439,41 @@ impl LanguageExtractor for RustExtractor {
                     }
                 };
 
-                // Resolve `to`
+                // Resolve `to` with qualifier-aware lookup and kind filtering
                 let to_id = match &edge.to {
                     SymbolRef::Resolved(id) => Some(id.clone()),
-                    SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
+                    SymbolRef::Unresolved {
+                        name, qualifier, ..
+                    } => {
+                        // If qualifier is available, try qualifier-aware lookup first
+                        let resolved = if let Some(q) = qualifier {
+                            Self::resolve_qualified_name(
+                                name,
+                                q,
+                                file_module,
+                                &symbol_index,
+                                imports,
+                            )
+                            .or_else(|| {
+                                Self::resolve_name(
+                                    name,
+                                    file_module,
+                                    &symbol_index,
+                                    &bare_index,
+                                    imports,
+                                )
+                            })
+                        } else {
+                            Self::resolve_name(
+                                name,
+                                file_module,
+                                &symbol_index,
+                                &bare_index,
+                                imports,
+                            )
+                        };
+                        resolved
+                            .filter(|id| Self::is_kind_compatible(&edge.kind, id, &symbol_kinds))
                     }
                 };
 
@@ -508,6 +572,87 @@ impl RustExtractor {
                 None => None,
             }
         }
+    }
+
+    /// Check if a resolved symbol's kind is compatible with the edge kind.
+    /// For Calls edges: only callable kinds (function, method, macro, closure).
+    /// For TypeRef/FieldType/ParamType/ReturnType: only type kinds (struct, enum, trait, interface, type_alias, class).
+    /// For Implements: only trait/interface.
+    /// For other edges: no filtering (all kinds accepted).
+    fn is_kind_compatible(
+        edge_kind: &crate::a6s::types::EdgeKind,
+        sym_id: &crate::a6s::types::SymbolId,
+        symbol_kinds: &std::collections::HashMap<crate::a6s::types::SymbolId, String>,
+    ) -> bool {
+        use crate::a6s::types::EdgeKind;
+
+        let Some(kind) = symbol_kinds.get(sym_id) else {
+            return true; // Unknown symbol — don't filter
+        };
+        let kind = kind.as_str();
+
+        match edge_kind {
+            EdgeKind::Calls => matches!(kind, "function" | "method" | "macro" | "closure"),
+            EdgeKind::TypeRef
+            | EdgeKind::FieldType
+            | EdgeKind::ParamType
+            | EdgeKind::ReturnType => {
+                matches!(
+                    kind,
+                    "struct" | "enum" | "trait" | "interface" | "type_alias" | "class"
+                )
+            }
+            EdgeKind::Implements => matches!(kind, "trait" | "interface"),
+            EdgeKind::Extends => {
+                matches!(kind, "struct" | "enum" | "trait" | "interface" | "class")
+            }
+            _ => true, // No filtering for HasField, HasMethod, HasMember, Import, etc.
+        }
+    }
+
+    /// Resolve a symbol name using qualifier context (e.g., Foo::new → module::Foo::new).
+    fn resolve_qualified_name(
+        name: &str,
+        qualifier: &str,
+        file_module: &str,
+        symbol_index: &std::collections::HashMap<
+            crate::a6s::types::QualifiedName,
+            crate::a6s::types::SymbolId,
+        >,
+        imports: &[&crate::a6s::types::RawImport],
+    ) -> Option<crate::a6s::types::SymbolId> {
+        use crate::a6s::types::QualifiedName;
+
+        // Try module::Qualifier::name (same module)
+        let parent_path = if file_module.is_empty() {
+            qualifier.to_string()
+        } else {
+            format!("{}::{}", file_module, qualifier)
+        };
+        let qname = QualifiedName::new(&parent_path, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        // Try via imports: if qualifier is imported, use its module path
+        for imp in imports {
+            let entry = &imp.entry;
+            if entry.imported_names.contains(&qualifier.to_string()) || entry.is_glob {
+                let parent_path = format!("{}::{}", entry.module_path, qualifier);
+                let qname = QualifiedName::new(&parent_path, name);
+                if let Some(id) = symbol_index.get(&qname) {
+                    return Some(id.clone());
+                }
+            }
+        }
+
+        // Try just Qualifier::name (no module prefix)
+        let qname = QualifiedName::new(qualifier, name);
+        if let Some(id) = symbol_index.get(&qname) {
+            return Some(id.clone());
+        }
+
+        None
     }
 
     /// Resolve a symbol name to a SymbolId using qualified name lookup,
@@ -1717,52 +1862,69 @@ impl RustExtractor {
                 captures_map.insert(name, cap.node);
             }
 
-            // Extract callee name and line from various call patterns
-            let (callee_name, call_line) = if let Some(&node) = captures_map.get("call_free_name") {
-                // Plain function call: foo()
-                (
-                    Self::node_text(node, code).to_string(),
-                    node.start_position().row + 1,
-                )
-            } else if let Some(&node) = captures_map.get("call_method_name") {
-                // Method call: obj.method()
-                (
-                    Self::node_text(node, code).to_string(),
-                    node.start_position().row + 1,
-                )
-            } else if let Some(&node) = captures_map.get("call_scoped_name") {
-                // Scoped call: Foo::bar() or std::fs::read()
-                (
-                    Self::node_text(node, code).to_string(),
-                    node.start_position().row + 1,
-                )
-            } else if let Some(&node) = captures_map.get("call_generic_fn_name") {
-                // Generic function: collect::<Vec<_>>()
-                (
-                    Self::node_text(node, code).to_string(),
-                    node.start_position().row + 1,
-                )
-            } else if let Some(&node) = captures_map.get("call_generic_method_name") {
-                // Generic method: iter.collect::<Vec<_>>()
-                (
-                    Self::node_text(node, code).to_string(),
-                    node.start_position().row + 1,
-                )
-            } else if let Some(&node) = captures_map.get("macro_name") {
-                // Macro invocation: println!()
-                (
-                    Self::node_text(node, code).to_string(),
-                    node.start_position().row + 1,
-                )
-            } else {
-                continue; // No recognized call pattern
-            };
+            // Extract callee name, qualifier, and line from various call patterns
+            let (callee_name, qualifier, call_line) =
+                if let Some(&node) = captures_map.get("call_free_name") {
+                    // Plain function call: foo()
+                    (
+                        Self::node_text(node, code).to_string(),
+                        None,
+                        node.start_position().row + 1,
+                    )
+                } else if let Some(&node) = captures_map.get("call_method_name") {
+                    // Method call: obj.method() — capture receiver as qualifier
+                    let receiver_qualifier = captures_map
+                        .get("call_method_receiver")
+                        .map(|&r| Self::node_text(r, code).to_string());
+                    (
+                        Self::node_text(node, code).to_string(),
+                        receiver_qualifier,
+                        node.start_position().row + 1,
+                    )
+                } else if let Some(&node) = captures_map.get("call_scoped_name") {
+                    // Scoped call: Foo::bar() or std::fs::read()
+                    let path_qualifier = captures_map
+                        .get("call_scoped_path")
+                        .map(|&p| Self::node_text(p, code).to_string());
+                    (
+                        Self::node_text(node, code).to_string(),
+                        path_qualifier,
+                        node.start_position().row + 1,
+                    )
+                } else if let Some(&node) = captures_map.get("call_generic_fn_name") {
+                    // Generic function: collect::<Vec<_>>()
+                    (
+                        Self::node_text(node, code).to_string(),
+                        None,
+                        node.start_position().row + 1,
+                    )
+                } else if let Some(&node) = captures_map.get("call_generic_method_name") {
+                    // Generic method: iter.collect::<Vec<_>>()
+                    (
+                        Self::node_text(node, code).to_string(),
+                        None,
+                        node.start_position().row + 1,
+                    )
+                } else if let Some(&node) = captures_map.get("macro_name") {
+                    // Macro invocation: println!()
+                    (
+                        Self::node_text(node, code).to_string(),
+                        None,
+                        node.start_position().row + 1,
+                    )
+                } else {
+                    continue; // No recognized call pattern
+                };
 
             // Find the enclosing function that contains this call
             if let Some(caller_id) = Self::find_enclosing_function(parsed, file_path, call_line) {
-                // Create Calls edge: caller function → callee
+                // Create Calls edge: caller function → callee (with qualifier if available)
                 let from = SymbolRef::resolved(caller_id);
-                let to = SymbolRef::unresolved(callee_name, file_path);
+                let to = if let Some(q) = qualifier {
+                    SymbolRef::unresolved_with_qualifier(callee_name, file_path, q)
+                } else {
+                    SymbolRef::unresolved(callee_name, file_path)
+                };
                 parsed.edges.push(RawEdge {
                     from,
                     to,
