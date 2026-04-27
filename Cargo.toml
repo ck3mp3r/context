@@ -72,7 +72,7 @@ version = "1.0.228"
 features = ["derive"]
 
 [dependencies.axum]
-version = "0.8.8"
+version = "0.8.9"
 features = ["ws"]
 optional = true
 
@@ -81,7 +81,7 @@ version = "0.4.44"
 optional = true
 
 [dependencies.clap]
-version = "4.6.0"
+version = "4.6.1"
 features = ["derive"]
 optional = true
 
@@ -114,7 +114,7 @@ features = [
 optional = true
 
 [dependencies.rustls]
-version = "0.23.37"
+version = "0.23.39"
 default-features = false
 features = [
     "ring",
@@ -128,7 +128,7 @@ version = "0.6.2"
 optional = true
 
 [dependencies.webpki-root-certs]
-version = "1.0.6"
+version = "1.0.7"
 optional = true
 
 [dependencies.rmcp]
@@ -200,7 +200,7 @@ features = ["axum"]
 optional = true
 
 [dependencies.leptos]
-version = "0.8.17"
+version = "0.8.19"
 features = ["csr"]
 optional = true
 
