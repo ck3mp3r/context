@@ -735,3 +735,146 @@ async fn test_file_symbols_with_json_value_params() {
     assert_eq!(results.len(), 1, "src/main.rs should have 1 symbol");
     assert_eq!(results[0]["name"], "main");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_file_dependencies_query() {
+    let db = init_db(None).await.expect("Failed to init db");
+
+    db.query("CREATE symbol:fd_s1 SET repo_id = 'test_repo', symbol_id = 'fd_s1', name = 'main', kind = 'function', language = 'rust', file_path = 'src/main.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create fd_s1");
+
+    db.query("CREATE symbol:fd_s2 SET repo_id = 'test_repo', symbol_id = 'fd_s2', name = 'run', kind = 'function', language = 'rust', file_path = 'src/main.rs', start_line = 12, end_line = 20")
+        .await
+        .expect("create fd_s2");
+
+    db.query("CREATE symbol:fd_s3 SET repo_id = 'test_repo', symbol_id = 'fd_s3', name = 'helper', kind = 'function', language = 'rust', file_path = 'src/lib.rs', start_line = 5, end_line = 15")
+        .await
+        .expect("create fd_s3");
+
+    db.query("RELATE symbol:fd_s1->calls->symbol:fd_s3 SET call_site_line = 5")
+        .await
+        .expect("cross-file call 1");
+
+    db.query("RELATE symbol:fd_s2->calls->symbol:fd_s3 SET call_site_line = 15")
+        .await
+        .expect("cross-file call 2");
+
+    db.query("RELATE symbol:fd_s1->calls->symbol:fd_s2 SET call_site_line = 8")
+        .await
+        .expect("intra-file call");
+
+    let query = include_str!("queries/file_dependencies.surql");
+    let mut result = db
+        .query(query)
+        .bind(("repo_id", "test_repo"))
+        .await
+        .expect("Query failed");
+    let deps: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
+
+    assert_eq!(deps.len(), 1, "Should return 1 file dependency pair");
+    assert_eq!(deps[0]["src_file"], "src/main.rs");
+    assert_eq!(deps[0]["dst_file"], "src/lib.rs");
+    assert_eq!(deps[0]["weight"].as_u64().unwrap(), 2, "Weight should be 2");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transitive_calls_query() {
+    let db = init_db(None).await.expect("Failed to init db");
+
+    db.query("CREATE symbol:tc_a SET repo_id = 'test_repo', symbol_id = 'tc_a', name = 'funcA', kind = 'function', language = 'rust', file_path = 'src/a.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create tc_a");
+
+    db.query("CREATE symbol:tc_b SET repo_id = 'test_repo', symbol_id = 'tc_b', name = 'funcB', kind = 'function', language = 'rust', file_path = 'src/b.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create tc_b");
+
+    db.query("CREATE symbol:tc_c SET repo_id = 'test_repo', symbol_id = 'tc_c', name = 'funcC', kind = 'function', language = 'rust', file_path = 'src/c.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create tc_c");
+
+    db.query("CREATE symbol:tc_d SET repo_id = 'test_repo', symbol_id = 'tc_d', name = 'funcD', kind = 'function', language = 'rust', file_path = 'src/d.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create tc_d");
+
+    db.query("RELATE symbol:tc_a->calls->symbol:tc_b SET call_site_line = 5")
+        .await
+        .expect("A calls B");
+
+    db.query("RELATE symbol:tc_b->calls->symbol:tc_c SET call_site_line = 5")
+        .await
+        .expect("B calls C");
+
+    db.query("RELATE symbol:tc_c->calls->symbol:tc_d SET call_site_line = 5")
+        .await
+        .expect("C calls D");
+
+    // SurrealDB doesn't support parameterized depth
+    let query = include_str!("queries/transitive_calls.surql");
+    let mut result = db
+        .query(query)
+        .bind(("repo_id", "test_repo"))
+        .bind(("name", "funcA"))
+        .await
+        .expect("Query failed");
+    let results: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
+
+    assert!(
+        !results.is_empty(),
+        "Should return at least some transitive calls"
+    );
+
+    let names: Vec<&str> = results.iter().filter_map(|s| s["name"].as_str()).collect();
+
+    assert!(!names.contains(&"funcA"), "funcA should not be in results");
+    // Fixed depth 3: A->B (hop 1), B->C (hop 2), C->D (hop 3) — all reachable
+    assert!(names.contains(&"funcB"), "funcB should be reachable (depth 1)");
+    assert!(names.contains(&"funcC"), "funcC should be reachable (depth 2)");
+    assert!(names.contains(&"funcD"), "funcD should be reachable (depth 3)");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_neighbors_query() {
+    let db = init_db(None).await.expect("Failed to init db");
+
+    db.query("CREATE symbol:nb_s1 SET repo_id = 'test_repo', symbol_id = 'nb_s1', name = 'funcX', kind = 'function', language = 'rust', file_path = 'src/x.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create nb_s1");
+
+    db.query("CREATE symbol:nb_s2 SET repo_id = 'test_repo', symbol_id = 'nb_s2', name = 'funcY', kind = 'function', language = 'rust', file_path = 'src/y.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create nb_s2");
+
+    db.query("CREATE symbol:nb_s3 SET repo_id = 'test_repo', symbol_id = 'nb_s3', name = 'funcZ', kind = 'function', language = 'rust', file_path = 'src/z.rs', start_line = 1, end_line = 10")
+        .await
+        .expect("create nb_s3");
+
+    db.query("RELATE symbol:nb_s1->calls->symbol:nb_s2 SET call_site_line = 5")
+        .await
+        .expect("funcX calls funcY");
+
+    db.query("RELATE symbol:nb_s3->calls->symbol:nb_s1 SET call_site_line = 10")
+        .await
+        .expect("funcZ calls funcX");
+
+    let query = include_str!("queries/neighbors.surql");
+    let mut result = db
+        .query(query)
+        .bind(("repo_id", "test_repo"))
+        .bind(("name", "funcX"))
+        .await
+        .expect("Query failed");
+    
+    let neighbors: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
+
+    let names: Vec<&str> = neighbors.iter().filter_map(|s| s["name"].as_str()).collect();
+    let directions: Vec<&str> = neighbors.iter().filter_map(|s| s["direction"].as_str()).collect();
+
+    assert_eq!(neighbors.len(), 2, "Should have 2 neighbors");
+    assert!(names.contains(&"funcY"), "funcY should be a neighbor (outgoing)");
+    assert!(names.contains(&"funcZ"), "funcZ should be a neighbor (incoming)");
+    assert!(!names.contains(&"funcX"), "funcX itself should not be in results");
+    assert!(directions.contains(&"outgoing"), "Should have outgoing direction");
+    assert!(directions.contains(&"incoming"), "Should have incoming direction");
+}
