@@ -1,0 +1,96 @@
+// Code Analysis Schema
+//
+// Design philosophy:
+// - Simple: 2 node types (File, Symbol) instead of 30+
+// - Generic: Symbol.kind field handles all code entities
+// - Language-agnostic: Same schema for TypeScript, Rust, Python, etc.
+// - Confidence tracking: Tree-sitter can be uncertain about cross-file refs
+
+// ============================================================================
+// Node Types
+// ============================================================================
+
+node File {
+    file_id: String @key  // NOT 'id' - conflicts with NanoGraph's internal __ng_id
+    repo_id: String @index
+    path: String @index
+    language: String
+    hash: String  // SHA256 of content for change detection
+}
+
+node Symbol {
+    symbol_id: String @key  // NOT 'id' - conflicts with NanoGraph's internal __ng_id
+    repo_id: String @index
+    name: String @index
+    kind: String @index  // Language-specific: "function", "struct", "class", etc.
+    language: String @index  // "rust", "typescript", "python", etc.
+    file_path: String @index
+    start_line: I32
+    end_line: I32
+    visibility: String? @index  // "public", "private", "pub_crate" (null = unknown)
+    entry_type: String? @index  // "main", "init", "test", "benchmark", "fuzz", "example", "export" (null = not an entry point)
+    signature: String?  // For functions/methods: "fn foo(a: i32) -> String"
+    content: String?    // Code snippet with context (±2 lines)
+    // Phase 2: embedding: Vector(384)? @embed(content)
+}
+
+// ============================================================================
+// Relationship Types
+// ============================================================================
+
+// Containment: File contains Symbol
+edge FileContains: File -> Symbol {
+    confidence: F64 @default(1.0)  // Always 1.0 for same-file
+}
+
+// Symbol contains Symbol (Class → Method)
+edge SymbolContains: Symbol -> Symbol {
+    confidence: F64 @default(1.0)  // Always 1.0 for same-file containment
+}
+
+// Function/method calls
+edge Calls: Symbol -> Symbol {
+    confidence: F64 @default(1.0)  // < 1.0 for dynamic calls, reflection
+    call_site_line: I32            // Where the call happens
+}
+
+// File-level imports (Go always, Rust/Nushell top-level use statements)
+edge FileImports: File -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Scoped imports (Rust use inside fn/impl, Nushell use inside command)
+edge Import: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Type annotations in function signatures
+edge TypeAnnotation: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Field type references in structs
+edge FieldType: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Inheritance: extends, implements, trait bounds
+edge Inherits: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+    inheritance_type: String       // "extends", "implements", "trait_bound"
+}
+
+// Returns: function/method returns a type
+edge Returns: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Accepts: function/method accepts a type as parameter
+edge Accepts: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}
+
+// Uses: function/method body references a variable/constant
+edge Uses: Symbol -> Symbol {
+    confidence: F64 @default(1.0)
+}

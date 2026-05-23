@@ -338,7 +338,7 @@ pub struct Note {
     pub updated_at: Option<String>,
 }
 
-/// A skill entity following Agent Skills specification (https://agentskills.io/specification).
+/// A skill entity following Agent Skills specification (<https://agentskills.io/specification>).
 /// Skills store reusable instructions, scripts, and resources for AI agents.
 ///
 /// The `content` field stores the complete SKILL.md file (YAML frontmatter + Markdown body).

@@ -1,0 +1,13 @@
+query hub_symbols()
+  @description("Most-called symbols: functions and methods with the highest incoming call count")
+  @instruction("Hub symbols are the most important code in the codebase. Start here to understand core logic")
+{
+  match {
+    $caller: Symbol
+    $target: Symbol
+    $caller calls $target
+  }
+  return { $target.name, $target.kind, $target.file_path, $target.start_line, count($caller) as incoming_calls }
+  order { incoming_calls desc }
+  limit 30
+}

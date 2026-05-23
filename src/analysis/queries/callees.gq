@@ -1,0 +1,11 @@
+query callees($name: String)
+  @description("Find all functions called by a given function")
+  @instruction("Use to understand what a function depends on")
+{
+  match {
+    $source: Symbol { name: $name }
+    $target: Symbol
+    $source calls $target
+  }
+  return { $target.name, $target.kind, $target.file_path, $target.start_line }
+}

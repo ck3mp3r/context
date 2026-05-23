@@ -1,0 +1,11 @@
+query type_hierarchy()
+  @description("Inheritance and implementation relationships between types")
+  @instruction("Shows which types extend or implement other types. Key for understanding polymorphism")
+{
+  match {
+    $child: Symbol
+    $parent: Symbol
+    $child inherits $parent
+  }
+  return { $child.name as type_name, $child.kind as type_kind, $parent.name as parent_name, $parent.kind as parent_kind, $child.file_path }
+}

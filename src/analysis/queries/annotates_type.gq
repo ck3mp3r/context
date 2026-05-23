@@ -1,0 +1,11 @@
+query annotates_type($name: String)
+  @description("Find functions that declare variables with a specific type annotation")
+  @instruction("Use to find all functions that declare variables of a type via var x Type")
+{
+  match {
+    $fn: Symbol
+    $type: Symbol { name: $name }
+    $fn typeAnnotation $type
+  }
+  return { $fn.name, $fn.kind, $fn.file_path, $fn.start_line, $type.name as type_name }
+}

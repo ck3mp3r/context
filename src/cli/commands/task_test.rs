@@ -1,9 +1,11 @@
+use crate::a6s::store::surrealdb;
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task::*;
 use crate::cli::commands::task_list::{CreateTaskListRequest, create_task_list};
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 
@@ -73,8 +75,8 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 
     let temp_dir = TempDir::new().unwrap();
     let project_id = sqlx::query_scalar::<_, String>(
-        "INSERT INTO project (id, title, description, tags, created_at, updated_at) 
-         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now')) 
+        "INSERT INTO project (id, title, description, tags, created_at, updated_at)
+         VALUES ('test0000', 'Test Project', 'Test project for CLI tests', '[]', datetime('now'), datetime('now'))
          RETURNING id"
     )
     .fetch_one(db.pool())
@@ -86,6 +88,8 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        Arc::new(surrealdb::init_db(None).await.unwrap()),
+        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = crate::api::routes::create_router(state, false);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -1,0 +1,11 @@
+query uses_type($name: String)
+  @description("Find functions that use a specific type (composite literals, type assertions)")
+  @instruction("Use to find all functions that instantiate or assert a type")
+{
+  match {
+    $fn: Symbol
+    $type: Symbol { name: $name }
+    $fn uses $type
+  }
+  return { $fn.name, $fn.kind, $fn.file_path, $fn.start_line, $type.name as type_name }
+}

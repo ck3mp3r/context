@@ -1,0 +1,12 @@
+query module_map()
+  @description("Module and package hierarchy")
+  @instruction("Use to understand codebase organization. Modules with many symbols are key areas")
+{
+  match {
+    $m: Symbol { kind: "module" }
+    $f: File
+    $f fileContains $m
+  }
+  return { $m.name as module_name, $m.file_path, $m.visibility }
+  order { $m.file_path asc }
+}

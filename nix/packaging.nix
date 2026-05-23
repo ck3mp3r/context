@@ -92,6 +92,8 @@
     src = srcWithFrontend;
     packageName = "context";
     archiveAndHash = false;
+    nativeBuildInputs = [];
+    extraArgs = {};
   };
 
   # Build archive packages (creates archive with system name)
@@ -110,6 +112,8 @@
     src = srcWithFrontend;
     packageName = "archive";
     archiveAndHash = true;
+    nativeBuildInputs = [];
+    extraArgs = {};
   };
 
   # Custom minimal git for container

@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::use_location;
 
 use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{
@@ -19,6 +20,8 @@ pub fn Repos() -> impl IntoView {
 #[component]
 fn ReposList() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
+
+    let location = use_location();
 
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
@@ -129,7 +132,15 @@ fn ReposList() -> impl IntoView {
                                                     .items
                                                     .iter()
                                                     .map(|repo| {
-                                                        view! { <RepoCard repo=repo.clone()/> }
+                                                        let query_str = location.search.get();
+
+                                                        view! {
+                                                            <RepoCard
+                                                                repo=repo.clone()
+                                                                current_query=query_str
+                                                                breadcrumb_name="repos".to_string()
+                                                            />
+                                                        }
                                                     })
                                                     .collect::<Vec<_>>()}
                                             </div>

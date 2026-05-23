@@ -10,6 +10,7 @@ mod hooks;
 mod models;
 mod pages;
 mod theme;
+mod utils;
 mod websocket;
 
 #[wasm_bindgen(start)]

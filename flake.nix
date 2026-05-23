@@ -38,7 +38,9 @@
         cargoLock = {
           lockFile = ./Cargo.lock;
           outputHashes = {
-            "tree-sitter-nu-0.0.1" = "sha256-G+XuQSqvJ9xRNq4fYiyHK9+AmCNofayPOC6JrFXpcjU=";
+            "tree-sitter-nu-0.0.1" = "sha256-OL3fqHjimJ9VrR2UoeIdLxKKcsA1J80A9T8GSBO9KwE=";
+            "tree-sitter-kotlin-0.4.0" = "sha256-sfaLNslFpW/NiFxJNXqoMEykBdfjoxgGBbfntrszaUo=";
+            "tree-sitter-typescript-0.23.2" = "sha256-A0M6IBoY87ekSV4DfGHDU5zzFWdLjGqSyVr6VENgA+s=";
           };
         };
 

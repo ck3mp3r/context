@@ -6,11 +6,23 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use std::sync::Arc;
 use tower::ServiceExt;
 
+use crate::a6s::store::surrealdb;
+use crate::a6s::tracker::AnalysisTracker;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::SqliteDatabase;
 use tempfile::TempDir;
+
+/// Helper to create a test analysis database
+async fn test_analysis_db() -> Arc<surrealdb::SurrealDbConnection> {
+    Arc::new(
+        surrealdb::init_db(None)
+            .await
+            .expect("Failed to initialize test analysis database"),
+    )
+}
 
 /// Test that we can create a Streamable HTTP service
 ///
@@ -30,12 +42,15 @@ async fn test_create_mcp_service() {
 
     let ct = CancellationToken::new();
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = test_analysis_db().await;
 
     // Act: Create MCP service
     let service = super::create_mcp_service(
         db,
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
         ct,
     );
 
@@ -58,10 +73,13 @@ async fn test_mcp_service_with_router() {
 
     let ct = CancellationToken::new();
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = test_analysis_db().await;
     let service = super::create_mcp_service(
         db,
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
         ct,
     );
 
@@ -96,10 +114,13 @@ async fn test_mcp_session_management_configured() {
 
     let ct = CancellationToken::new();
     let temp_dir = TempDir::new().unwrap();
+    let analysis_db = test_analysis_db().await;
     let service = super::create_mcp_service(
         db,
         ChangeNotifier::new(),
         temp_dir.path().join("skills"),
+        analysis_db,
+        AnalysisTracker::new(ChangeNotifier::new()),
         ct,
     );
     let app = Router::new().nest_service("/mcp", service);

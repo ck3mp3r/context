@@ -1,0 +1,11 @@
+query callers($name: String)
+  @description("Find all functions that call a given function")
+  @instruction("Use to trace who depends on a function. Helps assess impact of changes")
+{
+  match {
+    $caller: Symbol
+    $target: Symbol { name: $name }
+    $caller calls $target
+  }
+  return { $caller.name, $caller.kind, $caller.file_path, $caller.start_line }
+}
