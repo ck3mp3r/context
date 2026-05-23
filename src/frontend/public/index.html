@@ -7,13 +7,13 @@
   <link data-trunk rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <link data-trunk rel="rust" href="../../../Cargo.toml" data-bin="c5t-frontend" data-cargo-no-default-features data-cargo-features="frontend" data-wasm-opt="0"/>
   <link data-trunk rel="css" href="style.css"/>
-  <!-- Graph visualization: Sigma.js + Graphology + ForceAtlas2 (vendored) -->
+  <!-- Graph visualization: Sigma.js + Graphology + ForceAtlas2 (vendored, already minified) -->
   <link data-trunk rel="copy-file" href="vendor/graphology.umd.min.js"/>
-  <script data-trunk src="vendor/graphology.umd.min.js"></script>
+  <script data-trunk data-no-minify src="vendor/graphology.umd.min.js"></script>
   <link data-trunk rel="copy-file" href="vendor/graphology-layout-forceatlas2.min.js"/>
-  <script data-trunk src="vendor/graphology-layout-forceatlas2.min.js"></script>
+  <script data-trunk data-no-minify src="vendor/graphology-layout-forceatlas2.min.js"></script>
   <link data-trunk rel="copy-file" href="vendor/sigma.min.js"/>
-  <script data-trunk src="vendor/sigma.min.js"></script>
+  <script data-trunk data-no-minify src="vendor/sigma.min.js"></script>
   <link data-trunk rel="copy-file" href="graph-bridge.js"/>
   <script data-trunk src="graph-bridge.js"></script>
 </head>
