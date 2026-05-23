@@ -365,22 +365,9 @@ impl CodeQueryTools {
 ///
 /// Checks predefined queries first, then falls back to user-saved.
 fn load_query(graph: &CodeGraph, name: &str) -> Result<String, McpError> {
-    use std::path::PathBuf;
-
-    // 1. Check predefined queries first
-    let predefined = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("src/a6s/queries")
-        .join(format!("{}.surql", name));
-
-    if predefined.exists() {
-        return std::fs::read_to_string(predefined).map_err(|e| {
-            McpError::internal_error(
-                "fs_error",
-                Some(json!({
-                    "message": format!("Failed to read predefined query: {}", e)
-                })),
-            )
-        });
+    // 1. Check predefined queries first (embedded at compile time)
+    if let Some(query_sql) = crate::a6s::queries::PREDEFINED_QUERIES.get(name) {
+        return Ok(query_sql.to_string());
     }
 
     // 2. Check user-saved queries

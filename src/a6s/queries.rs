@@ -1,7 +1,63 @@
 //! Bundled SurrealQL queries for a6s code analysis
 //!
-//! Query definitions live in `src/a6s/queries/*.surql` as standalone files.
-//! They are loaded at runtime by `CodeGraph::execute_query()` and
-//! `CodeGraph::list_queries()` in `store.rs`.
+//! Query definitions are embedded at compile time from `src/a6s/queries/*.surql`.
+//! They are accessible via `PREDEFINED_QUERIES` map and used by
+//! `CodeGraph::execute_query()` and `CodeGraph::list_queries()` in `store.rs`.
 //!
 //! Queries are also accessible via the `code_query` MCP tool.
+
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+/// Static map of all predefined queries embedded at compile time.
+///
+/// Keys are query names (without .surql extension), values are the query content.
+pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
+    LazyLock::new(|| {
+        let mut m = HashMap::new();
+        m.insert(
+            "accepts_edges",
+            include_str!("queries/accepts_edges.surql"),
+        );
+        m.insert("all_symbols", include_str!("queries/all_symbols.surql"));
+        m.insert(
+            "annotates_type",
+            include_str!("queries/annotates_type.surql"),
+        );
+        m.insert("callees", include_str!("queries/callees.surql"));
+        m.insert("callers", include_str!("queries/callers.surql"));
+        m.insert("calls_edges", include_str!("queries/calls_edges.surql"));
+        m.insert("entry_points", include_str!("queries/entry_points.surql"));
+        m.insert("extends", include_str!("queries/extends.surql"));
+        m.insert(
+            "field_type_edges",
+            include_str!("queries/field_type_edges.surql"),
+        );
+        m.insert(
+            "file_dependencies",
+            include_str!("queries/file_dependencies.surql"),
+        );
+        m.insert("file_imports", include_str!("queries/file_imports.surql"));
+        m.insert("file_symbols", include_str!("queries/file_symbols.surql"));
+        m.insert("has_field", include_str!("queries/has_field.surql"));
+        m.insert("has_member", include_str!("queries/has_member.surql"));
+        m.insert("has_method", include_str!("queries/has_method.surql"));
+        m.insert("hub_symbols", include_str!("queries/hub_symbols.surql"));
+        m.insert("implements", include_str!("queries/implements.surql"));
+        m.insert("module_map", include_str!("queries/module_map.surql"));
+        m.insert("neighbors", include_str!("queries/neighbors.surql"));
+        m.insert("overview", include_str!("queries/overview.surql"));
+        m.insert("public_api", include_str!("queries/public_api.surql"));
+        m.insert("returns_edges", include_str!("queries/returns_edges.surql"));
+        m.insert("symbol_search", include_str!("queries/symbol_search.surql"));
+        m.insert(
+            "transitive_calls",
+            include_str!("queries/transitive_calls.surql"),
+        );
+        m.insert(
+            "type_hierarchy",
+            include_str!("queries/type_hierarchy.surql"),
+        );
+        m.insert("uses_type", include_str!("queries/uses_type.surql"));
+        m
+    });

@@ -725,28 +725,17 @@ impl CodeGraph {
         query_name: &str,
         params: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Vec<serde_json::Value>, A6sError> {
-        use std::path::PathBuf;
-
-        // Load query from embedded file
-        let query_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/a6s/queries")
-            .join(format!("{}.surql", query_name));
-
-        if !query_path.exists() {
-            return Err(A6sError::Custom(format!(
-                "Query '{}' not found at {}",
-                query_name,
-                query_path.display()
-            )));
-        }
-
-        let query_sql = std::fs::read_to_string(&query_path)
-            .map_err(|e| A6sError::Custom(format!("Failed to read query file: {}", e)))?;
+        // Load query from embedded map
+        let query_sql = crate::a6s::queries::PREDEFINED_QUERIES
+            .get(query_name)
+            .ok_or_else(|| {
+                A6sError::Custom(format!("Query '{}' not found in predefined queries", query_name))
+            })?;
 
         // Build query with repo_id binding
         let mut query_builder = self
             .db
-            .query(&query_sql)
+            .query(*query_sql)
             .bind(("repo_id", self.repo_id.clone()));
 
         // Bind additional parameters, unwrapping string values to prevent
@@ -786,29 +775,16 @@ impl CodeGraph {
     ///
     /// Returns a sorted list of QueryInfo with name, description, and parameter info.
     pub fn list_queries() -> Result<Vec<QueryInfo>, A6sError> {
-        use std::path::PathBuf;
-
-        let queries_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/a6s/queries");
-
         let mut queries = Vec::new();
-        for entry in std::fs::read_dir(queries_dir)
-            .map_err(|e| A6sError::Custom(format!("Failed to read queries directory: {}", e)))?
-        {
-            let entry = entry
-                .map_err(|e| A6sError::Custom(format!("Failed to read directory entry: {}", e)))?;
-            let path = entry.path();
 
-            if path.extension().and_then(|s| s.to_str()) == Some("surql")
-                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
-            {
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
-                let (description, params) = Self::parse_query_comments(&content);
-                queries.push(QueryInfo {
-                    name: name.to_string(),
-                    description,
-                    params,
-                });
-            }
+        // Iterate over embedded queries
+        for (name, content) in crate::a6s::queries::PREDEFINED_QUERIES.iter() {
+            let (description, params) = Self::parse_query_comments(content);
+            queries.push(QueryInfo {
+                name: name.to_string(),
+                description,
+                params,
+            });
         }
 
         queries.sort_by(|a, b| a.name.cmp(&b.name));
