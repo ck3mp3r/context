@@ -7,17 +7,14 @@
 mod schema_tests {
     use crate::a6s::store::surrealdb::init_db;
     use serde_json::json;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     /// Load and apply the schema.surql file to a SurrealDB instance
     async fn apply_schema(db: &surrealdb::Surreal<surrealdb::engine::local::Db>) {
-        let schema_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/a6s/schema.surql");
-        let schema_sql =
-            std::fs::read_to_string(&schema_path).expect("Failed to read schema.surql file");
+        let schema_sql = include_str!("schema.surql");
 
         // Execute the schema SQL
-        db.query(&schema_sql).await.expect("Failed to apply schema");
+        db.query(schema_sql).await.expect("Failed to apply schema");
     }
 
     #[tokio::test(flavor = "multi_thread")]

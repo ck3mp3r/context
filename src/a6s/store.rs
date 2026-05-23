@@ -1079,12 +1079,9 @@ pub mod surrealdb {
             .map_err(|e| A6sError::Custom(format!("Failed to use namespace/database: {}", e)))?;
 
         // Load schema for both file-based and in-memory databases
-        let schema_path =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/a6s/schema.surql");
-        let schema_sql = std::fs::read_to_string(&schema_path)
-            .map_err(|e| A6sError::Custom(format!("Failed to read schema.surql: {}", e)))?;
+        let schema_sql = include_str!("schema.surql");
 
-        db.query(&schema_sql)
+        db.query(schema_sql)
             .await
             .map_err(|e| A6sError::Custom(format!("Failed to apply schema: {}", e)))?;
 
