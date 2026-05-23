@@ -126,7 +126,7 @@ impl CodeQueryTools {
 
     /// Get schema information for a repository's code graph
     #[tool(
-        description = "Get schema information for a repository's code graph (nodes, edges, properties)"
+        description = "Get schema information for a repository's code graph (node types, edge types, and their properties). EXPERIMENTAL: This feature is under active development and may change. Useful for understanding the data model before writing custom SurrealQL queries with code_query."
     )]
     pub async fn describe_schema(
         &self,
@@ -169,7 +169,7 @@ impl CodeQueryTools {
     /// 2. Saved query (query_name only) - load from predefined or user-saved
     /// 3. Save and execute (both) - save to user directory then execute
     #[tool(
-        description = "Execute custom SurrealQL queries or run saved queries against the code graph"
+        description = "Execute queries against a repository's code graph. EXPERIMENTAL: This feature is under active development and may change. Use query_name for pre-built queries (see code_list_queries), or query_definition for custom SurrealQL. The repo must be analyzed first (see code_analyze). Common starting queries: 'overview' for symbol counts, 'hub_symbols' for most-connected functions, 'entry_points' for main/test functions."
     )]
     pub async fn query_graph(
         &self,
@@ -264,7 +264,7 @@ impl CodeQueryTools {
     ///
     /// Returns both predefined queries (from src/a6s/queries/) and user-saved queries
     #[tool(
-        description = "List available queries with their parameters, descriptions, and usage instructions"
+        description = "List available pre-built queries for a repository's code graph. EXPERIMENTAL: This feature is under active development and may change. Each query includes description, parameters, and usage instructions. Use returned query names with code_query's query_name parameter. Start with 'overview' and 'hub_symbols' for orientation."
     )]
     pub async fn list_queries(
         &self,

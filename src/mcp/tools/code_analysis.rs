@@ -67,7 +67,7 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         &self.tool_router
     }
 
-    #[tool(description = "Analyze a repository's code or check analysis status")]
+    #[tool(description = "Analyze a repository's code and extract symbols into the code graph. EXPERIMENTAL: This feature is under active development and may change. Use action='analyze' to start analysis (runs in background), action='status' to check progress. After analysis completes, use code_list_queries and code_query to explore results. Requires a repo_id from create_repo.")]
     pub async fn analyze_code(
         &self,
         params: Parameters<AnalyzeCodeParams>,

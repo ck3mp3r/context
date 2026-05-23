@@ -14,6 +14,7 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 - **Skills** - Reusable agent instructions and capabilities with full-text search
 - **Session Notes** - Persistent state for AI agents that survives context compaction
 - **Agent Workflows** - Autonomous multi-step workflows with task tracking and state recovery
+- **Code Analysis** - Experimental tree-sitter based analysis supporting 5 languages (Rust, Go, TypeScript, Kotlin, Nushell) with queryable graph database for symbol relationships and dependencies
 - **Real-time Updates** - WebSocket-based live sync between CLI/MCP and Web UI
 - **Git Sync** - JSONL-based sync via git for cross-machine collaboration
 - **MCP Server** - Model Context Protocol integration for AI agents (remote HTTP/SSE)
@@ -156,6 +157,7 @@ services:
 - [Development Guide](docs/development.md) - Setup, building, testing
 - [API Reference](docs/api.md) - REST API endpoints
 - [MCP Tools](docs/mcp.md) - Model Context Protocol tools
+- [Code Analysis](docs/code-analysis.md) - Code graph analysis and queries
 - [Frontend Architecture](docs/frontend.md) - Leptos WASM UI & build process
 - [Database Schema](docs/schema.md) - SQLite schema and migrations
 - [Sync Guide](docs/sync.md) - Git-based cross-machine synchronization
