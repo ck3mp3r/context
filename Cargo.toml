@@ -75,7 +75,7 @@ base64 = "0.22.1"
 dashmap = { version = "6", optional = true }
 ignore = "0.4"
 sanitize-filename = "0.6"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 serde_yaml = "0.9"
 sha2 = "0.11.0"
 strip-ansi-escapes = "0.2"
@@ -110,7 +110,7 @@ version = "2.0.5"
 optional = true
 
 [dependencies.reqwest]
-version = "0.13.2"
+version = "0.13.3"
 default-features = false
 features = [
     "json",
@@ -129,7 +129,7 @@ features = [
 optional = true
 
 [dependencies.rustls]
-version = "0.23.39"
+version = "0.23.40"
 default-features = false
 features = [
     "ring",
@@ -189,7 +189,7 @@ version = "0.3.32"
 optional = true
 
 [dependencies.tower-http]
-version = "0.6.8"
+version = "0.6.11"
 features = [
     "trace",
     "fs",
@@ -295,7 +295,7 @@ features = [
 optional = true
 
 [dependencies.pulldown-cmark]
-version = "0.13.3"
+version = "0.13.4"
 optional = true
 
 [dependencies.thaw]
