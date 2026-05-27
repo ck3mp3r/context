@@ -176,7 +176,7 @@ features = ["derive"]
 optional = true
 
 [dependencies.tokio]
-version = "1.50.0"
+version = "1.52.3"
 features = ["full"]
 optional = true
 
@@ -234,7 +234,7 @@ git = "https://github.com/tree-sitter/tree-sitter-typescript"
 optional = true
 
 [dependencies.utoipa]
-version = "5.4.0"
+version = "5.5.0"
 features = ["axum_extras"]
 optional = true
 
