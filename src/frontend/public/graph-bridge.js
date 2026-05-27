@@ -1,11 +1,155 @@
 // Graph Bridge: Sigma.js + Graphology integration for c5t
 // Called from Rust/WASM via wasm-bindgen
+//
+// Performance Optimizations:
+// - Dynamic iteration scaling: FA2 iterations scale based on graph size (300/200/100 for small/medium/large)
+// - Loading indicators: Visual pulse on nodes during expand operations
+// - Auto-tuned settings: Uses ForceAtlas2Layout.inferSettings() for optimal parameters
+//
+// Web Worker Investigation (2026-05-27):
+// The vendored graphology-layout-forceatlas2.min.js (v0.10.1) does NOT include
+// Web Worker support. The library exports only ForceAtlas2Layout and ForceAtlas2Layout.inferSettings.
+// Worker mode (graphology-layout-forceatlas2/worker) requires separate bundle and is not currently
+// available in the vendored file. To enable worker mode in the future:
+// 1. Bundle graphology-layout-forceatlas2/worker.js separately
+// 2. Use postMessage API to offload layout computation to worker thread
+// 3. Update animateLayout() to handle async layout computation
+// For now, synchronous layout with scaled iterations provides acceptable performance.
 
 (function() {
   "use strict";
 
   // Store active graph instances by container ID
   var instances = {};
+
+  /**
+   * Calculate optimal ForceAtlas2 iterations based on graph size.
+   * Scales down iterations for larger graphs to maintain performance.
+   * @param {number} nodeCount - Number of nodes in the graph
+   * @returns {number} Recommended number of iterations
+   */
+  function getLayoutIterations(nodeCount) {
+    if (nodeCount < 50) return 300;
+    if (nodeCount < 200) return 200;
+    return 100;
+  }
+
+  // Animate layout transitions from current positions to target positions
+  function animateLayout(inst, targetPositions, duration) {
+    duration = duration || 400;
+    var startTime = null;
+    var startPositions = {};
+    inst.graph.forEachNode(function(node) {
+      startPositions[node] = {
+        x: inst.graph.getNodeAttribute(node, 'x'),
+        y: inst.graph.getNodeAttribute(node, 'y')
+      };
+    });
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var progress = Math.min((timestamp - startTime) / duration, 1);
+      var t = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      inst.graph.forEachNode(function(node) {
+        if (targetPositions[node]) {
+          var s = startPositions[node];
+          inst.graph.setNodeAttribute(node, 'x', s.x + (targetPositions[node].x - s.x) * t);
+          inst.graph.setNodeAttribute(node, 'y', s.y + (targetPositions[node].y - s.y) * t);
+        }
+      });
+      inst.renderer.refresh();
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  /**
+   * Build ancestor chain for a node (bottom-up: node → parent → grandparent → root).
+   * Returns array of {id, label, kind} objects.
+   * @param {object} graph - Graphology graph instance
+   * @param {string} nodeId - Starting node ID
+   * @returns {Array} Array of ancestor objects
+   */
+  function getAncestorChain(graph, nodeId) {
+    var chain = [];
+    var current = nodeId;
+    var visited = new Set();
+
+    while (current && graph.hasNode(current)) {
+      // Prevent infinite loops
+      if (visited.has(current)) break;
+      visited.add(current);
+
+      var attrs = graph.getNodeAttributes(current);
+      chain.push({
+        id: current,
+        label: attrs.label || current,
+        kind: attrs.kind || "unknown"
+      });
+
+      current = attrs.parentId;
+      if (!current) break;
+    }
+
+    return chain;
+  }
+
+  /**
+   * Layout nodes in a top-down tree structure based on parentId relationships.
+   * Roots at top, children below, maintaining hierarchy visibility.
+   * @param {object} graph - Graphology graph instance
+   */
+  function treeLayout(graph) {
+    var hSpacing = 180;
+    var vSpacing = 120;
+
+    // Build parent→children map from node attributes
+    var roots = [];
+    var childrenOf = {};
+
+    graph.forEachNode(function(nodeId, attrs) {
+      var pid = attrs.parentId;
+      if (!pid || !graph.hasNode(pid)) {
+        roots.push(nodeId);
+      } else {
+        if (!childrenOf[pid]) childrenOf[pid] = [];
+        childrenOf[pid].push(nodeId);
+      }
+    });
+
+    // Measure subtree leaf count (determines width)
+    function leafCount(id) {
+      var kids = childrenOf[id];
+      if (!kids || kids.length === 0) return 1;
+      var total = 0;
+      for (var i = 0; i < kids.length; i++) total += leafCount(kids[i]);
+      return total;
+    }
+
+    // Position subtree recursively, returns width consumed
+    function positionSubtree(id, left, depth) {
+      var kids = childrenOf[id];
+      if (!kids || kids.length === 0) {
+        graph.setNodeAttribute(id, 'x', left);
+        graph.setNodeAttribute(id, 'y', depth * vSpacing);
+        return hSpacing;
+      }
+      var cursor = left;
+      for (var i = 0; i < kids.length; i++) {
+        cursor += positionSubtree(kids[i], cursor, depth + 1);
+      }
+      var firstX = graph.getNodeAttribute(kids[0], 'x');
+      var lastX = graph.getNodeAttribute(kids[kids.length - 1], 'x');
+      graph.setNodeAttribute(id, 'x', (firstX + lastX) / 2);
+      graph.setNodeAttribute(id, 'y', depth * vSpacing);
+      return cursor - left;
+    }
+
+    var cursor = 0;
+    for (var i = 0; i < roots.length; i++) {
+      cursor += positionSubtree(roots[i], cursor, 0);
+      cursor += hSpacing; // gap between trees
+    }
+  }
 
   // Helper to read CSS variable from :root
   function getCssVar(name, fallback) {
@@ -84,12 +228,13 @@
     "Inherits":       "--ctp-mauve",
     "Import":         "--ctp-sapphire",
     "Contains":       "--ctp-surface2",
-    "HasField":       "--ctp-surface2",
-    "HasMethod":      "--ctp-surface2",
-    "HasMember":      "--ctp-surface2",
+    "HasField":       "--ctp-overlay0",
+    "HasMethod":      "--ctp-overlay0",
+    "HasMember":      "--ctp-overlay0",
     "Implements":     "--ctp-mauve",
     "Extends":        "--ctp-mauve",
     "FileImports":    "--ctp-sapphire",
+    "aggregate":      "--ctp-overlay1",  // Neutral gray for aggregate edges
   };
 
   function kindColor(kind) {
@@ -107,9 +252,43 @@
   function edgeColor(edgeType) {
     var varName = edgeColorVars[edgeType] || "--ctp-surface2";
     var color = getCssVar(varName, "#585b70");
-    // Mute edges more heavily (60% background) for subtlety
+    // Aggregate edges (medium muted for visibility)
+    if (edgeType === "aggregate") {
+      return muteColor(color, 0.5);
+    }
+    // Containment edges (lighter)
+    if (edgeType === "HasMember" || edgeType === "HasMethod" || edgeType === "HasField") {
+      return muteColor(color, 0.3); // Less muted for visibility
+    }
+    // Other edges (more muted)
     return muteColor(color, 0.6);
   }
+
+  /**
+   * Calculate aggregate edge size and label from aggregate_counts.
+   * @param {object} aggregateCounts - e.g. {"Calls": 3, "Implements": 1}
+   * @returns {object} { size: number, label: string }
+   */
+  function calcAggregateEdgeProps(aggregateCounts) {
+    if (!aggregateCounts || typeof aggregateCounts !== "object") {
+      return { size: 1, label: "1" };
+    }
+    // Sum all counts
+    var totalCount = 0;
+    var entries = [];
+    for (var type in aggregateCounts) {
+      var count = aggregateCounts[type];
+      totalCount += count;
+      entries.push({ type: type, count: count });
+    }
+    // Scale size logarithmically, capped at 5
+    var size = Math.min(1 + Math.log2(totalCount || 1), 5);
+    // Build label: show total count
+    var label = String(totalCount);
+    return { size: size, label: label };
+  }
+
+
 
   // Get current theme colors for UI elements
   function getThemeColors() {
@@ -121,35 +300,15 @@
     };
   }
 
-  // N-hop BFS from a node
-  function bfsNeighbors(graph, startNode, depth) {
-    var visited = new Set();
-    visited.add(startNode);
-    var frontier = [startNode];
-    for (var d = 0; d < depth; d++) {
-      var nextFrontier = [];
-      for (var i = 0; i < frontier.length; i++) {
-        var neighbors = graph.neighbors(frontier[i]);
-        for (var j = 0; j < neighbors.length; j++) {
-          if (!visited.has(neighbors[j])) {
-            visited.add(neighbors[j]);
-            nextFrontier.push(neighbors[j]);
-          }
-        }
-      }
-      frontier = nextFrontier;
-      if (frontier.length === 0) break;
-    }
-    return visited;
-  }
-
   /**
    * Initialize a graph in a container element.
    * @param {string} containerId - DOM element ID for the graph canvas
    * @param {string} graphDataJson - JSON string with { nodes, edges, stats }
+   * @param {string} repoId - Repository ID for API calls
+   * @param {string} apiBase - API base URL (e.g., "/dev/api/v1" or "/api/v1")
    * @returns {boolean} true if successful
    */
-  window.initGraph = function(containerId, graphDataJson) {
+  window.initGraph = function(containerId, graphDataJson, repoId, apiBase) {
     // Clean up existing instance
     if (instances[containerId]) {
       instances[containerId].renderer.kill();
@@ -174,7 +333,7 @@
         if (node.entry_type) {
           nodeEntryTypes[node.id] = node.entry_type;
         }
-        graph.addNode(node.id, {
+        var attrs = {
           label: node.label,
           qualifiedName: node.qualified_name || node.label,
           size: 3,
@@ -185,21 +344,38 @@
           startLine: node.start_line,
           entryType: node.entry_type || null,
           isTest: node.is_test || false,
+          childCount: node.child_count || 0,
+          parentId: node.parent_id || null,
           x: (Math.random() - 0.5) * 100,
           y: (Math.random() - 0.5) * 100,
-        });
+        };
+        graph.addNode(node.id, attrs);
       });
 
       // Add edges with type-specific colors
-      var edgeStats = { added: 0, skipped: 0, errors: {} };
+      var edgeStats = { added: 0, skipped: 0, errors: {}, aggregate: 0 };
       (data.edges || []).forEach(function(edge) {
         try {
-          var label = (edge.type || "").toLowerCase();
+          var isAggregate = edge.type === "aggregate";
+          var edgeType = edge.type;
+          var label = (edgeType || "").toLowerCase();
+          var size = 1;
+
+          // Handle aggregate edges
+          if (isAggregate) {
+            var props = calcAggregateEdgeProps(edge.aggregate_counts);
+            size = props.size;
+            label = props.label;
+            edgeStats.aggregate++;
+          }
+
           graph.addEdge(edge.source, edge.target, {
             label: label,
-            edgeType: edge.type,
-            color: edgeColor(edge.type),
-            size: 1,
+            edgeType: edgeType,
+            color: edgeColor(edgeType),
+            size: size,
+            isAggregate: isAggregate,
+            aggregateCounts: edge.aggregate_counts || null,
           });
           edgeStats.added++;
         } catch (e) {
@@ -209,6 +385,9 @@
         }
       });
       console.log("[graph-bridge] Edge loading:", edgeStats.added, "added,", edgeStats.skipped, "skipped");
+      if (edgeStats.aggregate > 0) {
+        console.log("[graph-bridge] Aggregate edges:", edgeStats.aggregate);
+      }
       if (edgeStats.skipped > 0) {
         console.warn("[graph-bridge] Skipped edge errors:", edgeStats.errors);
       }
@@ -222,7 +401,7 @@
         labelSize: 11,
         labelColor: { color: themeColors.text },
         labelFont: "ui-monospace, monospace",
-        labelRenderedSizeThreshold: 6,
+        labelRenderedSizeThreshold: 0,
         labelDensity: 0.5,
         defaultEdgeColor: themeColors.surface2,
         defaultEdgeType: "arrow",
@@ -268,19 +447,24 @@
       var inst = {
         graph: graph,
         renderer: renderer,
+        repoId: repoId,
+        apiBase: apiBase || "/api/v1",  // Fallback for backward compatibility
+        expandedNodes: new Set(),
+        knownNodes: new Map(),
         filteredKinds: filteredKinds,
         filteredLanguage: null,
         filteredEdgeTypes: new Set(),  // empty = show all
         hideTests: false,
-        focusedNode: null,        // double-click focus
-        focusedNeighbors: null,   // Set of neighbor IDs when focused
-        focusDepth: 1,            // BFS depth for double-click focus
-        savedCameraState: null,   // camera state before focus
         searchMatches: null,      // Set of matched node IDs from search, null = no active search
         onSelectCallback: null,   // callback for node selection events
-        onFocusCallback: null,    // callback for focus state changes (double-click)
+        onLegendChangeCallback: null,  // callback when legend should be refreshed (after expand/collapse)
         entryTypeCanvas: null,    // custom canvas for entry-type shapes
       };
+
+      // Populate knownNodes cache with initial nodes
+      graph.forEachNode(function(nodeId, attrs) {
+        inst.knownNodes.set(nodeId, attrs);
+      });
 
       // Create custom canvas layer for entry-type shapes (drawn on top of WebGL circles)
       var entryTypeCanvas = document.createElement("canvas");
@@ -316,7 +500,6 @@
 
           // Skip hidden nodes
           if (attrs.hidden) return;
-          if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(nodeId)) return;
           if (inst.hideTests && attrs.isTest) return;
           if (inst.filteredLanguage && attrs.language !== inst.filteredLanguage) return;
           if (inst.filteredKinds.size > 0 && !inst.filteredKinds.has(attrs.kind)) return;
@@ -356,6 +539,7 @@
         if (inst.onSelectCallback) {
           var node = event.node;
           var attrs = graph.getNodeAttributes(node);
+          var ancestorChain = getAncestorChain(graph, node);
           var info = JSON.stringify({
             id: node,
             label: attrs.label || "",
@@ -365,49 +549,33 @@
             filePath: attrs.filePath || "",
             startLine: attrs.startLine || 0,
             entryType: attrs.entryType || null,
+            childCount: attrs.childCount || 0,
+            isExpanded: inst.expandedNodes.has(node),
+            ancestorChain: ancestorChain,
           });
           inst.onSelectCallback(info);
         }
       });
 
-      // Double-click: focus on node and its N-hop neighbors
+      // Double-click: expand/collapse container nodes
       renderer.on("doubleClickNode", function(event) {
+        event.preventSigmaDefault(); // Prevent default double-click zoom
         var node = event.node;
-        var neighbors = bfsNeighbors(graph, node, inst.focusDepth);
+        var attrs = graph.getNodeAttributes(node);
 
-        // Save camera state before focusing
-        var camera = renderer.getCamera();
-        inst.savedCameraState = camera.getState();
-        inst.focusedNode = node;
-        inst.focusedNeighbors = neighbors;
-
-        // Notify Rust of focus state change
-        if (inst.onFocusCallback) {
-          inst.onFocusCallback(true);
+        // If already expanded, collapse it
+        if (inst.expandedNodes.has(node)) {
+          window.graphCollapseNode(containerId, node);
         }
-
-        renderer.refresh();
-
-        // Defer zoom to let Sigma recalculate after reducer hides nodes
-        setTimeout(function() {
-          window.graphZoomToFit(containerId);
-        }, 50);
+        // If it's a container (has children), expand it
+        else if (attrs.childCount && attrs.childCount > 0) {
+          window.graphExpandNode(containerId, node);
+        }
+        // Leaf node - no-op
       });
 
-      // Click on empty canvas: restore previous zoom if focused
+      // Click on empty canvas: clear selection
       renderer.on("clickStage", function() {
-        if (inst.focusedNode && inst.savedCameraState) {
-          inst.focusedNode = null;
-          inst.focusedNeighbors = null;
-          renderer.refresh();
-          var camera = renderer.getCamera();
-          camera.animate(inst.savedCameraState, { duration: 300 });
-          inst.savedCameraState = null;
-          // Notify Rust of focus state change
-          if (inst.onFocusCallback) {
-            inst.onFocusCallback(false);
-          }
-        }
         // Clear selection
         if (inst.onSelectCallback) {
           inst.onSelectCallback("");
@@ -454,21 +622,30 @@
         }
       });
 
-      // Node reducer: handles focus, hover dimming, kind/language/test filtering, entry type styling
+      // Node reducer: handles focus, hover dimming, kind/language/test filtering, entry type styling, container indicators, loading state
       renderer.setSetting("nodeReducer", function(node, data) {
         var res = Object.assign({}, data);
         var nodeKind = graph.getNodeAttribute(node, "kind");
         var nodeLang = graph.getNodeAttribute(node, "language");
         var nodeIsTest = graph.getNodeAttribute(node, "isTest");
         var nodeEntryType = graph.getNodeAttribute(node, "entryType");
+        var childCount = graph.getNodeAttribute(node, "childCount") || 0;
+        var nodeLoading = graph.getNodeAttribute(node, "loading");
 
         // Get dimmed color from theme
         var dimColor = getThemeColors().surface0;
 
-        // Focus filter: hide nodes not in focused subgraph
-        if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) {
-          res.hidden = true;
-          return res;
+        // Loading state: make node pulse
+        if (nodeLoading) {
+          res.size = res.size * (1 + 0.2 * Math.sin(Date.now() / 200));
+        }
+
+        // Container node visual distinction
+        if (childCount > 0) {
+          var isExpanded = inst.expandedNodes.has(node);
+          // Add expand/collapse indicator to label
+          var indicator = isExpanded ? "▼ " : "▶ ";
+          res.label = indicator + res.label;
         }
 
         // Test filter: hide test symbols
@@ -513,23 +690,19 @@
           res.entryType = nodeEntryType;
         }
 
-        // Highlight focused node
-        if (inst.focusedNode === node) {
-          res.highlighted = true;
-        }
-
-        // Search highlighting: dim non-matching nodes
-        if (inst.searchMatches && !inst.searchMatches.has(node)) {
+        // Search highlighting: dim nodes not in search result set (matched + ancestors)
+        if (inst.searchResultNodes && !inst.searchResultNodes.has(node)) {
           res.color = dimColor;
           res.label = "";
           return res;
         }
+        // Highlight matched nodes (not just ancestors)
         if (inst.searchMatches && inst.searchMatches.has(node)) {
           res.highlighted = true;
         }
 
-        // Hover dimming (only when not in focus mode and no active search)
-        if (!inst.focusedNode && hoveredNode && hoveredNode !== node && !hoveredNeighbors.has(node)) {
+        // Hover dimming (only when no active search)
+        if (hoveredNode && hoveredNode !== node && !hoveredNeighbors.has(node)) {
           res.color = dimColor;
           res.label = "";
         }
@@ -539,25 +712,37 @@
         return res;
       });
 
-      // Edge reducer: handles focus, hover dimming, edge type/kind/language/test filtering
+      // Edge reducer: handles hover dimming, edge type/kind/language/test filtering
       renderer.setSetting("edgeReducer", function(edge, data) {
         var res = Object.assign({}, data);
         var source = graph.source(edge);
         var target = graph.target(edge);
         var edgeType = graph.getEdgeAttribute(edge, "edgeType");
+        var isAggregate = graph.getEdgeAttribute(edge, "isAggregate");
+        var aggregateCounts = graph.getEdgeAttribute(edge, "aggregateCounts");
 
-        // Focus filter: hide edges not in focused subgraph
-        if (inst.focusedNode && inst.focusedNeighbors) {
-          if (!inst.focusedNeighbors.has(source) || !inst.focusedNeighbors.has(target)) {
-            res.hidden = true;
-            return res;
+        // Edge type filter: for aggregate edges, check if any constituent type passes
+        if (inst.filteredEdgeTypes.size > 0) {
+          if (isAggregate && aggregateCounts) {
+            // Show aggregate edge if at least one constituent type is in filter
+            var hasVisibleType = false;
+            for (var type in aggregateCounts) {
+              if (inst.filteredEdgeTypes.has(type)) {
+                hasVisibleType = true;
+                break;
+              }
+            }
+            if (!hasVisibleType) {
+              res.hidden = true;
+              return res;
+            }
+          } else {
+            // Regular edge: hide if not in filter
+            if (!inst.filteredEdgeTypes.has(edgeType)) {
+              res.hidden = true;
+              return res;
+            }
           }
-        }
-
-        // Edge type filter: hide edges not in filteredEdgeTypes
-        if (inst.filteredEdgeTypes.size > 0 && !inst.filteredEdgeTypes.has(edgeType)) {
-          res.hidden = true;
-          return res;
         }
 
         // Test filter: hide edges where either endpoint is a test symbol
@@ -590,9 +775,9 @@
           }
         }
 
-        // Search dimming: hide edges not connecting matched nodes
-        if (inst.searchMatches) {
-          if (!inst.searchMatches.has(source) || !inst.searchMatches.has(target)) {
+        // Search dimming: hide edges not connecting nodes in search result (matched + ancestors)
+        if (inst.searchResultNodes) {
+          if (!inst.searchResultNodes.has(source) || !inst.searchResultNodes.has(target)) {
             res.hidden = true;
             return res;
           } else {
@@ -600,14 +785,22 @@
           }
         }
 
-        // Hover dimming (only when not in focus mode)
-        if (!inst.focusedNode && !inst.searchMatches && hoveredNode) {
+        // Hover dimming (only when no active search)
+        if (!inst.searchResultNodes && hoveredNode) {
           if (source !== hoveredNode && target !== hoveredNode) {
             res.hidden = true;
           } else {
             res.size = 2;
           }
         }
+
+        // Apply lower opacity to aggregate edges for distinction
+        if (isAggregate) {
+          // Note: Sigma.js doesn't have built-in opacity control for edges
+          // The distinct color from edgeColor() is sufficient
+          // If needed, could use custom edge program in future
+        }
+
         return res;
       });
 
@@ -620,59 +813,47 @@
       graph.forEachNode(function(node) {
         var degree = graph.degree(node);
         var kind = graph.getNodeAttribute(node, "kind");
-        // Base size 3, scale by log to compress high-degree nodes
-        // Max size ~12 even for nodes with 1000+ edges
-        var size = 3 + Math.min(Math.log(degree + 1) * 2, 9);
+        var childCount = graph.getNodeAttribute(node, "childCount") || 0;
+        // Base size 8, scale by log to compress high-degree nodes
+        // Max size ~17 even for nodes with 1000+ edges
+        var size = 8 + Math.min(Math.log(degree + 1) * 2, 9);
+
+        // Container nodes (with children) should be larger and more visible
+        if (childCount > 0) {
+          size = Math.max(size, 12);
+        }
 
         // Boost size for structurally important but low-connectivity nodes
         // Fields, constants, and types often have few edges but are important
         if (kind === "field" || kind === "property" || kind === "constant" || kind === "const" || kind === "type_alias" || kind === "type") {
-          size = Math.max(size, 6);  // Ensure above labelRenderedSizeThreshold
+          size = Math.max(size, 10);  // Ensure well above labelRenderedSizeThreshold
         }
 
         graph.setNodeAttribute(node, "size", size);
       });
 
-      // Run ForceAtlas2 layout in animated batches
+      // Ensure all nodes have initial positions before ForceAtlas2
+      var spread = Math.sqrt(graph.order) * 50;
+      graph.forEachNode(function(node, attrs) {
+        if (attrs.x === undefined || attrs.y === undefined) {
+          graph.setNodeAttribute(node, "x", (Math.random() - 0.5) * spread);
+          graph.setNodeAttribute(node, "y", (Math.random() - 0.5) * spread);
+        }
+      });
+
+      // Apply ForceAtlas2 layout on initial load with performance-aware iteration count
       if (typeof ForceAtlas2Layout === "function" && graph.order > 0) {
-        var settings = ForceAtlas2Layout.inferSettings(graph);
-
-        // Override inferred settings for better spatial distribution
-        settings.strongGravityMode = true;   // Constant gravity prevents hubs from flying to edges
-        settings.linLogMode = true;          // Log-attraction: tighter clusters, more separation between them
-        settings.gravity = 1;                // Standard gravity with strongGravityMode keeps layout centered
-        settings.outboundAttractionDistribution = true;  // Normalize attraction by degree so hubs don't dominate
-        settings.adjustSizes = true;         // Prevent node overlap based on sizes
-
-        // Moderate repulsion scaling — enough to spread, not enough to fling hubs out
-        settings.scalingRatio = Math.max(settings.scalingRatio || 1, 1 + Math.log10(graph.order));
-
-        // Enable Barnes-Hut approximation for larger graphs (O(N log N) vs O(N²))
-        if (graph.order > 100) {
-          settings.barnesHutOptimize = true;
-          settings.barnesHutTheta = 0.5;
-        }
-
-        // Scale iterations with graph size; larger graphs need more to converge
-        var totalIterations = Math.min(600, 150 + Math.floor(graph.order / 2));
-        var batchSize = 10;
-        var currentIteration = 0;
-        inst.layoutRunning = true;
-
-        function runBatch() {
-          if (!inst.layoutRunning || currentIteration >= totalIterations) {
-            inst.layoutRunning = false;
-            renderer.refresh();
-            return;
-          }
-          var iters = Math.min(batchSize, totalIterations - currentIteration);
-          ForceAtlas2Layout(graph, { iterations: iters, settings: settings });
-          currentIteration += iters;
-          renderer.refresh();
-          setTimeout(runBatch, 0);
-        }
-        runBatch();
+        var settings = ForceAtlas2Layout.inferSettings
+          ? ForceAtlas2Layout.inferSettings(graph)
+          : { barnesHutOptimize: true };
+        var iterations = getLayoutIterations(graph.order);
+        ForceAtlas2Layout(graph, {
+          iterations: iterations,
+          settings: settings
+        });
+        console.log("[graph-bridge] Initial layout: " + iterations + " iterations for " + graph.order + " nodes");
       }
+      renderer.refresh();
 
       return true;
     } catch (e) {
@@ -693,7 +874,389 @@
       if (instances[containerId].entryTypeCanvas) {
         instances[containerId].entryTypeCanvas.remove();
       }
+      // Remove keyboard event listener to prevent memory leaks
+      if (instances[containerId].keyboardHandler) {
+        document.removeEventListener("keydown", instances[containerId].keyboardHandler);
+      }
       delete instances[containerId];
+    }
+  };
+
+  /**
+   * Expand a container node by fetching and displaying its children.
+   * @param {string} containerId
+   * @param {string} nodeId - The node to expand
+   */
+  window.graphExpandNode = async function(containerId, nodeId) {
+    var inst = instances[containerId];
+    if (!inst) return;
+
+    // Already expanded
+    if (inst.expandedNodes.has(nodeId)) return;
+
+    // Get node attributes
+    var nodeAttrs = inst.graph.getNodeAttributes(nodeId);
+
+    // Leaf node (no children)
+    if (!nodeAttrs.childCount || nodeAttrs.childCount === 0) return;
+
+    try {
+      // Set loading state on the expanded node
+      inst.graph.setNodeAttribute(nodeId, "loading", true);
+
+      // Start animation loop for loading pulse
+      var loadingInterval = setInterval(function() {
+        inst.renderer.refresh();
+      }, 50);
+
+      // Collect IDs of all currently visible nodes
+      var visibleIds = inst.graph.nodes().map(encodeURIComponent).join(',');
+
+      // Fetch children from API using configured API base
+      var url = inst.apiBase + "/repos/" + inst.repoId + "/graph?root=" + encodeURIComponent(nodeId) + "&depth=1";
+      if (visibleIds) {
+        url += "&visible_ids=" + visibleIds;
+      }
+
+      var response = await fetch(url);
+      if (!response.ok) {
+        console.error("Failed to fetch subgraph:", response.statusText);
+        // Clear loading state on error
+        inst.graph.setNodeAttribute(nodeId, "loading", false);
+        clearInterval(loadingInterval);
+        return;
+      }
+
+      var data = await response.json();
+      console.log('[graph-bridge] Expand response:', data); // Debug: check edges in response
+
+      // Get parent position for placing children nearby
+      var parentX = nodeAttrs.x;
+      var parentY = nodeAttrs.y;
+      // Calculate child placement offset based on child count
+      var childCount = (data.nodes || []).length;
+      var offsetRange = Math.max(100, childCount * 30);
+
+      // Add new nodes with positions near parent (small random offset)
+      (data.nodes || []).forEach(function(node) {
+        // Skip if already in graph
+        if (inst.graph.hasNode(node.id)) return;
+
+        // Place new nodes near parent with small random offset
+        var x = parentX + (Math.random() - 0.5) * offsetRange;
+        var y = parentY + (Math.random() - 0.5) * offsetRange;
+
+        var attrs = {
+          label: node.label,
+          qualifiedName: node.qualified_name || node.label,
+          size: 8,
+          color: kindColor(node.kind),
+          kind: node.kind,
+          language: node.language || "unknown",
+          filePath: node.file_path,
+          startLine: node.start_line,
+          entryType: node.entry_type || null,
+          isTest: node.is_test || false,
+          childCount: node.child_count || 0,
+          parentId: node.parent_id || null,
+          x: x,
+          y: y,
+        };
+
+        inst.graph.addNode(node.id, attrs);
+        inst.knownNodes.set(node.id, attrs);
+
+        // If in search mode, add newly loaded nodes to searchResultNodes
+        if (inst.searchResultNodes) {
+          inst.searchResultNodes.add(node.id);
+        }
+      });
+
+      // Add new edges (API provides unique edge IDs, multi-graph handles parallel edges)
+      (data.edges || []).forEach(function(edge) {
+        // Guard against missing endpoints
+        if (!inst.graph.hasNode(edge.source) || !inst.graph.hasNode(edge.target)) {
+          return;
+        }
+
+        var isAggregate = edge.type === "aggregate";
+        var edgeType = edge.type;
+        var label = (edgeType || "").toLowerCase();
+        var size = 1;
+
+        // Handle aggregate edges
+        if (isAggregate) {
+          var props = calcAggregateEdgeProps(edge.aggregate_counts);
+          size = props.size;
+          label = props.label;
+        }
+
+        // Use edge.id as key to prevent true duplicates, allow parallel edges of different types
+        inst.graph.addEdge(edge.source, edge.target, {
+          label: label,
+          edgeType: edgeType,
+          color: edgeColor(edgeType),
+          size: size,
+          isAggregate: isAggregate,
+          aggregateCounts: edge.aggregate_counts || null,
+        });
+      });
+
+      // Recompute sizes for new nodes based on their degree
+      inst.graph.forEachNode(function(node) {
+        var degree = inst.graph.degree(node);
+        var kind = inst.graph.getNodeAttribute(node, "kind");
+        var childCount = inst.graph.getNodeAttribute(node, "childCount") || 0;
+        var size = 8 + Math.min(Math.log(degree + 1) * 2, 9);
+        if (childCount > 0) {
+          size = Math.max(size, 12);
+        }
+        if (kind === "field" || kind === "property" || kind === "constant" || kind === "const" || kind === "type_alias" || kind === "type") {
+          size = Math.max(size, 10);
+        }
+        inst.graph.setNodeAttribute(node, "size", size);
+      });
+
+      // Mark as expanded
+      inst.expandedNodes.add(nodeId);
+
+      // Track in expand history for keyboard shortcuts
+      if (!inst.expandHistory) {
+        inst.expandHistory = [];
+      }
+      inst.expandHistory.push(nodeId);
+
+      // Notify legend change callback (graph now has new node kinds/edge types)
+      if (inst.onLegendChangeCallback) {
+        inst.onLegendChangeCallback();
+      }
+
+      // Run ForceAtlas2 burst to redistribute all nodes dynamically with animation
+      // Use performance-aware iteration count based on graph size
+      if (typeof ForceAtlas2Layout === "function" && inst.graph.order > 0) {
+        var settings = ForceAtlas2Layout.inferSettings
+          ? ForceAtlas2Layout.inferSettings(inst.graph)
+          : { barnesHutOptimize: true };
+        var iterations = getLayoutIterations(inst.graph.order);
+        var targetPositions = ForceAtlas2Layout.positions(inst.graph, {
+          iterations: iterations,
+          settings: settings
+        });
+        console.log("[graph-bridge] Expand layout: " + iterations + " iterations for " + inst.graph.order + " nodes");
+        animateLayout(inst, targetPositions);
+      }
+
+      // Clear loading state after layout completes
+      inst.graph.setNodeAttribute(nodeId, "loading", false);
+      clearInterval(loadingInterval);
+    } catch (e) {
+      console.error("Error expanding node:", e);
+      // Ensure loading state is cleared on error
+      try {
+        inst.graph.setNodeAttribute(nodeId, "loading", false);
+        if (loadingInterval) clearInterval(loadingInterval);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+    }
+  };
+
+  /**
+   * Collapse a container node by removing its descendants.
+   * @param {string} containerId
+   * @param {string} nodeId - The node to collapse
+   */
+  window.graphCollapseNode = function(containerId, nodeId) {
+    var inst = instances[containerId];
+    if (!inst) return;
+
+    // Not expanded
+    if (!inst.expandedNodes.has(nodeId)) return;
+
+    // Collect all descendants recursively
+    var descendants = [];
+    function collectDescendants(parentId) {
+      inst.graph.forEachNode(function(id, attrs) {
+        if (attrs.parentId === parentId) {
+          descendants.push(id);
+          collectDescendants(id); // Recurse
+        }
+      });
+    }
+    collectDescendants(nodeId);
+
+    // Remove descendants (leaf-first by reversing)
+    descendants.reverse().forEach(function(id) {
+      // Drop all edges connected to this node
+      try {
+        var edges = inst.graph.edges(id);
+        edges.forEach(function(e) {
+          inst.graph.dropEdge(e);
+        });
+      } catch (e) {
+        // Node may have been removed already
+      }
+
+      // Drop the node itself
+      try {
+        inst.graph.dropNode(id);
+      } catch (e) {
+        // Already dropped
+      }
+
+      // Remove from expanded nodes if it was expanded
+      inst.expandedNodes.delete(id);
+    });
+
+    // If in search mode, remove collapsed nodes from searchResultNodes
+    if (inst.searchResultNodes) {
+      descendants.forEach(function(id) {
+        inst.searchResultNodes.delete(id);
+      });
+    }
+
+    // Remove this node from expanded set
+    inst.expandedNodes.delete(nodeId);
+
+    // Clean up expand history
+    if (inst.expandHistory) {
+      inst.expandHistory = inst.expandHistory.filter(function(id) {
+        return inst.expandedNodes.has(id);
+      });
+    }
+
+    inst.renderer.refresh();
+
+    // Notify legend change callback (graph kinds/edge types may have changed)
+    if (inst.onLegendChangeCallback) {
+      inst.onLegendChangeCallback();
+    }
+  };
+
+  /**
+   * Collapse all expanded nodes and reset to root view.
+   * @param {string} containerId
+   */
+  window.graphCollapseAll = async function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return;
+
+    try {
+      // Fetch root data again using configured API base
+      var url = inst.apiBase + "/repos/" + inst.repoId + "/graph";
+      var response = await fetch(url);
+      if (!response.ok) {
+        console.error("Failed to fetch root graph:", response.statusText);
+        return;
+      }
+
+      var jsonData = await response.text();
+
+      // Clear current graph
+      inst.graph.clear();
+      inst.expandedNodes.clear();
+      inst.knownNodes.clear();
+
+      // Clear expand history
+      if (inst.expandHistory) {
+        inst.expandHistory = [];
+      }
+
+      // Re-initialize with root data
+      var data = JSON.parse(jsonData);
+      var nodeEntryTypes = {};
+
+      (data.nodes || []).forEach(function(node) {
+        if (node.entry_type) {
+          nodeEntryTypes[node.id] = node.entry_type;
+        }
+        var attrs = {
+          label: node.label,
+          qualifiedName: node.qualified_name || node.label,
+          size: 3,
+          color: kindColor(node.kind),
+          kind: node.kind,
+          language: node.language || "unknown",
+          filePath: node.file_path,
+          startLine: node.start_line,
+          entryType: node.entry_type || null,
+          isTest: node.is_test || false,
+          childCount: node.child_count || 0,
+          parentId: node.parent_id || null,
+          x: (Math.random() - 0.5) * 100,
+          y: (Math.random() - 0.5) * 100,
+        };
+        inst.graph.addNode(node.id, attrs);
+        inst.knownNodes.set(node.id, attrs);
+      });
+
+      (data.edges || []).forEach(function(edge) {
+        try {
+          var isAggregate = edge.type === "aggregate";
+          var edgeType = edge.type;
+          var label = (edgeType || "").toLowerCase();
+          var size = 1;
+
+          // Handle aggregate edges
+          if (isAggregate) {
+            var props = calcAggregateEdgeProps(edge.aggregate_counts);
+            size = props.size;
+            label = props.label;
+          }
+
+          inst.graph.addEdge(edge.source, edge.target, {
+            label: label,
+            edgeType: edgeType,
+            color: edgeColor(edgeType),
+            size: size,
+            isAggregate: isAggregate,
+            aggregateCounts: edge.aggregate_counts || null,
+          });
+        } catch (e) {
+          // Skip invalid edges
+        }
+      });
+
+      // Recompute node sizes
+      inst.graph.forEachNode(function(node) {
+        var degree = inst.graph.degree(node);
+        var kind = inst.graph.getNodeAttribute(node, "kind");
+        var childCount = inst.graph.getNodeAttribute(node, "childCount") || 0;
+        var size = 8 + Math.min(Math.log(degree + 1) * 2, 9);
+        if (childCount > 0) {
+          size = Math.max(size, 12);
+        }
+        if (kind === "field" || kind === "property" || kind === "constant" || kind === "const" || kind === "type_alias" || kind === "type") {
+          size = Math.max(size, 10);
+        }
+        inst.graph.setNodeAttribute(node, "size", size);
+      });
+
+      // Run layout
+      if (typeof ForceAtlas2Layout === "function" && inst.graph.order > 0) {
+        var settings = ForceAtlas2Layout.inferSettings(inst.graph);
+        settings.strongGravityMode = true;
+        settings.linLogMode = true;
+        settings.gravity = 1;
+        settings.outboundAttractionDistribution = true;
+        settings.adjustSizes = true;
+        settings.scalingRatio = Math.max(settings.scalingRatio || 1, 1 + Math.log10(inst.graph.order));
+        if (inst.graph.order > 100) {
+          settings.barnesHutOptimize = true;
+          settings.barnesHutTheta = 0.5;
+        }
+        var totalIterations = Math.min(600, 150 + Math.floor(inst.graph.order / 2));
+        ForceAtlas2Layout(inst.graph, { iterations: totalIterations, settings: settings });
+      }
+
+      inst.renderer.refresh();
+
+      // Notify legend change callback (back to root view, kinds/edge types reset)
+      if (inst.onLegendChangeCallback) {
+        inst.onLegendChangeCallback();
+      }
+    } catch (e) {
+      console.error("Error collapsing all:", e);
     }
   };
 
@@ -711,7 +1274,6 @@
     // Collect visible node IDs
     var visibleNodes = [];
     graph.forEachNode(function(node, attrs) {
-      if (inst.focusedNode && inst.focusedNeighbors && !inst.focusedNeighbors.has(node)) return;
       if (inst.hideTests && attrs.isTest) return;
       if (inst.filteredLanguage && attrs.language !== inst.filteredLanguage) return;
       if (inst.filteredKinds.size > 0 && !inst.filteredKinds.has(attrs.kind)) return;
@@ -732,15 +1294,18 @@
       allMinY = Math.min(allMinY, attrs.y);
       allMaxY = Math.max(allMaxY, attrs.y);
     });
-    var graphWidth = allMaxX - allMinX || 1;
-    var graphHeight = allMaxY - allMinY || 1;
+    var rawGraphWidth = allMaxX - allMinX;
+    var rawGraphHeight = allMaxY - allMinY;
+    var graphWidth = rawGraphWidth || 1;
+    var graphHeight = rawGraphHeight || 1;
 
     // Single node: center on it with tight zoom
     if (visibleNodes.length === 1) {
       var attrs = graph.getNodeAttributes(visibleNodes[0]);
       // Convert to normalized coordinates (0-1)
-      var nx = (attrs.x - allMinX) / graphWidth;
-      var ny = (attrs.y - allMinY) / graphHeight;
+      // If graph is degenerate (all nodes at same x/y), center = 0.5
+      var nx = rawGraphWidth === 0 ? 0.5 : (attrs.x - allMinX) / graphWidth;
+      var ny = rawGraphHeight === 0 ? 0.5 : (attrs.y - allMinY) / graphHeight;
       camera.animate({ x: nx, y: ny, ratio: 0.15 }, { duration: 300 });
       return;
     }
@@ -758,8 +1323,9 @@
     });
 
     // Center of visible nodes in normalized coordinates (0-1)
-    var centerX = ((minX + maxX) / 2 - allMinX) / graphWidth;
-    var centerY = ((minY + maxY) / 2 - allMinY) / graphHeight;
+    // If graph is degenerate (all nodes collinear), center = 0.5
+    var centerX = rawGraphWidth === 0 ? 0.5 : ((minX + maxX) / 2 - allMinX) / graphWidth;
+    var centerY = rawGraphHeight === 0 ? 0.5 : ((minY + maxY) / 2 - allMinY) / graphHeight;
 
     var subsetWidth = maxX - minX;
     var subsetHeight = maxY - minY;
@@ -772,6 +1338,91 @@
     );
 
     camera.animate({ x: centerX, y: centerY, ratio: ratio }, { duration: 300 });
+  };
+
+  /**
+   * Zoom in by 1.5x.
+   * @param {string} containerId
+   */
+  window.graphZoomIn = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.renderer.getCamera().animatedZoom({ duration: 200, factor: 1.5 });
+  };
+
+  /**
+   * Zoom out by 1.5x.
+   * @param {string} containerId
+   */
+  window.graphZoomOut = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return;
+    inst.renderer.getCamera().animatedUnzoom({ duration: 200, factor: 1.5 });
+  };
+
+  /**
+   * Redistribute nodes by re-running ForceAtlas2 layout.
+   * @param {string} containerId
+   */
+  window.graphRedistribute = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) return;
+
+    // Unfix all nodes
+    inst.graph.forEachNode(function(node) {
+      inst.graph.setNodeAttribute(node, 'fixed', false);
+    });
+
+    // Run ForceAtlas2 with inferred settings and animate the transition
+    // Use performance-aware iteration count based on graph size
+    if (typeof ForceAtlas2Layout === "function" && inst.graph.order > 0) {
+      var settings = ForceAtlas2Layout.inferSettings
+        ? ForceAtlas2Layout.inferSettings(inst.graph)
+        : { barnesHutOptimize: true };
+      var iterations = getLayoutIterations(inst.graph.order);
+      var targetPositions = ForceAtlas2Layout.positions(inst.graph, {
+        iterations: iterations,
+        settings: settings
+      });
+      console.log("[graph-bridge] Redistribute: " + iterations + " iterations for " + inst.graph.order + " nodes");
+      animateLayout(inst, targetPositions);
+    }
+  };
+
+  /**
+   * Center camera on a specific node.
+   * @param {string} containerId
+   * @param {string} nodeId - Node ID to center on
+   */
+  window.graphCenterOnNode = function(containerId, nodeId) {
+    var inst = instances[containerId];
+    if (!inst || !inst.graph.hasNode(nodeId)) return;
+
+    var graph = inst.graph;
+    var camera = inst.renderer.getCamera();
+
+    // Get node position
+    var nodeX = graph.getNodeAttribute(nodeId, 'x');
+    var nodeY = graph.getNodeAttribute(nodeId, 'y');
+
+    // Get full graph bounding box for normalization
+    var allMinX = Infinity, allMaxX = -Infinity;
+    var allMinY = Infinity, allMaxY = -Infinity;
+    graph.forEachNode(function(node, attrs) {
+      allMinX = Math.min(allMinX, attrs.x);
+      allMaxX = Math.max(allMaxX, attrs.x);
+      allMinY = Math.min(allMinY, attrs.y);
+      allMaxY = Math.max(allMaxY, attrs.y);
+    });
+    var graphWidth = allMaxX - allMinX || 1;
+    var graphHeight = allMaxY - allMinY || 1;
+
+    // Convert to normalized coordinates (0-1)
+    var nx = (nodeX - allMinX) / graphWidth;
+    var ny = (nodeY - allMinY) / graphHeight;
+
+    // Animate camera to node with tight zoom
+    camera.animate({ x: nx, y: ny, ratio: 0.2 }, { duration: 300 });
   };
 
   /**
@@ -939,21 +1590,235 @@
   };
 
   /**
-   * Set the BFS depth for double-click focus.
+   * Server-side search with ancestor chain reveal.
+   * Fetches matching symbols from the API and adds them to the graph with their ancestor chains.
+   * Highlights matched nodes and marks expanded nodes.
    * @param {string} containerId
-   * @param {number} depth - Number of hops (1 = direct neighbors, 2 = neighbors of neighbors, etc.)
+   * @param {string} searchTerm - search string
+   * @param {function} callback - Called with match count when complete
    */
-  window.graphSetFocusDepth = function(containerId, depth) {
+  window.graphSearchAndReveal = function(containerId, searchTerm, callback) {
+    var inst = instances[containerId];
+    if (!inst) {
+      if (callback) callback(0);
+      return;
+    }
+
+    if (!searchTerm || searchTerm.trim() === "") {
+      graphClearSearch(containerId);
+      if (callback) callback(0);
+      return;
+    }
+
+    // Snapshot graph state before first search (preserve pre-search state)
+    if (!inst.preSearchSnapshot) {
+      var snapshot = {
+        nodes: {},
+        edges: {},
+        expandedNodes: new Set(inst.expandedNodes),
+        knownNodes: new Map(inst.knownNodes),
+        filteredKinds: new Set(inst.filteredKinds),
+        filteredEdgeTypes: new Set(inst.filteredEdgeTypes)
+      };
+      inst.graph.forEachNode(function(id, attrs) {
+        snapshot.nodes[id] = Object.assign({}, attrs);
+      });
+      inst.graph.forEachEdge(function(id, attrs, source, target) {
+        snapshot.edges[id] = { attrs: Object.assign({}, attrs), source: source, target: target };
+      });
+      inst.preSearchSnapshot = snapshot;
+    }
+
+    // Temporarily clear filters during search to show all results
+    var savedFilteredKinds = new Set(inst.filteredKinds);
+    var savedFilteredEdgeTypes = new Set(inst.filteredEdgeTypes);
+    inst.filteredKinds.clear();
+    inst.filteredEdgeTypes.clear();
+
+    // Fetch search results from API
+    var url = inst.apiBase + "/repos/" + inst.repoId + "/graph?search=" + encodeURIComponent(searchTerm);
+
+    fetch(url)
+      .then(function(response) {
+        if (!response.ok) {
+          console.error("Search request failed:", response.status);
+          inst.searchMatches = null;
+          inst.renderer.refresh();
+          if (callback) callback(0);
+          return null;
+        }
+        return response.json();
+      })
+      .then(function(data) {
+        if (!data) return;
+
+        var nodes = data.nodes || [];
+        var edges = data.edges || [];
+
+        if (nodes.length === 0) {
+          inst.searchMatches = null;
+          inst.renderer.refresh();
+          if (callback) callback(0);
+          return;
+        }
+
+        // Replace graph with search results (show full hierarchy, not additive)
+        inst.graph.clear();
+        inst.expandedNodes.clear();
+        inst.knownNodes.clear();
+
+        console.log("[search] API returned", nodes.length, "nodes,", edges.length, "edges");
+
+        // Track matched nodes (leaf nodes without children that matched the search)
+        var matchedSet = new Set();
+        var searchLower = searchTerm.toLowerCase();
+
+        // Add nodes to graph
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          var color = kindColor(node.kind);
+          var nodeAttrs = {
+            label: node.label,
+            qualifiedName: node.qualified_name,
+            kind: node.kind,
+            language: node.language,
+            filePath: node.file_path,
+            startLine: node.start_line,
+            entryType: node.entry_type || null,
+            isTest: node.is_test || false,
+            childCount: node.child_count || 0,
+            parentId: node.parent_id || null,
+            color: color,
+            size: (node.child_count || 0) > 0 ? 12 : 8,
+            x: 0,  // Will be set by tree layout
+            y: 0
+          };
+          inst.graph.addNode(node.id, nodeAttrs);
+          inst.knownNodes.set(node.id, nodeAttrs);
+
+          // Mark as expanded if it has children
+          if ((node.child_count || 0) > 0) {
+            inst.expandedNodes.add(node.id);
+          }
+
+          // Check if this node matched the search term
+          var label = (node.label || "").toLowerCase();
+          var qname = (node.qualified_name || "").toLowerCase();
+          if (label.indexOf(searchLower) !== -1 || qname.indexOf(searchLower) !== -1) {
+            matchedSet.add(node.id);
+          }
+        }
+
+        console.log("[search] Added", inst.graph.order, "nodes to graph. Matched:", matchedSet.size);
+
+        // Add edges to graph
+        var edgesAdded = 0;
+        var edgesFailed = 0;
+        for (var i = 0; i < edges.length; i++) {
+          var edge = edges[i];
+          var edgeId = edge.id;
+          var isAggregate = edge.type === "aggregate";
+          var edgeType = edge.type;
+          var label = (edgeType || "").toLowerCase();
+          var size = 1;
+
+          // Handle aggregate edges
+          if (isAggregate) {
+            var props = calcAggregateEdgeProps(edge.aggregate_counts);
+            size = props.size;
+            label = props.label;
+          }
+
+          try {
+            inst.graph.addEdge(edge.source, edge.target, {
+              label: label,
+              edgeType: edgeType,
+              color: edgeColor(edgeType),
+              size: size,
+              isAggregate: isAggregate,
+              aggregateCounts: edge.aggregate_counts || null,
+            });
+            edgesAdded++;
+          } catch (err) {
+            edgesFailed++;
+            console.warn("[search] Edge failed:", edge.source, "->", edge.target, err.message);
+          }
+        }
+
+        console.log("[search] Edges added:", edgesAdded, "failed:", edgesFailed);
+        console.log("[search] Graph now has", inst.graph.order, "nodes,", inst.graph.size, "edges");
+
+        // Set search matches for highlighting
+        inst.searchMatches = matchedSet.size > 0 ? matchedSet : null;
+        // Set all nodes currently in graph (matched + ancestors) for visibility checks
+        inst.searchResultNodes = matchedSet.size > 0 ? new Set(inst.graph.nodes()) : null;
+
+        // Use tree layout for search results (shows hierarchy clearly)
+        treeLayout(inst.graph);
+
+        inst.renderer.refresh();
+
+        // Zoom to fit all search results
+        graphZoomToFit(containerId);
+
+        // Notify legend change if callback is registered
+        if (inst.onLegendChangeCallback) {
+          inst.onLegendChangeCallback();
+        }
+
+        if (callback) callback(matchedSet.size);
+      })
+      .catch(function(error) {
+        console.error("Search error:", error);
+        inst.searchMatches = null;
+        inst.renderer.refresh();
+        if (callback) callback(0);
+      });
+  };
+
+  /**
+   * Clear search highlighting.
+   * @param {string} containerId
+   */
+  window.graphClearSearch = function(containerId) {
     var inst = instances[containerId];
     if (!inst) return;
-    inst.focusDepth = Math.max(1, Math.min(depth, 5));
-    if (inst.focusedNode) {
-      inst.focusedNeighbors = bfsNeighbors(inst.graph, inst.focusedNode, inst.focusDepth);
-      inst.renderer.refresh();
-      setTimeout(function() {
-        window.graphZoomToFit(containerId);
-      }, 50);
+    inst.searchMatches = null;
+    inst.searchResultNodes = null;
+
+    // Restore pre-search graph state if we have a snapshot
+    if (inst.preSearchSnapshot) {
+      var snapshot = inst.preSearchSnapshot;
+      inst.preSearchSnapshot = null;
+
+      // Remove all current nodes/edges and restore from snapshot
+      inst.graph.clear();
+
+      var nodeIds = Object.keys(snapshot.nodes);
+      for (var i = 0; i < nodeIds.length; i++) {
+        inst.graph.addNode(nodeIds[i], snapshot.nodes[nodeIds[i]]);
+      }
+
+      var edgeIds = Object.keys(snapshot.edges);
+      for (var i = 0; i < edgeIds.length; i++) {
+        var e = snapshot.edges[edgeIds[i]];
+        try {
+          inst.graph.addEdge(e.source, e.target, e.attrs);
+        } catch (err) { /* skip if source/target missing */ }
+      }
+
+      inst.expandedNodes = new Set(snapshot.expandedNodes);
+      inst.knownNodes = new Map(snapshot.knownNodes);
+      inst.filteredKinds = new Set(snapshot.filteredKinds);
+      inst.filteredEdgeTypes = new Set(snapshot.filteredEdgeTypes);
+
+      // Notify legend change
+      if (inst.onLegendChangeCallback) {
+        inst.onLegendChangeCallback();
+      }
     }
+
+    inst.renderer.refresh();
   };
 
   /**
@@ -967,7 +1832,7 @@
   };
 
   /**
-   * Register a callback for node selection (click) events.
+   * Register a callback for node selection events.
    * Callback receives a JSON string with node info, or empty string on deselect.
    * @param {string} containerId
    * @param {function} callback
@@ -979,15 +1844,15 @@
   };
 
   /**
-   * Register a callback for focus state changes (double-click).
-   * Callback receives a boolean: true when focused, false when unfocused.
+   * Register a callback to be notified when the legend should be refreshed
+   * (after expand/collapse operations that change visible node kinds or edge types).
    * @param {string} containerId
-   * @param {function} callback
+   * @param {function} callback - Will be called with no arguments
    */
-  window.graphOnFocusChange = function(containerId, callback) {
+  window.graphOnLegendChange = function(containerId, callback) {
     var inst = instances[containerId];
     if (!inst) return;
-    inst.onFocusCallback = callback;
+    inst.onLegendChangeCallback = callback;
   };
 
   /**
@@ -1028,9 +1893,123 @@
       filteredLanguage: inst.filteredLanguage,
       filteredKinds: Array.from(inst.filteredKinds),
       filteredEdgeTypes: Array.from(inst.filteredEdgeTypes),
-      focusedNode: inst.focusedNode,
+      expandedNodes: Array.from(inst.expandedNodes),
       searchMatches: inst.searchMatches ? inst.searchMatches.size : null,
     });
     console.log("========================");
+  };
+
+  /**
+   * Initialize keyboard shortcuts for graph navigation.
+   * @param {string} containerId - The graph container ID
+   */
+  window.graphInitKeyboardShortcuts = function(containerId) {
+    var inst = instances[containerId];
+    if (!inst) {
+      console.error("Cannot initialize keyboard shortcuts - graph instance not found:", containerId);
+      return;
+    }
+
+    // Remove existing keyboard handler if already initialized to prevent double-init
+    if (inst.keyboardHandler) {
+      document.removeEventListener("keydown", inst.keyboardHandler);
+      console.log("[graph-bridge] Removed existing keyboard handler for", containerId);
+    }
+
+    // Track expand history (most recent expansions first)
+    if (!inst.expandHistory) {
+      inst.expandHistory = [];
+    }
+
+    // Store selected node ID (updated by existing node selection handler)
+    if (!inst.selectedNode) {
+      inst.selectedNode = null;
+    }
+
+    // Listen for clickNode events to track selection
+    inst.renderer.on("clickNode", function(event) {
+      inst.selectedNode = event.node;
+    });
+
+    // Clear selection on stage click
+    inst.renderer.on("clickStage", function() {
+      inst.selectedNode = null;
+    });
+
+    // Keyboard event handler
+    var keydownHandler = function(event) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+
+      // Only handle keys when the graph container or its children have focus
+      // or when no input/textarea is focused
+      var activeEl = document.activeElement;
+      var isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+      if (isInputFocused) {
+        return; // Don't interfere with input fields
+      }
+
+      // Escape: Collapse all expanded nodes
+      if (event.key === "Escape") {
+        event.preventDefault();
+        window.graphCollapseAll(containerId);
+        console.log("[graph-bridge] Keyboard: Collapse all (Escape)");
+      }
+
+      // Enter: Toggle expand/collapse on selected node
+      else if (event.key === "Enter") {
+        if (inst.selectedNode) {
+          event.preventDefault();
+          var nodeAttrs = inst.graph.getNodeAttributes(inst.selectedNode);
+
+          // Check if node is expandable (has children)
+          if (nodeAttrs.childCount && nodeAttrs.childCount > 0) {
+            if (inst.expandedNodes.has(inst.selectedNode)) {
+              // Collapse
+              window.graphCollapseNode(containerId, inst.selectedNode);
+              console.log("[graph-bridge] Keyboard: Collapsed node", inst.selectedNode);
+            } else {
+              // Expand (graphExpandNode will handle history push)
+              window.graphExpandNode(containerId, inst.selectedNode);
+              console.log("[graph-bridge] Keyboard: Expanded node", inst.selectedNode);
+            }
+          }
+        }
+      }
+
+      // Backspace: Collapse most recently expanded node
+      else if (event.key === "Backspace") {
+        if (inst.expandHistory.length > 0) {
+          event.preventDefault();
+
+          // Pop history entries until we find one that's still expanded, or exhaust the history
+          var nodeToCollapse = null;
+          while (inst.expandHistory.length > 0) {
+            var candidateNode = inst.expandHistory.pop();
+
+            // Only collapse if still expanded (might have been collapsed by other means)
+            if (inst.expandedNodes.has(candidateNode)) {
+              nodeToCollapse = candidateNode;
+              break;
+            }
+            // Otherwise, continue popping to find a valid entry
+          }
+
+          if (nodeToCollapse) {
+            window.graphCollapseNode(containerId, nodeToCollapse);
+            console.log("[graph-bridge] Keyboard: Collapsed recent expansion", nodeToCollapse);
+          }
+        }
+      }
+    };
+
+    // Store handler reference for potential cleanup
+    inst.keyboardHandler = keydownHandler;
+
+    // Attach to document for global capture
+    document.addEventListener("keydown", keydownHandler);
+
+    console.log("[graph-bridge] Keyboard shortcuts initialized for", containerId);
   };
 })();

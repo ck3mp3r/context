@@ -208,8 +208,36 @@ pub mod graph {
 
     /// Fetch graph data as raw JSON string (passed directly to JS bridge).
     /// Returns None if the repo has no analysis (204 No Content).
-    pub async fn get_repo_graph(repo_id: &str) -> Result<Option<String>> {
-        let url = format!("{}/repos/{}/graph", API_BASE, repo_id);
+    ///
+    /// # Parameters
+    /// - `repo_id`: The repository ID
+    /// - `root`: Optional root symbol ID for subtree view
+    /// - `depth`: Optional depth of children to expand (capped at 5)
+    /// - `visible_ids`: Optional comma-separated list of visible symbol IDs
+    pub async fn get_repo_graph(
+        repo_id: &str,
+        root: Option<&str>,
+        depth: Option<u32>,
+        visible_ids: Option<&str>,
+    ) -> Result<Option<String>> {
+        let mut url = format!("{}/repos/{}/graph", API_BASE, repo_id);
+        let mut query_params = vec![];
+
+        // Add optional query parameters
+        if let Some(r) = root {
+            query_params.push(format!("root={}", r));
+        }
+        if let Some(d) = depth {
+            query_params.push(format!("depth={}", d));
+        }
+        if let Some(ids) = visible_ids {
+            query_params.push(format!("visible_ids={}", ids));
+        }
+
+        if !query_params.is_empty() {
+            url = format!("{}?{}", url, query_params.join("&"));
+        }
+
         let response = Request::get(&url)
             .send()
             .await

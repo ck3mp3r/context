@@ -10,6 +10,12 @@ use crate::models::{Project, Repo, UpdateMessage};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
 
+// Import API_BASE constant for graph initialization
+#[cfg(debug_assertions)]
+const API_BASE: &str = "/dev/api/v1";
+#[cfg(not(debug_assertions))]
+const API_BASE: &str = "/api/v1";
+
 #[wasm_bindgen(
     inline_js = "export function copy_to_clipboard(text) { navigator.clipboard.writeText(text); }"
 )]
@@ -223,13 +229,26 @@ fn RepoDetailContent(repo: Repo) -> impl IntoView {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = initGraph)]
-    fn init_graph(container_id: &str, graph_data_json: &str) -> bool;
+    fn init_graph(container_id: &str, graph_data_json: &str, repo_id: &str, api_base: &str)
+    -> bool;
 
     #[wasm_bindgen(js_name = destroyGraph)]
     fn destroy_graph(container_id: &str);
 
     #[wasm_bindgen(js_name = graphZoomToFit)]
     fn zoom_to_fit(container_id: &str);
+
+    #[wasm_bindgen(js_name = graphZoomIn)]
+    fn zoom_in(container_id: &str);
+
+    #[wasm_bindgen(js_name = graphZoomOut)]
+    fn zoom_out(container_id: &str);
+
+    #[wasm_bindgen(js_name = graphRedistribute)]
+    fn redistribute(container_id: &str);
+
+    #[wasm_bindgen(js_name = graphCenterOnNode)]
+    fn center_on_node(container_id: &str, node_id: &str);
 
     #[wasm_bindgen(js_name = graphFilterKinds)]
     fn filter_kinds(container_id: &str, kinds_json: &str);
@@ -246,6 +265,12 @@ extern "C" {
     #[wasm_bindgen(js_name = graphSearchNodes)]
     fn search_nodes(container_id: &str, query: &str) -> u32;
 
+    #[wasm_bindgen(js_name = graphSearchAndReveal)]
+    fn search_and_reveal(container_id: &str, search_term: &str, callback: &Closure<dyn Fn(u32)>);
+
+    #[wasm_bindgen(js_name = graphClearSearch)]
+    fn clear_search(container_id: &str);
+
     #[wasm_bindgen(js_name = graphFilterEdgeTypes)]
     fn filter_edge_types(container_id: &str, types_json: &str);
 
@@ -255,17 +280,26 @@ extern "C" {
     #[wasm_bindgen(js_name = graphFilterLanguage)]
     fn filter_language(container_id: &str, language: &str);
 
-    #[wasm_bindgen(js_name = graphSetFocusDepth)]
-    fn js_set_focus_depth(container_id: &str, depth: u32);
+    #[wasm_bindgen(js_name = graphExpandNode)]
+    fn expand_node(container_id: &str, node_id: &str);
+
+    #[wasm_bindgen(js_name = graphCollapseNode)]
+    fn collapse_node(container_id: &str, node_id: &str);
+
+    #[wasm_bindgen(js_name = graphCollapseAll)]
+    fn collapse_all(container_id: &str);
 
     #[wasm_bindgen(js_name = graphOnNodeSelect)]
     fn on_node_select(container_id: &str, callback: &Closure<dyn Fn(String)>);
 
-    #[wasm_bindgen(js_name = graphOnFocusChange)]
-    fn on_focus_change(container_id: &str, callback: &Closure<dyn Fn(bool)>);
+    #[wasm_bindgen(js_name = graphOnLegendChange)]
+    fn on_legend_change(container_id: &str, callback: &Closure<dyn Fn()>);
 
     #[wasm_bindgen(js_name = graphIsLayoutRunning)]
     fn is_layout_running(container_id: &str) -> bool;
+
+    #[wasm_bindgen(js_name = graphInitKeyboardShortcuts)]
+    fn init_keyboard_shortcuts(container_id: &str);
 }
 
 // =============================================================================
@@ -285,8 +319,6 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     let (available_languages, set_available_languages) = signal(Vec::<String>::new());
     let (search_query, set_search_query) = signal(String::new());
     let (search_count, set_search_count) = signal(0u32);
-    let (focus_depth, set_focus_depth) = signal(1u32);
-    let (is_focused, set_is_focused) = signal(false);
     let (selected_node, set_selected_node) = signal(None::<SelectedNodeInfo>);
     let (layout_running, set_layout_running) = signal(false);
 
@@ -295,7 +327,8 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     Effect::new(move || {
         let repo_id = repo_id_for_fetch.clone();
         spawn_local(async move {
-            match graph::get_repo_graph(&repo_id).await {
+            // Initial load: no root, no depth, no visible_ids - fetches root symbols
+            match graph::get_repo_graph(&repo_id, None, None, None).await {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
@@ -310,12 +343,14 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     });
 
     // Initialize graph renderer after Ready state is set and DOM has updated
+    let repo_id_for_init = repo_id.clone();
     Effect::new(move || {
         if let GraphState::Ready(ref json_data) = graph_state.get() {
             let data = json_data.clone();
+            let rid = repo_id_for_init.clone();
             set_timeout(
                 move || {
-                    if init_graph(container_id, &data) {
+                    if init_graph(container_id, &data, &rid, API_BASE) {
                         let kinds_json = get_kinds(container_id);
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
@@ -346,12 +381,25 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                         });
                         on_node_select(container_id, &select_closure);
                         select_closure.forget();
-                        // Register focus change callback
-                        let focus_closure = Closure::new(move |focused: bool| {
-                            set_is_focused.set(focused);
+                        // Register legend change callback
+                        let legend_closure = Closure::new(move || {
+                            // Refresh legend kinds
+                            let kinds_json = get_kinds(container_id);
+                            if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
+                                set_legend_kinds.set(kinds);
+                            }
+                            // Refresh legend edge types
+                            let edge_types_json = get_edge_types(container_id);
+                            if let Ok(edge_types) =
+                                serde_json::from_str::<Vec<KindInfo>>(&edge_types_json)
+                            {
+                                set_legend_edge_types.set(edge_types);
+                            }
                         });
-                        on_focus_change(container_id, &focus_closure);
-                        focus_closure.forget();
+                        on_legend_change(container_id, &legend_closure);
+                        legend_closure.forget();
+                        // Initialize keyboard shortcuts
+                        init_keyboard_shortcuts(container_id);
                         set_layout_running.set(true);
                         set_graph_state.set(GraphState::Loaded);
                         // Poll layout status via recursive setTimeout
@@ -415,17 +463,57 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
         filter_language(container_id, &lang);
     });
 
-    // Push search query to JS when it changes
+    // Debounced server-side search with ancestor chain reveal
+    let (debounce_query, set_debounce_query) = signal(String::new());
+    let timeout_handle: StoredValue<Option<i32>> = StoredValue::new(None);
+
+    // First effect: watches search_query and schedules debounced update
     Effect::new(move || {
         let query = search_query.get();
-        let count = search_nodes(container_id, &query);
-        set_search_count.set(count);
+
+        // Cancel any pending timeout
+        if let Some(handle) = timeout_handle.get_value() {
+            web_sys::window().unwrap().clear_timeout_with_handle(handle);
+        }
+
+        if query.is_empty() {
+            clear_search(container_id);
+            set_search_count.set(0);
+            set_debounce_query.set(String::new());
+            return;
+        }
+
+        // Schedule debounced update (300ms delay)
+        let cb = Closure::once(move || {
+            set_debounce_query.set(query);
+        });
+        let handle = web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), 300)
+            .unwrap();
+        cb.forget();
+        timeout_handle.set_value(Some(handle));
     });
 
-    // Push focus depth to JS when it changes
+    // Second effect: executes search when debounce_query actually changes
+    // This only runs when the 300ms delay has passed without new input
     Effect::new(move || {
-        let depth = focus_depth.get();
-        js_set_focus_depth(container_id, depth);
+        let query = debounce_query.get();
+
+        if query.is_empty() {
+            return;
+        }
+
+        // Create callback for this search
+        // Note: .forget() is necessary here because the callback is passed to JS
+        // and must outlive this scope. The leak is acceptable because:
+        // 1. This only happens after 300ms of no typing (debounced)
+        // 2. Typical usage has <100 searches per session (few KB leaked)
+        let callback = Closure::new(move |count: u32| {
+            set_search_count.set(count);
+        });
+        search_and_reveal(container_id, &query, &callback);
+        callback.forget();
     });
 
     view! {
@@ -436,6 +524,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 <div
                     id=container_id
                     class="flex-1 bg-ctp-mantle rounded-lg relative aspect-square max-h-[600px]"
+                    aria-label="Code graph visualization"
                 >
                     {move || match graph_state.get() {
                         GraphState::Loading => {
@@ -557,7 +646,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                                 .collect::<Vec<_>>()
                         }}
                     </div>
-                    // Top-right overlay: layout indicator + depth controls + fit button
+                    // Top-right overlay: layout indicator + zoom controls
                     <div class="absolute top-3 right-3 z-10 flex items-center gap-2">
                         // Layout running indicator
                         <div
@@ -568,43 +657,47 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                             <span class="inline-block w-2 h-2 rounded-full bg-ctp-blue animate-pulse"></span>
                             "Layouting..."
                         </div>
-                        // Depth controls (only shown when focused)
-                        <div
-                            class="flex items-center gap-1 bg-ctp-surface0 border border-ctp-surface2 rounded px-2 py-1 transition-opacity duration-200"
-                            style:opacity=move || if is_focused.get() { "1" } else { "0" }
-                            style:pointer-events=move || if is_focused.get() { "auto" } else { "none" }
-                        >
-                            <Tooltip content="Neighborhood depth">
-                                <span class="text-xs text-ctp-overlay0">"Depth"</span>
+                        // Zoom controls group
+                        <div class="flex items-center gap-1 bg-ctp-surface0 border border-ctp-surface2 rounded p-0.5">
+                            <Tooltip content="Zoom in">
+                                <button
+                                    class="p-1.5 rounded text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
+                                    on:click=move |_| zoom_in(container_id)
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd"/>
+                                    </svg>
+                                </button>
                             </Tooltip>
-                            {[1u32, 2, 3].into_iter().map(|d| {
-                                let is_active = Signal::derive(move || focus_depth.get() == d);
-                                view! {
-                                    <button
-                                        class="text-xs px-1.5 py-0.5 rounded transition-colors"
-                                        class:bg-ctp-blue=move || is_active.get()
-                                        class:text-ctp-base=move || is_active.get()
-                                        class:bg-ctp-surface1=move || !is_active.get()
-                                        class:text-ctp-subtext0=move || !is_active.get()
-                                        class:hover:bg-ctp-surface2=move || !is_active.get()
-                                        on:click=move |_| set_focus_depth.set(d)
-                                    >
-                                        {d.to_string()}
-                                    </button>
-                                }
-                            }).collect::<Vec<_>>()}
+                            <Tooltip content="Zoom out">
+                                <button
+                                    class="p-1.5 rounded text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
+                                    on:click=move |_| zoom_out(container_id)
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clip-rule="evenodd"/>
+                                    </svg>
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Fit to canvas">
+                                <button
+                                    class="p-1.5 rounded text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
+                                    on:click=move |_| zoom_to_fit(container_id)
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
+                                    </svg>
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Redistribute layout">
+                                <button
+                                    class="p-1.5 rounded text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
+                                    on:click=move |_| redistribute(container_id)
+                                >
+                                    "⬡"
+                                </button>
+                            </Tooltip>
                         </div>
-                        // Fit to canvas button
-                        <Tooltip content="Fit to canvas">
-                            <button
-                                class="p-1.5 rounded bg-ctp-surface0 border border-ctp-surface2 text-ctp-subtext0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
-                                on:click=move |_| zoom_to_fit(container_id)
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zM16 4a1 1 0 00-1-1h-4a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h4a1 1 0 100-2H5v-3a1 1 0 10-2 0v4zM16 16a1 1 0 01-1 1h-4a1 1 0 110-2h3v-3a1 1 0 112 0v4z"/>
-                                </svg>
-                            </button>
-                        </Tooltip>
                     </div>
                 </div>
 
@@ -617,18 +710,93 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                     </div>
                     // Selected node info card
                     <div class="bg-ctp-base border border-ctp-surface2 rounded-lg p-3">
-                        <h4 class="text-xs font-semibold text-ctp-overlay0 mb-2">"Selected Node"</h4>
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-xs font-semibold text-ctp-overlay0">"Selected Node"</h4>
+                            {move || {
+                                selected_node.get().map(|info| {
+                                    let node_id = info.id.clone();
+                                    view! {
+                                        <Tooltip content="Center on node">
+                                            <button
+                                                class="p-1 rounded text-ctp-overlay0 hover:text-ctp-blue hover:bg-ctp-surface1 transition-colors"
+                                                on:click=move |_| center_on_node(container_id, &node_id)
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </button>
+                                        </Tooltip>
+                                    }.into_any()
+                                }).unwrap_or_else(|| view! { <span></span> }.into_any())
+                            }}
+                        </div>
                         {move || {
                             selected_node.get().map(|info| {
                                 view! {
-                                    <div class="space-y-1 text-xs font-mono">
-                                        <div class="flex items-center gap-2">
+                                    <div class="space-y-2 text-xs">
+                                        // Breadcrumb trail (if ancestors exist)
+                                        {(!info.ancestor_chain.is_empty()).then(|| {
+                                            let ancestors = info.ancestor_chain.clone();
+                                            view! {
+                                                <div class="flex items-center gap-1 text-[10px] text-ctp-overlay0 flex-wrap mb-1">
+                                                    {ancestors.into_iter().rev().enumerate().map(|(idx, ancestor)| {
+                                                        if idx == 0 {
+                                                            // Root (last in reversed chain)
+                                                            view! {
+                                                                <span class="font-mono">{ancestor.label}</span>
+                                                            }.into_any()
+                                                        } else {
+                                                            view! {
+                                                                <>
+                                                                    <span>"›"</span>
+                                                                    <span class="font-mono">{ancestor.label}</span>
+                                                                </>
+                                                            }.into_any()
+                                                        }
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
+                                            }
+                                        })}
+
+                                        <div class="flex items-center gap-2 font-mono">
                                             <span class="text-ctp-blue font-semibold">{info.kind}</span>
                                             <span class="text-ctp-overlay0">{info.language}</span>
                                         </div>
-                                        <p class="text-ctp-text break-all">{info.qualified_name.clone()}</p>
-                                        <div class="flex items-center gap-1">
-                                            <p class="text-ctp-overlay0 text-[10px] truncate" title=format!("{}:{}", info.file_path, info.start_line)>
+                                        <p class="text-ctp-text break-all font-mono">{info.qualified_name.clone()}</p>
+
+                                        // Container info and expand/collapse button
+                                        {(info.child_count > 0).then(|| {
+                                            let node_id = info.id.clone();
+                                            let (is_expanded, set_is_expanded) = signal(info.is_expanded);
+                                            view! {
+                                                <div class="flex items-center justify-between pt-1 border-t border-ctp-surface2">
+                                                    <span class="text-ctp-overlay0">
+                                                        {format!("Contains {} symbol{}", info.child_count, if info.child_count == 1 { "" } else { "s" })}
+                                                    </span>
+                                                    <button
+                                                        class="text-xs px-2 py-0.5 rounded border transition-colors text-ctp-base"
+                                                        class:bg-ctp-peach=move || is_expanded.get()
+                                                        class:border-ctp-peach=move || is_expanded.get()
+                                                        class:bg-ctp-blue=move || !is_expanded.get()
+                                                        class:border-ctp-blue=move || !is_expanded.get()
+                                                        on:click=move |_| {
+                                                            if is_expanded.get_untracked() {
+                                                                collapse_node(container_id, &node_id);
+                                                                set_is_expanded.set(false);
+                                                            } else {
+                                                                expand_node(container_id, &node_id);
+                                                                set_is_expanded.set(true);
+                                                            }
+                                                        }
+                                                    >
+                                                        {move || if is_expanded.get() { "Collapse" } else { "Expand" }}
+                                                    </button>
+                                                </div>
+                                            }
+                                        })}
+
+                                        <div class="flex items-center gap-1 pt-1 border-t border-ctp-surface2">
+                                            <p class="text-ctp-overlay0 text-[10px] truncate font-mono" title=format!("{}:{}", info.file_path, info.start_line)>
                                                 {format!("{}:{}", info.file_path, info.start_line)}
                                             </p>
                                             {
@@ -828,6 +996,7 @@ struct KindInfo {
 
 #[derive(Clone, serde::Deserialize)]
 struct SelectedNodeInfo {
+    id: String,
     #[allow(dead_code)]
     label: String,
     #[serde(rename = "qualifiedName")]
@@ -838,4 +1007,19 @@ struct SelectedNodeInfo {
     file_path: String,
     #[serde(rename = "startLine")]
     start_line: i64,
+    #[serde(rename = "childCount", default)]
+    child_count: i64,
+    #[serde(rename = "isExpanded", default)]
+    is_expanded: bool,
+    #[serde(rename = "ancestorChain", default)]
+    ancestor_chain: Vec<AncestorInfo>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+struct AncestorInfo {
+    #[allow(dead_code)]
+    id: String,
+    label: String,
+    #[allow(dead_code)]
+    kind: String,
 }

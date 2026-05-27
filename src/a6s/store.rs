@@ -729,7 +729,10 @@ impl CodeGraph {
         let query_sql = crate::a6s::queries::PREDEFINED_QUERIES
             .get(query_name)
             .ok_or_else(|| {
-                A6sError::Custom(format!("Query '{}' not found in predefined queries", query_name))
+                A6sError::Custom(format!(
+                    "Query '{}' not found in predefined queries",
+                    query_name
+                ))
             })?;
 
         // Build query with repo_id binding

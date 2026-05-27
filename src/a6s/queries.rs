@@ -15,10 +15,7 @@ use std::sync::LazyLock;
 pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
     LazyLock::new(|| {
         let mut m = HashMap::new();
-        m.insert(
-            "accepts_edges",
-            include_str!("queries/accepts_edges.surql"),
-        );
+        m.insert("accepts_edges", include_str!("queries/accepts_edges.surql"));
         m.insert("all_symbols", include_str!("queries/all_symbols.surql"));
         m.insert(
             "annotates_type",
@@ -49,6 +46,16 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
         m.insert("overview", include_str!("queries/overview.surql"));
         m.insert("public_api", include_str!("queries/public_api.surql"));
         m.insert("returns_edges", include_str!("queries/returns_edges.surql"));
+        m.insert("root_symbols", include_str!("queries/root_symbols.surql"));
+        m.insert(
+            "subgraph_edges",
+            include_str!("queries/subgraph_edges.surql"),
+        );
+        m.insert("symbol_by_id", include_str!("queries/symbol_by_id.surql"));
+        m.insert(
+            "symbol_children",
+            include_str!("queries/symbol_children.surql"),
+        );
         m.insert("symbol_search", include_str!("queries/symbol_search.surql"));
         m.insert(
             "transitive_calls",

@@ -5,14 +5,14 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use serde::Serialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use tracing::instrument;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::a6s::store::CodeGraph;
 use crate::api::AppState;
@@ -44,6 +44,11 @@ pub struct GraphNode {
     /// DEBUG: module_path from database
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module_path: Option<String>,
+    /// Number of direct children via containment edges (has_member, has_method, has_field)
+    pub child_count: u32,
+    /// Parent symbol ID if this is a child via containment edge
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -53,6 +58,9 @@ pub struct GraphEdge {
     pub target: String,
     #[serde(rename = "type")]
     pub edge_type: String,
+    /// Aggregate edge counts by edge type (only present for aggregate edges)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_counts: Option<HashMap<String, u32>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -71,6 +79,22 @@ pub struct GraphResponse {
     pub stats: GraphStats,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct GraphQuery {
+    /// Root symbol ID for subtree view (optional)
+    #[param(example = "abc123")]
+    pub root: Option<String>,
+    /// Depth of children to expand (default: 1, max: 5)
+    #[param(example = 1)]
+    pub depth: Option<u32>,
+    /// Comma-separated list of visible symbol IDs for filtering edges (optional)
+    #[param(example = "abc123,def456")]
+    pub visible_ids: Option<String>,
+    /// Search term for symbol name or qualified_name (case-insensitive, returns matches with ancestor chains)
+    #[param(example = "parse")]
+    pub search: Option<String>,
+}
+
 // =============================================================================
 // Handler
 // =============================================================================
@@ -80,12 +104,22 @@ pub struct GraphResponse {
 /// Returns all symbols and edges from the analysis graph. Layout, filtering,
 /// and drill-down are handled client-side by Sigma.js / Graphology.
 /// Returns 204 No Content if analysis has not been run for this repository.
+///
+/// Query parameters:
+/// - `root`: Root symbol ID for subtree view (returns children of this symbol)
+/// - `depth`: How many levels of children to expand (default: 1, max: 5)
+/// - `visible_ids`: Comma-separated list of symbol IDs for edge filtering
+/// - `search`: Search term for symbol names (case-insensitive). Returns matching symbols with their ancestor chains.
+///
+/// If no `root` is provided, returns root symbols (symbols with no parent container).
+/// If `search` is provided, ignores other parameters and returns search results with ancestor chains.
 #[utoipa::path(
     get,
     path = "/api/v1/repos/{id}/graph",
     tag = "repos",
     params(
         ("id" = String, Path, description = "Repo ID (8-character hex)"),
+        GraphQuery,
     ),
     responses(
         (status = 200, description = "Graph data", body = GraphResponse),
@@ -98,6 +132,7 @@ pub struct GraphResponse {
 pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Path(id): Path<String>,
+    Query(query): Query<GraphQuery>,
 ) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
     // Verify repo exists
     state.db().repos().get(&id).await.map_err(|_| {
@@ -126,7 +161,23 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
         })?;
 
     // Build graph data from SurrealDB
-    let result = build_graph_data(&graph).await.map_err(|e| {
+    let result = if let Some(search_term) = &query.search {
+        // Search mode - return matching symbols with ancestor chains
+        build_search_results(&graph, search_term).await
+    } else if let Some(root_id) = &query.root {
+        // Root specified - return subtree with children
+        let depth = query.depth.unwrap_or(1).min(5); // Cap at 5
+        let visible_ids = query.visible_ids.as_ref().map(|ids| {
+            ids.split(',')
+                .map(|s| s.trim().to_string())
+                .collect::<Vec<_>>()
+        });
+        build_subtree_data(&graph, root_id, depth, visible_ids).await
+    } else {
+        // No root specified - return root symbols and edges between them
+        build_root_graph_data(&graph).await
+    }
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -136,12 +187,194 @@ pub async fn get_repo_graph<D: Database, G: GitOps + Send + Sync>(
     Ok(Json(result).into_response())
 }
 
-async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
-    let mut all_edges: Vec<(String, String, String)> = Vec::new();
+/// Edge query definitions: (query_name, edge_type_label)
+const EDGE_QUERIES: &[(&str, &str)] = &[
+    ("calls_edges", "Calls"),
+    ("implements", "Implements"),
+    ("extends", "Extends"),
+    ("accepts_edges", "Accepts"),
+    ("returns_edges", "Returns"),
+    ("field_type_edges", "FieldType"),
+    ("annotates_type", "TypeAnnotation"),
+    ("uses_type", "Uses"),
+];
+
+/// Containment edge query names
+const CONTAINMENT_QUERIES: &[&str] = &["has_member", "has_method", "has_field"];
+
+/// Fetch all non-containment edges for the repository.
+/// Returns (src_id, dst_id, edge_type) tuples.
+/// This function fetches ALL edges and relies on Rust filtering for performance
+/// instead of SurrealDB's slow IN $array checks.
+async fn fetch_non_containment_edges(
+    graph: &CodeGraph,
+    failed_queries: &mut Vec<String>,
+) -> Vec<(String, String, String)> {
+    let mut all_edges = Vec::new();
+
+    for (query_name, edge_type) in EDGE_QUERIES {
+        match graph.execute_query(query_name, HashMap::new()).await {
+            Ok(rows) => {
+                for row in rows {
+                    if let (Some(src), Some(dst)) = (row["src_id"].as_str(), row["dst_id"].as_str())
+                    {
+                        all_edges.push((src.to_string(), dst.to_string(), edge_type.to_string()));
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("{} query failed: {}", query_name, e);
+                failed_queries.push(query_name.to_string());
+            }
+        }
+    }
+
+    all_edges
+}
+
+/// Fetch containment edges (has_member, has_method, has_field).
+/// Returns:
+/// - child_ids: Set of all child symbol IDs
+/// - child_counts: Map of parent_id -> count of direct children
+/// - containment_edges: Map of parent_id -> list of (child_id, edge_type) tuples
+/// - failed_queries: Names of queries that failed
+async fn fetch_containment_data(
+    graph: &CodeGraph,
+) -> (
+    HashSet<String>,
+    HashMap<String, u32>,
+    HashMap<String, Vec<(String, String)>>,
+    Vec<String>,
+) {
+    let mut child_ids: HashSet<String> = HashSet::new();
+    let mut child_counts: HashMap<String, u32> = HashMap::new();
+    let mut containment_edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut failed_queries: Vec<String> = Vec::new();
+
+    for query_name in CONTAINMENT_QUERIES {
+        // Map query name to edge type label
+        let edge_type = match *query_name {
+            "has_member" => "HasMember",
+            "has_method" => "HasMethod",
+            "has_field" => "HasField",
+            _ => "Contains",
+        };
+
+        match graph.execute_query(query_name, HashMap::new()).await {
+            Ok(rows) => {
+                for row in rows {
+                    if let (Some(src), Some(dst)) = (row["src_id"].as_str(), row["dst_id"].as_str())
+                    {
+                        child_ids.insert(dst.to_string());
+                        *child_counts.entry(src.to_string()).or_insert(0) += 1;
+                        containment_edges
+                            .entry(src.to_string())
+                            .or_default()
+                            .push((dst.to_string(), edge_type.to_string()));
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("{} query failed: {}", query_name, e);
+                failed_queries.push(query_name.to_string());
+            }
+        }
+    }
+
+    (child_ids, child_counts, containment_edges, failed_queries)
+}
+
+/// Build child-to-root mapping by walking parent chains.
+/// Returns a map from each symbol ID to its root ancestor.
+/// Public for testing.
+pub fn build_child_to_root_map(
+    symbol_ids: &[String],
+    parent_map: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut child_to_root: HashMap<String, String> = HashMap::new();
+
+    // Walk up to root for each symbol
+    for symbol_id in symbol_ids {
+        let mut current = symbol_id.clone();
+        let mut visited: HashSet<String> = HashSet::new();
+
+        // Walk up parent chain until we find a root (no parent)
+        while let Some(parent) = parent_map.get(&current) {
+            if visited.contains(parent) {
+                // Cycle detected - treat current as root
+                break;
+            }
+            visited.insert(current.clone());
+            current = parent.clone();
+        }
+
+        // current is now the root
+        child_to_root.insert(symbol_id.clone(), current);
+    }
+
+    child_to_root
+}
+
+/// Compute aggregate edges from non-containment edges.
+/// Returns list of (root_a, root_b, edge_counts) tuples.
+/// Self-loops are excluded. Bidirectional edges are merged (A-B and B-A become one edge).
+/// Public for testing.
+pub fn compute_aggregate_edges(
+    child_to_root: &HashMap<String, String>,
+    non_containment_edges: &[(String, String, String)],
+) -> Vec<(String, String, HashMap<String, u32>)> {
+    // Map: (root_a, root_b, edge_type) -> count
+    let mut aggregate_map: HashMap<(String, String, String), u32> = HashMap::new();
+
+    for (src, dst, edge_type) in non_containment_edges {
+        // Resolve source and destination to their root ancestors
+        let src_root = child_to_root
+            .get(src)
+            .cloned()
+            .unwrap_or_else(|| src.clone());
+        let dst_root = child_to_root
+            .get(dst)
+            .cloned()
+            .unwrap_or_else(|| dst.clone());
+
+        // Skip self-loops
+        if src_root == dst_root {
+            continue;
+        }
+
+        // Sort the pair to ensure (A, B) and (B, A) map to the same edge
+        let (root_a, root_b) = if src_root < dst_root {
+            (src_root, dst_root)
+        } else {
+            (dst_root, src_root)
+        };
+
+        *aggregate_map
+            .entry((root_a, root_b, edge_type.clone()))
+            .or_insert(0) += 1;
+    }
+
+    // Group by (root_a, root_b) and collect edge types
+    let mut grouped: HashMap<(String, String), HashMap<String, u32>> = HashMap::new();
+    for ((root_a, root_b, edge_type), count) in aggregate_map {
+        grouped
+            .entry((root_a, root_b))
+            .or_default()
+            .insert(edge_type, count);
+    }
+
+    // Convert to edge list with aggregate_counts
+    grouped
+        .into_iter()
+        .map(|((root_a, root_b), counts)| (root_a, root_b, counts))
+        .collect()
+}
+
+async fn build_root_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
     let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
     let mut failed_queries: Vec<String> = Vec::new();
 
-    // Query ALL symbols first
+    // Step 1: Fetch ALL symbols
     let all_symbols = match graph.execute_query("all_symbols", HashMap::new()).await {
         Ok(rows) => rows,
         Err(e) => {
@@ -151,203 +384,341 @@ async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
         }
     };
 
+    // Build initial symbol lookup (symbol_id -> symbol_data)
+    let mut all_symbols_map: HashMap<String, serde_json::Value> = HashMap::new();
     for row in all_symbols {
         let symbol_id = row["symbol_id"].as_str().unwrap_or("").to_string();
         if symbol_id.is_empty() {
             continue;
         }
-        symbol_map.insert(symbol_id, row);
+        all_symbols_map.insert(symbol_id, row);
     }
 
-    // Query for Calls edges
-    let calls_rows = match graph.execute_query("calls_edges", HashMap::new()).await {
+    // Step 2: Fetch containment edges (has_member, has_method, has_field)
+    let (child_ids, child_counts, containment_edges, containment_failures) =
+        fetch_containment_data(graph).await;
+    failed_queries.extend(containment_failures);
+
+    // Step 3: Build parent map from containment edges (target -> source, since source is parent)
+    let mut parent_map: HashMap<String, String> = HashMap::new();
+    for (parent_id, children) in &containment_edges {
+        for (child_id, _edge_type) in children {
+            parent_map.insert(child_id.clone(), parent_id.clone());
+        }
+    }
+
+    // Build child_to_root mapping by walking parent chains
+    let symbol_ids: Vec<String> = all_symbols_map.keys().cloned().collect();
+    let child_to_root = build_child_to_root_map(&symbol_ids, &parent_map);
+
+    // Step 4: Identify root symbols (not in child_ids) and inject child_count and parent_id
+    for (symbol_id, symbol_value) in &all_symbols_map {
+        if !child_ids.contains(symbol_id) {
+            // This is a root symbol
+            let mut symbol_value = symbol_value.clone();
+            if let Some(obj) = symbol_value.as_object_mut() {
+                let count = child_counts.get(symbol_id).copied().unwrap_or(0);
+                obj.insert("child_count".to_string(), serde_json::Value::from(count));
+                obj.insert("parent_id".to_string(), serde_json::Value::Null);
+            }
+            symbol_map.insert(symbol_id.clone(), symbol_value);
+        }
+    }
+
+    // Step 5: Fetch ALL non-containment edges
+    let all_edges = fetch_non_containment_edges(graph, &mut failed_queries).await;
+
+    // Step 6: Compute aggregate edges
+    let aggregate_edges = compute_aggregate_edges(&child_to_root, &all_edges);
+
+    build_response_with_aggregates(symbol_map, aggregate_edges, failed_queries)
+}
+
+async fn build_subtree_data(
+    graph: &CodeGraph,
+    root_id: &str,
+    depth: u32,
+    visible_ids: Option<Vec<String>>,
+) -> Result<GraphResponse, String> {
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut failed_queries: Vec<String> = Vec::new();
+
+    // Fetch the root symbol directly by ID (avoid full table scan)
+    let mut root_params = HashMap::new();
+    root_params.insert(
+        "symbol_id".to_string(),
+        serde_json::Value::String(root_id.to_string()),
+    );
+
+    let root_symbols = match graph.execute_query("symbol_by_id", root_params).await {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!("calls_edges query failed: {}", e);
-            failed_queries.push("calls_edges".to_string());
+            return Err(format!(
+                "Failed to query symbol_by_id for root '{}': {}",
+                root_id, e
+            ));
+        }
+    };
+
+    // Insert the root symbol if found
+    if let Some(root_row) = root_symbols.into_iter().next() {
+        symbol_map.insert(root_id.to_string(), root_row);
+    } else {
+        return Err(format!("Root symbol '{}' not found", root_id));
+    }
+
+    // Fetch ALL containment edges upfront (has_member, has_method, has_field)
+    let (_, child_counts, containment_edges, containment_failures) =
+        fetch_containment_data(graph).await;
+    failed_queries.extend(containment_failures);
+
+    // Fetch ALL symbols upfront
+    let all_symbols = match graph.execute_query("all_symbols", HashMap::new()).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("all_symbols query failed: {}", e);
+            failed_queries.push("all_symbols".to_string());
             Vec::new()
         }
     };
-    for row in calls_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
+
+    // Build a lookup map: symbol_id -> symbol_data
+    let mut symbol_lookup: HashMap<String, serde_json::Value> = HashMap::new();
+    for row in all_symbols {
+        if let Some(symbol_id) = row["symbol_id"].as_str() {
+            symbol_lookup.insert(symbol_id.to_string(), row);
         }
-        all_edges.push((src_id, dst_id, "Calls".to_string()));
     }
 
-    // Query for FileImports edges
-    let file_import_rows = match graph.execute_query("file_imports", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("file_imports query failed: {}", e);
-            failed_queries.push("file_imports".to_string());
-            Vec::new()
+    // Iterative BFS to expand children to specified depth
+    let mut current_level: Vec<String> = vec![root_id.to_string()];
+    let mut containment_edge_list: Vec<(String, String, String)> = Vec::new();
+
+    for _level in 0..depth {
+        if current_level.is_empty() {
+            break;
         }
+
+        let mut next_level: Vec<String> = Vec::new();
+
+        for parent_id in &current_level {
+            // Get children from our containment_edges map
+            if let Some(children) = containment_edges.get(parent_id) {
+                for (child_id, edge_type) in children {
+                    // Only add if not already in map (avoid duplicates)
+                    if !symbol_map.contains_key(child_id)
+                        && let Some(child_data) = symbol_lookup.get(child_id)
+                    {
+                        let mut child_data = child_data.clone();
+                        // Inject child_count and parent_id
+                        if let Some(obj) = child_data.as_object_mut() {
+                            let count = child_counts.get(child_id).copied().unwrap_or(0);
+                            obj.insert("child_count".to_string(), serde_json::Value::from(count));
+                            obj.insert(
+                                "parent_id".to_string(),
+                                serde_json::Value::String(parent_id.clone()),
+                            );
+                        }
+                        symbol_map.insert(child_id.clone(), child_data);
+                        next_level.push(child_id.clone());
+                    }
+
+                    // Add containment edge to list (if child is in symbol_map)
+                    if symbol_map.contains_key(child_id) {
+                        containment_edge_list.push((
+                            parent_id.clone(),
+                            child_id.clone(),
+                            edge_type.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        current_level = next_level;
+    }
+
+    // Get all visible symbol IDs (subtree + optional external visible_ids)
+    let subtree_ids: HashSet<String> = symbol_map.keys().cloned().collect();
+    let visible_set = if let Some(visible) = visible_ids {
+        subtree_ids
+            .iter()
+            .chain(visible.iter())
+            .cloned()
+            .collect::<HashSet<_>>()
+    } else {
+        subtree_ids.clone()
     };
-    for row in file_import_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "FileImports".to_string()));
-    }
 
-    // Query for HasField edges
-    let field_rows = match graph.execute_query("has_field", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("has_field query failed: {}", e);
-            failed_queries.push("has_field".to_string());
-            Vec::new()
-        }
-    };
-    for row in field_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "HasField".to_string()));
-    }
+    // Fetch ALL non-containment edges and filter in Rust
+    let all_edges = fetch_non_containment_edges(graph, &mut failed_queries).await;
 
-    // Query for HasMethod edges
-    let method_rows = match graph.execute_query("has_method", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("has_method query failed: {}", e);
-            failed_queries.push("has_method".to_string());
-            Vec::new()
-        }
-    };
-    for row in method_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "HasMethod".to_string()));
-    }
-
-    // Query for HasMember edges
-    let member_rows = match graph.execute_query("has_member", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("has_member query failed: {}", e);
-            failed_queries.push("has_member".to_string());
-            Vec::new()
-        }
-    };
-    for row in member_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "HasMember".to_string()));
-    }
-
-    // Query for Implements edges
-    let implements_rows = match graph.execute_query("implements", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("implements query failed: {}", e);
-            failed_queries.push("implements".to_string());
-            Vec::new()
-        }
-    };
-    for row in implements_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "Implements".to_string()));
-    }
-
-    // Query for Extends edges
-    let extends_rows = match graph.execute_query("extends", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("extends query failed: {}", e);
-            failed_queries.push("extends".to_string());
-            Vec::new()
-        }
-    };
-    for row in extends_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "Extends".to_string()));
-    }
-
-    // Query for Accepts edges (parameter types)
-    let accepts_rows = match graph.execute_query("accepts_edges", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("accepts_edges query failed: {}", e);
-            failed_queries.push("accepts_edges".to_string());
-            Vec::new()
-        }
-    };
-    for row in accepts_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "Accepts".to_string()));
-    }
-
-    // Query for Returns edges (return types)
-    let returns_rows = match graph.execute_query("returns_edges", HashMap::new()).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("returns_edges query failed: {}", e);
-            failed_queries.push("returns_edges".to_string());
-            Vec::new()
-        }
-    };
-    for row in returns_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "Returns".to_string()));
-    }
-
-    // Query for FieldType edges
-    let field_type_rows = match graph
-        .execute_query("field_type_edges", HashMap::new())
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("field_type_edges query failed: {}", e);
-            failed_queries.push("field_type_edges".to_string());
-            Vec::new()
-        }
-    };
-    for row in field_type_rows {
-        let src_id = row["src_id"].as_str().unwrap_or("").to_string();
-        let dst_id = row["dst_id"].as_str().unwrap_or("").to_string();
-        if src_id.is_empty() || dst_id.is_empty() {
-            continue;
-        }
-        all_edges.push((src_id, dst_id, "FieldType".to_string()));
-    }
-
-    let total_symbols = symbol_map.len();
-    let total_edges = all_edges.len();
-
-    let nodes: Vec<GraphNode> = symbol_map
+    // Filter edges to only those where both endpoints are in visible set
+    let mut filtered_edges: Vec<(String, String, String)> = all_edges
         .into_iter()
-        .filter_map(|(_symbol_id, s)| {
+        .filter(|(src, dst, _)| visible_set.contains(src) && visible_set.contains(dst))
+        .collect();
+
+    // Add containment edges to the response
+    filtered_edges.extend(containment_edge_list);
+
+    build_response(symbol_map, filtered_edges, failed_queries)
+}
+
+/// Build search results: find matching symbols and return them with their ancestor chains.
+/// Search is case-insensitive and matches against name or qualified_name (module_path::name).
+/// Returns up to 50 matches.
+async fn build_search_results(
+    graph: &CodeGraph,
+    search_term: &str,
+) -> Result<GraphResponse, String> {
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut failed_queries: Vec<String> = Vec::new();
+
+    // Fetch ALL symbols
+    let all_symbols = match graph.execute_query("all_symbols", HashMap::new()).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("all_symbols query failed: {}", e);
+            failed_queries.push("all_symbols".to_string());
+            return Ok(GraphResponse {
+                stats: GraphStats {
+                    total_symbols: 0,
+                    total_edges: 0,
+                    failed_queries,
+                },
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            });
+        }
+    };
+
+    // Build symbol lookup
+    let mut all_symbols_map: HashMap<String, serde_json::Value> = HashMap::new();
+    for row in all_symbols {
+        let symbol_id = row["symbol_id"].as_str().unwrap_or("").to_string();
+        if symbol_id.is_empty() {
+            continue;
+        }
+        all_symbols_map.insert(symbol_id, row);
+    }
+
+    // Search for matches (case-insensitive)
+    let search_lower = search_term.to_lowercase();
+    let mut matched_ids = Vec::new();
+
+    for (symbol_id, symbol_value) in &all_symbols_map {
+        let name = symbol_value["name"].as_str().unwrap_or("");
+        let module_path = symbol_value["module_path"].as_str().unwrap_or("");
+
+        let qualified_name = if module_path.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}::{}", module_path, name)
+        };
+
+        if name.to_lowercase().contains(&search_lower)
+            || qualified_name.to_lowercase().contains(&search_lower)
+        {
+            matched_ids.push(symbol_id.clone());
+            if matched_ids.len() >= 50 {
+                break; // Limit to 50 matches
+            }
+        }
+    }
+
+    if matched_ids.is_empty() {
+        return Ok(GraphResponse {
+            stats: GraphStats {
+                total_symbols: 0,
+                total_edges: 0,
+                failed_queries,
+            },
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        });
+    }
+
+    // Fetch containment edges to build parent map
+    let (_, child_counts, containment_edges, containment_failures) =
+        fetch_containment_data(graph).await;
+    failed_queries.extend(containment_failures);
+
+    // Build parent map
+    let mut parent_map: HashMap<String, String> = HashMap::new();
+    for (parent_id, children) in &containment_edges {
+        for (child_id, _edge_type) in children {
+            parent_map.insert(child_id.clone(), parent_id.clone());
+        }
+    }
+
+    // Collect matched symbols + their ancestors
+    let mut nodes_to_include = HashSet::new();
+    let mut containment_edge_list: Vec<(String, String, String)> = Vec::new();
+
+    for matched_id in &matched_ids {
+        // Walk up the parent chain to collect all ancestors
+        let mut current = matched_id.clone();
+        let mut visited = HashSet::new();
+
+        while !current.is_empty() {
+            if visited.contains(&current) {
+                break; // Prevent infinite loops
+            }
+            visited.insert(current.clone());
+            nodes_to_include.insert(current.clone());
+
+            // Add containment edge from parent to current (if parent exists)
+            if let Some(parent) = parent_map.get(&current) {
+                // Find the edge type
+                if let Some(children) = containment_edges.get(parent)
+                    && let Some((_, edge_type)) =
+                        children.iter().find(|(child, _)| child == &current)
+                {
+                    containment_edge_list.push((
+                        parent.clone(),
+                        current.clone(),
+                        edge_type.clone(),
+                    ));
+                }
+                current = parent.clone();
+            } else {
+                break; // Reached root
+            }
+        }
+    }
+
+    // Build symbol_map with child_count and parent_id
+    for node_id in &nodes_to_include {
+        if let Some(symbol_value) = all_symbols_map.get(node_id) {
+            let mut symbol_value = symbol_value.clone();
+            if let Some(obj) = symbol_value.as_object_mut() {
+                let count = child_counts.get(node_id).copied().unwrap_or(0);
+                obj.insert("child_count".to_string(), serde_json::Value::from(count));
+
+                // Set parent_id
+                if let Some(parent) = parent_map.get(node_id) {
+                    obj.insert(
+                        "parent_id".to_string(),
+                        serde_json::Value::String(parent.clone()),
+                    );
+                } else {
+                    obj.insert("parent_id".to_string(), serde_json::Value::Null);
+                }
+            }
+            symbol_map.insert(node_id.clone(), symbol_value);
+        }
+    }
+
+    build_response(symbol_map, containment_edge_list, failed_queries)
+}
+
+/// Build GraphNode list from symbol data.
+/// Shared helper for both regular and aggregate responses.
+fn build_nodes(symbol_map: HashMap<String, serde_json::Value>) -> Vec<GraphNode> {
+    symbol_map
+        .into_values()
+        .filter_map(|s| {
             let id = s["symbol_id"].as_str()?.to_string();
             let kind = s["kind"].as_str().unwrap_or("unknown");
             let name = s["name"].as_str().unwrap_or("?");
@@ -386,9 +757,22 @@ async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
                 } else {
                     Some(module_path_str)
                 },
+                child_count: s["child_count"].as_u64().unwrap_or(0) as u32,
+                parent_id: s["parent_id"].as_str().map(|s| s.to_string()),
             })
         })
-        .collect();
+        .collect()
+}
+
+fn build_response(
+    symbol_map: HashMap<String, serde_json::Value>,
+    all_edges: Vec<(String, String, String)>,
+    failed_queries: Vec<String>,
+) -> Result<GraphResponse, String> {
+    let total_symbols = symbol_map.len();
+    let total_edges = all_edges.len();
+
+    let nodes = build_nodes(symbol_map);
 
     let edges: Vec<GraphEdge> = all_edges
         .into_iter()
@@ -398,6 +782,41 @@ async fn build_graph_data(graph: &CodeGraph) -> Result<GraphResponse, String> {
             source,
             target,
             edge_type,
+            aggregate_counts: None,
+        })
+        .collect();
+
+    Ok(GraphResponse {
+        stats: GraphStats {
+            total_symbols,
+            total_edges,
+            failed_queries,
+        },
+        nodes,
+        edges,
+    })
+}
+
+/// Build response with aggregate edges (used for root graph view)
+fn build_response_with_aggregates(
+    symbol_map: HashMap<String, serde_json::Value>,
+    aggregate_edges: Vec<(String, String, HashMap<String, u32>)>,
+    failed_queries: Vec<String>,
+) -> Result<GraphResponse, String> {
+    let total_symbols = symbol_map.len();
+    let total_edges = aggregate_edges.len();
+
+    let nodes = build_nodes(symbol_map);
+
+    let edges: Vec<GraphEdge> = aggregate_edges
+        .into_iter()
+        .enumerate()
+        .map(|(i, (source, target, counts))| GraphEdge {
+            id: format!("agg:{}", i),
+            source,
+            target,
+            edge_type: "aggregate".to_string(),
+            aggregate_counts: Some(counts),
         })
         .collect();
 

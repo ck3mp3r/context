@@ -829,9 +829,18 @@ async fn test_transitive_calls_query() {
 
     assert!(!names.contains(&"funcA"), "funcA should not be in results");
     // Fixed depth 3: A->B (hop 1), B->C (hop 2), C->D (hop 3) — all reachable
-    assert!(names.contains(&"funcB"), "funcB should be reachable (depth 1)");
-    assert!(names.contains(&"funcC"), "funcC should be reachable (depth 2)");
-    assert!(names.contains(&"funcD"), "funcD should be reachable (depth 3)");
+    assert!(
+        names.contains(&"funcB"),
+        "funcB should be reachable (depth 1)"
+    );
+    assert!(
+        names.contains(&"funcC"),
+        "funcC should be reachable (depth 2)"
+    );
+    assert!(
+        names.contains(&"funcD"),
+        "funcD should be reachable (depth 3)"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -865,16 +874,37 @@ async fn test_neighbors_query() {
         .bind(("name", "funcX"))
         .await
         .expect("Query failed");
-    
+
     let neighbors: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
 
-    let names: Vec<&str> = neighbors.iter().filter_map(|s| s["name"].as_str()).collect();
-    let directions: Vec<&str> = neighbors.iter().filter_map(|s| s["direction"].as_str()).collect();
+    let names: Vec<&str> = neighbors
+        .iter()
+        .filter_map(|s| s["name"].as_str())
+        .collect();
+    let directions: Vec<&str> = neighbors
+        .iter()
+        .filter_map(|s| s["direction"].as_str())
+        .collect();
 
     assert_eq!(neighbors.len(), 2, "Should have 2 neighbors");
-    assert!(names.contains(&"funcY"), "funcY should be a neighbor (outgoing)");
-    assert!(names.contains(&"funcZ"), "funcZ should be a neighbor (incoming)");
-    assert!(!names.contains(&"funcX"), "funcX itself should not be in results");
-    assert!(directions.contains(&"outgoing"), "Should have outgoing direction");
-    assert!(directions.contains(&"incoming"), "Should have incoming direction");
+    assert!(
+        names.contains(&"funcY"),
+        "funcY should be a neighbor (outgoing)"
+    );
+    assert!(
+        names.contains(&"funcZ"),
+        "funcZ should be a neighbor (incoming)"
+    );
+    assert!(
+        !names.contains(&"funcX"),
+        "funcX itself should not be in results"
+    );
+    assert!(
+        directions.contains(&"outgoing"),
+        "Should have outgoing direction"
+    );
+    assert!(
+        directions.contains(&"incoming"),
+        "Should have incoming direction"
+    );
 }
