@@ -10,8 +10,10 @@ pub mod notifier;
 mod notifier_test;
 pub(crate) mod routes;
 mod state;
+#[cfg(feature = "embed-frontend")]
 pub mod static_assets;
 #[cfg(test)]
+#[cfg(feature = "embed-frontend")]
 mod static_assets_test;
 pub mod v1;
 mod websocket;

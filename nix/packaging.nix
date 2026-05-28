@@ -86,7 +86,9 @@
     packageName = "context";
     archiveAndHash = false;
     nativeBuildInputs = [];
-    extraArgs = {};
+    extraArgs = {
+      buildFeatures = ["embed-frontend"];
+    };
   };
 
   # Build archive packages (creates archive with system name)
@@ -105,7 +107,9 @@
     packageName = "archive";
     archiveAndHash = true;
     nativeBuildInputs = [];
-    extraArgs = {};
+    extraArgs = {
+      buildFeatures = ["embed-frontend"];
+    };
   };
 
   # Custom minimal git for container

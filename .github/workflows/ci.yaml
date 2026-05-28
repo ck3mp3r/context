@@ -27,4 +27,4 @@ jobs:
       - name: Build and test
         env:
           NIX_CONFIG: "access-tokens = github.com=${{ github.token }}"
-        run: nix develop .#ci --command cargo test --all-features
+        run: nix develop .#ci --command cargo test --no-default-features --features backend

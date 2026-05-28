@@ -1,4 +1,4 @@
-# Classic Nix shell for CI - just the toolchains needed for testing
+# Classic Nix shell for CI - just the toolchains needed for backend testing
 {
   pkgs,
   inputs,
@@ -6,7 +6,6 @@
 }: let
   toolchain = inputs.rustnix.lib.rust.mkToolchain {
     inherit system;
-    targets = ["wasm32-unknown-unknown"];
   };
 in
   pkgs.mkShellNoCC {
@@ -15,10 +14,6 @@ in
     buildInputs = [
       toolchain
       pkgs.cargo-tarpaulin
-      pkgs.trunk
-      pkgs.wasm-bindgen-cli
-      pkgs.tailwindcss_4
-      pkgs.protobuf # Required for NanoGraph (Lance dependency)
     ];
 
     shellHook = ''

@@ -19,11 +19,11 @@ impl LanguageExtractor for GolangExtractor {
     }
 
     fn symbol_queries(&self) -> &'static str {
-        include_str!("../../../analysis/lang/golang/queries/symbols.scm")
+        include_str!("queries/symbols.scm")
     }
 
     fn type_ref_queries(&self) -> &'static str {
-        include_str!("../../../analysis/lang/golang/queries/type_refs.scm")
+        include_str!("queries/type_refs.scm")
     }
 
     fn extract(&self, code: &str, file_path: &str) -> ParsedFile {
@@ -1719,7 +1719,7 @@ impl GolangExtractor {
         parsed: &mut ParsedFile,
     ) {
         let language = tree_sitter_go::LANGUAGE.into();
-        let type_refs_src = include_str!("../../../analysis/lang/golang/queries/type_refs.scm");
+        let type_refs_src = include_str!("queries/type_refs.scm");
         let query = match Query::new(&language, type_refs_src) {
             Ok(q) => q,
             Err(e) => {

@@ -21,7 +21,11 @@ path = "src/lib.rs"
 
 [features]
 default = ["backend"]
-nanograph-tests = []  # Enable tests that require nanograph CLI
+embed-frontend = [
+    "backend",
+    "dep:mime_guess",
+    "dep:rust-embed",
+]
 backend = [
     "dep:axum",
     "dep:chrono",
@@ -29,10 +33,8 @@ backend = [
     "dep:dashmap",
     "dep:futures-util",
     "dep:miette",
-    "dep:mime_guess",
     "dep:reqwest",
     "dep:rmcp",
-    "dep:rust-embed",
     "dep:rustls",
     "dep:rustls-platform-verifier",
     "dep:sqlx",

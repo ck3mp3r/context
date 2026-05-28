@@ -20,7 +20,6 @@ in
       pkgs.wasm-bindgen-cli
       pkgs.tailwindcss_4
       pkgs.act
-      pkgs.protobuf
       pkgs.lefthook
       pkgs.tree-sitter
     ];

@@ -19,11 +19,11 @@ impl LanguageExtractor for RustExtractor {
     }
 
     fn symbol_queries(&self) -> &'static str {
-        include_str!("../../../analysis/lang/rust/queries/symbols.scm")
+        include_str!("queries/symbols.scm")
     }
 
     fn type_ref_queries(&self) -> &'static str {
-        include_str!("../../../analysis/lang/rust/queries/type_refs.scm")
+        include_str!("queries/type_refs.scm")
     }
 
     fn extract(&self, code: &str, file_path: &str) -> ParsedFile {
@@ -1944,7 +1944,7 @@ impl RustExtractor {
     ) {
         // Compile type reference query
         let language = tree_sitter_rust::LANGUAGE.into();
-        let type_ref_query_str = include_str!("../../../analysis/lang/rust/queries/type_refs.scm");
+        let type_ref_query_str = include_str!("queries/type_refs.scm");
         let query = match Query::new(&language, type_ref_query_str) {
             Ok(q) => q,
             Err(e) => {

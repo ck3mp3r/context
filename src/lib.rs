@@ -2,9 +2,6 @@
 pub mod api;
 
 #[cfg(feature = "backend")]
-pub mod analysis;
-
-#[cfg(feature = "backend")]
 pub mod a6s;
 
 #[cfg(feature = "backend")]
