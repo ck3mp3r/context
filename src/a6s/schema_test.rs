@@ -135,7 +135,7 @@ mod schema_tests {
 
         // Test Calls edge
         let calls_result: Option<serde_json::Value> = db
-            .query(&format!(
+            .query(format!(
                 "RELATE {}->calls->{} SET confidence = 1.0, call_site_line = 3",
                 sym1_id, sym2_id
             ))
@@ -148,7 +148,7 @@ mod schema_tests {
 
         // Test HasField edge
         let has_field_result: Option<serde_json::Value> = db
-            .query(&format!(
+            .query(format!(
                 "RELATE {}->has_field->{} SET confidence = 1.0",
                 sym1_id, sym2_id
             ))
@@ -161,7 +161,7 @@ mod schema_tests {
 
         // Test HasMethod edge
         let has_method_result: Option<serde_json::Value> = db
-            .query(&format!(
+            .query(format!(
                 "RELATE {}->has_method->{} SET confidence = 1.0",
                 sym1_id, sym2_id
             ))
@@ -174,7 +174,7 @@ mod schema_tests {
 
         // Test Implements edge
         let implements_result: Option<serde_json::Value> = db
-            .query(&format!(
+            .query(format!(
                 "RELATE {}->implements->{} SET confidence = 1.0",
                 sym1_id, sym2_id
             ))
@@ -232,7 +232,7 @@ mod schema_tests {
 
         // Test FileContains edge
         let contains_result: Option<serde_json::Value> = db
-            .query(&format!(
+            .query(format!(
                 "RELATE {}->file_contains->{} SET confidence = 1.0",
                 file_id, symbol_id
             ))
@@ -245,7 +245,7 @@ mod schema_tests {
 
         // Test FileImports edge
         let imports_result: Option<serde_json::Value> = db
-            .query(&format!(
+            .query(format!(
                 "RELATE {}->file_imports->{} SET confidence = 1.0",
                 file_id, symbol_id
             ))
@@ -362,7 +362,7 @@ mod schema_tests {
                     query_result.take(0).expect("Should get results");
                 // Due to unique constraint, should ideally be 1, but may be 2
                 // depending on SurrealDB version enforcement
-                assert!(symbols.len() >= 1);
+                assert!(!symbols.is_empty());
             }
             Err(_) => {
                 // This is the expected behavior with strict unique enforcement
@@ -403,7 +403,7 @@ mod schema_tests {
         // For each edge table, verify it exists by querying it
         for edge in expected_edges {
             let query = format!("SELECT * FROM {} LIMIT 0", edge);
-            let result = db.query(&query).await;
+            let result = db.query(query).await;
             assert!(
                 result.is_ok(),
                 "Edge table '{}' should exist and be queryable",

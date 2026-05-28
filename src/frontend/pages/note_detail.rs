@@ -45,32 +45,25 @@ pub fn NoteDetail() -> impl IntoView {
                 match update {
                     UpdateMessage::NoteUpdated {
                         note_id: updated_id,
-                    } => {
-                        if updated_id == current_note_id {
-                            web_sys::console::log_1(
-                                &format!(
-                                    "Note {} updated via WebSocket, refetching...",
-                                    updated_id
-                                )
+                    } if updated_id == current_note_id => {
+                        web_sys::console::log_1(
+                            &format!("Note {} updated via WebSocket, refetching...", updated_id)
                                 .into(),
-                            );
-                            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                        }
+                        );
+                        set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                     }
                     UpdateMessage::NoteDeleted {
                         note_id: updated_id,
-                    } => {
-                        if updated_id == current_note_id {
-                            // Note was deleted - navigate back to notes list
-                            web_sys::console::log_1(
-                                &format!(
-                                    "Note {} deleted via WebSocket, navigating back...",
-                                    updated_id
-                                )
-                                .into(),
-                            );
-                            leptos_router::hooks::use_navigate()("/notes", Default::default());
-                        }
+                    } if updated_id == current_note_id => {
+                        // Note was deleted - navigate back to notes list
+                        web_sys::console::log_1(
+                            &format!(
+                                "Note {} deleted via WebSocket, navigating back...",
+                                updated_id
+                            )
+                            .into(),
+                        );
+                        leptos_router::hooks::use_navigate()("/notes", Default::default());
                     }
                     _ => {}
                 }
@@ -156,32 +149,28 @@ pub fn NoteDetail() -> impl IntoView {
                 match update {
                     UpdateMessage::NoteUpdated {
                         note_id: updated_id,
-                    } => {
-                        if updated_id == current_selected {
-                            web_sys::console::log_1(
-                                &format!(
-                                    "Selected note {} updated via WebSocket, refetching...",
-                                    updated_id
-                                )
-                                .into(),
-                            );
-                            set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                        }
+                    } if updated_id == current_selected => {
+                        web_sys::console::log_1(
+                            &format!(
+                                "Selected note {} updated via WebSocket, refetching...",
+                                updated_id
+                            )
+                            .into(),
+                        );
+                        set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                     }
                     UpdateMessage::NoteDeleted {
                         note_id: updated_id,
-                    } => {
-                        if updated_id == current_selected && current_selected != parent_note_id {
-                            // Selected subnote was deleted - switch back to parent
-                            web_sys::console::log_1(
-                                &format!(
-                                    "Selected note {} deleted via WebSocket, switching to parent...",
-                                    updated_id
-                                )
-                                .into(),
-                            );
-                            selected_note_id.set(parent_note_id);
-                        }
+                    } if updated_id == current_selected && current_selected != parent_note_id => {
+                        // Selected subnote was deleted - switch back to parent
+                        web_sys::console::log_1(
+                            &format!(
+                                "Selected note {} deleted via WebSocket, switching to parent...",
+                                updated_id
+                            )
+                            .into(),
+                        );
+                        selected_note_id.set(parent_note_id);
                     }
                     _ => {}
                 }

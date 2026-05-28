@@ -7,14 +7,10 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
-    fenix = {
-      url = "github:nix-community/fenix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     rustnix = {
       url = "github:ck3mp3r/flakes?dir=rustnix";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.fenix.follows = "fenix";
+      inputs.flake-parts.follows = "flake-parts";
     };
   };
 
@@ -26,10 +22,16 @@
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = ["aarch64-darwin" "aarch64-linux" "x86_64-darwin" "x86_64-linux"];
       perSystem = {system, ...}: let
+        fetchCrate = inputs.rustnix.lib.rust.fetchCrate {
+          inherit system;
+          nixpkgs = inputs.nixpkgs;
+        };
         overlays = [
-          inputs.fenix.overlays.default
+          inputs.rustnix.lib.rust.overlays.fenix
           (final: prev: {
-            wasm-bindgen-cli = prev.callPackage ./nix/wasm-bindgen-cli.nix {};
+            wasm-bindgen-cli = prev.callPackage ./nix/wasm-bindgen-cli.nix {
+              inherit fetchCrate;
+            };
           })
         ];
         pkgs = import inputs.nixpkgs {inherit system overlays;};

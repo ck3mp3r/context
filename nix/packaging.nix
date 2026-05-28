@@ -29,16 +29,11 @@
   };
 
   # Stage 1: Build frontend WASM assets with trunk
-  wasmToolchain = inputs.fenix.packages.${system}.combine [
-    inputs.fenix.packages.${system}.stable.cargo
-    inputs.fenix.packages.${system}.stable.rustc
-    inputs.fenix.packages.${system}.targets.wasm32-unknown-unknown.stable.rust-std
-  ];
-
   frontendAssets =
-    (pkgs.makeRustPlatform {
-      cargo = wasmToolchain;
-      rustc = wasmToolchain;
+    (inputs.rustnix.lib.rust.mkRustPlatform {
+      inherit system overlays;
+      nixpkgs = inputs.nixpkgs;
+      targets = ["wasm32-unknown-unknown"];
     })
     .buildRustPackage {
       pname = "context-frontend";
@@ -49,7 +44,6 @@
       nativeBuildInputs = with pkgs; [
         trunk
         wasm-bindgen-cli
-        nodejs
         tailwindcss_4
       ];
 
@@ -87,7 +81,6 @@
       installData
       supportedTargets
       ;
-    fenix = inputs.fenix;
     nixpkgs = inputs.nixpkgs;
     src = srcWithFrontend;
     packageName = "context";
@@ -107,7 +100,6 @@
       installData
       supportedTargets
       ;
-    fenix = inputs.fenix;
     nixpkgs = inputs.nixpkgs;
     src = srcWithFrontend;
     packageName = "archive";

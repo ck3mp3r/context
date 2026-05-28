@@ -1931,16 +1931,13 @@ fn make_parsed_file(file_path: &str, symbols: Vec<RawSymbol>) -> ParsedFile {
 #[test]
 fn test_build_symbol_index_single_file() {
     let extractor = KotlinExtractor;
-    let mut files = vec![{
-        let pf = make_parsed_file(
-            "src/models.kt",
-            vec![
-                make_symbol("User", "class", "src/models.kt", 3, Some("com::example")),
-                make_symbol("Config", "class", "src/models.kt", 10, Some("com::example")),
-            ],
-        );
-        pf
-    }];
+    let mut files = vec![make_parsed_file(
+        "src/models.kt",
+        vec![
+            make_symbol("User", "class", "src/models.kt", 3, Some("com::example")),
+            make_symbol("Config", "class", "src/models.kt", 10, Some("com::example")),
+        ],
+    )];
 
     let (resolved_edges, _) = extractor.resolve_cross_file(&mut files);
     // No edges to resolve → just verify it doesn't panic

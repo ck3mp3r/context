@@ -74,7 +74,7 @@ mod surrealdb_tests {
             .as_str()
             .expect("Should have an ID")
             .split(':')
-            .last()
+            .next_back()
             .expect("ID should have table:id format")
             .to_string();
 

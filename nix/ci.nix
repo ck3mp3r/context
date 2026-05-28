@@ -4,13 +4,10 @@
   inputs,
   system,
 }: let
-  fenix = inputs.fenix.packages.${system};
-  # Same toolchain as devenv.nix - Rust with WASM target support
-  toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
-    fenix.targets.wasm32-unknown-unknown.stable.rust-std
-  ];
+  toolchain = inputs.rustnix.lib.rust.mkToolchain {
+    inherit system;
+    targets = ["wasm32-unknown-unknown"];
+  };
 in
   pkgs.mkShellNoCC {
     name = "context-ci";
@@ -20,7 +17,6 @@ in
       pkgs.cargo-tarpaulin
       pkgs.trunk
       pkgs.wasm-bindgen-cli
-      pkgs.nodejs
       pkgs.tailwindcss_4
       pkgs.protobuf # Required for NanoGraph (Lance dependency)
     ];

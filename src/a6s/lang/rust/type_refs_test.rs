@@ -165,7 +165,7 @@ fn process(items: Vec<Config>) {}
         .iter()
         .filter(|e| match &e.to {
             crate::a6s::types::SymbolRef::Resolved(id) => {
-                extract_name(id).map_or(false, |name| name == "Config")
+                extract_name(id).is_some_and(|name| name == "Config")
             }
             _ => false,
         })
@@ -264,7 +264,7 @@ fn maybe_get() -> Option<Config> { None }
         .iter()
         .filter(|e| match &e.to {
             crate::a6s::types::SymbolRef::Resolved(id) => {
-                extract_name(id).map_or(false, |name| name == "Config")
+                extract_name(id).is_some_and(|name| name == "Config")
             }
             _ => false,
         })
@@ -298,7 +298,7 @@ fn load() -> Result<Config, Error> { Ok(Config {}) }
         .iter()
         .filter(|e| match &e.to {
             crate::a6s::types::SymbolRef::Resolved(id) => {
-                extract_name(id).map_or(false, |name| name == "Config")
+                extract_name(id).is_some_and(|name| name == "Config")
             }
             _ => false,
         })
@@ -308,7 +308,7 @@ fn load() -> Result<Config, Error> { Ok(Config {}) }
         .iter()
         .filter(|e| match &e.to {
             crate::a6s::types::SymbolRef::Resolved(id) => {
-                extract_name(id).map_or(false, |name| name == "Error")
+                extract_name(id).is_some_and(|name| name == "Error")
             }
             _ => false,
         })
@@ -346,7 +346,7 @@ fn combine(a: TypeA, b: TypeB) {}
         .iter()
         .filter(|e| match &e.to {
             crate::a6s::types::SymbolRef::Resolved(id) => {
-                extract_name(id).map_or(false, |name| name == "TypeA")
+                extract_name(id).is_some_and(|name| name == "TypeA")
             }
             _ => false,
         })
@@ -356,7 +356,7 @@ fn combine(a: TypeA, b: TypeB) {}
         .iter()
         .filter(|e| match &e.to {
             crate::a6s::types::SymbolRef::Resolved(id) => {
-                extract_name(id).map_or(false, |name| name == "TypeB")
+                extract_name(id).is_some_and(|name| name == "TypeB")
             }
             _ => false,
         })

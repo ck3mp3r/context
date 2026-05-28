@@ -947,7 +947,7 @@ fn load_project_file(name: &str) -> String {
 
 fn extract_project() -> (TypeScriptExtractor, Vec<crate::a6s::types::ParsedFile>) {
     let ext = TypeScriptExtractor;
-    let files = vec![
+    let files = [
         ("project/models.ts", load_project_file("models.ts")),
         ("project/user.ts", load_project_file("user.ts")),
         ("project/service.ts", load_project_file("service.ts")),

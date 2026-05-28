@@ -24,5 +24,7 @@ jobs:
         with:
           github-token: ${{github.token}}
 
-      - name: Build and test context via Nix
-        run: nix build .#context
+      - name: Build and test
+        env:
+          NIX_CONFIG: "access-tokens = github.com=${{ github.token }}"
+        run: nix develop .#ci --command cargo test --all-features

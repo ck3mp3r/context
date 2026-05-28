@@ -183,13 +183,11 @@ pub fn ProjectDetail() -> impl IntoView {
                 }
                 | UpdateMessage::ProjectDeleted {
                     project_id: updated_id,
-                } => {
-                    if updated_id == project_id() {
-                        web_sys::console::log_1(
-                            &"Project updated via WebSocket, refetching project...".into(),
-                        );
-                        set_project_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
+                } if updated_id == project_id() => {
+                    web_sys::console::log_1(
+                        &"Project updated via WebSocket, refetching project...".into(),
+                    );
+                    set_project_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
                 _ => {}
             }

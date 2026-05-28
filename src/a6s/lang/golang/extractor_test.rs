@@ -425,7 +425,7 @@ func (s *Server) init() {}
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Calls))
         .collect();
-    assert!(calls_edges.len() >= 1, "Expected at least 1 Calls edge");
+    assert!(!calls_edges.is_empty(), "Expected at least 1 Calls edge");
 
     // Verify one edge has init as target
     assert!(calls_edges.iter().any(|e| {
@@ -456,7 +456,7 @@ func NewServer() *Server {
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
         .collect();
     assert!(
-        uses_edges.len() >= 1,
+        !uses_edges.is_empty(),
         "Expected at least 1 Usage edge, got {}",
         uses_edges.len()
     );
@@ -496,7 +496,7 @@ func getConfig() Config {
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
         .collect();
-    assert!(uses_edges.len() >= 1, "Expected at least 1 Usage edge");
+    assert!(!uses_edges.is_empty(), "Expected at least 1 Usage edge");
 
     // Verify edge targets Config
     assert!(uses_edges.iter().any(|e| {
@@ -524,7 +524,7 @@ func setup() {
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::Usage))
         .collect();
-    assert!(uses_edges.len() >= 1, "Expected at least 1 Usage edge");
+    assert!(!uses_edges.is_empty(), "Expected at least 1 Usage edge");
 
     // Verify edge targets Logger
     assert!(uses_edges.iter().any(|e| {
