@@ -456,6 +456,7 @@
         filteredEdgeTypes: new Set(),  // empty = show all
         hideTests: false,
         searchMatches: null,      // Set of matched node IDs from search, null = no active search
+        searchResultNodes: null,  // Set of all visible nodes (matches + ancestors) for proper edge visibility
         onSelectCallback: null,   // callback for node selection events
         onLegendChangeCallback: null,  // callback when legend should be refreshed (after expand/collapse)
         entryTypeCanvas: null,    // custom canvas for entry-type shapes
@@ -1570,6 +1571,7 @@
 
     if (!query || query.trim() === "") {
       inst.searchMatches = null;
+      inst.searchResultNodes = null;
       inst.renderer.refresh();
       return 0;
     }
@@ -1643,6 +1645,7 @@
         if (!response.ok) {
           console.error("Search request failed:", response.status);
           inst.searchMatches = null;
+          inst.searchResultNodes = null;
           inst.renderer.refresh();
           if (callback) callback(0);
           return null;
@@ -1657,6 +1660,7 @@
 
         if (nodes.length === 0) {
           inst.searchMatches = null;
+          inst.searchResultNodes = null;
           inst.renderer.refresh();
           if (callback) callback(0);
           return;
@@ -1771,6 +1775,7 @@
       .catch(function(error) {
         console.error("Search error:", error);
         inst.searchMatches = null;
+        inst.searchResultNodes = null;
         inst.renderer.refresh();
         if (callback) callback(0);
       });
