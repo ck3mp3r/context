@@ -1,6 +1,9 @@
 -- All symbols defined in a specific file
 -- Use to get an overview of a single file's contents
 -- Parameter: $path (String) - file path
+-- Examples:
+--   $path = "src/api/v1/graph.rs" → all symbols in graph.rs
+--   Use for: file exploration, understanding module contents
 SELECT
     out.name AS name,
     out.kind AS kind,

@@ -1,11 +1,10 @@
 -- Find all functions reachable from a given function through call chains
--- Returns all transitive calls up to depth 3
---
--- Parameters:
---   $repo_id (String) - Repository ID
---   $name (String) - Source function name
---
--- Single query that matches calls at depth 1, 2, or 3
+-- Traverses up to 3 levels deep (depth is fixed, not configurable)
+-- Examples:
+--   $name = "main" finds all functions reachable from main (3 levels)
+--   $name = "handle_request" shows the call tree of a request handler
+-- Parameter: $name (String) - Source function name
+-- Returns: All transitively called functions with file locations
 --
 SELECT
     out.name AS name,

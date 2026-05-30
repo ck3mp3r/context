@@ -1,3 +1,4 @@
+-- @internal
 -- Query: all_symbols
 -- Description: Retrieve all symbols from the code graph
 -- Returns: List of symbols with their basic properties
@@ -12,5 +13,4 @@ SELECT
     entry_type,
     module_path
 FROM symbol
-WHERE repo_id = $repo_id
-LIMIT 100;
+WHERE repo_id = $repo_id;

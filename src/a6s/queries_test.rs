@@ -615,12 +615,9 @@ async fn test_list_queries_returns_structured_metadata() {
     assert_eq!(file_symbols.params.len(), 1);
     assert_eq!(file_symbols.params[0].name, "$path");
 
-    // all_symbols should have no params
-    let all_symbols = queries.iter().find(|q| q.name == "all_symbols").unwrap();
-    assert!(
-        all_symbols.params.is_empty(),
-        "all_symbols should have no params"
-    );
+    // overview should have no params (it's not @internal)
+    let overview = queries.iter().find(|q| q.name == "overview").unwrap();
+    assert!(overview.params.is_empty(), "overview should have no params");
 }
 
 /// Helper to create a CodeGraph for testing (read-only, no truncation)

@@ -1,6 +1,9 @@
 -- Query: implements
 -- Description: Retrieve all trait/interface implementation relationships
 -- Returns: List of implements edges with implementor and interface details
+-- Examples:
+--   code_query(query_name="implements") → all interface implementations
+--   Use for: polymorphism discovery, interface usage
 
 SELECT
     in.symbol_id AS src_id,

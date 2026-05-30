@@ -1,6 +1,9 @@
 -- Find all functions called by a given function
 -- Use to understand what a function depends on
 -- Parameter: $name (String) - source function name
+-- Examples:
+--   $name = "process_request" → what does process_request call?
+--   Use for: dependency analysis, understanding implementation
 SELECT
     out.name AS name,
     out.kind AS kind,

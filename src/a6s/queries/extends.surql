@@ -1,6 +1,9 @@
 -- Query: extends
 -- Description: Retrieve all type extension relationships
 -- Returns: List of extends edges with child and parent details
+-- Examples:
+--   code_query(query_name="extends") → all inheritance relationships
+--   Use for: class hierarchy, inheritance patterns
 
 SELECT
     in.symbol_id AS src_id,

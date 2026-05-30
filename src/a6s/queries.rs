@@ -22,9 +22,14 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
             include_str!("queries/annotates_type.surql"),
         );
         m.insert("callees", include_str!("queries/callees.surql"));
+        m.insert("data_flow", include_str!("queries/data_flow.surql"));
         m.insert("callers", include_str!("queries/callers.surql"));
         m.insert("calls_edges", include_str!("queries/calls_edges.surql"));
         m.insert("entry_points", include_str!("queries/entry_points.surql"));
+        m.insert(
+            "explore_module",
+            include_str!("queries/explore_module.surql"),
+        );
         m.insert("extends", include_str!("queries/extends.surql"));
         m.insert(
             "field_type_edges",
@@ -36,6 +41,10 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
         );
         m.insert("file_imports", include_str!("queries/file_imports.surql"));
         m.insert("file_symbols", include_str!("queries/file_symbols.surql"));
+        m.insert(
+            "find_tests_for",
+            include_str!("queries/find_tests_for.surql"),
+        );
         m.insert("has_field", include_str!("queries/has_field.surql"));
         m.insert("has_member", include_str!("queries/has_member.surql"));
         m.insert("has_method", include_str!("queries/has_method.surql"));
@@ -46,6 +55,10 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
         m.insert("public_api", include_str!("queries/public_api.surql"));
         m.insert("returns_edges", include_str!("queries/returns_edges.surql"));
         m.insert("root_symbols", include_str!("queries/root_symbols.surql"));
+        m.insert(
+            "search_by_pattern",
+            include_str!("queries/search_by_pattern.surql"),
+        );
         m.insert(
             "subgraph_edges",
             include_str!("queries/subgraph_edges.surql"),
