@@ -1,3 +1,4 @@
+-- @internal
 -- Query: has_method
 -- Description: Retrieve all method membership relationships
 -- Returns: List of has_method edges with source and target symbol IDs

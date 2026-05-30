@@ -782,22 +782,27 @@ impl CodeGraph {
 
         // Iterate over embedded queries
         for (name, content) in crate::a6s::queries::PREDEFINED_QUERIES.iter() {
-            let (description, params) = Self::parse_query_comments(content);
+            let (description, params, internal) = Self::parse_query_comments(content);
             queries.push(QueryInfo {
                 name: name.to_string(),
                 description,
                 params,
+                internal,
             });
         }
+
+        // Filter out internal queries
+        queries.retain(|q| !q.internal);
 
         queries.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(queries)
     }
 
     /// Parse comment headers from a .surql file to extract description and parameters.
-    fn parse_query_comments(content: &str) -> (Option<String>, Vec<QueryParam>) {
+    fn parse_query_comments(content: &str) -> (Option<String>, Vec<QueryParam>, bool) {
         let mut description = None;
         let mut params = Vec::new();
+        let mut internal = false;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -806,6 +811,12 @@ impl CodeGraph {
             }
             let comment = trimmed.trim_start_matches("--").trim();
             if comment.is_empty() {
+                continue;
+            }
+
+            // Check for @internal annotation
+            if comment == "@internal" {
+                internal = true;
                 continue;
             }
 
@@ -848,12 +859,13 @@ impl CodeGraph {
             } else if description.is_none()
                 && !comment.starts_with("Query:")
                 && !comment.starts_with("Returns:")
+                && comment != "@internal"
             {
                 description = Some(comment.to_string());
             }
         }
 
-        (description, params)
+        (description, params, internal)
     }
 
     /// Execute raw SurrealQL query.

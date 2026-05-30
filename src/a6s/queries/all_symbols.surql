@@ -12,4 +12,5 @@ SELECT
     entry_type,
     module_path
 FROM symbol
-WHERE repo_id = $repo_id;
+WHERE repo_id = $repo_id
+LIMIT 100;

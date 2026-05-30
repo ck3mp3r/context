@@ -1,3 +1,4 @@
+-- @internal
 -- Query: subgraph_edges
 -- Description: Get non-containment edges where both endpoints are in a given set of symbol IDs
 -- Parameters:

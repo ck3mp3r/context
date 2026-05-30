@@ -1,3 +1,4 @@
+-- @internal
 -- Query: returns_edges
 -- Description: Get all return type edges (function → return type)
 -- Returns: src_id, dst_id for visualization

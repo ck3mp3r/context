@@ -469,6 +469,8 @@ pub struct QueryInfo {
     pub description: Option<String>,
     /// Parameters extracted from `-- Parameter:` comment lines
     pub params: Vec<QueryParam>,
+    /// Whether this is an internal query (marked with @internal)
+    pub internal: bool,
 }
 
 /// A parameter required by a query.

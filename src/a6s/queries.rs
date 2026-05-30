@@ -42,7 +42,6 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
         m.insert("hub_symbols", include_str!("queries/hub_symbols.surql"));
         m.insert("implements", include_str!("queries/implements.surql"));
         m.insert("module_map", include_str!("queries/module_map.surql"));
-        m.insert("neighbors", include_str!("queries/neighbors.surql"));
         m.insert("overview", include_str!("queries/overview.surql"));
         m.insert("public_api", include_str!("queries/public_api.surql"));
         m.insert("returns_edges", include_str!("queries/returns_edges.surql"));
@@ -60,10 +59,6 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
         m.insert(
             "transitive_calls",
             include_str!("queries/transitive_calls.surql"),
-        );
-        m.insert(
-            "type_hierarchy",
-            include_str!("queries/type_hierarchy.surql"),
         );
         m.insert("uses_type", include_str!("queries/uses_type.surql"));
         m

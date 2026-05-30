@@ -1,3 +1,4 @@
+-- @internal
 -- Query: accepts_edges
 -- Description: Get all parameter type edges (function → type parameter)
 -- Returns: src_id, dst_id for visualization

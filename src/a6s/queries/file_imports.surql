@@ -1,3 +1,4 @@
+-- @internal
 -- Query: file_imports
 -- Description: Retrieve all file import relationships
 -- Returns: List of file_imports edges with file ID and symbol details

@@ -1,3 +1,4 @@
+-- @internal
 -- Query: calls_edges
 -- Description: Retrieve all function call relationships with full source and target details
 -- Returns: List of call edges with complete symbol information for both caller and callee

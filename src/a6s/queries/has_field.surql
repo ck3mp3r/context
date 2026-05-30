@@ -1,3 +1,4 @@
+-- @internal
 -- Query: has_field
 -- Description: Retrieve all field membership relationships
 -- Returns: List of has_field edges with source and target symbol IDs

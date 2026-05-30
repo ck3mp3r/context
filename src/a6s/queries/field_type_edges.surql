@@ -1,3 +1,4 @@
+-- @internal
 -- Query: field_type_edges
 -- Description: Get all field type edges (field → type)
 -- Returns: src_id, dst_id for visualization

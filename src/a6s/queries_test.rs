@@ -509,26 +509,6 @@ async fn test_module_map_query_with_package() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_type_hierarchy_query() {
-    let db = init_db(None).await.expect("Failed to init db");
-    create_test_symbols(&db).await;
-    create_test_edges(&db).await; // creates extends and implements edges
-
-    let query = include_str!("queries/type_hierarchy.surql");
-    let mut result = db
-        .query(query)
-        .bind(("repo_id", "test_repo"))
-        .await
-        .expect("Query failed");
-    let hierarchy: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
-
-    assert_eq!(hierarchy.len(), 1, "Should find 1 extends relationship");
-    assert_eq!(hierarchy[0]["type_name"], "MyStruct");
-    assert_eq!(hierarchy[0]["parent_name"], "helper");
-    assert_eq!(hierarchy[0]["relationship"], "extends");
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn test_annotates_type_query() {
     let db = init_db(None).await.expect("Failed to init db");
     create_test_symbols(&db).await;
@@ -840,71 +820,5 @@ async fn test_transitive_calls_query() {
     assert!(
         names.contains(&"funcD"),
         "funcD should be reachable (depth 3)"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_neighbors_query() {
-    let db = init_db(None).await.expect("Failed to init db");
-
-    db.query("CREATE symbol:nb_s1 SET repo_id = 'test_repo', symbol_id = 'nb_s1', name = 'funcX', kind = 'function', language = 'rust', file_path = 'src/x.rs', start_line = 1, end_line = 10")
-        .await
-        .expect("create nb_s1");
-
-    db.query("CREATE symbol:nb_s2 SET repo_id = 'test_repo', symbol_id = 'nb_s2', name = 'funcY', kind = 'function', language = 'rust', file_path = 'src/y.rs', start_line = 1, end_line = 10")
-        .await
-        .expect("create nb_s2");
-
-    db.query("CREATE symbol:nb_s3 SET repo_id = 'test_repo', symbol_id = 'nb_s3', name = 'funcZ', kind = 'function', language = 'rust', file_path = 'src/z.rs', start_line = 1, end_line = 10")
-        .await
-        .expect("create nb_s3");
-
-    db.query("RELATE symbol:nb_s1->calls->symbol:nb_s2 SET call_site_line = 5")
-        .await
-        .expect("funcX calls funcY");
-
-    db.query("RELATE symbol:nb_s3->calls->symbol:nb_s1 SET call_site_line = 10")
-        .await
-        .expect("funcZ calls funcX");
-
-    let query = include_str!("queries/neighbors.surql");
-    let mut result = db
-        .query(query)
-        .bind(("repo_id", "test_repo"))
-        .bind(("name", "funcX"))
-        .await
-        .expect("Query failed");
-
-    let neighbors: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
-
-    let names: Vec<&str> = neighbors
-        .iter()
-        .filter_map(|s| s["name"].as_str())
-        .collect();
-    let directions: Vec<&str> = neighbors
-        .iter()
-        .filter_map(|s| s["direction"].as_str())
-        .collect();
-
-    assert_eq!(neighbors.len(), 2, "Should have 2 neighbors");
-    assert!(
-        names.contains(&"funcY"),
-        "funcY should be a neighbor (outgoing)"
-    );
-    assert!(
-        names.contains(&"funcZ"),
-        "funcZ should be a neighbor (incoming)"
-    );
-    assert!(
-        !names.contains(&"funcX"),
-        "funcX itself should not be in results"
-    );
-    assert!(
-        directions.contains(&"outgoing"),
-        "Should have outgoing direction"
-    );
-    assert!(
-        directions.contains(&"incoming"),
-        "Should have incoming direction"
     );
 }
