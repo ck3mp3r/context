@@ -1,5 +1,16 @@
 # Testing Guide for c5t
 
+## Server Ports
+
+- **Production (release build):** `localhost:3737` — uses `c5t_*` MCP tools
+- **Dev (debug build):** `localhost:3738` — uses `c5t-dev_*` MCP tools
+
+Never confuse the two. Use the correct port when making HTTP requests.
+
+**IMPORTANT:** After code changes, the dev server must be rebuilt and restarted before testing via HTTP or MCP. Always ASK THE USER to restart the dev server — never assume it's running the latest code.
+
+---
+
 This document provides guidelines for writing tests in the c5t codebase. Follow these patterns to maintain consistency and avoid common pitfalls.
 
 ## Project Structure

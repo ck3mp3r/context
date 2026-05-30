@@ -200,7 +200,7 @@ const EDGE_QUERIES: &[(&str, &str)] = &[
 ];
 
 /// Containment edge query names
-const CONTAINMENT_QUERIES: &[&str] = &["has_member", "has_method", "has_field"];
+const CONTAINMENT_QUERIES: &[&str] = &["declares_mod", "has_member", "has_method", "has_field"];
 
 /// Fetch all non-containment edges for the repository.
 /// Returns (src_id, dst_id, edge_type) tuples.

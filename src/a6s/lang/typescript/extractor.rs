@@ -268,6 +268,7 @@ impl LanguageExtractor for TypeScriptExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -925,6 +926,7 @@ impl TypeScriptExtractor {
                         )),
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -962,6 +964,7 @@ impl TypeScriptExtractor {
                         )),
                         kind: EdgeKind::HasMethod,
                         line: Some(method.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -1007,6 +1010,7 @@ impl TypeScriptExtractor {
                 to: SymbolRef::resolved(SymbolId::new(file_path, &s.name, s.start_line)),
                 kind: EdgeKind::HasMember,
                 line: Some(s.start_line),
+                entry_type: None,
             })
             .collect();
 
@@ -1106,6 +1110,7 @@ impl TypeScriptExtractor {
                                 to: SymbolRef::unresolved(type_name, file_path),
                                 kind: EdgeKind::Extends,
                                 line: Some(child.start_position().row + 1),
+                                entry_type: None,
                             });
                         }
                     }
@@ -1119,6 +1124,7 @@ impl TypeScriptExtractor {
                                 to: SymbolRef::unresolved(type_name, file_path),
                                 kind: EdgeKind::Implements,
                                 line: Some(child.start_position().row + 1),
+                                entry_type: None,
                             });
                         }
                     }
@@ -1143,6 +1149,7 @@ impl TypeScriptExtractor {
                     to: SymbolRef::unresolved(type_name, file_path),
                     kind: EdgeKind::Extends,
                     line: Some(child.start_position().row + 1),
+                    entry_type: None,
                 });
             }
         }
@@ -1201,6 +1208,7 @@ impl TypeScriptExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1426,6 +1434,7 @@ impl TypeScriptExtractor {
                         to: SymbolRef::unresolved(type_name, file_path),
                         kind: edge_kind,
                         line: Some(type_node.start_position().row + 1),
+                        entry_type: None,
                     });
                 }
             }
@@ -1441,6 +1450,7 @@ impl TypeScriptExtractor {
                                 to: SymbolRef::unresolved(type_name, file_path),
                                 kind: edge_kind.clone(),
                                 line: Some(child.start_position().row + 1),
+                                entry_type: None,
                             });
                         }
                     } else if child.kind() == "type_arguments" {

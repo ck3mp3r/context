@@ -215,3 +215,14 @@ DEFINE FIELD confidence ON uses TYPE float DEFAULT 1.0
 
 DEFINE INDEX idx_uses_in ON uses FIELDS in;
 DEFINE INDEX idx_uses_out ON uses FIELDS out;
+
+-- DeclaresMod: Module declares a submodule (from mod declarations)
+DEFINE TABLE declares_mod TYPE RELATION IN symbol OUT symbol ENFORCED;
+
+DEFINE FIELD confidence ON declares_mod TYPE float DEFAULT 1.0
+    ASSERT $value >= 0.0 AND $value <= 1.0;
+
+DEFINE FIELD entry_type ON declares_mod TYPE option<string>;
+
+DEFINE INDEX idx_declares_mod_in ON declares_mod FIELDS in;
+DEFINE INDEX idx_declares_mod_out ON declares_mod FIELDS out;

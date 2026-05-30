@@ -1976,6 +1976,7 @@ fn test_build_symbol_index_multiple_files() {
         to: SymbolRef::unresolved("User", "src/service.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(6),
+        entry_type: None,
     });
 
     // Add an import for User in service.kt
@@ -2164,6 +2165,7 @@ fn test_resolve_calls_cross_file() {
                 to: SymbolRef::unresolved("helper", "src/main.kt"),
                 kind: EdgeKind::Calls,
                 line: Some(3),
+                entry_type: None,
             });
             pf
         },
@@ -2211,6 +2213,7 @@ fn test_resolve_typeref_cross_file() {
                 to: SymbolRef::unresolved("User", "src/service.kt"),
                 kind: EdgeKind::ReturnType,
                 line: Some(1),
+                entry_type: None,
             });
             pf
         },
@@ -2247,6 +2250,7 @@ fn test_skip_builtins_during_resolution() {
             to: SymbolRef::unresolved("String", "src/main.kt"),
             kind: EdgeKind::ParamType,
             line: Some(1),
+            entry_type: None,
         });
         pf
     }];
@@ -2297,6 +2301,7 @@ fn test_import_resolution_single() {
                 to: SymbolRef::unresolved("User", "src/service.kt"),
                 kind: EdgeKind::TypeRef,
                 line: Some(2),
+                entry_type: None,
             });
             pf
         },
@@ -2365,6 +2370,7 @@ fn test_import_resolution_wildcard() {
                 to: SymbolRef::unresolved("User", "src/service.kt"),
                 kind: EdgeKind::TypeRef,
                 line: Some(2),
+                entry_type: None,
             });
             pf
         },
@@ -2421,6 +2427,7 @@ fn test_import_resolution_aliased() {
                 to: SymbolRef::unresolved("AppUser", "src/service.kt"),
                 kind: EdgeKind::TypeRef,
                 line: Some(2),
+                entry_type: None,
             });
             pf
         },
@@ -2494,6 +2501,7 @@ fn test_resolve_cross_file_end_to_end() {
         to: SymbolRef::unresolved("User", "src/service.kt"),
         kind: EdgeKind::ParamType,
         line: Some(10),
+        entry_type: None,
     });
 
     // File 3: com.example.service - defines helper (same package as service)
@@ -2513,6 +2521,7 @@ fn test_resolve_cross_file_end_to_end() {
         to: SymbolRef::unresolved("helper", "src/service.kt"),
         kind: EdgeKind::Calls,
         line: Some(12),
+        entry_type: None,
     });
 
     let mut files = vec![models, service, utils];
@@ -2586,6 +2595,7 @@ fn test_resolve_cross_file_already_resolved_passthrough() {
             to: SymbolRef::resolved(SymbolId::new("src/main.kt", "Foo", 1)),
             kind: EdgeKind::ReturnType,
             line: Some(5),
+            entry_type: None,
         });
         pf
     }];
@@ -2833,6 +2843,7 @@ fn test_private_not_resolved_cross_file() {
         to: SymbolRef::unresolved("InternalHelper", "src/consumer.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files = vec![file1, file2];
@@ -2885,6 +2896,7 @@ fn test_internal_same_package_resolved() {
         to: SymbolRef::unresolved("PackageHelper", "src/consumer.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files = vec![file1.clone(), file2_same];
@@ -2915,6 +2927,7 @@ fn test_internal_same_package_resolved() {
         to: SymbolRef::unresolved("PackageHelper", "src/other.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files2 = vec![file1, file3_diff];
@@ -3001,6 +3014,7 @@ fn test_missing_import_stays_unresolved() {
         to: SymbolRef::unresolved("NonExistentClass", "src/main.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files = vec![file];

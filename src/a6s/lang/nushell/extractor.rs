@@ -95,6 +95,7 @@ impl LanguageExtractor for NushellExtractor {
                     to,
                     kind: EdgeKind::HasMember,
                     line: Some(child.start_line),
+                    entry_type: None,
                 });
             }
         }
@@ -287,6 +288,7 @@ impl LanguageExtractor for NushellExtractor {
                         to: to_id,
                         kind: EdgeKind::Calls,
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -548,6 +550,7 @@ impl NushellExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             } else {
                 tracing::debug!(
@@ -795,6 +798,7 @@ impl NushellExtractor {
                     to: test_ref,
                     kind: EdgeKind::Calls,
                     line: Some(test_sym.start_line),
+                    entry_type: None,
                 });
             }
         }

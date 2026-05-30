@@ -624,6 +624,7 @@ impl CodeGraph {
             EdgeKind::FieldType => "field_type",
             EdgeKind::TypeRef => "type_annotation",
             EdgeKind::FileImports | EdgeKind::Import => "file_imports",
+            EdgeKind::DeclaresMod => "declares_mod",
         }
     }
 
@@ -652,6 +653,12 @@ impl CodeGraph {
                     && matches!(edge.kind, EdgeKind::Calls)
                 {
                     fields.push_str(&format!(", call_site_line: {}", l as i32));
+                }
+                if let Some(ref entry_type) = edge.entry_type {
+                    fields.push_str(&format!(
+                        ", entry_type: '{}'",
+                        Self::escape_surql(entry_type)
+                    ));
                 }
 
                 groups

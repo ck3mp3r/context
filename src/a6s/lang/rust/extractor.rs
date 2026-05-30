@@ -135,17 +135,17 @@ impl LanguageExtractor for RustExtractor {
         parsed
     }
 
-    /// Post-extraction: deduplicate module symbols and propagate test attributes.
+    /// Post-extraction: resolve module declarations and propagate test attributes.
     ///
-    /// Handles two issues:
-    /// 1. Deduplication: Files with explicit `mod xxx;` declarations create duplicate modules
-    ///    (one implicit from file, one explicit from declaration). Keep the explicit one.
-    /// 2. Test propagation: When `#[cfg(test)] mod xxx;` is found, mark all symbols in that
-    ///    file with `entry_type: "test"`.
+    /// Handles:
+    /// 1. Module resolution: DeclaresMod edges from `mod xxx;` declarations identify which
+    ///    files should be loaded as modules.
+    /// 2. Test propagation: When `#[cfg(test)] mod xxx;` is found (DeclaresMod edge with
+    ///    entry_type="test"), mark all symbols in that file with `entry_type: "test"`.
     fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
         use std::collections::{HashMap, HashSet};
 
-        // Phase 1: Collect module declarations (single-line `mod xxx;` statements)
+        // Phase 1: Collect module declarations from DeclaresMod edges
         struct ModDecl {
             mod_name: String,
             declaring_dir: String,
@@ -158,19 +158,22 @@ impl LanguageExtractor for RustExtractor {
             if pf.language != "rust" {
                 continue;
             }
-            for sym in &pf.symbols {
-                // Module declarations are single-line (start_line == end_line)
-                if sym.kind == "module" && sym.start_line == sym.end_line {
-                    let dir = if let Some(pos) = pf.file_path.rfind('/') {
-                        &pf.file_path[..pos]
-                    } else {
-                        ""
-                    };
-                    decls.push(ModDecl {
-                        mod_name: sym.name.clone(),
-                        declaring_dir: dir.to_string(),
-                        is_test: sym.entry_type.as_deref() == Some("test"),
-                    });
+            for edge in &pf.edges {
+                // Find DeclaresMod edges
+                if edge.kind == crate::a6s::types::EdgeKind::DeclaresMod {
+                    // Extract module name from the "to" SymbolRef
+                    if let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &edge.to {
+                        let dir = if let Some(pos) = pf.file_path.rfind('/') {
+                            &pf.file_path[..pos]
+                        } else {
+                            ""
+                        };
+                        decls.push(ModDecl {
+                            mod_name: name.clone(),
+                            declaring_dir: dir.to_string(),
+                            is_test: edge.entry_type.as_deref() == Some("test"),
+                        });
+                    }
                 }
             }
         }
@@ -186,8 +189,10 @@ impl LanguageExtractor for RustExtractor {
             .map(|(i, pf)| (pf.file_path.clone(), i))
             .collect();
 
-        // Phase 3: Process each declaration
+        // Phase 3: Process each declaration to find target files
         let mut files_to_process = HashSet::new();
+        // Build a map: (declaring_dir, mod_name) -> target_file_path
+        let mut mod_resolution_map: HashMap<(String, String), String> = HashMap::new();
 
         for decl in &decls {
             // Resolve target file: dir/mod_name.rs or dir/mod_name/mod.rs
@@ -206,29 +211,31 @@ impl LanguageExtractor for RustExtractor {
 
             if let Some(&tidx) = target_idx {
                 files_to_process.insert((tidx, decl.is_test));
+
+                // Store the resolution: (declaring_dir, mod_name) -> target_file_path
+                let target_file = parsed_files[tidx].file_path.clone();
+                mod_resolution_map.insert(
+                    (decl.declaring_dir.clone(), decl.mod_name.clone()),
+                    target_file,
+                );
             }
         }
 
-        // Phase 4: Update implicit modules and propagate test attributes
+        // Phase 4: Propagate test attributes to file symbols
         for (tidx, is_test) in files_to_process {
             let pf = &mut parsed_files[tidx];
 
-            // Find the implicit module (should be exactly one per file)
-            if let Some(implicit_mod) = pf.symbols.iter_mut().find(|sym| {
-                sym.kind == "module"
-                    && sym
-                        .signature
-                        .as_ref()
-                        .is_some_and(|s| s.contains("implicit_module: true"))
-            }) {
-                // Mark it as resolved (remove the implicit flag, add a note)
-                implicit_mod.signature =
-                    Some("resolved_from_explicit_declaration: true".to_string());
-
-                // If this is a test module, mark the module itself as test
-                if is_test {
-                    implicit_mod.entry_type = Some("test".to_string());
-                }
+            // If this is a test module, mark the implicit module itself as test
+            if is_test
+                && let Some(implicit_mod) = pf.symbols.iter_mut().find(|sym| {
+                    sym.kind == "module"
+                        && sym
+                            .signature
+                            .as_ref()
+                            .is_some_and(|s| s.contains("implicit_module: true"))
+                })
+            {
+                implicit_mod.entry_type = Some("test".to_string());
             }
 
             // Propagate test attribute to ALL symbols in the file
@@ -237,6 +244,35 @@ impl LanguageExtractor for RustExtractor {
                     if sym.entry_type.is_none() {
                         sym.entry_type = Some("test".to_string());
                     }
+                }
+            }
+        }
+
+        // Phase 4.5: Resolve DeclaresMod edges' `to` endpoints
+        // Now that we have mod_resolution_map, update all DeclaresMod edges
+        for pf in parsed_files.iter_mut() {
+            if pf.language != "rust" {
+                continue;
+            }
+
+            // Extract directory from file path
+            let dir = if let Some(pos) = pf.file_path.rfind('/') {
+                &pf.file_path[..pos]
+            } else {
+                ""
+            };
+
+            for edge in &mut pf.edges {
+                if edge.kind == crate::a6s::types::EdgeKind::DeclaresMod
+                    && let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &edge.to
+                    // Look up the resolved target file using (dir, mod_name)
+                    && let Some(target_file_path) =
+                        mod_resolution_map.get(&(dir.to_string(), name.clone()))
+                {
+                    // Resolve to the implicit module symbol in the target file (line 1)
+                    edge.to = crate::a6s::types::SymbolRef::Resolved(
+                        crate::a6s::types::SymbolId::new(target_file_path, name, 1),
+                    );
                 }
             }
         }
@@ -310,6 +346,7 @@ impl LanguageExtractor for RustExtractor {
                                 to,
                                 kind: EdgeKind::HasMember,
                                 line: Some(sym.start_line),
+                                entry_type: None,
                             });
                         }
                     }
@@ -483,6 +520,7 @@ impl LanguageExtractor for RustExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -1208,7 +1246,6 @@ impl RustExtractor {
             let name = Self::node_text(name_node, code).to_string();
             let start_line = def_node.start_position().row + 1;
             let end_line = def_node.end_position().row + 1;
-            let visibility = Self::get_visibility(&name, start_line, visibility_map);
 
             // Check for #[cfg(test)] attribute
             let entry_type = attributes.get(&start_line).and_then(|attrs| {
@@ -1219,18 +1256,45 @@ impl RustExtractor {
                 }
             });
 
-            parsed.symbols.push(crate::a6s::types::RawSymbol {
-                name,
-                kind: "module".to_string(),
-                file_path: file_path.to_string(),
-                start_line,
-                end_line,
-                signature: Some(Self::node_text(def_node, code).to_string()),
-                language: "rust".to_string(),
-                visibility,
-                entry_type,
-                module_path: None,
-            });
+            // Check if this is an inline module or a declaration
+            let mut cursor = def_node.walk();
+            let has_declaration_list = def_node
+                .children(&mut cursor)
+                .any(|child| child.kind() == "declaration_list");
+
+            if has_declaration_list {
+                // Inline module: mod foo { ... }
+                // Keep current behavior - emit a module symbol
+                let visibility = Self::get_visibility(&name, start_line, visibility_map);
+                parsed.symbols.push(crate::a6s::types::RawSymbol {
+                    name,
+                    kind: "module".to_string(),
+                    file_path: file_path.to_string(),
+                    start_line,
+                    end_line,
+                    signature: Some(Self::node_text(def_node, code).to_string()),
+                    language: "rust".to_string(),
+                    visibility,
+                    entry_type,
+                    module_path: None,
+                });
+            } else {
+                // Declaration: mod foo;
+                // Emit a DeclaresMod edge instead
+                use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
+
+                let implicit_module_name = Self::file_to_module_name(file_path);
+                let from = SymbolRef::resolved(SymbolId::new(file_path, &implicit_module_name, 1));
+                let to = SymbolRef::unresolved(&name, file_path);
+
+                parsed.edges.push(RawEdge {
+                    from,
+                    to,
+                    kind: EdgeKind::DeclaresMod,
+                    line: Some(start_line),
+                    entry_type,
+                });
+            }
             return true;
         }
         false
@@ -1721,6 +1785,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::HasMember,
                     line: Some(child.start_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1754,6 +1819,7 @@ impl RustExtractor {
                         to,
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     });
                     break; // Found the parent struct
                 }
@@ -1800,6 +1866,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::Implements,
                     line: Some(type_node.start_position().row + 1),
+                    entry_type: None,
                 });
             }
 
@@ -1835,6 +1902,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::HasMethod,
                     line: Some(method_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1930,6 +1998,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             }
         }
@@ -2008,6 +2077,7 @@ impl RustExtractor {
             to,
             kind: edge_kind,
             line: Some(line),
+            entry_type: None,
         });
     }
 

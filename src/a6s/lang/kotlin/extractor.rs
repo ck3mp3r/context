@@ -343,6 +343,7 @@ impl LanguageExtractor for KotlinExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -997,6 +998,7 @@ impl KotlinExtractor {
                         to: SymbolRef::unresolved(type_name, file_path),
                         kind: EdgeKind::ParamType,
                         line: Some(type_node.start_position().row + 1),
+                        entry_type: None,
                     });
                 }
                 // Extract generic type arguments from the parameter's parent user_type
@@ -1034,6 +1036,7 @@ impl KotlinExtractor {
                         to: SymbolRef::unresolved(type_name, file_path),
                         kind: EdgeKind::ReturnType,
                         line: Some(type_node.start_position().row + 1),
+                        entry_type: None,
                     });
                 }
                 // Extract generic type arguments from the return type's parent user_type
@@ -1070,6 +1073,7 @@ impl KotlinExtractor {
                             to: SymbolRef::unresolved(type_name, file_path),
                             kind: EdgeKind::FieldType,
                             line: Some(type_node.start_position().row + 1),
+                            entry_type: None,
                         });
                     }
                 }
@@ -1255,6 +1259,7 @@ impl KotlinExtractor {
                             to: SymbolRef::unresolved(type_name, file_path),
                             kind: edge_kind,
                             line: Some(type_id.start_position().row + 1),
+                            entry_type: None,
                         });
                     }
                 }
@@ -1521,6 +1526,7 @@ impl KotlinExtractor {
                         )),
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -1561,6 +1567,7 @@ impl KotlinExtractor {
                         )),
                         kind: EdgeKind::HasMethod,
                         line: Some(method.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -1620,6 +1627,7 @@ impl KotlinExtractor {
                 to: SymbolRef::resolved(SymbolId::new(file_path, &s.name, s.start_line)),
                 kind: EdgeKind::HasMember,
                 line: Some(s.start_line),
+                entry_type: None,
             })
             .collect();
 
@@ -1678,6 +1686,7 @@ impl KotlinExtractor {
                                         to: SymbolRef::unresolved(super_name, file_path),
                                         kind: EdgeKind::Extends,
                                         line: Some(child.start_position().row + 1),
+                                        entry_type: None,
                                     });
                                 }
                             }
@@ -1692,6 +1701,7 @@ impl KotlinExtractor {
                                         to: SymbolRef::unresolved(iface_name, file_path),
                                         kind: EdgeKind::Implements,
                                         line: Some(child.start_position().row + 1),
+                                        entry_type: None,
                                     });
                                 }
                             }
@@ -1741,6 +1751,7 @@ impl KotlinExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             }
         }

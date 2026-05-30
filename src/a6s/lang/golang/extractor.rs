@@ -232,6 +232,7 @@ impl LanguageExtractor for GolangExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -556,6 +557,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(callee_name, file_path),
                         kind: EdgeKind::Calls,
                         line: Some(call_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -580,6 +582,7 @@ impl GolangExtractor {
                         to,
                         kind: EdgeKind::Calls,
                         line: Some(call_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -612,6 +615,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -630,6 +634,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -648,6 +653,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -664,6 +670,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -681,6 +688,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             } else if let Some(&node) = captures_map.get("uses_binop_right") {
@@ -695,6 +703,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -712,6 +721,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(type_name.to_string(), file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -732,6 +742,7 @@ impl GolangExtractor {
                         to: SymbolRef::unresolved(qualified_name, file_path),
                         kind: EdgeKind::Usage,
                         line: Some(use_line),
+                        entry_type: None,
                     });
                 }
             }
@@ -866,6 +877,7 @@ impl GolangExtractor {
                         to,
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     });
                     break; // Found the parent struct
                 }
@@ -906,6 +918,7 @@ impl GolangExtractor {
                         to,
                         kind: EdgeKind::HasMethod,
                         line: Some(imethod.start_line),
+                        entry_type: None,
                     });
                     break;
                 }
@@ -951,6 +964,7 @@ impl GolangExtractor {
                 to,
                 kind: EdgeKind::HasMethod,
                 line: Some(*method_start),
+                entry_type: None,
             });
         }
     }
@@ -1082,6 +1096,7 @@ impl GolangExtractor {
                             to: SymbolRef::resolved(SymbolId::new(file_path, iface_name, is)),
                             kind: EdgeKind::Implements,
                             line: None,
+                            entry_type: None,
                         });
                     }
                 }
@@ -1123,6 +1138,7 @@ impl GolangExtractor {
                 to: SymbolRef::resolved(SymbolId::new(file_path, &s.name, s.start_line)),
                 kind: EdgeKind::HasMember,
                 line: Some(s.start_line),
+                entry_type: None,
             })
             .collect();
 
@@ -1673,6 +1689,7 @@ impl GolangExtractor {
                     to: SymbolRef::unresolved(qualified_name, file_path),
                     kind: EdgeKind::Usage,
                     line: Some(use_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1708,6 +1725,7 @@ impl GolangExtractor {
             to,
             kind: edge_kind,
             line: Some(line),
+            entry_type: None,
         });
     }
 

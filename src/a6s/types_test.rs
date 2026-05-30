@@ -37,6 +37,7 @@ fn test_raw_edge_with_symbol_ref() {
         to: to_unresolved.clone(),
         kind: EdgeKind::Calls,
         line: Some(5),
+        entry_type: None,
     };
 
     assert!(edge.from.is_resolved());
@@ -54,6 +55,7 @@ fn test_resolved_edge_construction() {
         to: to.clone(),
         kind: EdgeKind::Calls,
         line: Some(5),
+        entry_type: None,
     };
 
     assert_eq!(edge.from, from);

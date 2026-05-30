@@ -45,6 +45,7 @@ pub static PREDEFINED_QUERIES: LazyLock<HashMap<&'static str, &'static str>> =
             "find_tests_for",
             include_str!("queries/find_tests_for.surql"),
         );
+        m.insert("declares_mod", include_str!("queries/declares_mod.surql"));
         m.insert("has_field", include_str!("queries/has_field.surql"));
         m.insert("has_member", include_str!("queries/has_member.surql"));
         m.insert("has_method", include_str!("queries/has_method.surql"));

@@ -1224,36 +1224,42 @@ mod surrealdb_tests {
                 to: SymbolId::new("src/main.rs", "bar", 12),
                 kind: EdgeKind::Calls,
                 line: Some(5),
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/main.rs", "field_x", 23),
                 kind: EdgeKind::HasField,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/main.rs", "my_method", 25),
                 kind: EdgeKind::HasMethod,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/lib.rs", "MyTrait", 1),
                 kind: EdgeKind::Implements,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/lib.rs", "Parent", 12),
                 kind: EdgeKind::Extends,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "foo", 1),
                 to: SymbolId::new("src/lib.rs", "MyTrait", 1),
                 kind: EdgeKind::TypeRef,
                 line: Some(3),
+                entry_type: None,
             },
         ];
 
