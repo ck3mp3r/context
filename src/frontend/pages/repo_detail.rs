@@ -523,7 +523,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 // Graph canvas (square, takes remaining space)
                 <div
                     id=container_id
-                    class="flex-1 bg-ctp-mantle rounded-lg relative aspect-square max-h-[600px]"
+                    class="flex-1 bg-ctp-mantle rounded-lg relative min-h-[500px] h-[75vh] max-h-[900px]"
                     aria-label="Code graph visualization"
                 >
                     {move || match graph_state.get() {
