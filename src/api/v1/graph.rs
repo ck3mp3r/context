@@ -407,11 +407,8 @@ async fn build_root_graph_data(graph: &CodeGraph) -> Result<GraphResponse, Strin
         }
     }
 
-    // Build child_to_root mapping by walking parent chains
-    let symbol_ids: Vec<String> = all_symbols_map.keys().cloned().collect();
-    let child_to_root = build_child_to_root_map(&symbol_ids, &parent_map);
-
     // Step 4: Identify root symbols (not in child_ids) and inject child_count and parent_id
+    let mut root_ids: Vec<String> = Vec::new();
     for (symbol_id, symbol_value) in &all_symbols_map {
         if !child_ids.contains(symbol_id) {
             // This is a root symbol
@@ -422,16 +419,103 @@ async fn build_root_graph_data(graph: &CodeGraph) -> Result<GraphResponse, Strin
                 obj.insert("parent_id".to_string(), serde_json::Value::Null);
             }
             symbol_map.insert(symbol_id.clone(), symbol_value);
+            root_ids.push(symbol_id.clone());
         }
     }
 
-    // Step 5: Fetch ALL non-containment edges
+    // Step 5: Auto-expand root nodes' direct children (depth 1 BFS)
+    let mut containment_edge_list: Vec<(String, String, String)> = Vec::new();
+    for root_id in &root_ids {
+        if let Some(children) = containment_edges.get(root_id) {
+            for (child_id, edge_type) in children {
+                // Add child if not already in map
+                if !symbol_map.contains_key(child_id)
+                    && let Some(child_data) = all_symbols_map.get(child_id)
+                {
+                    let mut child_data = child_data.clone();
+                    // Inject child_count and parent_id
+                    if let Some(obj) = child_data.as_object_mut() {
+                        let count = child_counts.get(child_id).copied().unwrap_or(0);
+                        obj.insert("child_count".to_string(), serde_json::Value::from(count));
+                        obj.insert(
+                            "parent_id".to_string(),
+                            serde_json::Value::String(root_id.clone()),
+                        );
+                    }
+                    symbol_map.insert(child_id.clone(), child_data);
+                }
+
+                // Add containment edge if child is in symbol_map
+                if symbol_map.contains_key(child_id) {
+                    containment_edge_list.push((
+                        root_id.clone(),
+                        child_id.clone(),
+                        edge_type.clone(),
+                    ));
+                }
+            }
+        }
+    }
+
+    // Step 6: Build child_to_visible mapping for aggregate edges
+    // Map each symbol to its nearest visible ancestor (root or direct child of root)
+    let visible_ids: HashSet<String> = symbol_map.keys().cloned().collect();
+    let mut child_to_visible: HashMap<String, String> = HashMap::new();
+
+    for symbol_id in all_symbols_map.keys() {
+        // If already visible, map to itself
+        if visible_ids.contains(symbol_id) {
+            child_to_visible.insert(symbol_id.clone(), symbol_id.clone());
+            continue;
+        }
+
+        // Walk up parent chain to find nearest visible ancestor
+        let mut current = symbol_id.clone();
+        let mut visited: HashSet<String> = HashSet::new();
+
+        while let Some(parent) = parent_map.get(&current) {
+            if visited.contains(parent) {
+                break; // Cycle detected
+            }
+            visited.insert(current.clone());
+
+            if visible_ids.contains(parent) {
+                // Found nearest visible ancestor
+                child_to_visible.insert(symbol_id.clone(), parent.clone());
+                break;
+            }
+
+            current = parent.clone();
+        }
+
+        // If no visible ancestor found, map to root (walk up to find root)
+        if !child_to_visible.contains_key(symbol_id) {
+            current = symbol_id.clone();
+            visited.clear();
+            while let Some(parent) = parent_map.get(&current) {
+                if visited.contains(parent) {
+                    break;
+                }
+                visited.insert(current.clone());
+                current = parent.clone();
+            }
+            // current is now the root
+            child_to_visible.insert(symbol_id.clone(), current);
+        }
+    }
+
+    // Step 7: Fetch ALL non-containment edges
     let all_edges = fetch_non_containment_edges(graph, &mut failed_queries).await;
 
-    // Step 6: Compute aggregate edges
-    let aggregate_edges = compute_aggregate_edges(&child_to_root, &all_edges);
+    // Step 8: Compute aggregate edges using child_to_visible mapping
+    let aggregate_edges = compute_aggregate_edges(&child_to_visible, &all_edges);
 
-    build_response_with_aggregates(symbol_map, aggregate_edges, failed_queries)
+    build_response_with_containment(
+        symbol_map,
+        aggregate_edges,
+        containment_edge_list,
+        failed_queries,
+    )
 }
 
 async fn build_subtree_data(
@@ -797,18 +881,19 @@ fn build_response(
     })
 }
 
-/// Build response with aggregate edges (used for root graph view)
-fn build_response_with_aggregates(
+/// Build response with aggregate edges and containment edges (used for root graph view with depth-2 expansion)
+fn build_response_with_containment(
     symbol_map: HashMap<String, serde_json::Value>,
     aggregate_edges: Vec<(String, String, HashMap<String, u32>)>,
+    containment_edges: Vec<(String, String, String)>,
     failed_queries: Vec<String>,
 ) -> Result<GraphResponse, String> {
     let total_symbols = symbol_map.len();
-    let total_edges = aggregate_edges.len();
 
     let nodes = build_nodes(symbol_map);
 
-    let edges: Vec<GraphEdge> = aggregate_edges
+    // Convert aggregate edges
+    let mut edges: Vec<GraphEdge> = aggregate_edges
         .into_iter()
         .enumerate()
         .map(|(i, (source, target, counts))| GraphEdge {
@@ -819,6 +904,19 @@ fn build_response_with_aggregates(
             aggregate_counts: Some(counts),
         })
         .collect();
+
+    // Add containment edges as regular edges
+    edges.extend(containment_edges.into_iter().enumerate().map(
+        |(i, (source, target, edge_type))| GraphEdge {
+            id: format!("c:{}", i),
+            source,
+            target,
+            edge_type,
+            aggregate_counts: None,
+        },
+    ));
+
+    let total_edges = edges.len();
 
     Ok(GraphResponse {
         stats: GraphStats {
