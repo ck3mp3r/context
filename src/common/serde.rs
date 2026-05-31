@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 ///
 /// #[derive(Deserialize)]
 /// struct Example {
-///     #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
+///     #[serde(default, deserialize_with = "crate::common::serde::double_option")]
 ///     parent_id: Option<Option<String>>,
 /// }
 /// ```
@@ -70,7 +70,7 @@ where
 ///
 /// #[derive(Deserialize)]
 /// struct Example {
-///     #[serde(default, deserialize_with = "crate::serde_utils::double_option_string_or_empty")]
+///     #[serde(default, deserialize_with = "crate::common::serde::double_option_string_or_empty")]
 ///     parent_id: Option<Option<String>>,
 /// }
 /// ```

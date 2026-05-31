@@ -118,7 +118,7 @@ pub struct UpdateTaskParams {
     )]
     #[serde(
         default,
-        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
+        deserialize_with = "crate::common::serde::double_option_string_or_empty"
     )]
     pub parent_id: Option<Option<String>>,
     #[schemars(
