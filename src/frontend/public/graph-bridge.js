@@ -488,6 +488,14 @@
         inst.knownNodes.set(nodeId, attrs);
       });
 
+      // Auto-detect pre-expanded nodes: if a node's children are already
+      // present in the graph (via parentId), mark it as expanded
+      graph.forEachNode(function(nodeId, attrs) {
+        if (attrs.parentId && graph.hasNode(attrs.parentId)) {
+          inst.expandedNodes.add(attrs.parentId);
+        }
+      });
+
       // Create custom canvas layer for entry-type shapes (drawn on top of WebGL circles)
       var entryTypeCanvas = document.createElement("canvas");
       entryTypeCanvas.style.position = "absolute";
