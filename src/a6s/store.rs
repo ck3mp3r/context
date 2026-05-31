@@ -1,5 +1,6 @@
 use super::error::A6sError;
 use super::types::*;
+use serde_json::json;
 use std::sync::Arc;
 use tracing::info;
 
@@ -219,8 +220,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE file:`{}`->file_contains->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_file_id.replace("`", "\\`"),
-            compound_symbol_id.replace("`", "\\`")
+            Self::escape_surql_id(&compound_file_id),
+            Self::escape_surql_id(&compound_symbol_id)
         );
 
         let _ = self
@@ -248,8 +249,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->calls->symbol:`{}` SET confidence = 1.0, call_site_line = {}, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`"),
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to),
             call_site_line
         );
 
@@ -278,9 +279,9 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->inherits->symbol:`{}` SET confidence = 1.0, inheritance_type = '{}', repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`"),
-            inheritance_type.replace("'", "\\'")
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to),
+            Self::escape_surql_string(inheritance_type)
         );
 
         let _ = self
@@ -305,8 +306,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->implements->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to)
         );
 
         let _ = self
@@ -331,8 +332,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->extends->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to)
         );
 
         let _ = self
@@ -357,8 +358,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->has_field->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to)
         );
 
         let _ = self
@@ -383,8 +384,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->has_method->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to)
         );
 
         let _ = self
@@ -409,8 +410,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->has_member->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&compound_from),
+            Self::escape_surql_id(&compound_to)
         );
 
         let _ = self
@@ -446,9 +447,9 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE symbol:`{}`->{}->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
+            Self::escape_surql_id(&compound_from),
             edge_table,
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&compound_to)
         );
 
         let _ = self
@@ -475,8 +476,8 @@ impl CodeGraph {
 
         let query = format!(
             "RELATE file:`{}`->file_imports->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_file_id.replace("`", "\\`"),
-            compound_symbol_id.replace("`", "\\`")
+            Self::escape_surql_id(&compound_file_id),
+            Self::escape_surql_id(&compound_symbol_id)
         );
 
         let _ = self
@@ -499,8 +500,14 @@ impl CodeGraph {
 
     /// Escape a string value for SurrealQL string literals.
     /// Escapes single quotes and backslashes.
-    fn escape_surql(s: &str) -> String {
+    /// Escape for single-quoted SurrealQL string values (e.g., 'value')
+    fn escape_surql_string(s: &str) -> String {
         s.replace('\\', "\\\\").replace('\'', "\\'")
+    }
+
+    /// Escape for backtick-delimited SurrealQL record IDs (e.g., `record:id`)
+    fn escape_surql_id(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('`', "\\`")
     }
 
     /// Batch insert file nodes using INSERT IGNORE INTO file [...] RETURN NONE.
@@ -510,101 +517,101 @@ impl CodeGraph {
         commit_hash: &str,
     ) -> Result<(), A6sError> {
         for chunk in files.chunks(Self::BATCH_SIZE) {
-            let records: Vec<String> = chunk
+            let records: Vec<serde_json::Value> = chunk
                 .iter()
                 .map(|(file_path, language)| {
                     let file_id = FileId::new(file_path);
                     let compound_id = self.compound_id(file_id.as_str());
-                    format!(
-                        "{{ id: file:`{}`, file_id: '{}', repo_id: '{}', path: '{}', language: '{}', hash: '{}' }}",
-                        Self::escape_surql(&compound_id),
-                        Self::escape_surql(file_id.as_str()),
-                        Self::escape_surql(&self.repo_id),
-                        Self::escape_surql(file_path),
-                        Self::escape_surql(language),
-                        Self::escape_surql(commit_hash),
-                    )
+                    json!({
+                        "id": compound_id,
+                        "file_id": file_id.as_str(),
+                        "repo_id": &self.repo_id,
+                        "path": file_path,
+                        "language": language,
+                        "hash": commit_hash,
+                    })
                 })
                 .collect();
 
-            let sql = format!(
-                "INSERT IGNORE INTO file [{}] RETURN NONE",
-                records.join(", ")
-            );
             self.db
-                .query(&sql)
+                .query("INSERT IGNORE INTO file $records RETURN NONE")
+                .bind(("records", records))
                 .await
                 .map_err(|e| A6sError::Custom(format!("Failed to batch insert files: {}", e)))?;
         }
         Ok(())
     }
 
-    /// Build a SurrealQL object literal for a symbol record.
-    fn symbol_record_sql(&self, symbol: &RawSymbol) -> (String, String, String) {
-        let symbol_id = symbol.symbol_id();
-        let compound_sym = self.compound_id(symbol_id.as_str());
-        let file_id = FileId::new(&symbol.file_path);
-        let compound_file = self.compound_id(file_id.as_str());
-
-        let mut fields = format!(
-            "id: symbol:`{}`, symbol_id: '{}', repo_id: '{}', name: '{}', kind: '{}', language: '{}', file_path: '{}', start_line: {}, end_line: {}",
-            Self::escape_surql(&compound_sym),
-            Self::escape_surql(symbol_id.as_str()),
-            Self::escape_surql(&self.repo_id),
-            Self::escape_surql(&symbol.name),
-            Self::escape_surql(&symbol.kind),
-            Self::escape_surql(&symbol.language),
-            Self::escape_surql(&symbol.file_path),
-            symbol.start_line as i32,
-            symbol.end_line as i32,
-        );
-        if let Some(v) = &symbol.visibility {
-            fields.push_str(&format!(", visibility: '{}'", Self::escape_surql(v)));
-        }
-        if let Some(v) = &symbol.entry_type {
-            fields.push_str(&format!(", entry_type: '{}'", Self::escape_surql(v)));
-        }
-        if let Some(v) = &symbol.signature {
-            fields.push_str(&format!(", signature: '{}'", Self::escape_surql(v)));
-        }
-        if let Some(v) = &symbol.module_path {
-            fields.push_str(&format!(", module_path: '{}'", Self::escape_surql(v)));
-        }
-
-        let sym_record = format!("{{ {} }}", fields);
-        (sym_record, compound_file, compound_sym)
-    }
-
     /// Batch insert symbol nodes and their file_contains edges.
     ///
-    /// Uses INSERT IGNORE INTO symbol [...] for symbols, then
-    /// INSERT RELATION INTO file_contains [...] for contains edges.
+    /// Uses parameterized INSERT IGNORE INTO symbol $records for symbols, then
+    /// string-interpolated INSERT RELATION INTO file_contains for edges (relations
+    /// don't support parameterized binding in SurrealDB SDK v3.0.5).
     pub async fn insert_symbols_batch(&self, symbols: &[RawSymbol]) -> Result<(), A6sError> {
         for chunk in symbols.chunks(Self::BATCH_SIZE) {
-            let mut sym_records = Vec::with_capacity(chunk.len());
+            let mut symbol_records = Vec::with_capacity(chunk.len());
             let mut contains_records = Vec::with_capacity(chunk.len());
 
             for symbol in chunk {
-                let (sym_record, compound_file, compound_sym) = self.symbol_record_sql(symbol);
-                sym_records.push(sym_record);
+                let symbol_id = symbol.symbol_id();
+                let compound_sym = self.compound_id(symbol_id.as_str());
+                let file_id = FileId::new(&symbol.file_path);
+                let compound_file = self.compound_id(file_id.as_str());
+
+                // Build symbol record as serde_json::Value for parameterized binding
+                // Note: id should just be the compound_sym without table prefix - SurrealDB adds the table prefix
+                let mut record = serde_json::json!({
+                    "id": compound_sym.clone(),
+                    "symbol_id": symbol_id.as_str(),
+                    "repo_id": self.repo_id.clone(),
+                    "name": symbol.name.clone(),
+                    "kind": symbol.kind.clone(),
+                    "language": symbol.language.clone(),
+                    "file_path": symbol.file_path.clone(),
+                    "start_line": symbol.start_line as i32,
+                    "end_line": symbol.end_line as i32,
+                });
+
+                // Add optional fields
+                if let Some(v) = &symbol.visibility {
+                    record["visibility"] = serde_json::json!(v);
+                }
+                if let Some(v) = &symbol.entry_type {
+                    record["entry_type"] = serde_json::json!(v);
+                }
+                if let Some(v) = &symbol.signature {
+                    record["signature"] = serde_json::json!(v);
+                }
+                if let Some(v) = &symbol.module_path {
+                    record["module_path"] = serde_json::json!(v);
+                }
+
+                symbol_records.push(record);
+
+                // Build file_contains relation using string interpolation (required for relations)
                 contains_records.push(format!(
                     "{{ in: file:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}' }}",
-                    Self::escape_surql(&compound_file),
-                    Self::escape_surql(&compound_sym),
-                    Self::escape_surql(&self.repo_id),
+                    Self::escape_surql_id(&compound_file),
+                    Self::escape_surql_id(&compound_sym),
+                    Self::escape_surql_string(&self.repo_id),
                 ));
             }
 
-            // Two statements in one query call
-            let sql = format!(
-                "INSERT IGNORE INTO symbol [{}] RETURN NONE;\nINSERT RELATION INTO file_contains [{}] RETURN NONE",
-                sym_records.join(", "),
-                contains_records.join(", "),
-            );
+            // Insert symbols using parameterized query
             self.db
-                .query(&sql)
+                .query("INSERT IGNORE INTO symbol $records RETURN NONE")
+                .bind(("records", symbol_records))
                 .await
                 .map_err(|e| A6sError::Custom(format!("Failed to batch insert symbols: {}", e)))?;
+
+            // Insert file_contains relations using string interpolation (separate query required)
+            let relations_sql = format!(
+                "INSERT RELATION INTO file_contains [{}] RETURN NONE",
+                contains_records.join(", ")
+            );
+            self.db.query(&relations_sql).await.map_err(|e| {
+                A6sError::Custom(format!("Failed to batch insert file_contains edges: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -645,9 +652,9 @@ impl CodeGraph {
 
                 let mut fields = format!(
                     "in: symbol:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}'",
-                    Self::escape_surql(&compound_from),
-                    Self::escape_surql(&compound_to),
-                    Self::escape_surql(&self.repo_id),
+                    Self::escape_surql_id(&compound_from),
+                    Self::escape_surql_id(&compound_to),
+                    Self::escape_surql_string(&self.repo_id),
                 );
                 if let Some(l) = edge.line
                     && matches!(edge.kind, EdgeKind::Calls)
@@ -657,7 +664,7 @@ impl CodeGraph {
                 if let Some(ref entry_type) = edge.entry_type {
                     fields.push_str(&format!(
                         ", entry_type: '{}'",
-                        Self::escape_surql(entry_type)
+                        Self::escape_surql_string(entry_type)
                     ));
                 }
 
@@ -700,9 +707,9 @@ impl CodeGraph {
                     let compound_sym = self.compound_id(import.target_symbol_id.as_str());
                     format!(
                         "{{ in: file:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}' }}",
-                        Self::escape_surql(&compound_file),
-                        Self::escape_surql(&compound_sym),
-                        Self::escape_surql(&self.repo_id),
+                        Self::escape_surql_id(&compound_file),
+                        Self::escape_surql_id(&compound_sym),
+                        Self::escape_surql_string(&self.repo_id),
                     )
                 })
                 .collect();
