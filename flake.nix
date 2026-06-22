@@ -22,16 +22,10 @@
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = ["aarch64-darwin" "aarch64-linux" "x86_64-darwin" "x86_64-linux"];
       perSystem = {system, ...}: let
-        fetchCrate = inputs.rustnix.lib.rust.fetchCrate {
-          inherit system;
-          nixpkgs = inputs.nixpkgs;
-        };
         overlays = [
           inputs.rustnix.lib.rust.overlays.fenix
           (final: prev: {
-            wasm-bindgen-cli = prev.callPackage ./nix/wasm-bindgen-cli.nix {
-              inherit fetchCrate;
-            };
+            wasm-bindgen-cli = prev.callPackage ./nix/wasm-bindgen-cli.nix {};
           })
         ];
         pkgs = import inputs.nixpkgs {inherit system overlays;};
