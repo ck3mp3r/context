@@ -20,11 +20,11 @@ in
       pkgs.wasm-bindgen-cli
       pkgs.tailwindcss_4
       pkgs.act
-      pkgs.lefthook
+      pkgs.prek
       pkgs.tree-sitter
     ];
 
     shellHook = ''
-      lefthook install
+      prek install -t pre-commit -t pre-push
     '';
   }
