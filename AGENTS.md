@@ -668,4 +668,3 @@ Test fixtures are in `src/a6s/lang/nushell/testdata/`:
 - `test_runner.nu` - Complete test runner with main function
 
 When adding new test patterns, add corresponding fixtures for regression testing.
-
