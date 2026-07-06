@@ -529,16 +529,37 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         // Tag filtering requires json_each join
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let needs_project_join = query.project_id.is_some();
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
 
         // Determine table prefix based on whether we need JOINs
-        let order_field_prefix = if needs_json_each {
+        let order_field_prefix = if needs_json_each || needs_project_join {
             "n."
         } else if needs_activity_column {
             "note."
         } else {
             ""
+        };
+
+        // Build FROM clause and inject project/tag join conditions
+        let from_clause = if needs_json_each || needs_project_join {
+            let mut from = "FROM note n".to_string();
+            if needs_project_join {
+                from.push_str("\nINNER JOIN project_note pn ON n.id = pn.note_id");
+                where_conditions.push("pn.project_id = ?".to_string());
+                bind_values.push(query.project_id.as_ref().unwrap().clone());
+            }
+            if needs_json_each {
+                from.push_str(", json_each(n.tags)");
+                let tags = query.tags.as_ref().unwrap();
+                let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+                where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+                bind_values.extend(tags.clone());
+            }
+            from
+        } else {
+            "FROM note".to_string()
         };
 
         // Add parent_id filter if specified
@@ -599,11 +620,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         let limit_clause = build_limit_offset_clause(&query.page);
 
-        let (sql, count_sql) = if needs_json_each {
-            let tags = query.tags.as_ref().unwrap();
-            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
-            bind_values.extend(tags.clone());
-
+        let (sql, count_sql) = if needs_json_each || needs_project_join {
             let select_cols = if needs_activity_column {
                 "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
                  (SELECT COUNT(*) FROM note WHERE parent_id = n.id) AS subnote_count, \
@@ -614,17 +631,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             (
                 format!(
-                    "SELECT {} 
-                     FROM note n, json_each(n.tags)
-                     WHERE json_each.value IN ({}) {} {}",
-                    select_cols,
-                    placeholders.join(", "),
-                    order_clause,
-                    limit_clause
+                    "SELECT {} {} {} {} {}",
+                    select_cols, from_clause, where_clause, order_clause, limit_clause
                 ),
                 format!(
-                    "SELECT COUNT(DISTINCT n.id) FROM note n, json_each(n.tags) WHERE json_each.value IN ({})",
-                    placeholders.join(", ")
+                    "SELECT COUNT(DISTINCT n.id) {} {}",
+                    from_clause, where_clause
                 ),
             )
         } else if needs_activity_column {
@@ -632,7 +644,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 format!(
                     "SELECT note.id, note.title, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
                      (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id) AS subnote_count, \
-                     COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at 
+                     COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at
                      FROM note {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -641,7 +653,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, tags, parent_id, idx, created_at, updated_at 
+                    "SELECT id, title, tags, parent_id, idx, created_at, updated_at
                      FROM note {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -736,7 +748,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         let result = sqlx::query(
             r#"
-            UPDATE note 
+            UPDATE note
             SET title = ?, content = ?, tags = ?, parent_id = ?, idx = ?, updated_at = ?
             WHERE id = ?
             "#,

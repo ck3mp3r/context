@@ -2406,3 +2406,96 @@ async fn test_edit_applies_patches_in_reverse_order() {
     let expected = "AAA\nX\nCCC\nY\nEEE";
     assert_eq!(updated.content, expected);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_filters_by_project_id() {
+    let db = setup_db().await;
+    let pool = db.pool();
+
+    // Create two projects directly
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("proj0001")
+        .bind("Project One")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project 1");
+
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("proj0002")
+        .bind("Project Two")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project 2");
+
+    // Create three notes
+    let notes = db.notes();
+    notes
+        .create(&make_note("mnote001", "Note A", "content a"))
+        .await
+        .expect("Create note A");
+    notes
+        .create(&make_note("mnote002", "Note B", "content b"))
+        .await
+        .expect("Create note B");
+    notes
+        .create(&make_note("mnote003", "Note C", "content c"))
+        .await
+        .expect("Create note C");
+
+    // Link: Note A -> project 1, Note B -> project 2, Note C -> no project
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("proj0001")
+        .bind("mnote001")
+        .execute(pool)
+        .await
+        .expect("Link note A to project 1");
+
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("proj0002")
+        .bind("mnote002")
+        .execute(pool)
+        .await
+        .expect("Link note B to project 2");
+
+    // Filter by project 1 -> should return only Note A
+    let q1 = NoteQuery {
+        project_id: Some("proj0001".to_string()),
+        ..Default::default()
+    };
+    let result1 = notes
+        .list_metadata_only(Some(&q1))
+        .await
+        .expect("list_metadata_only with project 1");
+    assert_eq!(result1.total, 1, "project 1 should have 1 note");
+    assert_eq!(result1.items[0].id, "mnote001");
+
+    // Filter by project 2 -> should return only Note B
+    let q2 = NoteQuery {
+        project_id: Some("proj0002".to_string()),
+        ..Default::default()
+    };
+    let result2 = notes
+        .list_metadata_only(Some(&q2))
+        .await
+        .expect("list_metadata_only with project 2");
+    assert_eq!(result2.total, 1, "project 2 should have 1 note");
+    assert_eq!(result2.items[0].id, "mnote002");
+
+    // Filter by non-existent project -> should return 0
+    let q3 = NoteQuery {
+        project_id: Some("proj9999".to_string()),
+        ..Default::default()
+    };
+    let result3 = notes
+        .list_metadata_only(Some(&q3))
+        .await
+        .expect("list_metadata_only with non-existent project");
+    assert_eq!(
+        result3.total, 0,
+        "non-existent project should return 0 notes"
+    );
+}
