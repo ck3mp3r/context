@@ -1072,3 +1072,131 @@ async fn test_edit_note_with_invalid_etag_fails() {
         err_string
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_notes_with_project_filter() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+
+    let pool = db.pool();
+
+    // Create two projects directly via SQL
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("mprojaa1")
+        .bind("Project Alpha")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("insert project alpha");
+
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("mprojbb2")
+        .bind("Project Beta")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("insert project beta");
+
+    // Create three notes
+    let make_note = |title: &str, content: &str| Note {
+        id: String::new(),
+        title: title.to_string(),
+        content: content.to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+    };
+
+    let note_a = db
+        .notes()
+        .create(&make_note("Note Alpha", "content a"))
+        .await
+        .expect("create note a");
+    let note_b = db
+        .notes()
+        .create(&make_note("Note Beta", "content b"))
+        .await
+        .expect("create note b");
+    db.notes()
+        .create(&make_note("Note Gamma", "content c"))
+        .await
+        .expect("create note c");
+
+    // Link: Note A -> project alpha, Note B -> project beta, Note C -> no project
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("mprojaa1")
+        .bind(&note_a.id)
+        .execute(pool)
+        .await
+        .expect("link note a to project alpha");
+
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("mprojbb2")
+        .bind(&note_b.id)
+        .execute(pool)
+        .await
+        .expect("link note b to project beta");
+
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    let make_params = |project_id: &str| ListNotesParams {
+        query: None,
+        tags: None,
+        project_id: Some(project_id.to_string()),
+        parent_id: None,
+        note_type: None,
+        limit: None,
+        offset: None,
+        include_content: None,
+        sort: None,
+        order: None,
+    };
+
+    let parse_json = |result: rmcp::model::CallToolResult| {
+        let content_text = match &result.content[0].raw {
+            RawContent::Text(text) => text.text.clone(),
+            _ => panic!("Expected text content"),
+        };
+        serde_json::from_str::<serde_json::Value>(&content_text)
+            .expect("response should be valid JSON")
+    };
+
+    // Filter by project alpha -> only Note A
+    let result = tools
+        .list_notes(Parameters(make_params("mprojaa1")))
+        .await
+        .expect("list_notes should succeed");
+    let json = parse_json(result);
+    assert_eq!(json["total"], 1, "project alpha should have 1 note");
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items[0]["title"], "Note Alpha");
+
+    // Filter by project beta -> only Note B
+    let result = tools
+        .list_notes(Parameters(make_params("mprojbb2")))
+        .await
+        .expect("list_notes should succeed");
+    let json = parse_json(result);
+    assert_eq!(json["total"], 1, "project beta should have 1 note");
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items[0]["title"], "Note Beta");
+
+    // Filter by non-existent project -> 0 results
+    let result = tools
+        .list_notes(Parameters(make_params("nosuchid")))
+        .await
+        .expect("list_notes should succeed");
+    let json = parse_json(result);
+    assert_eq!(
+        json["total"], 0,
+        "non-existent project should return 0 notes"
+    );
+}
