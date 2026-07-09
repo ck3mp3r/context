@@ -153,7 +153,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Get a project by ID
@@ -176,7 +176,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Create a new project
@@ -216,7 +216,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Update a project
@@ -275,7 +275,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Delete a project
@@ -299,7 +299,7 @@ impl<D: Database + 'static> ProjectTools<D> {
             "message": format!("Project {} deleted successfully", params.0.id)
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&content).unwrap(),
         )]))
     }

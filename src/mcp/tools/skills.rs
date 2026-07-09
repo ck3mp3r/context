@@ -130,7 +130,7 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             "offset": result.offset,
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
@@ -212,7 +212,7 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
             obj.insert("cache_path".to_string(), json!(cache_path));
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
@@ -275,7 +275,7 @@ impl<D: crate::db::Database + 'static> SkillTools<D> {
                 )
             })?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&updated_skill).unwrap(),
         )]))
     }

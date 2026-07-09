@@ -201,12 +201,12 @@ use crate::mcp::tools::code_query::{
     CodeQueryTools, DescribeSchemaParams, ListQueriesParams, QueryCodeGraphParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::RawContent;
+use rmcp::model::ContentBlock;
 use serde_json::json;
 
 fn get_text_content(response: &rmcp::model::CallToolResult) -> &str {
-    match &response.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    match &response.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     }
 }

@@ -320,7 +320,9 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content_str)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            content_str,
+        )]))
     }
 }
 

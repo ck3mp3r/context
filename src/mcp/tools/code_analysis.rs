@@ -12,7 +12,7 @@ use crate::mcp::tools::map_db_error;
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
     schemars,
     schemars::JsonSchema,
     tool, tool_router,
@@ -118,7 +118,7 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     async fn start_analysis(
@@ -143,7 +143,7 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
         // Set tracker to analyzing before spawning
         let repo_id = params.0.repo_id.clone();
         if !self.tracker.try_set_analyzing(&repo_id) {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&json!({
                     "status": "already_analyzing",
                     "message": format!("Analysis is already in progress for repository {}. Check status with action='status'.", repo_id),
@@ -225,6 +225,6 @@ impl<D: Database + 'static> CodeAnalysisTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 }

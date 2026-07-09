@@ -10,7 +10,7 @@ use crate::db::{Database, SqliteDatabase};
 use crate::mcp::tools::sync::{SyncParams, SyncTools};
 use crate::sync::{MockGitOps, SyncManager};
 
-use rmcp::{handler::server::wrapper::Parameters, model::RawContent};
+use rmcp::{handler::server::wrapper::Parameters, model::ContentBlock};
 
 async fn setup_test_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory().await.unwrap();
@@ -45,9 +45,8 @@ async fn test_sync_status_not_initialized_with_temp_dir() {
 
     let result = tools.sync(Parameters(params)).await.unwrap();
 
-    // Assert: Should return initialized=false
-    let text = match &result.content[0].raw {
-        RawContent::Text(text_content) => text_content.text.as_str(),
+    let text = match &result.content[0] {
+        ContentBlock::Text(text_content) => text_content.text.as_str(),
         _ => panic!("Expected text content"),
     };
 

@@ -196,7 +196,7 @@ impl<D: Database + 'static> TaskListTools<D> {
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     #[tool(
@@ -218,7 +218,7 @@ impl<D: Database + 'static> TaskListTools<D> {
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     #[tool(
@@ -260,7 +260,7 @@ impl<D: Database + 'static> TaskListTools<D> {
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     #[tool(
@@ -337,7 +337,7 @@ impl<D: Database + 'static> TaskListTools<D> {
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     #[tool(
@@ -373,7 +373,7 @@ impl<D: Database + 'static> TaskListTools<D> {
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     #[tool(
@@ -395,6 +395,6 @@ impl<D: Database + 'static> TaskListTools<D> {
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 }
