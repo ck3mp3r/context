@@ -5,7 +5,7 @@ use crate::db::{Database, Repo, RepoRepository, SqliteDatabase};
 use crate::mcp::tools::repos::*;
 use rmcp::{
     handler::server::wrapper::Parameters,
-    model::{CallToolResult, RawContent},
+    model::{CallToolResult, ContentBlock},
 };
 use std::sync::Arc;
 
@@ -31,8 +31,8 @@ async fn test_list_repos_empty() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -69,8 +69,8 @@ async fn test_get_repo() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -99,8 +99,8 @@ async fn test_create_repo() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -145,8 +145,8 @@ async fn test_create_repo_with_project_ids() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -190,8 +190,8 @@ async fn test_update_repo() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -281,8 +281,8 @@ async fn test_update_repo_with_project_ids() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -381,8 +381,8 @@ async fn test_list_repos_respects_limit() {
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -402,8 +402,8 @@ async fn test_list_repos_respects_limit() {
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -423,8 +423,8 @@ async fn test_list_repos_respects_limit() {
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -490,8 +490,8 @@ async fn test_list_repos_with_sort_and_order() {
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -519,8 +519,8 @@ async fn test_list_repos_with_sort_and_order() {
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -548,8 +548,8 @@ async fn test_list_repos_with_sort_and_order() {
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();

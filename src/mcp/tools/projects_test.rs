@@ -3,7 +3,7 @@
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
 use crate::mcp::tools::projects::ProjectTools;
-use rmcp::model::{CallToolResult, RawContent};
+use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -34,8 +34,8 @@ async fn test_list_projects_empty() {
     assert_eq!(call_result.content.len(), 1);
 
     // Parse the JSON content
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -86,8 +86,8 @@ async fn test_list_projects_with_data() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -134,8 +134,8 @@ async fn test_get_project() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -185,8 +185,8 @@ async fn test_create_project() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -236,8 +236,8 @@ async fn test_update_project() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -331,8 +331,8 @@ async fn test_list_projects_respects_limit() {
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -351,8 +351,8 @@ async fn test_list_projects_respects_limit() {
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -371,8 +371,8 @@ async fn test_list_projects_respects_limit() {
         .await;
     assert!(result.is_ok());
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -453,8 +453,8 @@ async fn test_list_projects_with_sort_and_order() {
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -479,8 +479,8 @@ async fn test_list_projects_with_sort_and_order() {
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -504,8 +504,8 @@ async fn test_list_projects_with_sort_and_order() {
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -547,8 +547,8 @@ async fn test_create_project_with_external_ref() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -597,8 +597,8 @@ async fn test_update_project_external_ref() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -669,8 +669,8 @@ async fn test_search_projects_by_title() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -736,8 +736,8 @@ async fn test_search_projects_by_description() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -803,8 +803,8 @@ async fn test_search_projects_by_tags() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -870,8 +870,8 @@ async fn test_search_projects_by_external_refs() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -953,8 +953,8 @@ async fn test_search_projects_with_boolean_operators() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -1004,8 +1004,8 @@ async fn test_search_projects_empty_results() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 

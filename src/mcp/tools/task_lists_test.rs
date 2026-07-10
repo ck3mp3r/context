@@ -10,7 +10,7 @@ use crate::mcp::tools::task_lists::{
     ListTaskListsParams, TaskListTools, UpdateTaskListParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, RawContent};
+use rmcp::model::{CallToolResult, ContentBlock};
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -37,8 +37,8 @@ async fn test_list_task_lists_empty() {
         .expect("list_task_lists should succeed");
 
     // Parse JSON response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -86,8 +86,8 @@ async fn test_create_and_get_task_list() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: TaskList = serde_json::from_str(content_text).unwrap();
@@ -112,8 +112,8 @@ async fn test_create_and_get_task_list() {
         .await
         .expect("get should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let fetched: TaskList = serde_json::from_str(content_text).unwrap();
@@ -179,8 +179,8 @@ async fn test_update_task_list() {
         .await
         .expect("update should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated: TaskList = serde_json::from_str(content_text).unwrap();
@@ -244,8 +244,8 @@ async fn test_delete_task_list() {
         .await
         .expect("delete should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -328,8 +328,8 @@ async fn test_list_task_lists_with_filters() {
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -354,8 +354,8 @@ async fn test_list_task_lists_with_filters() {
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -454,8 +454,8 @@ async fn test_get_task_list_stats() {
         .await
         .expect("get_task_list_stats should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -552,8 +552,8 @@ async fn test_search_task_lists_by_title() {
     let call_result: CallToolResult = result.unwrap();
     assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
 
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -636,8 +636,8 @@ async fn test_search_task_lists_by_notes() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -720,8 +720,8 @@ async fn test_search_task_lists_by_external_refs() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -804,8 +804,8 @@ async fn test_search_task_lists_boolean_operators() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -870,8 +870,8 @@ async fn test_search_task_lists_empty_results() {
 
     assert!(result.is_ok());
     let call_result: CallToolResult = result.unwrap();
-    let content_text = match &call_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 

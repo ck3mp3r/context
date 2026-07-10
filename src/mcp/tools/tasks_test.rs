@@ -10,7 +10,7 @@ use crate::mcp::tools::tasks::{
     TransitionTaskParams, UpdateTaskParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::RawContent;
+use rmcp::model::ContentBlock;
 use std::sync::Arc;
 
 /// Helper to get the default project ID created by migrations
@@ -78,8 +78,8 @@ async fn test_list_tasks_empty() {
         .expect("list_tasks should succeed");
 
     // Parse JSON response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -129,8 +129,8 @@ async fn test_create_and_list_task() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Task = serde_json::from_str(content_text).unwrap();
@@ -162,8 +162,8 @@ async fn test_create_and_list_task() {
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -223,8 +223,8 @@ async fn test_get_task() {
         .await
         .expect("get should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let retrieved: Task = serde_json::from_str(content_text).unwrap();
@@ -308,8 +308,8 @@ async fn test_list_tasks_filtered_by_status() {
         .await
         .expect("update should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated: Task = serde_json::from_str(content_text).unwrap();
@@ -373,8 +373,8 @@ async fn test_delete_task() {
         .expect("delete should succeed");
 
     // Verify success message
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     assert!(content_text.contains("deleted"));
@@ -460,8 +460,8 @@ async fn test_list_tasks_with_parent_id_filter() {
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -548,8 +548,8 @@ async fn test_update_task_move_to_different_list() {
         .await
         .expect("update should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated_task: Task = serde_json::from_str(content_text).unwrap();
@@ -634,8 +634,8 @@ async fn test_update_task_parent_id() {
         .await
         .expect("update should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated_task: Task = serde_json::from_str(content_text).unwrap();
@@ -662,8 +662,8 @@ async fn test_update_task_parent_id() {
         .await
         .expect("update should succeed");
 
-    let content_text2 = match &result2.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text2 = match &result2.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let standalone_again: Task = serde_json::from_str(content_text2).unwrap();
@@ -1159,8 +1159,8 @@ async fn test_create_task_without_priority_defaults_to_p5() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Task = serde_json::from_str(content_text).unwrap();
@@ -2014,8 +2014,8 @@ async fn test_create_task_with_jira_external_ref() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Task = serde_json::from_str(content_text).unwrap();
@@ -2065,8 +2065,8 @@ async fn test_create_task_without_external_ref() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Task = serde_json::from_str(content_text).unwrap();
@@ -2133,8 +2133,8 @@ async fn test_update_task_external_ref() {
         .await
         .expect("update should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated: Task = serde_json::from_str(content_text).unwrap();
@@ -2194,8 +2194,8 @@ async fn test_get_task_returns_external_ref() {
         .await
         .expect("get should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let retrieved: Task = serde_json::from_str(content_text).unwrap();

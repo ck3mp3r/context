@@ -6,7 +6,7 @@ use crate::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, EditNoteParams, ListNotesParams, NoteTools, ReadNoteParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::RawContent;
+use rmcp::model::ContentBlock;
 use sha2::Digest;
 use std::sync::Arc;
 
@@ -36,8 +36,8 @@ async fn test_list_notes_empty() {
         .expect("list_notes should succeed");
 
     // Parse JSON response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -71,8 +71,8 @@ async fn test_create_and_read_note() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Note = serde_json::from_str(content_text).unwrap();
@@ -97,8 +97,8 @@ async fn test_create_and_read_note() {
         .await
         .expect("read should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -125,8 +125,8 @@ async fn test_create_and_read_note() {
         .await
         .expect("second read should succeed");
 
-    let content_text2 = match &result2.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text2 = match &result2.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json2: serde_json::Value = serde_json::from_str(content_text2).unwrap();
@@ -224,8 +224,8 @@ async fn test_list_notes_with_tag_filter() {
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -269,8 +269,8 @@ async fn test_edit_note() {
         .read_note(Parameters(read_params))
         .await
         .expect("read should succeed");
-    let read_text = match &read_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let read_text = match &read_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let read_json: serde_json::Value = serde_json::from_str(read_text).unwrap();
@@ -294,8 +294,8 @@ async fn test_edit_note() {
         .await
         .expect("edit should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated: Note = serde_json::from_str(content_text).unwrap();
@@ -341,8 +341,8 @@ async fn test_delete_note() {
         .expect("delete should succeed");
 
     // Verify success message
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     assert!(content_text.contains("deleted"));
@@ -409,8 +409,8 @@ async fn test_search_notes() {
         .await
         .expect("search should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -477,8 +477,8 @@ async fn test_search_notes_with_tag_filter() {
         .await
         .expect("search should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -562,8 +562,8 @@ async fn test_list_notes_with_sort_and_order() {
         .await
         .expect("list_notes should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -594,8 +594,8 @@ async fn test_list_notes_with_sort_and_order() {
         .await
         .expect("list_notes should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -635,8 +635,8 @@ async fn test_create_note_with_parent() {
         .await
         .expect("create parent should succeed");
 
-    let parent_text = match &parent_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let parent_text = match &parent_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let parent: Note = serde_json::from_str(parent_text).unwrap();
@@ -657,8 +657,8 @@ async fn test_create_note_with_parent() {
         .await
         .expect("create child should succeed");
 
-    let child_text = match &child_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let child_text = match &child_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let child: Note = serde_json::from_str(child_text).unwrap();
@@ -690,8 +690,8 @@ async fn test_update_note_idx() {
         .await
         .expect("create should succeed");
 
-    let create_text = match &create_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let create_text = match &create_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Note = serde_json::from_str(create_text).unwrap();
@@ -707,8 +707,8 @@ async fn test_update_note_idx() {
         .read_note(Parameters(read_params))
         .await
         .expect("read should succeed");
-    let read_text = match &read_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let read_text = match &read_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let read_json: serde_json::Value = serde_json::from_str(read_text).unwrap();
@@ -732,8 +732,8 @@ async fn test_update_note_idx() {
         .await
         .expect("edit should succeed");
 
-    let update_text = match &update_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let update_text = match &update_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let updated: Note = serde_json::from_str(update_text).unwrap();
@@ -763,8 +763,8 @@ async fn test_list_subnotes() {
         .await
         .expect("create parent should succeed");
 
-    let parent_text = match &parent_result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let parent_text = match &parent_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let parent: Note = serde_json::from_str(parent_text).unwrap();
@@ -808,8 +808,8 @@ async fn test_list_subnotes() {
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -917,8 +917,8 @@ async fn test_read_note_toon_format() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Note = serde_json::from_str(content_text).unwrap();
@@ -935,8 +935,8 @@ async fn test_read_note_toon_format() {
         .await
         .expect("read should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -977,8 +977,8 @@ async fn test_read_note_toon_format_with_ranges() {
         .await
         .expect("create should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let created: Note = serde_json::from_str(content_text).unwrap();
@@ -998,8 +998,8 @@ async fn test_read_note_toon_format_with_ranges() {
         .await
         .expect("read should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
 
@@ -1161,8 +1161,8 @@ async fn test_list_notes_with_project_filter() {
     };
 
     let parse_json = |result: rmcp::model::CallToolResult| {
-        let content_text = match &result.content[0].raw {
-            RawContent::Text(text) => text.text.clone(),
+        let content_text = match &result.content[0] {
+            ContentBlock::Text(text) => text.text.clone(),
             _ => panic!("Expected text content"),
         };
         serde_json::from_str::<serde_json::Value>(&content_text)

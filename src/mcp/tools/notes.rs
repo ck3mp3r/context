@@ -280,7 +280,7 @@ impl<D: Database + 'static> NoteTools<D> {
             "offset": result.offset,
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
@@ -313,7 +313,7 @@ impl<D: Database + 'static> NoteTools<D> {
             note_id: created.id.clone(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&created).unwrap(),
         )]))
     }
@@ -334,7 +334,7 @@ impl<D: Database + 'static> NoteTools<D> {
             note_id: params.0.note_id.clone(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Note {} deleted successfully",
             params.0.note_id
         ))]))
@@ -374,7 +374,7 @@ impl<D: Database + 'static> NoteTools<D> {
                 let mut note_json = serde_json::to_value(&note).unwrap();
                 note_json["etag"] = serde_json::Value::String(etag);
 
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     serde_json::to_string_pretty(&note_json).unwrap(),
                 )]))
             }
@@ -400,7 +400,7 @@ impl<D: Database + 'static> NoteTools<D> {
                 let mut note_json = serde_json::to_value(&note).unwrap();
                 note_json["etag"] = serde_json::Value::String(etag);
 
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     serde_json::to_string_pretty(&note_json).unwrap(),
                 )]))
             }
@@ -432,7 +432,7 @@ impl<D: Database + 'static> NoteTools<D> {
                         "content": formatted_content,
                     });
 
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         serde_json::to_string_pretty(&response).unwrap(),
                     )]))
                 } else {
@@ -443,7 +443,7 @@ impl<D: Database + 'static> NoteTools<D> {
                         "line_groups": line_contents,
                     });
 
-                    Ok(CallToolResult::success(vec![Content::text(
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
                         serde_json::to_string_pretty(&response).unwrap(),
                     )]))
                 }
@@ -549,7 +549,7 @@ impl<D: Database + 'static> NoteTools<D> {
             note_id: params.0.note_id.clone(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&updated).unwrap(),
         )]))
     }

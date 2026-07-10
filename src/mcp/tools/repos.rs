@@ -154,7 +154,7 @@ impl<D: Database + 'static> RepoTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Get a repository by ID
@@ -177,7 +177,7 @@ impl<D: Database + 'static> RepoTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Create a new repository
@@ -208,7 +208,7 @@ impl<D: Database + 'static> RepoTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Update a repository
@@ -260,7 +260,7 @@ impl<D: Database + 'static> RepoTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Delete a repository
@@ -284,7 +284,7 @@ impl<D: Database + 'static> RepoTools<D> {
             "message": format!("Repository {} deleted successfully", params.0.id)
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&content).unwrap(),
         )]))
     }

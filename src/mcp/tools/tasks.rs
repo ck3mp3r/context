@@ -219,7 +219,7 @@ impl<D: Database + 'static> TaskTools<D> {
             "offset": result.offset,
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
@@ -238,7 +238,7 @@ impl<D: Database + 'static> TaskTools<D> {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&task).unwrap(),
         )]))
     }
@@ -275,7 +275,7 @@ impl<D: Database + 'static> TaskTools<D> {
             task_id: created.id.clone(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&created).unwrap(),
         )]))
     }
@@ -355,7 +355,7 @@ impl<D: Database + 'static> TaskTools<D> {
             }
         }
 
-        Ok(CallToolResult::success(vec![Content::text(message)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(message)]))
     }
 
     #[tool(
@@ -417,7 +417,7 @@ impl<D: Database + 'static> TaskTools<D> {
             task_id: params.0.task_id.clone(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&updated).unwrap(),
         )]))
     }
@@ -444,7 +444,7 @@ impl<D: Database + 'static> TaskTools<D> {
             task_id: params.0.task_id.clone(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Task {} deleted successfully",
             params.0.task_id
         ))]))

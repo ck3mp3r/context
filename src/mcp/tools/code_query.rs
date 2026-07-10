@@ -9,7 +9,7 @@ use crate::a6s::tracker::{AnalysisStatus, AnalysisTracker};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
     schemars,
     schemars::JsonSchema,
     tool, tool_router,
@@ -159,7 +159,7 @@ impl CodeQueryTools {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// Execute queries (temporary or saved) against the code graph
@@ -257,7 +257,7 @@ impl CodeQueryTools {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 
     /// List available queries for a repository's code graph
@@ -353,7 +353,7 @@ impl CodeQueryTools {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
     }
 }
 

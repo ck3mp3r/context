@@ -5,7 +5,7 @@ use crate::db::{Database, Skill, SkillRepository, SqliteDatabase};
 use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools};
 use crate::sync::get_data_dir;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::RawContent;
+use rmcp::model::ContentBlock;
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -35,8 +35,8 @@ async fn test_list_skills_empty() {
         .expect("list_skills should succeed");
 
     // Parse JSON response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -139,8 +139,8 @@ Learn web programming with Python.
         .await
         .expect("list_skills with query should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -224,8 +224,8 @@ Learn web programming basics in Rust.
         .await
         .expect("list_skills with query and tag should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -261,8 +261,8 @@ async fn test_search_skills_empty_results() {
         .await
         .expect("list_skills with query should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -347,8 +347,8 @@ Learn web programming for personal projects.
         .await
         .expect("list should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -460,8 +460,8 @@ Learn web programming.
         .await
         .expect("list_skills should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -489,8 +489,8 @@ Learn web programming.
         .await
         .expect("list_skills should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -577,8 +577,8 @@ Test instructions for skill with attachments.
         .expect("get_skill should succeed");
 
     // Parse response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -659,8 +659,8 @@ Test instructions for skill without attachments.
         .expect("get_skill should succeed");
 
     // Parse response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -752,8 +752,8 @@ Learn web programming with Python.
         .await
         .expect("list_skills with query should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -839,8 +839,8 @@ Learn web programming with Python.
         .await
         .expect("list_skills without query should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -924,8 +924,8 @@ Learn async programming with Python.
         .await
         .expect("list_skills with query and tag should succeed");
 
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -990,8 +990,8 @@ Test content.
         .expect("update_skill should succeed");
 
     // Parse response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -1073,8 +1073,8 @@ Test content.
         .expect("update_skill should succeed");
 
     // Parse response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -1157,8 +1157,8 @@ Test content.
         .expect("update_skill should succeed");
 
     // Parse response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
@@ -1249,8 +1249,8 @@ Test content.
         .expect("update_skill with no changes should succeed");
 
     // Parse response
-    let content_text = match &result.content[0].raw {
-        RawContent::Text(text) => text.text.as_str(),
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let json: serde_json::Value = serde_json::from_str(content_text).unwrap();
