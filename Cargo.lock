@@ -7190,7 +7190,7 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 [[package]]
 name = "tree-sitter-nu"
 version = "0.0.1"
-source = "git+https://github.com/nushell/tree-sitter-nu#348b787d8b0409091d85fe9d4eb007fe9f3406bb"
+source = "git+https://github.com/nushell/tree-sitter-nu#d694570aa26b53d0d642460a0430e8aa07dcbea0"
 dependencies = [
  "cc",
  "tree-sitter-language",
