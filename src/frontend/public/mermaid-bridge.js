@@ -75,13 +75,36 @@ window.mermaid_render_in_selector = async function(selector) {
       // Store for theme re-render
       __MERMAID_DIAGRAMS__.set(div, { source, id: uniqueId });
 
-      preEl.replaceWith(div);
+      // Create wrapper with copy button
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mermaid-wrapper';
+
+      const btn = document.createElement('button');
+      btn.className = 'mermaid-copy-btn';
+      btn.setAttribute('aria-label', 'Copy diagram source');
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+      btn.title = 'Copy diagram source';
+
+      btn.addEventListener('click', async function() {
+        try {
+          await navigator.clipboard.writeText(source);
+          btn.title = 'Copied!';
+          const orig = btn.innerHTML;
+          btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+          setTimeout(function() {
+            btn.innerHTML = orig;
+            btn.title = 'Copy diagram source';
+          }, 1500);
+        } catch(e) {
+          console.error('Clipboard copy failed:', e);
+        }
+      });
+
+      wrapper.appendChild(btn);
+      wrapper.appendChild(div);
+      preEl.replaceWith(wrapper);
     } catch (e) {
-      console.error('Mermaid render error:', e);
-      codeEl.style.color = 'var(--ctp-red, #e78284)';
-      const errSpan = document.createElement('span');
-      errSpan.textContent = '[mermaid parse error] ';
-      errSpan.style.cssText = 'font-size:0.75em;font-weight:bold;';
+      const errSpan = document.createElement('span');      errSpan.style.cssText = 'font-size:0.75em;font-weight:bold;';
       codeEl.prepend(errSpan);
     }
   }
@@ -116,22 +139,82 @@ window.mermaid_rerender_all = async function() {
  * Skips mermaid blocks and already-highlighted blocks.
  * @param {string|null} selector - CSS selector string or null for document-wide
  */
+/**
+ * Highlight code blocks using highlight.js within a CSS selector scope.
+ * Skips mermaid blocks and already-highlighted blocks.
+ * Wraps each <pre> in a .code-block-wrapper with a copy button.
+ * @param {string|null} selector - CSS selector string or null for document-wide
+ */
 window.highlight_code_blocks = function(selector) {
   if (typeof hljs === 'undefined') return;
 
   const root = selector ? document.querySelector(selector) : document;
   if (!root) return;
 
-  root.querySelectorAll('pre code').forEach(function(el) {
-    // Skip mermaid blocks — they'll be replaced by mermaid SVG
-    if (el.classList.contains('language-mermaid')) return;
-    // Skip already-highlighted blocks
-    if (el.dataset.highlighted) return;
+  const pres = root.querySelectorAll('pre > code');
+  for (const el of pres) {
+    // Skip mermaid blocks — handled by mermaid_render_in_selector
+    if (el.classList.contains('language-mermaid')) continue;
+
+    const preEl = el.parentElement;
+    if (!preEl) continue;
+
+    // Skip already highlighted
+    if (el.dataset.highlighted) {
+      // Still add wrapper/button if not present
+      if (!preEl.closest('.code-block-wrapper')) {
+        _wrapCodeBlock(preEl, el.textContent);
+      }
+      continue;
+    }
 
     try {
       hljs.highlightElement(el);
     } catch (e) {
       console.error('Highlight.js error:', e);
     }
-  });
+
+    // Wrap in container with copy button (idempotent)
+    if (!preEl.closest('.code-block-wrapper')) {
+      _wrapCodeBlock(preEl, el.textContent);
+    }
+  }
 };
+
+/**
+ * Internal: wrap a <pre> element with a copy-button container.
+ */
+function _wrapCodeBlock(preEl, sourceText) {
+  if (preEl.closest('.code-block-wrapper')) return;
+
+  const parent = preEl.parentNode;
+  if (!parent) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'code-block-wrapper';
+
+  const btn = document.createElement('button');
+  btn.className = 'code-copy-btn';
+  btn.setAttribute('aria-label', 'Copy code');
+  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  btn.title = 'Copy code';
+
+  btn.addEventListener('click', async function() {
+    try {
+      await navigator.clipboard.writeText(sourceText);
+      btn.title = 'Copied!';
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+      setTimeout(function() {
+        btn.innerHTML = orig;
+        btn.title = 'Copy code';
+      }, 1500);
+    } catch(e) {
+      console.error('Clipboard copy failed:', e);
+    }
+  });
+
+  wrapper.appendChild(btn);
+  parent.replaceChild(wrapper, preEl);
+  wrapper.appendChild(preEl);
+}

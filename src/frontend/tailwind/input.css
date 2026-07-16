@@ -467,4 +467,89 @@ body {
 .mermaid-diagram::-webkit-scrollbar-thumb {
   background: var(--ctp-overlay0);
   border-radius: 3px;
+  border-radius: 3px;
+}
+
+/* === Mermaid wrapper with copy button === */
+.mermaid-wrapper {
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+.mermaid-copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--ctp-surface1);
+  border: 1px solid var(--ctp-surface2, var(--ctp-overlay0));
+  border-radius: 0.375rem;
+  color: var(--ctp-overlay0);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.mermaid-wrapper:hover .mermaid-copy-btn {
+  opacity: 1;
+}
+
+.mermaid-copy-btn:hover {
+  background: var(--ctp-overlay0);
+  color: var(--ctp-base);
+}
+  transform: scale(0.95);
+.mermaid-copy-btn:active {
+  transform: scale(0.95);
+}
+
+/* === Code block wrapper with copy button === */
+.code-block-wrapper {
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--ctp-surface1);
+  border: 1px solid var(--ctp-surface2, var(--ctp-overlay0));
+  border-radius: 0.375rem;
+  color: var(--ctp-overlay0);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
+}
+
+.code-copy-btn:hover {
+  background: var(--ctp-overlay0);
+  color: var(--ctp-base);
+}
+
+.code-copy-btn:active {
+  transform: scale(0.95);
+}
+
+/* Remove default margins from <pre> inside wrappers so the wrapper controls spacing */
+.code-block-wrapper > pre,
+.mermaid-wrapper > .mermaid-diagram {
+  margin: 0;
 }
