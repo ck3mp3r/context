@@ -1,0 +1,23 @@
+// highlight.js Catppuccin theme using CSS variables
+/* === highlight.js theme using Catppuccin CSS variables === */
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in { color: var(--ctp-mauve, #cba6f7); }
+.hljs-symbol, .hljs-string, .hljs-char.escape, .hljs-subst { color: var(--ctp-green, #a6e3a1); }
+.hljs-title, .hljs-name { color: var(--ctp-peach, #fab387); }
+.hljs-number { color: var(--ctp-peach, #fab387); }
+.hljs-comment { color: var(--ctp-overlay0, #6c7086); font-style: italic; }
+.hljs-function, .hljs-params { color: var(--ctp-blue, #89b4fa); }
+.hljs-variable { color: var(--ctp-text, #cdd6f4); }
+.hljs-type { color: var(--ctp-teal, #94e2d5); }
+.hljs-literal { color: var(--ctp-peach, #fab387); }
+.hljs-meta { color: var(--ctp-lavender, #b4befe); }
+.hljs-section { color: var(--ctp-blue, #89b4fa); }
+.hljs-tag { color: var(--ctp-mauve, #cba6f7); }
+.hljs-attr, .hljs-attribute { color: var(--ctp-yellow, #f9e2af); }
+.hljs-regexp { color: var(--ctp-red, #f38ba8); }
+.hljs-formula { color: var(--ctp-flamingo, #f2cdcd); }
+.hljs-selector-id, .hljs-selector-class { color: var(--ctp-sapphire, #74c7ec); }
+.hljs-template-variable { color: var(--ctp-green, #a6e3a1); }
+.hljs-deletion { color: var(--ctp-red, #f38ba8); background: rgba(243,139,168,0.1); }
+.hljs-addition { color: var(--ctp-green, #a6e3a1); background: rgba(166,227,161,0.1); }
+.hljs-quote { color: var(--ctp-teal, #94e2d5); }
+.hljs-link { color: var(--ctp-blue, #89b4fa); text-decoration: underline; }
