@@ -1,10 +1,10 @@
-use leptos::prelude::*;
-use pulldown_cmark::{Options, Parser, html};
-
 use crate::api::QueryBuilder;
 use crate::components::CopyableId;
 use crate::models::{Note, UpdateMessage};
 use crate::websocket::use_websocket_updates;
+use leptos::prelude::*;
+use pulldown_cmark::{Options, Parser, html};
+use std::sync::atomic::{AtomicU16, Ordering};
 
 #[component]
 pub fn NoteCard(
@@ -124,9 +124,11 @@ pub fn NoteCard(
     }
 }
 
+/// Atomic counter for unique MarkdownContent DOM IDs
+static MD_COUNTER: AtomicU16 = AtomicU16::new(0);
+
 #[component]
 pub fn MarkdownContent(content: String) -> impl IntoView {
-    // Parse markdown to HTML
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
@@ -137,9 +139,19 @@ pub fn MarkdownContent(content: String) -> impl IntoView {
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
-    view! { <div inner_html=html_output></div> }
-}
+    let id = MD_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let sel = format!("#md-{}", id);
 
+    // Trigger highlight.js then mermaid rendering after DOM mount
+    Effect::new(move |_| {
+        crate::mermaid::highlight_code_blocks(&sel);
+        crate::mermaid::mermaid_render_in_selector(&sel);
+    });
+
+    view! {
+        <div id=format!("md-{}", id) inner_html=html_output></div>
+    }
+}
 #[component]
 pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> impl IntoView {
     use leptos::task::spawn_local;

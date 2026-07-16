@@ -300,4 +300,7 @@ pub fn apply_theme(theme: CatppuccinTheme) {
 
     // Save to localStorage
     save_theme_to_storage(theme);
+
+    // Re-render all mermaid diagrams with updated theme colors
+    crate::mermaid::mermaid_rerender_all();
 }
