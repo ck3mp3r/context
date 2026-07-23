@@ -13,10 +13,8 @@ SELECT
     out.name AS target_name,
     out.file_path AS target_file
 FROM calls
-WHERE in.repo_id = $repo_id
-  AND out.repo_id = $repo_id
+WHERE repo_id = $repo_id
   AND out.name = $target_name
   AND in.entry_type = 'test'
 ORDER BY in.file_path, in.start_line
-LIMIT 30
-FETCH in, out;
+LIMIT 30;

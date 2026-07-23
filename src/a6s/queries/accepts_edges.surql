@@ -7,4 +7,4 @@ SELECT
     in.symbol_id as src_id,
     out.symbol_id as dst_id
 FROM accepts
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id;
+WHERE repo_id = $repo_id;

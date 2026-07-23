@@ -35,37 +35,39 @@ async fn create_test_files(db: &surrealdb::Surreal<surrealdb::engine::local::Db>
 /// Helper to create test edges
 async fn create_test_edges(db: &surrealdb::Surreal<surrealdb::engine::local::Db>) {
     // Create calls edge: main calls helper (call_site_line is required)
-    db.query("RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12")
-        .await
-        .expect("Failed to create calls edge");
+    db.query(
+        "RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create calls edge");
 
     // Create has_field edge: MyStruct has field
-    db.query("RELATE symbol:sym003->has_field->symbol:sym002")
+    db.query("RELATE symbol:sym003->has_field->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create has_field edge");
 
     // Create has_method edge: MyStruct has method
-    db.query("RELATE symbol:sym003->has_method->symbol:sym001")
+    db.query("RELATE symbol:sym003->has_method->symbol:sym001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create has_method edge");
 
     // Create has_member edge: module has member
-    db.query("RELATE symbol:sym003->has_member->symbol:sym002")
+    db.query("RELATE symbol:sym003->has_member->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create has_member edge");
 
     // Create extends edge
-    db.query("RELATE symbol:sym003->extends->symbol:sym002")
+    db.query("RELATE symbol:sym003->extends->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create extends edge");
 
     // Create implements edge
-    db.query("RELATE symbol:sym003->implements->symbol:sym002")
+    db.query("RELATE symbol:sym003->implements->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create implements edge");
 
     // Create file_imports edge
-    db.query("RELATE file:file001->file_imports->symbol:sym002")
+    db.query("RELATE file:file001->file_imports->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_imports edge");
 }
@@ -359,7 +361,7 @@ async fn test_file_symbols_query() {
     create_test_files(&db).await;
 
     // Create file_contains edges
-    db.query("RELATE file:file001->file_contains->symbol:sym001")
+    db.query("RELATE file:file001->file_contains->symbol:sym001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -418,15 +420,21 @@ async fn test_hub_symbols_query() {
         .expect("Failed to create caller2");
 
     // All call helper (call_site_line is required for calls edges)
-    db.query("RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12")
-        .await
-        .expect("Failed to create call edge");
-    db.query("RELATE symbol:caller1->calls->symbol:sym002 SET call_site_line = 3")
-        .await
-        .expect("Failed to create call edge");
-    db.query("RELATE symbol:caller2->calls->symbol:sym002 SET call_site_line = 3")
-        .await
-        .expect("Failed to create call edge");
+    db.query(
+        "RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create call edge");
+    db.query(
+        "RELATE symbol:caller1->calls->symbol:sym002 SET call_site_line = 3, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create call edge");
+    db.query(
+        "RELATE symbol:caller2->calls->symbol:sym002 SET call_site_line = 3, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create call edge");
 
     let query = include_str!("queries/hub_symbols.surql");
     let mut result = db
@@ -462,7 +470,7 @@ async fn test_module_map_query() {
     db.query("CREATE file:modfile SET repo_id = 'test_repo', file_id = 'modfile', path = 'src/config/mod.rs', language = 'rust', hash = 'modfile123'")
         .await
         .expect("Failed to create file");
-    db.query("RELATE file:modfile->file_contains->symbol:mod001")
+    db.query("RELATE file:modfile->file_contains->symbol:mod001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -491,7 +499,7 @@ async fn test_module_map_query_with_package() {
     db.query("CREATE file:gofile SET repo_id = 'test_repo', file_id = 'gofile', path = 'pkg/server/server.go', language = 'go', hash = 'gofile123'")
         .await
         .expect("Failed to create file");
-    db.query("RELATE file:gofile->file_contains->symbol:pkg001")
+    db.query("RELATE file:gofile->file_contains->symbol:pkg001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -514,7 +522,7 @@ async fn test_annotates_type_query() {
     create_test_symbols(&db).await;
 
     // Create type_annotation edge
-    db.query("RELATE symbol:sym001->type_annotation->symbol:sym003")
+    db.query("RELATE symbol:sym001->type_annotation->symbol:sym003 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create type_annotation edge");
 
@@ -527,8 +535,7 @@ async fn test_annotates_type_query() {
             in.start_line AS start_line,
             out.name AS type_name
         FROM type_annotation
-        WHERE out.name = $name
-        FETCH in, out;
+        WHERE repo_id = $repo_id AND out.name = $name;
     "#;
     let mut result = db
         .query(query)
@@ -552,7 +559,7 @@ async fn test_uses_type_query() {
     create_test_symbols(&db).await;
 
     // Create uses edge
-    db.query("RELATE symbol:sym001->uses->symbol:sym003")
+    db.query("RELATE symbol:sym001->uses->symbol:sym003 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create uses edge");
 
@@ -565,8 +572,7 @@ async fn test_uses_type_query() {
             in.start_line AS start_line,
             out.name AS type_name
         FROM uses
-        WHERE out.name = $name
-        FETCH in, out;
+        WHERE repo_id = $repo_id AND out.name = $name;
     "#;
     let mut result = db
         .query(query)
@@ -692,7 +698,7 @@ async fn test_file_symbols_with_json_value_params() {
     create_test_files(&db).await;
 
     // Create file_contains edges
-    db.query("RELATE file:file001->file_contains->symbol:sym001")
+    db.query("RELATE file:file001->file_contains->symbol:sym001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -729,17 +735,23 @@ async fn test_file_dependencies_query() {
         .await
         .expect("create fd_s3");
 
-    db.query("RELATE symbol:fd_s1->calls->symbol:fd_s3 SET call_site_line = 5")
-        .await
-        .expect("cross-file call 1");
+    db.query(
+        "RELATE symbol:fd_s1->calls->symbol:fd_s3 SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("cross-file call 1");
 
-    db.query("RELATE symbol:fd_s2->calls->symbol:fd_s3 SET call_site_line = 15")
-        .await
-        .expect("cross-file call 2");
+    db.query(
+        "RELATE symbol:fd_s2->calls->symbol:fd_s3 SET call_site_line = 15, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("cross-file call 2");
 
-    db.query("RELATE symbol:fd_s1->calls->symbol:fd_s2 SET call_site_line = 8")
-        .await
-        .expect("intra-file call");
+    db.query(
+        "RELATE symbol:fd_s1->calls->symbol:fd_s2 SET call_site_line = 8, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("intra-file call");
 
     let query = include_str!("queries/file_dependencies.surql");
     let mut result = db
@@ -775,17 +787,23 @@ async fn test_transitive_calls_query() {
         .await
         .expect("create tc_d");
 
-    db.query("RELATE symbol:tc_a->calls->symbol:tc_b SET call_site_line = 5")
-        .await
-        .expect("A calls B");
+    db.query(
+        "RELATE symbol:tc_a->calls->symbol:tc_b SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("A calls B");
 
-    db.query("RELATE symbol:tc_b->calls->symbol:tc_c SET call_site_line = 5")
-        .await
-        .expect("B calls C");
+    db.query(
+        "RELATE symbol:tc_b->calls->symbol:tc_c SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("B calls C");
 
-    db.query("RELATE symbol:tc_c->calls->symbol:tc_d SET call_site_line = 5")
-        .await
-        .expect("C calls D");
+    db.query(
+        "RELATE symbol:tc_c->calls->symbol:tc_d SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("C calls D");
 
     // SurrealDB doesn't support parameterized depth
     let query = include_str!("queries/transitive_calls.surql");

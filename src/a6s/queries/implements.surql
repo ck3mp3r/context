@@ -15,5 +15,4 @@ SELECT
     out.kind AS interface_kind,
     out.file_path AS interface_file
 FROM implements
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
-FETCH in, out;
+WHERE repo_id = $repo_id;

@@ -13,5 +13,4 @@ SELECT
     out.start_line AS dst_start_line,
     out.entry_type AS dst_entry_type
 FROM file_imports
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
-FETCH in, out;
+WHERE repo_id = $repo_id;

@@ -10,7 +10,7 @@ SELECT
     out.start_line AS start_line,
     count() AS incoming_calls
 FROM calls
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
+WHERE repo_id = $repo_id
 GROUP BY out.name, out.kind, out.file_path, out.start_line
 ORDER BY incoming_calls DESC
 LIMIT 30;

@@ -14,10 +14,8 @@ SELECT
     out.kind AS type_kind,
     out.file_path AS type_file
 FROM accepts
-WHERE in.repo_id = $repo_id
-  AND out.repo_id = $repo_id
+WHERE repo_id = $repo_id
   AND in.name = $function_name
-FETCH in, out
 
 UNION
 
@@ -29,8 +27,6 @@ SELECT
     out.kind AS type_kind,
     out.file_path AS type_file
 FROM returns
-WHERE in.repo_id = $repo_id
-  AND out.repo_id = $repo_id
+WHERE repo_id = $repo_id
   AND in.name = $function_name
-FETCH in, out
 LIMIT 20;

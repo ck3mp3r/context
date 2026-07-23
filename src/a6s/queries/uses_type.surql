@@ -11,5 +11,4 @@ SELECT
     in.start_line AS start_line,
     out.name AS type_name
 FROM uses
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id AND out.name = $name
-FETCH in, out;
+WHERE repo_id = $repo_id AND out.name = $name;

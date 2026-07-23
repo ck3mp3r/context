@@ -15,5 +15,4 @@ SELECT
     out.kind AS parent_kind,
     out.file_path AS parent_file
 FROM extends
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
-FETCH in, out;
+WHERE repo_id = $repo_id;

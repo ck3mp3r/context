@@ -40,5 +40,4 @@ WHERE
               )
         )
     )
-GROUP BY out.name, out.kind, out.file_path, out.start_line
-FETCH out;
+GROUP BY out.name, out.kind, out.file_path, out.start_line;

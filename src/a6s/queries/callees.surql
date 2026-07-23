@@ -10,5 +10,4 @@ SELECT
     out.file_path AS file_path,
     out.start_line AS start_line
 FROM calls
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id AND in.name = $name
-FETCH out;
+WHERE repo_id = $repo_id AND in.name = $name;

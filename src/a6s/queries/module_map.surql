@@ -9,5 +9,4 @@ SELECT
     out.file_path AS file_path,
     out.visibility AS visibility
 FROM file_contains
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id AND out.kind IN ["module", "package"]
-FETCH out;
+WHERE repo_id = $repo_id AND out.kind IN ["module", "package"];

@@ -12,5 +12,4 @@ SELECT
     out.signature AS signature,
     out.entry_type AS entry_type
 FROM file_contains
-WHERE in.repo_id = $repo_id AND in.path = $path
-FETCH out;
+WHERE in.repo_id = $repo_id AND in.path = $path;
