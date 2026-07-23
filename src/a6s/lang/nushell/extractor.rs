@@ -95,6 +95,7 @@ impl LanguageExtractor for NushellExtractor {
                     to,
                     kind: EdgeKind::HasMember,
                     line: Some(child.start_line),
+                    entry_type: None,
                 });
             }
         }
@@ -287,6 +288,7 @@ impl LanguageExtractor for NushellExtractor {
                         to: to_id,
                         kind: EdgeKind::Calls,
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -300,9 +302,432 @@ impl LanguageExtractor for NushellExtractor {
 
         (resolved_edges, resolved_imports)
     }
+
+    fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
+        Self::resolve_file_modules_impl(parsed_files);
+    }
 }
 
 impl NushellExtractor {
+    /// Resolve file-level modules for Nushell files.
+    ///
+    /// Creates directory-level module symbols and HasMember edges to represent
+    /// the directory hierarchy. Also handles `use ./subdir` imports by creating
+    /// DeclaresMod edges between directory modules.
+    ///
+    /// Algorithm:
+    /// 1. Group .nu files by directory
+    /// 2. Build directory hierarchy (ensure ancestors exist)
+    /// 3. Create directory-level module RawSymbol entries
+    /// 4. Create HasMember edges for directory hierarchy (parent → child dirs)
+    /// 5. Create HasMember edges from directory module → top-level file symbols
+    /// 6. Handle `use ./subdir` imports → DeclaresMod edges
+    fn resolve_file_modules_impl(parsed_files: &mut [ParsedFile]) {
+        use crate::a6s::types::{EdgeKind, RawEdge, RawSymbol, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Phase 1: Group .nu files by directory
+        let mut dir_files: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (i, pf) in parsed_files.iter().enumerate() {
+            if pf.language != "nushell" {
+                continue;
+            }
+            let dir = std::path::Path::new(&pf.file_path)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            dir_files.entry(dir).or_default().push(i);
+        }
+
+        // Ensure all ancestor directories exist in dir_files (structural containers)
+        let mut dirs_to_add: Vec<String> = Vec::new();
+        for dir in dir_files.keys() {
+            if dir.is_empty() {
+                continue;
+            }
+            let mut parent = std::path::Path::new(dir)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            while !parent.is_empty() && !dir_files.contains_key(&parent) {
+                if !dirs_to_add.contains(&parent) {
+                    dirs_to_add.push(parent.clone());
+                }
+                parent = std::path::Path::new(&parent)
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+        }
+        for dir in dirs_to_add {
+            dir_files.insert(dir, Vec::new());
+        }
+
+        if dir_files.is_empty() {
+            return;
+        }
+
+        // Sort directories by depth so parents are processed before children
+        let mut sorted_dirs: Vec<&String> = dir_files.keys().collect();
+        sorted_dirs.sort_by(|a, b| {
+            let depth_a = if a.is_empty() {
+                0
+            } else {
+                a.split('/').count()
+            };
+            let depth_b = if b.is_empty() {
+                0
+            } else {
+                b.split('/').count()
+            };
+            depth_a.cmp(&depth_b)
+        });
+
+        // Phase 2: Create directory-level module symbols
+        // For directories with files: creates module in the first file
+        // For structural containers (no files, but have child dirs with files):
+        //   creates module in the first child's first file
+        // Map: dir_path -> (module_name, start_line, file_path_for_symbol_id)
+        let mut dir_module_map: HashMap<String, (String, usize, String)> = HashMap::new();
+
+        for dir in &sorted_dirs {
+            let file_indices = &dir_files[dir.as_str()];
+
+            let target_idx = if file_indices.is_empty() {
+                // Structural container: find first child directory with files
+                let prefix = format!("{}/", dir);
+                sorted_dirs
+                    .iter()
+                    .find(|d| d.starts_with(&prefix))
+                    .and_then(|d| dir_files.get(*d))
+                    .and_then(|indices| indices.first().copied())
+                    .unwrap_or(0)
+            } else {
+                file_indices[0]
+            };
+
+            // Extract module name (last component of directory path)
+            let dir_name = if dir.is_empty() {
+                "root".to_string()
+            } else {
+                dir.rsplit('/').next().unwrap_or("").to_string()
+            };
+
+            // Extract parent directory for module_path
+            let parent_dir = if dir.is_empty() {
+                None
+            } else {
+                let path = std::path::Path::new(dir.as_str());
+                match path.parent().and_then(|p| p.to_str()) {
+                    Some("") => None,
+                    Some(p) => Some(p.to_string()),
+                    None => None,
+                }
+            };
+
+            // Set module_path to parent directory ONLY if parent has actual symbols
+            let module_path = parent_dir.as_ref().and_then(|parent| {
+                if Self::dir_has_symbols(parent, &dir_files, parsed_files) {
+                    Some(parent.clone())
+                } else {
+                    None
+                }
+            });
+
+            // Create module symbol
+            // For the root directory (""), use "." as file_path
+            // For structural containers (no files), use the directory path
+            // For normal directories, use the directory path
+            let module_file_path = if dir.is_empty() {
+                ".".to_string()
+            } else {
+                dir.to_string()
+            };
+            let module_sym = RawSymbol {
+                name: dir_name.clone(),
+                kind: "module".to_string(),
+                file_path: module_file_path.clone(),
+                start_line: 1,
+                end_line: 1,
+                signature: Some(format!("implicit_module: true, directory: {}", dir)),
+                language: "nushell".to_string(),
+                visibility: Some("pub".to_string()),
+                entry_type: None,
+                module_path,
+            };
+
+            parsed_files[target_idx].symbols.push(module_sym);
+            dir_module_map.insert(dir.to_string(), (dir_name, 1, module_file_path));
+        }
+
+        // Phase 4: Create HasMember edges
+        let mut edges_to_add: Vec<(usize, RawEdge)> = Vec::new();
+
+        // 4a: Parent → child directory hierarchy edges
+        // ONLY when parent directory has actual symbols
+        for dir in &sorted_dirs {
+            if dir.is_empty() {
+                continue;
+            }
+
+            let path = std::path::Path::new(dir.as_str());
+            let parent = match path.parent().and_then(|p| p.to_str()) {
+                Some("") => "root".to_string(),
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+
+            // Only create edge if parent directory has actual symbols or is a structural container
+            let parent_has_symbols = Self::dir_has_symbols(&parent, &dir_files, parsed_files);
+            let parent_is_container = dir_files
+                .get(&parent)
+                .map(|indices| indices.is_empty())
+                .unwrap_or(false);
+            if !parent_has_symbols && !parent_is_container {
+                continue;
+            }
+
+            if let Some(&(ref parent_name, parent_line, ref parent_file_path)) =
+                dir_module_map.get(&parent)
+                && let Some(&(ref child_name, child_line, ref child_file_path)) =
+                    dir_module_map.get(dir.as_str())
+            {
+                let from =
+                    SymbolRef::resolved(SymbolId::new(parent_file_path, parent_name, parent_line));
+                let to =
+                    SymbolRef::resolved(SymbolId::new(child_file_path, child_name, child_line));
+
+                // Add edge to the child's first file (or first child's first file for structural containers)
+                let edge_file_idx = if dir_files[dir.as_str()].is_empty() {
+                    // Structural container: find first child directory with files
+                    let prefix = format!("{}/", dir);
+                    sorted_dirs
+                        .iter()
+                        .find(|d| d.starts_with(&prefix))
+                        .and_then(|d| dir_files.get(*d))
+                        .and_then(|indices| indices.first().copied())
+                        .unwrap_or(0)
+                } else {
+                    dir_files[dir.as_str()][0]
+                };
+                edges_to_add.push((
+                    edge_file_idx,
+                    RawEdge {
+                        from,
+                        to,
+                        kind: EdgeKind::HasMember,
+                        line: Some(1),
+                        entry_type: None,
+                    },
+                ));
+            }
+        }
+
+        // 4b: Directory module → top-level file symbols
+        // Top-level = symbols not inside any inline `mod foo { ... }` block
+        for (dir, file_indices) in &dir_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some(&(ref module_name, module_line, ref module_file_path)) =
+                dir_module_map.get(dir.as_str())
+            else {
+                continue;
+            };
+
+            let module_id =
+                SymbolRef::resolved(SymbolId::new(module_file_path, module_name, module_line));
+
+            for &file_idx in file_indices {
+                let pf = &parsed_files[file_idx];
+
+                // Build a set of inline module line ranges to determine
+                // which symbols are "top-level" (not inside an inline module)
+                let inline_module_ranges: Vec<(usize, usize)> = pf
+                    .symbols
+                    .iter()
+                    .filter(|s| s.kind == "module" && s.file_path == pf.file_path)
+                    .map(|s| (s.start_line, s.end_line))
+                    .collect();
+
+                for sym in &pf.symbols {
+                    // Skip directory module symbols (no self-edges).
+                    // Check if this symbol matches any entry in dir_module_map
+                    // by name and file_path.
+                    let is_dir_module = dir_module_map
+                        .values()
+                        .any(|(name, _, fp)| *name == sym.name && *fp == sym.file_path);
+                    if is_dir_module {
+                        continue;
+                    }
+
+                    // Skip symbols that are inside inline modules
+                    // (they already have HasMember edges from the inline module)
+                    let is_inside_inline_module = inline_module_ranges
+                        .iter()
+                        .any(|(start, end)| sym.start_line > *start && sym.end_line <= *end);
+                    if is_inside_inline_module {
+                        continue;
+                    }
+
+                    let sym_id = SymbolRef::resolved(SymbolId::new(
+                        &pf.file_path,
+                        &sym.name,
+                        sym.start_line,
+                    ));
+
+                    edges_to_add.push((
+                        file_idx,
+                        RawEdge {
+                            from: module_id.clone(),
+                            to: sym_id,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // Phase 5: Handle `use ./subdir` imports → DeclaresMod edges
+        for (dir, file_indices) in &dir_files {
+            let Some(&(ref module_name, module_line, ref module_file_path)) =
+                dir_module_map.get(dir.as_str())
+            else {
+                continue;
+            };
+
+            for &file_idx in file_indices {
+                let pf = &parsed_files[file_idx];
+
+                for raw_import in &pf.imports {
+                    let import_path = &raw_import.entry.module_path;
+
+                    // Only handle relative imports starting with "."
+                    if !import_path.starts_with('.') {
+                        continue;
+                    }
+
+                    // Resolve the relative import path against the current directory
+                    // e.g., "./subdir" in "src/lib" → "src/lib/subdir"
+                    // e.g., "../sibling" in "src/lib" → "src/sibling"
+                    let resolved_dir = Self::resolve_relative_path(dir, import_path);
+
+                    if let Some(target_dir) = resolved_dir
+                        && let Some(&(ref target_name, target_line, ref target_file_path)) =
+                            dir_module_map.get(&target_dir)
+                    {
+                        let from = SymbolRef::resolved(SymbolId::new(
+                            module_file_path,
+                            module_name,
+                            module_line,
+                        ));
+                        let to = SymbolRef::resolved(SymbolId::new(
+                            target_file_path,
+                            target_name,
+                            target_line,
+                        ));
+
+                        edges_to_add.push((
+                            file_idx,
+                            RawEdge {
+                                from,
+                                to,
+                                kind: EdgeKind::DeclaresMod,
+                                line: None,
+                                entry_type: None,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Add all collected edges
+        for (file_idx, edge) in edges_to_add {
+            parsed_files[file_idx].edges.push(edge);
+        }
+    }
+
+    /// Resolve a relative import path against a base directory.
+    /// Returns the resolved directory path, or None if resolution fails.
+    ///
+    /// Examples:
+    /// - resolve_relative_path("src/lib", "./subdir") → Some("src/lib/subdir")
+    /// - resolve_relative_path("src/lib", "../sibling") → Some("src/sibling")
+    /// - resolve_relative_path("", "./subdir") → Some("subdir")
+    fn resolve_relative_path(base_dir: &str, import_path: &str) -> Option<String> {
+        use std::path::Path;
+
+        // Normalize: remove "./" prefix if present
+        let clean_path = import_path.strip_prefix("./").unwrap_or(import_path);
+
+        // If it starts with "../", we need to go up from base_dir
+        if clean_path.starts_with("..") {
+            let base = if base_dir.is_empty() {
+                Path::new("")
+            } else {
+                Path::new(base_dir)
+            };
+            let resolved = base.join(clean_path);
+            // Normalize the path to remove ".." components
+            let mut components: Vec<&str> = Vec::new();
+            for component in resolved.components() {
+                match component {
+                    std::path::Component::Normal(c) => {
+                        components.push(c.to_str().unwrap_or(""));
+                    }
+                    std::path::Component::ParentDir => {
+                        components.pop();
+                    }
+                    std::path::Component::RootDir => {
+                        // Absolute path — shouldn't happen but handle gracefully
+                        return None;
+                    }
+                    _ => {}
+                }
+            }
+            if components.is_empty() {
+                Some(String::new())
+            } else {
+                Some(components.join("/"))
+            }
+        } else {
+            // Simple relative path: base_dir + "/" + clean_path
+            if base_dir.is_empty() {
+                Some(clean_path.to_string())
+            } else {
+                Some(format!("{}/{}", base_dir, clean_path))
+            }
+        }
+    }
+
+    /// Check if a directory has any non-module symbols in its files.
+    /// Used to determine whether to create parent-child HasMember edges
+    /// between directories.
+    fn dir_has_symbols(
+        dir: &str,
+        dir_files: &std::collections::HashMap<String, Vec<usize>>,
+        parsed_files: &[ParsedFile],
+    ) -> bool {
+        if let Some(indices) = dir_files.get(dir) {
+            for &idx in indices {
+                for sym in &parsed_files[idx].symbols {
+                    if sym.kind != "module" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn derive_module_path(&self, file_path: &str) -> Option<String> {
         let path = Path::new(file_path);
         let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
@@ -548,6 +973,7 @@ impl NushellExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             } else {
                 tracing::debug!(
@@ -795,6 +1221,7 @@ impl NushellExtractor {
                     to: test_ref,
                     kind: EdgeKind::Calls,
                     line: Some(test_sym.start_line),
+                    entry_type: None,
                 });
             }
         }

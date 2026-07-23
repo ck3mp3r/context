@@ -268,6 +268,7 @@ impl LanguageExtractor for TypeScriptExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -307,6 +308,303 @@ impl LanguageExtractor for TypeScriptExtractor {
 
         (resolved_edges, resolved_imports)
     }
+
+    /// Resolve file-level modules for TypeScript/TSX files.
+    ///
+    /// Groups files by directory, creates canonical module symbols per directory,
+    /// rewrites existing HasMember edges to point to canonical modules, and
+    /// creates HasMember edges for directory hierarchy and file symbol membership.
+    ///
+    /// Only creates module symbols for directories that actually have files —
+    /// no artificial intermediate directory nodes.
+    fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
+        use crate::a6s::types::{EdgeKind, RawEdge, RawSymbol, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Phase 1: Group TS/TSX files by directory
+        let mut dir_files: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (i, pf) in parsed_files.iter().enumerate() {
+            if pf.language != "typescript" {
+                continue;
+            }
+            let dir = std::path::Path::new(&pf.file_path)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            dir_files.entry(dir).or_default().push(i);
+        }
+
+        // Ensure all ancestor directories exist in dir_files (structural containers)
+        let mut dirs_to_add: Vec<String> = Vec::new();
+        for dir in dir_files.keys() {
+            if dir.is_empty() {
+                continue;
+            }
+            let mut parent = std::path::Path::new(dir)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            while !parent.is_empty() && !dir_files.contains_key(&parent) {
+                if !dirs_to_add.contains(&parent) {
+                    dirs_to_add.push(parent.clone());
+                }
+                parent = std::path::Path::new(&parent)
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+        }
+        for dir in dirs_to_add {
+            dir_files.insert(dir, Vec::new());
+        }
+
+        if dir_files.is_empty() {
+            return;
+        }
+
+        // Sort directories by depth so parents are processed before children
+        let mut sorted_dirs: Vec<&String> = dir_files.keys().collect();
+        sorted_dirs.sort_by(|a, b| {
+            let depth_a = if a.is_empty() {
+                0
+            } else {
+                a.split('/').count()
+            };
+            let depth_b = if b.is_empty() {
+                0
+            } else {
+                b.split('/').count()
+            };
+            depth_a.cmp(&depth_b)
+        });
+
+        // Phase 2: Create directory-level module symbols
+        // Map: dir_path -> (module_name, first_file_idx)
+        let mut dir_module_map: HashMap<String, (String, usize)> = HashMap::new();
+
+        for dir in &sorted_dirs {
+            let file_indices = &dir_files[dir.as_str()];
+
+            let target_idx = if file_indices.is_empty() {
+                // Structural container: find first child directory with files
+                let prefix = format!("{}/", dir);
+                sorted_dirs
+                    .iter()
+                    .find(|d| d.starts_with(&prefix))
+                    .and_then(|d| dir_files.get(*d))
+                    .and_then(|indices| indices.first().copied())
+                    .unwrap_or(0)
+            } else {
+                file_indices[0]
+            };
+
+            // Extract module name (cleaned directory path for meaningful names)
+            // Only clean leaf directories (those with files) to avoid name collisions
+            // with structural containers (empty directories that group subdirectories)
+            let dir_name = if dir.is_empty() {
+                "root".to_string()
+            } else if file_indices.is_empty() {
+                // Structural container: keep full path for uniqueness
+                dir.to_string()
+            } else {
+                // Leaf directory with files: clean up for a meaningful module name
+                let mut name = dir.to_string();
+
+                // Strip "packages/" prefix if present
+                if let Some(stripped) = name.strip_prefix("packages/") {
+                    name = stripped.to_string();
+                }
+
+                // Strip "/src" suffix if present (src is the default source directory)
+                if let Some(stripped) = name.strip_suffix("/src") {
+                    name = stripped.to_string();
+                }
+
+                // If the entire path was just "src", use "root"
+                if name == "src" {
+                    name = "root".to_string();
+                }
+
+                name
+            };
+
+            // Extract parent directory for module_path
+            let parent_dir = if dir.is_empty() {
+                None
+            } else {
+                let path = std::path::Path::new(dir.as_str());
+                match path.parent().and_then(|p| p.to_str()) {
+                    Some("") => None,
+                    Some(p) => Some(p.to_string()),
+                    None => None,
+                }
+            };
+
+            // Set module_path to parent directory ONLY if parent has actual symbols
+            let module_path = parent_dir.as_ref().and_then(|parent| {
+                if Self::dir_has_symbols(parent, &dir_files, parsed_files) {
+                    Some(parent.clone())
+                } else {
+                    None
+                }
+            });
+
+            // Create module symbol
+            let module_sym = RawSymbol {
+                name: dir_name.clone(),
+                kind: "module".to_string(),
+                file_path: if dir.is_empty() {
+                    ".".to_string()
+                } else {
+                    dir.to_string()
+                },
+                start_line: 1,
+                end_line: 1,
+                signature: Some(format!("implicit_module: true, directory: {}", dir)),
+                language: "typescript".to_string(),
+                visibility: Some("pub".to_string()),
+                entry_type: if dir.contains("/test")
+                    || dir.contains("/tests")
+                    || dir.ends_with("test")
+                    || dir.ends_with("tests")
+                {
+                    Some("test".to_string())
+                } else {
+                    None
+                },
+                module_path,
+            };
+
+            parsed_files[target_idx].symbols.push(module_sym);
+            dir_module_map.insert(dir.to_string(), (dir_name, target_idx));
+        }
+
+        // Phase 3: Rewrite existing HasMember edges to point to canonical module
+        for (dir, file_indices) in &dir_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some((canonical_name, _canonical_file_idx)) = dir_module_map.get(dir.as_str())
+            else {
+                continue;
+            };
+            // The canonical SymbolId uses the directory path (matching the module RawSymbol's file_path)
+            let canonical_id = SymbolId::new(dir, canonical_name, 1);
+
+            for &file_idx in file_indices {
+                let file_path = &parsed_files[file_idx].file_path;
+                // The old module SymbolId was SymbolId::new(file_path, file_path, 1)
+                let old_module_id = SymbolId::new(file_path, file_path, 1);
+
+                for edge in &mut parsed_files[file_idx].edges {
+                    if edge.kind == EdgeKind::HasMember
+                        && let SymbolRef::Resolved(ref id) = edge.from
+                        && id.as_str() == old_module_id.as_str()
+                    {
+                        edge.from = SymbolRef::resolved(canonical_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Phase 4: Create HasMember edges for directory hierarchy
+        // and from directory module → file symbols
+        let mut edges_to_add: Vec<(usize, RawEdge)> = Vec::new();
+
+        // 4a: Parent → child directory hierarchy edges
+        // ONLY when parent directory has actual symbols
+        for dir in &sorted_dirs {
+            if dir.is_empty() {
+                continue;
+            }
+
+            let path = std::path::Path::new(dir.as_str());
+            let parent = match path.parent().and_then(|p| p.to_str()) {
+                Some("") => "root".to_string(),
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+
+            // Only create edge if parent directory has actual symbols or is a structural container
+            let parent_has_symbols = Self::dir_has_symbols(&parent, &dir_files, parsed_files);
+            let parent_is_container = dir_files
+                .get(&parent)
+                .map(|indices| indices.is_empty())
+                .unwrap_or(false);
+            if !parent_has_symbols && !parent_is_container {
+                continue;
+            }
+
+            if let Some(&(ref parent_name, _parent_file_idx)) = dir_module_map.get(&parent)
+                && let Some(&(ref child_name, child_file_idx)) = dir_module_map.get(dir.as_str())
+            {
+                // Use directory paths for canonical module SymbolIds
+                let from = SymbolRef::resolved(SymbolId::new(&parent, parent_name, 1));
+                let to = SymbolRef::resolved(SymbolId::new(dir, child_name, 1));
+
+                edges_to_add.push((
+                    child_file_idx,
+                    RawEdge {
+                        from,
+                        to,
+                        kind: EdgeKind::HasMember,
+                        line: Some(1),
+                        entry_type: None,
+                    },
+                ));
+            }
+        }
+
+        // 4b: Directory module → all file symbols
+        for (dir, file_indices) in &dir_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some(&(ref module_name, _module_file_idx)) = dir_module_map.get(dir.as_str())
+            else {
+                continue;
+            };
+            // Use directory path as file_path for the canonical module SymbolId
+            let module_id = SymbolRef::resolved(SymbolId::new(dir, module_name, 1));
+
+            for &file_idx in file_indices {
+                for sym in &parsed_files[file_idx].symbols {
+                    // Skip the module symbol itself (no self-edges)
+                    if sym.kind == "module" {
+                        continue;
+                    }
+
+                    let sym_id = SymbolRef::resolved(SymbolId::new(
+                        &parsed_files[file_idx].file_path,
+                        &sym.name,
+                        sym.start_line,
+                    ));
+
+                    edges_to_add.push((
+                        file_idx,
+                        RawEdge {
+                            from: module_id.clone(),
+                            to: sym_id,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // Add all collected edges
+        for (file_idx, edge) in edges_to_add {
+            parsed_files[file_idx].edges.push(edge);
+        }
+    }
 }
 
 impl TypeScriptExtractor {
@@ -326,6 +624,26 @@ impl TypeScriptExtractor {
         } else {
             Some(path.to_string())
         }
+    }
+
+    /// Check if a directory has any non-module symbols in its files.
+    /// Used to determine whether to create parent-child HasMember edges
+    /// between directories.
+    fn dir_has_symbols(
+        dir: &str,
+        dir_files: &std::collections::HashMap<String, Vec<usize>>,
+        parsed_files: &[ParsedFile],
+    ) -> bool {
+        if let Some(indices) = dir_files.get(dir) {
+            for &idx in indices {
+                for sym in &parsed_files[idx].symbols {
+                    if sym.kind != "module" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Check if a node is inside an export_statement
@@ -925,6 +1243,7 @@ impl TypeScriptExtractor {
                         )),
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -962,6 +1281,7 @@ impl TypeScriptExtractor {
                         )),
                         kind: EdgeKind::HasMethod,
                         line: Some(method.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -1007,6 +1327,7 @@ impl TypeScriptExtractor {
                 to: SymbolRef::resolved(SymbolId::new(file_path, &s.name, s.start_line)),
                 kind: EdgeKind::HasMember,
                 line: Some(s.start_line),
+                entry_type: None,
             })
             .collect();
 
@@ -1106,6 +1427,7 @@ impl TypeScriptExtractor {
                                 to: SymbolRef::unresolved(type_name, file_path),
                                 kind: EdgeKind::Extends,
                                 line: Some(child.start_position().row + 1),
+                                entry_type: None,
                             });
                         }
                     }
@@ -1119,6 +1441,7 @@ impl TypeScriptExtractor {
                                 to: SymbolRef::unresolved(type_name, file_path),
                                 kind: EdgeKind::Implements,
                                 line: Some(child.start_position().row + 1),
+                                entry_type: None,
                             });
                         }
                     }
@@ -1143,6 +1466,7 @@ impl TypeScriptExtractor {
                     to: SymbolRef::unresolved(type_name, file_path),
                     kind: EdgeKind::Extends,
                     line: Some(child.start_position().row + 1),
+                    entry_type: None,
                 });
             }
         }
@@ -1201,6 +1525,7 @@ impl TypeScriptExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1426,6 +1751,7 @@ impl TypeScriptExtractor {
                         to: SymbolRef::unresolved(type_name, file_path),
                         kind: edge_kind,
                         line: Some(type_node.start_position().row + 1),
+                        entry_type: None,
                     });
                 }
             }
@@ -1441,6 +1767,7 @@ impl TypeScriptExtractor {
                                 to: SymbolRef::unresolved(type_name, file_path),
                                 kind: edge_kind.clone(),
                                 line: Some(child.start_position().row + 1),
+                                entry_type: None,
                             });
                         }
                     } else if child.kind() == "type_arguments" {

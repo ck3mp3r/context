@@ -1,5 +1,6 @@
 use super::error::A6sError;
 use super::types::*;
+use serde_json::json;
 use std::sync::Arc;
 use tracing::info;
 
@@ -83,10 +84,25 @@ impl CodeGraph {
         Ok(Self { db, repo_id })
     }
 
-    /// Helper to create a compound record ID: {repo_id}_{original_id}
-    /// This ensures uniqueness across repos in the shared database.
-    fn compound_id(&self, original_id: &str) -> String {
-        format!("{}_{}", self.repo_id, original_id)
+    /// Generate a deterministic, collision-free RecordId from repo_id and original_id.
+    ///
+    /// Uses a short SHA-256 hash to produce a hex string with no special characters,
+    /// avoiding SurrealDB's `table:id` colon parsing issues.
+    /// Same (repo_id, original_id) always produces the same hash.
+    pub(crate) fn record_id(&self, original_id: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(self.repo_id.as_bytes());
+        hasher.update(b":");
+        hasher.update(original_id.as_bytes());
+        let result = hasher.finalize();
+        // Use first 8 bytes (16 hex chars, 64 bits) — sufficient for collision resistance
+        result
+            .iter()
+            .take(8)
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<_>>()
+            .join("")
     }
 
     /// Create a CodeGraph for read-only access to existing analysis.
@@ -143,7 +159,7 @@ impl CodeGraph {
         commit_hash: &str,
     ) -> Result<(), A6sError> {
         let file_id = FileId::new(file_path);
-        let compound_id = self.compound_id(file_id.as_str());
+        let rid = self.record_id(file_id.as_str());
 
         // Create a serde_json::Value which implements SurrealValue
         let record = serde_json::json!({
@@ -154,10 +170,10 @@ impl CodeGraph {
             "hash": commit_hash,
         });
 
-        // Use compound ID to ensure uniqueness across repos
+        // Use hash-based record ID to ensure uniqueness across repos
         let _: Option<serde_json::Value> = self
             .db
-            .create(("file", compound_id.as_str()))
+            .create(("file", rid.as_str()))
             .content(record)
             .await
             .map_err(|e| A6sError::Custom(format!("Failed to insert file: {}", e)))?;
@@ -168,7 +184,7 @@ impl CodeGraph {
     /// Insert a symbol node into the graph.
     pub async fn insert_symbol(&self, symbol: &RawSymbol) -> Result<(), A6sError> {
         let symbol_id = symbol.symbol_id();
-        let compound_id = self.compound_id(symbol_id.as_str());
+        let rid = self.record_id(symbol_id.as_str());
 
         // Build record with only non-None optional fields to avoid JSON null vs SurrealDB NONE issues
         let mut record = serde_json::json!({
@@ -196,10 +212,10 @@ impl CodeGraph {
             record["module_path"] = serde_json::json!(module_path);
         }
 
-        // Use compound ID to ensure uniqueness across repos
+        // Use hash-based record ID to ensure uniqueness across repos
         let _: Option<serde_json::Value> = self
             .db
-            .create(("symbol", compound_id.as_str()))
+            .create(("symbol", rid.as_str()))
             .content(record)
             .await
             .map_err(|e| A6sError::Custom(format!("Failed to insert symbol: {}", e)))?;
@@ -213,14 +229,14 @@ impl CodeGraph {
         file_id: &FileId,
         symbol_id: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both file and symbol
-        let compound_file_id = self.compound_id(file_id.as_str());
-        let compound_symbol_id = self.compound_id(symbol_id.as_str());
+        // Use hash-based record IDs for both file and symbol
+        let rid_file = self.record_id(file_id.as_str());
+        let rid_sym = self.record_id(symbol_id.as_str());
 
         let query = format!(
             "RELATE file:`{}`->file_contains->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_file_id.replace("`", "\\`"),
-            compound_symbol_id.replace("`", "\\`")
+            Self::escape_surql_id(&rid_file),
+            Self::escape_surql_id(&rid_sym)
         );
 
         let _ = self
@@ -242,14 +258,14 @@ impl CodeGraph {
     ) -> Result<(), A6sError> {
         let call_site_line = line.unwrap_or(0) as i32;
 
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->calls->symbol:`{}` SET confidence = 1.0, call_site_line = {}, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`"),
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to),
             call_site_line
         );
 
@@ -272,15 +288,15 @@ impl CodeGraph {
     ) -> Result<(), A6sError> {
         let inheritance_type = inheritance_type.unwrap_or("unknown");
 
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->inherits->symbol:`{}` SET confidence = 1.0, inheritance_type = '{}', repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`"),
-            inheritance_type.replace("'", "\\'")
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to),
+            Self::escape_surql_string(inheritance_type)
         );
 
         let _ = self
@@ -299,14 +315,14 @@ impl CodeGraph {
         from: &SymbolId,
         to: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->implements->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to)
         );
 
         let _ = self
@@ -325,14 +341,14 @@ impl CodeGraph {
         from: &SymbolId,
         to: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->extends->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to)
         );
 
         let _ = self
@@ -351,14 +367,14 @@ impl CodeGraph {
         from: &SymbolId,
         to: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->has_field->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to)
         );
 
         let _ = self
@@ -377,14 +393,14 @@ impl CodeGraph {
         from: &SymbolId,
         to: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->has_method->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to)
         );
 
         let _ = self
@@ -403,14 +419,14 @@ impl CodeGraph {
         from: &SymbolId,
         to: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->has_member->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&rid_from),
+            Self::escape_surql_id(&rid_to)
         );
 
         let _ = self
@@ -440,15 +456,15 @@ impl CodeGraph {
             _ => "uses",
         };
 
-        // Use compound IDs for both symbols
-        let compound_from = self.compound_id(from.as_str());
-        let compound_to = self.compound_id(to.as_str());
+        // Use hash-based record IDs for both symbols
+        let rid_from = self.record_id(from.as_str());
+        let rid_to = self.record_id(to.as_str());
 
         let query = format!(
             "RELATE symbol:`{}`->{}->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_from.replace("`", "\\`"),
+            Self::escape_surql_id(&rid_from),
             edge_table,
-            compound_to.replace("`", "\\`")
+            Self::escape_surql_id(&rid_to)
         );
 
         let _ = self
@@ -469,14 +485,14 @@ impl CodeGraph {
         file_id: &FileId,
         symbol_id: &SymbolId,
     ) -> Result<(), A6sError> {
-        // Use compound IDs for both file and symbol
-        let compound_file_id = self.compound_id(file_id.as_str());
-        let compound_symbol_id = self.compound_id(symbol_id.as_str());
+        // Use hash-based record IDs for both file and symbol
+        let rid_file = self.record_id(file_id.as_str());
+        let rid_sym = self.record_id(symbol_id.as_str());
 
         let query = format!(
             "RELATE file:`{}`->file_imports->symbol:`{}` SET confidence = 1.0, repo_id = $repo_id",
-            compound_file_id.replace("`", "\\`"),
-            compound_symbol_id.replace("`", "\\`")
+            Self::escape_surql_id(&rid_file),
+            Self::escape_surql_id(&rid_sym)
         );
 
         let _ = self
@@ -499,8 +515,14 @@ impl CodeGraph {
 
     /// Escape a string value for SurrealQL string literals.
     /// Escapes single quotes and backslashes.
-    fn escape_surql(s: &str) -> String {
+    /// Escape for single-quoted SurrealQL string values (e.g., 'value')
+    fn escape_surql_string(s: &str) -> String {
         s.replace('\\', "\\\\").replace('\'', "\\'")
+    }
+
+    /// Escape for backtick-delimited SurrealQL record IDs (e.g., `record:id`)
+    fn escape_surql_id(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('`', "\\`")
     }
 
     /// Batch insert file nodes using INSERT IGNORE INTO file [...] RETURN NONE.
@@ -510,101 +532,118 @@ impl CodeGraph {
         commit_hash: &str,
     ) -> Result<(), A6sError> {
         for chunk in files.chunks(Self::BATCH_SIZE) {
-            let records: Vec<String> = chunk
+            let records: Vec<serde_json::Value> = chunk
                 .iter()
                 .map(|(file_path, language)| {
                     let file_id = FileId::new(file_path);
-                    let compound_id = self.compound_id(file_id.as_str());
-                    format!(
-                        "{{ id: file:`{}`, file_id: '{}', repo_id: '{}', path: '{}', language: '{}', hash: '{}' }}",
-                        Self::escape_surql(&compound_id),
-                        Self::escape_surql(file_id.as_str()),
-                        Self::escape_surql(&self.repo_id),
-                        Self::escape_surql(file_path),
-                        Self::escape_surql(language),
-                        Self::escape_surql(commit_hash),
-                    )
+                    let rid = self.record_id(file_id.as_str());
+                    json!({
+                        "id": rid,
+                        "file_id": file_id.as_str(),
+                        "repo_id": &self.repo_id,
+                        "path": file_path,
+                        "language": language,
+                        "hash": commit_hash,
+                    })
                 })
                 .collect();
 
-            let sql = format!(
-                "INSERT IGNORE INTO file [{}] RETURN NONE",
-                records.join(", ")
-            );
             self.db
-                .query(&sql)
+                .query("INSERT IGNORE INTO file $records RETURN NONE")
+                .bind(("records", records))
                 .await
                 .map_err(|e| A6sError::Custom(format!("Failed to batch insert files: {}", e)))?;
         }
         Ok(())
     }
 
-    /// Build a SurrealQL object literal for a symbol record.
-    fn symbol_record_sql(&self, symbol: &RawSymbol) -> (String, String, String) {
-        let symbol_id = symbol.symbol_id();
-        let compound_sym = self.compound_id(symbol_id.as_str());
-        let file_id = FileId::new(&symbol.file_path);
-        let compound_file = self.compound_id(file_id.as_str());
-
-        let mut fields = format!(
-            "id: symbol:`{}`, symbol_id: '{}', repo_id: '{}', name: '{}', kind: '{}', language: '{}', file_path: '{}', start_line: {}, end_line: {}",
-            Self::escape_surql(&compound_sym),
-            Self::escape_surql(symbol_id.as_str()),
-            Self::escape_surql(&self.repo_id),
-            Self::escape_surql(&symbol.name),
-            Self::escape_surql(&symbol.kind),
-            Self::escape_surql(&symbol.language),
-            Self::escape_surql(&symbol.file_path),
-            symbol.start_line as i32,
-            symbol.end_line as i32,
-        );
-        if let Some(v) = &symbol.visibility {
-            fields.push_str(&format!(", visibility: '{}'", Self::escape_surql(v)));
-        }
-        if let Some(v) = &symbol.entry_type {
-            fields.push_str(&format!(", entry_type: '{}'", Self::escape_surql(v)));
-        }
-        if let Some(v) = &symbol.signature {
-            fields.push_str(&format!(", signature: '{}'", Self::escape_surql(v)));
-        }
-        if let Some(v) = &symbol.module_path {
-            fields.push_str(&format!(", module_path: '{}'", Self::escape_surql(v)));
-        }
-
-        let sym_record = format!("{{ {} }}", fields);
-        (sym_record, compound_file, compound_sym)
-    }
-
     /// Batch insert symbol nodes and their file_contains edges.
     ///
-    /// Uses INSERT IGNORE INTO symbol [...] for symbols, then
-    /// INSERT RELATION INTO file_contains [...] for contains edges.
+    /// Uses parameterized INSERT IGNORE INTO symbol with JSON binding for reliable
+    /// field escaping. Edge tables have ENFORCED removed to prevent silent drops
+    /// when RecordId formats differ between parameterized and string-interpolated queries.
     pub async fn insert_symbols_batch(&self, symbols: &[RawSymbol]) -> Result<(), A6sError> {
         for chunk in symbols.chunks(Self::BATCH_SIZE) {
-            let mut sym_records = Vec::with_capacity(chunk.len());
+            let mut symbol_records = Vec::with_capacity(chunk.len());
             let mut contains_records = Vec::with_capacity(chunk.len());
 
             for symbol in chunk {
-                let (sym_record, compound_file, compound_sym) = self.symbol_record_sql(symbol);
-                sym_records.push(sym_record);
-                contains_records.push(format!(
-                    "{{ in: file:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}' }}",
-                    Self::escape_surql(&compound_file),
-                    Self::escape_surql(&compound_sym),
-                    Self::escape_surql(&self.repo_id),
-                ));
+                let symbol_id = symbol.symbol_id();
+                let rid_sym = self.record_id(symbol_id.as_str());
+                let file_id = FileId::new(&symbol.file_path);
+                let rid_file = self.record_id(file_id.as_str());
+
+                let mut record = serde_json::json!({
+                    "id": rid_sym.clone(),
+                    "symbol_id": symbol_id.as_str(),
+                    "repo_id": self.repo_id.clone(),
+                    "name": symbol.name,
+                    "kind": symbol.kind,
+                    "language": symbol.language,
+                    "file_path": symbol.file_path,
+                    "start_line": symbol.start_line as i32,
+                    "end_line": symbol.end_line as i32,
+                });
+
+                if let Some(v) = &symbol.visibility {
+                    record["visibility"] = serde_json::Value::String(v.clone());
+                }
+                if let Some(v) = &symbol.entry_type {
+                    record["entry_type"] = serde_json::Value::String(v.clone());
+                }
+                if let Some(v) = &symbol.signature {
+                    record["signature"] = serde_json::Value::String(v.clone());
+                }
+                if let Some(v) = &symbol.module_path {
+                    record["module_path"] = serde_json::Value::String(v.clone());
+                }
+
+                symbol_records.push(record);
+
+                // Skip file_contains for module symbols — their file_path is a directory
+                // (e.g., "pkg/analyzer") with no corresponding file record in the DB.
+                if symbol.kind == "module" {
+                    continue;
+                }
+
+                contains_records.push(serde_json::json!({
+                    "in": format!("file:`{}`", Self::escape_surql_id(&rid_file)),
+                    "out": format!("symbol:`{}`", Self::escape_surql_id(&rid_sym)),
+                    "confidence": 1.0_f64,
+                    "repo_id": self.repo_id.clone(),
+                }));
             }
 
-            // Two statements in one query call
-            let sql = format!(
-                "INSERT IGNORE INTO symbol [{}] RETURN NONE;\nINSERT RELATION INTO file_contains [{}] RETURN NONE",
-                sym_records.join(", "),
-                contains_records.join(", "),
-            );
+            // Insert symbols using parameterized query
+            let symbols_sql = "INSERT IGNORE INTO symbol $records RETURN NONE";
             self.db
-                .query(&sql)
+                .query(symbols_sql)
+                .bind(("records", symbol_records.clone()))
                 .await
                 .map_err(|e| A6sError::Custom(format!("Failed to batch insert symbols: {}", e)))?;
+
+            // Insert file_contains relations using string interpolation
+            // (parameterized binding doesn't support relation records with RecordId references)
+            if !contains_records.is_empty() {
+                let contains_str: Vec<String> = contains_records
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "{{ in: {}, out: {}, confidence: 1.0, repo_id: '{}' }}",
+                            r["in"].as_str().unwrap(),
+                            r["out"].as_str().unwrap(),
+                            Self::escape_surql_string(r["repo_id"].as_str().unwrap()),
+                        )
+                    })
+                    .collect();
+                let relations_sql = format!(
+                    "INSERT RELATION INTO file_contains [{}] RETURN NONE",
+                    contains_str.join(", ")
+                );
+                self.db.query(&relations_sql).await.map_err(|e| {
+                    A6sError::Custom(format!("Failed to batch insert file_contains edges: {}", e))
+                })?;
+            }
         }
         Ok(())
     }
@@ -624,34 +663,42 @@ impl CodeGraph {
             EdgeKind::FieldType => "field_type",
             EdgeKind::TypeRef => "type_annotation",
             EdgeKind::FileImports | EdgeKind::Import => "file_imports",
+            EdgeKind::DeclaresMod => "declares_mod",
         }
     }
 
     /// Batch insert resolved edges.
     ///
-    /// Groups edges by table, then uses INSERT RELATION INTO table [...] for each group.
+    /// Uses INSERT RELATION INTO with parenthesized record references
+    /// `(symbol:\`id\`)` to avoid SurrealDB silently dropping edge records
+    /// when record IDs contain colons.
     pub async fn insert_edges_batch(&self, edges: &[ResolvedEdge]) -> Result<(), A6sError> {
-        use std::collections::HashMap;
-
         for chunk in edges.chunks(Self::BATCH_SIZE) {
-            // Group by edge table
+            // Group by edge table for batch insertion
+            use std::collections::HashMap;
             let mut groups: HashMap<&str, Vec<String>> = HashMap::new();
 
             for edge in chunk {
                 let table = Self::edge_table(&edge.kind);
-                let compound_from = self.compound_id(edge.from.as_str());
-                let compound_to = self.compound_id(edge.to.as_str());
+                let rid_from = self.record_id(edge.from.as_str());
+                let rid_to = self.record_id(edge.to.as_str());
 
                 let mut fields = format!(
-                    "in: symbol:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}'",
-                    Self::escape_surql(&compound_from),
-                    Self::escape_surql(&compound_to),
-                    Self::escape_surql(&self.repo_id),
+                    "in: (symbol:`{}`), out: (symbol:`{}`), confidence: 1.0, repo_id: '{}'",
+                    Self::escape_surql_id(&rid_from),
+                    Self::escape_surql_id(&rid_to),
+                    Self::escape_surql_string(&self.repo_id),
                 );
                 if let Some(l) = edge.line
                     && matches!(edge.kind, EdgeKind::Calls)
                 {
                     fields.push_str(&format!(", call_site_line: {}", l as i32));
+                }
+                if let Some(ref entry_type) = edge.entry_type {
+                    fields.push_str(&format!(
+                        ", entry_type: '{}'",
+                        Self::escape_surql_string(entry_type)
+                    ));
                 }
 
                 groups
@@ -660,7 +707,7 @@ impl CodeGraph {
                     .push(format!("{{ {} }}", fields));
             }
 
-            // Build one INSERT RELATION per table, all in one query
+            // Execute one INSERT RELATION per table
             let stmts: Vec<String> = groups
                 .into_iter()
                 .map(|(table, records)| {
@@ -683,19 +730,20 @@ impl CodeGraph {
 
     /// Batch insert import edges (File -> Symbol).
     ///
-    /// Uses INSERT RELATION INTO file_imports [...] RETURN NONE.
+    /// Uses INSERT RELATION INTO with parenthesized record references
+    /// to avoid SurrealDB silently dropping edge records when record IDs contain colons.
     pub async fn insert_imports_batch(&self, imports: &[ResolvedImport]) -> Result<(), A6sError> {
         for chunk in imports.chunks(Self::BATCH_SIZE) {
             let records: Vec<String> = chunk
                 .iter()
                 .map(|import| {
-                    let compound_file = self.compound_id(import.file_id.as_str());
-                    let compound_sym = self.compound_id(import.target_symbol_id.as_str());
+                    let rid_file = self.record_id(import.file_id.as_str());
+                    let rid_sym = self.record_id(import.target_symbol_id.as_str());
                     format!(
-                        "{{ in: file:`{}`, out: symbol:`{}`, confidence: 1.0, repo_id: '{}' }}",
-                        Self::escape_surql(&compound_file),
-                        Self::escape_surql(&compound_sym),
-                        Self::escape_surql(&self.repo_id),
+                        "{{ in: (file:`{}`), out: (symbol:`{}`), confidence: 1.0, repo_id: '{}' }}",
+                        Self::escape_surql_id(&rid_file),
+                        Self::escape_surql_id(&rid_sym),
+                        Self::escape_surql_string(&self.repo_id),
                     )
                 })
                 .collect();
@@ -782,22 +830,27 @@ impl CodeGraph {
 
         // Iterate over embedded queries
         for (name, content) in crate::a6s::queries::PREDEFINED_QUERIES.iter() {
-            let (description, params) = Self::parse_query_comments(content);
+            let (description, params, internal) = Self::parse_query_comments(content);
             queries.push(QueryInfo {
                 name: name.to_string(),
                 description,
                 params,
+                internal,
             });
         }
+
+        // Filter out internal queries
+        queries.retain(|q| !q.internal);
 
         queries.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(queries)
     }
 
     /// Parse comment headers from a .surql file to extract description and parameters.
-    fn parse_query_comments(content: &str) -> (Option<String>, Vec<QueryParam>) {
+    fn parse_query_comments(content: &str) -> (Option<String>, Vec<QueryParam>, bool) {
         let mut description = None;
         let mut params = Vec::new();
+        let mut internal = false;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -806,6 +859,12 @@ impl CodeGraph {
             }
             let comment = trimmed.trim_start_matches("--").trim();
             if comment.is_empty() {
+                continue;
+            }
+
+            // Check for @internal annotation
+            if comment == "@internal" {
+                internal = true;
                 continue;
             }
 
@@ -848,12 +907,13 @@ impl CodeGraph {
             } else if description.is_none()
                 && !comment.starts_with("Query:")
                 && !comment.starts_with("Returns:")
+                && comment != "@internal"
             {
                 description = Some(comment.to_string());
             }
         }
 
-        (description, params)
+        (description, params, internal)
     }
 
     /// Execute raw SurrealQL query.

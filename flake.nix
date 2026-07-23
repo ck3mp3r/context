@@ -2,7 +2,8 @@
   description = "Context - Rust CLI and API";
 
   inputs = {
-    nixpkgs.url = "github:NixOs/nixpkgs/nixpkgs-unstable";
+    base-nixpkgs.url = "github:ck3mp3r/flakes?dir=base-nixpkgs";
+    nixpkgs.follows = "base-nixpkgs/unstable";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
@@ -10,6 +11,7 @@
     rustnix = {
       url = "github:ck3mp3r/flakes?dir=rustnix";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.base-nixpkgs.follows = "base-nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
     };
   };

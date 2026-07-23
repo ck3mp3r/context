@@ -197,11 +197,11 @@ pub struct EditNoteParams {
     #[schemars(description = "Parent note ID. Use empty string or null to remove.")]
     #[serde(
         default,
-        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
+        deserialize_with = "crate::common::serde::double_option_string_or_empty"
     )]
     pub parent_id: Option<Option<String>>,
     #[schemars(description = "Manual ordering index (optional)")]
-    #[serde(default, deserialize_with = "crate::serde_utils::double_option")]
+    #[serde(default, deserialize_with = "crate::common::serde::double_option")]
     pub idx: Option<Option<i32>>,
     #[schemars(description = "Repository IDs to link (optional)")]
     pub repo_ids: Option<Vec<String>>,

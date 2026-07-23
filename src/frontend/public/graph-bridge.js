@@ -34,6 +34,27 @@
     return 100;
   }
 
+  /**
+   * Build enhanced ForceAtlas2 settings with better node spacing.
+   * Overrides inferSettings() defaults to prevent nodes clumping together.
+   * @param {object} graph - Graphology graph instance
+   * @returns {object} Enhanced FA2 settings
+   */
+  function getLayoutSettings(graph) {
+    var settings = ForceAtlas2Layout.inferSettings
+      ? ForceAtlas2Layout.inferSettings(graph)
+      : { barnesHutOptimize: true };
+    var n = graph.order;
+    settings.scalingRatio = Math.max(settings.scalingRatio || 1, 3 + Math.log10(Math.max(n, 1)));
+    settings.gravity = 0.8;
+    settings.adjustSizes = true;
+    if (n > 100) {
+      settings.barnesHutOptimize = true;
+      settings.barnesHutTheta = 0.5;
+    }
+    return settings;
+  }
+
   // Animate layout transitions from current positions to target positions
   function animateLayout(inst, targetPositions, duration) {
     duration = duration || 400;
@@ -306,9 +327,11 @@
    * @param {string} graphDataJson - JSON string with { nodes, edges, stats }
    * @param {string} repoId - Repository ID for API calls
    * @param {string} apiBase - API base URL (e.g., "/dev/api/v1" or "/api/v1")
+   * @param {number} [expandDepth=1] - How many levels of children to auto-expand (0 = collapsed roots only)
    * @returns {boolean} true if successful
    */
-  window.initGraph = function(containerId, graphDataJson, repoId, apiBase) {
+  window.initGraph = function(containerId, graphDataJson, repoId, apiBase, expandDepth) {
+    var expandDepth = expandDepth !== undefined ? expandDepth : 1;
     // Clean up existing instance
     if (instances[containerId]) {
       instances[containerId].renderer.kill();
@@ -449,6 +472,7 @@
         renderer: renderer,
         repoId: repoId,
         apiBase: apiBase || "/api/v1",  // Fallback for backward compatibility
+        expandDepth: expandDepth,
         expandedNodes: new Set(),
         knownNodes: new Map(),
         filteredKinds: filteredKinds,
@@ -456,6 +480,7 @@
         filteredEdgeTypes: new Set(),  // empty = show all
         hideTests: false,
         searchMatches: null,      // Set of matched node IDs from search, null = no active search
+        searchResultNodes: null,  // Set of all visible nodes (matches + ancestors) for proper edge visibility
         onSelectCallback: null,   // callback for node selection events
         onLegendChangeCallback: null,  // callback when legend should be refreshed (after expand/collapse)
         entryTypeCanvas: null,    // custom canvas for entry-type shapes
@@ -464,6 +489,14 @@
       // Populate knownNodes cache with initial nodes
       graph.forEachNode(function(nodeId, attrs) {
         inst.knownNodes.set(nodeId, attrs);
+      });
+
+      // Auto-detect pre-expanded nodes: if a node's children are already
+      // present in the graph (via parentId), mark it as expanded
+      graph.forEachNode(function(nodeId, attrs) {
+        if (attrs.parentId && graph.hasNode(attrs.parentId)) {
+          inst.expandedNodes.add(attrs.parentId);
+        }
       });
 
       // Create custom canvas layer for entry-type shapes (drawn on top of WebGL circles)
@@ -558,20 +591,44 @@
       });
 
       // Double-click: expand/collapse container nodes
-      renderer.on("doubleClickNode", function(event) {
+      renderer.on("doubleClickNode", async function(event) {
         event.preventSigmaDefault(); // Prevent default double-click zoom
         var node = event.node;
         var attrs = graph.getNodeAttributes(node);
 
-        // If already expanded, collapse it
+        // If already expanded, collapse it (sync)
         if (inst.expandedNodes.has(node)) {
           window.graphCollapseNode(containerId, node);
         }
-        // If it's a container (has children), expand it
+        // If it's a container (has children), expand it (async — must await)
         else if (attrs.childCount && attrs.childCount > 0) {
-          window.graphExpandNode(containerId, node);
+          await window.graphExpandNode(containerId, node);
         }
         // Leaf node - no-op
+        else {
+          return;
+        }
+
+        // Re-fire select callback with updated isExpanded state
+        // This runs after expand/collapse has completed, so expandedNodes is accurate
+        if (inst.onSelectCallback) {
+          var updatedAttrs = graph.getNodeAttributes(node);
+          var ancestorChain = getAncestorChain(graph, node);
+          var info = JSON.stringify({
+            id: node,
+            label: updatedAttrs.label || "",
+            qualifiedName: updatedAttrs.qualifiedName || updatedAttrs.label || "",
+            kind: updatedAttrs.kind || "unknown",
+            language: updatedAttrs.language || "unknown",
+            filePath: updatedAttrs.filePath || "",
+            startLine: updatedAttrs.startLine || 0,
+            entryType: updatedAttrs.entryType || null,
+            childCount: updatedAttrs.childCount || 0,
+            isExpanded: inst.expandedNodes.has(node),
+            ancestorChain: ancestorChain,
+          });
+          inst.onSelectCallback(info);
+        }
       });
 
       // Click on empty canvas: clear selection
@@ -843,9 +900,7 @@
 
       // Apply ForceAtlas2 layout on initial load with performance-aware iteration count
       if (typeof ForceAtlas2Layout === "function" && graph.order > 0) {
-        var settings = ForceAtlas2Layout.inferSettings
-          ? ForceAtlas2Layout.inferSettings(graph)
-          : { barnesHutOptimize: true };
+        var settings = getLayoutSettings(graph);
         var iterations = getLayoutIterations(graph.order);
         ForceAtlas2Layout(graph, {
           iterations: iterations,
@@ -935,7 +990,7 @@
       var parentY = nodeAttrs.y;
       // Calculate child placement offset based on child count
       var childCount = (data.nodes || []).length;
-      var offsetRange = Math.max(100, childCount * 30);
+      var offsetRange = Math.max(150, childCount * 50);
 
       // Add new nodes with positions near parent (small random offset)
       (data.nodes || []).forEach(function(node) {
@@ -1032,17 +1087,38 @@
       }
 
       // Run ForceAtlas2 burst to redistribute all nodes dynamically with animation
-      // Use performance-aware iteration count based on graph size
+      // Run multiple passes — single pass doesn't converge well after adding nodes
       if (typeof ForceAtlas2Layout === "function" && inst.graph.order > 0) {
-        var settings = ForceAtlas2Layout.inferSettings
-          ? ForceAtlas2Layout.inferSettings(inst.graph)
-          : { barnesHutOptimize: true };
+        var settings = getLayoutSettings(inst.graph);
         var iterations = getLayoutIterations(inst.graph.order);
-        var targetPositions = ForceAtlas2Layout.positions(inst.graph, {
-          iterations: iterations,
-          settings: settings
+        // Save pre-expand positions for animation
+        var startPositions = {};
+        inst.graph.forEachNode(function(node) {
+          startPositions[node] = {
+            x: inst.graph.getNodeAttribute(node, 'x'),
+            y: inst.graph.getNodeAttribute(node, 'y')
+          };
         });
-        console.log("[graph-bridge] Expand layout: " + iterations + " iterations for " + inst.graph.order + " nodes");
+        // Run 3 sequential passes to converge layout
+        for (var pass = 0; pass < 5; pass++) {
+          ForceAtlas2Layout(inst.graph, { iterations: iterations, settings: settings });
+        }
+        // Capture converged positions
+        var targetPositions = {};
+        inst.graph.forEachNode(function(node) {
+          targetPositions[node] = {
+            x: inst.graph.getNodeAttribute(node, 'x'),
+            y: inst.graph.getNodeAttribute(node, 'y')
+          };
+        });
+        // Restore start positions so animateLayout can interpolate
+        inst.graph.forEachNode(function(node) {
+          if (startPositions[node]) {
+            inst.graph.setNodeAttribute(node, 'x', startPositions[node].x);
+            inst.graph.setNodeAttribute(node, 'y', startPositions[node].y);
+          }
+        });
+        console.log("[graph-bridge] Expand layout: " + (iterations * 3) + " total iterations for " + inst.graph.order + " nodes");
         animateLayout(inst, targetPositions);
       }
 
@@ -1087,24 +1163,15 @@
 
     // Remove descendants (leaf-first by reversing)
     descendants.reverse().forEach(function(id) {
-      // Drop all edges connected to this node
       try {
         var edges = inst.graph.edges(id);
         edges.forEach(function(e) {
           inst.graph.dropEdge(e);
         });
-      } catch (e) {
-        // Node may have been removed already
-      }
-
-      // Drop the node itself
+      } catch (e) {}
       try {
         inst.graph.dropNode(id);
-      } catch (e) {
-        // Already dropped
-      }
-
-      // Remove from expanded nodes if it was expanded
+      } catch (e) {}
       inst.expandedNodes.delete(id);
     });
 
@@ -1143,7 +1210,7 @@
 
     try {
       // Fetch root data again using configured API base
-      var url = inst.apiBase + "/repos/" + inst.repoId + "/graph";
+      var url = inst.apiBase + "/repos/" + inst.repoId + "/graph?expand_depth=" + (inst.expandDepth || 1);
       var response = await fetch(url);
       if (!response.ok) {
         console.error("Failed to fetch root graph:", response.statusText);
@@ -1373,18 +1440,37 @@
       inst.graph.setNodeAttribute(node, 'fixed', false);
     });
 
-    // Run ForceAtlas2 with inferred settings and animate the transition
-    // Use performance-aware iteration count based on graph size
+    // Run ForceAtlas2 with enhanced settings and animate the transition
+    // Run multiple passes to converge in a single click
     if (typeof ForceAtlas2Layout === "function" && inst.graph.order > 0) {
-      var settings = ForceAtlas2Layout.inferSettings
-        ? ForceAtlas2Layout.inferSettings(inst.graph)
-        : { barnesHutOptimize: true };
+      var settings = getLayoutSettings(inst.graph);
       var iterations = getLayoutIterations(inst.graph.order);
-      var targetPositions = ForceAtlas2Layout.positions(inst.graph, {
-        iterations: iterations,
-        settings: settings
+      // Save starting positions
+      var startPositions = {};
+      inst.graph.forEachNode(function(node) {
+        startPositions[node] = {
+          x: inst.graph.getNodeAttribute(node, 'x'),
+          y: inst.graph.getNodeAttribute(node, 'y')
+        };
       });
-      console.log("[graph-bridge] Redistribute: " + iterations + " iterations for " + inst.graph.order + " nodes");
+      for (var pass = 0; pass < 5; pass++) {
+        ForceAtlas2Layout(inst.graph, { iterations: iterations, settings: settings });
+      }
+      var targetPositions = {};
+      inst.graph.forEachNode(function(node) {
+        targetPositions[node] = {
+          x: inst.graph.getNodeAttribute(node, 'x'),
+          y: inst.graph.getNodeAttribute(node, 'y')
+        };
+      });
+      // Restore for animated transition
+      inst.graph.forEachNode(function(node) {
+        if (startPositions[node]) {
+          inst.graph.setNodeAttribute(node, 'x', startPositions[node].x);
+          inst.graph.setNodeAttribute(node, 'y', startPositions[node].y);
+        }
+      });
+      console.log("[graph-bridge] Redistribute: " + (iterations * 3) + " total iterations for " + inst.graph.order + " nodes");
       animateLayout(inst, targetPositions);
     }
   };
@@ -1570,6 +1656,7 @@
 
     if (!query || query.trim() === "") {
       inst.searchMatches = null;
+      inst.searchResultNodes = null;
       inst.renderer.refresh();
       return 0;
     }
@@ -1643,6 +1730,7 @@
         if (!response.ok) {
           console.error("Search request failed:", response.status);
           inst.searchMatches = null;
+          inst.searchResultNodes = null;
           inst.renderer.refresh();
           if (callback) callback(0);
           return null;
@@ -1657,6 +1745,7 @@
 
         if (nodes.length === 0) {
           inst.searchMatches = null;
+          inst.searchResultNodes = null;
           inst.renderer.refresh();
           if (callback) callback(0);
           return;
@@ -1771,6 +1860,7 @@
       .catch(function(error) {
         console.error("Search error:", error);
         inst.searchMatches = null;
+        inst.searchResultNodes = null;
         inst.renderer.refresh();
         if (callback) callback(0);
       });

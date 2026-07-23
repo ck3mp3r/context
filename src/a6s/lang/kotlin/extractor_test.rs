@@ -1976,6 +1976,7 @@ fn test_build_symbol_index_multiple_files() {
         to: SymbolRef::unresolved("User", "src/service.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(6),
+        entry_type: None,
     });
 
     // Add an import for User in service.kt
@@ -2164,6 +2165,7 @@ fn test_resolve_calls_cross_file() {
                 to: SymbolRef::unresolved("helper", "src/main.kt"),
                 kind: EdgeKind::Calls,
                 line: Some(3),
+                entry_type: None,
             });
             pf
         },
@@ -2211,6 +2213,7 @@ fn test_resolve_typeref_cross_file() {
                 to: SymbolRef::unresolved("User", "src/service.kt"),
                 kind: EdgeKind::ReturnType,
                 line: Some(1),
+                entry_type: None,
             });
             pf
         },
@@ -2247,6 +2250,7 @@ fn test_skip_builtins_during_resolution() {
             to: SymbolRef::unresolved("String", "src/main.kt"),
             kind: EdgeKind::ParamType,
             line: Some(1),
+            entry_type: None,
         });
         pf
     }];
@@ -2297,6 +2301,7 @@ fn test_import_resolution_single() {
                 to: SymbolRef::unresolved("User", "src/service.kt"),
                 kind: EdgeKind::TypeRef,
                 line: Some(2),
+                entry_type: None,
             });
             pf
         },
@@ -2365,6 +2370,7 @@ fn test_import_resolution_wildcard() {
                 to: SymbolRef::unresolved("User", "src/service.kt"),
                 kind: EdgeKind::TypeRef,
                 line: Some(2),
+                entry_type: None,
             });
             pf
         },
@@ -2421,6 +2427,7 @@ fn test_import_resolution_aliased() {
                 to: SymbolRef::unresolved("AppUser", "src/service.kt"),
                 kind: EdgeKind::TypeRef,
                 line: Some(2),
+                entry_type: None,
             });
             pf
         },
@@ -2494,6 +2501,7 @@ fn test_resolve_cross_file_end_to_end() {
         to: SymbolRef::unresolved("User", "src/service.kt"),
         kind: EdgeKind::ParamType,
         line: Some(10),
+        entry_type: None,
     });
 
     // File 3: com.example.service - defines helper (same package as service)
@@ -2513,6 +2521,7 @@ fn test_resolve_cross_file_end_to_end() {
         to: SymbolRef::unresolved("helper", "src/service.kt"),
         kind: EdgeKind::Calls,
         line: Some(12),
+        entry_type: None,
     });
 
     let mut files = vec![models, service, utils];
@@ -2586,6 +2595,7 @@ fn test_resolve_cross_file_already_resolved_passthrough() {
             to: SymbolRef::resolved(SymbolId::new("src/main.kt", "Foo", 1)),
             kind: EdgeKind::ReturnType,
             line: Some(5),
+            entry_type: None,
         });
         pf
     }];
@@ -2833,6 +2843,7 @@ fn test_private_not_resolved_cross_file() {
         to: SymbolRef::unresolved("InternalHelper", "src/consumer.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files = vec![file1, file2];
@@ -2885,6 +2896,7 @@ fn test_internal_same_package_resolved() {
         to: SymbolRef::unresolved("PackageHelper", "src/consumer.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files = vec![file1.clone(), file2_same];
@@ -2915,6 +2927,7 @@ fn test_internal_same_package_resolved() {
         to: SymbolRef::unresolved("PackageHelper", "src/other.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files2 = vec![file1, file3_diff];
@@ -3001,6 +3014,7 @@ fn test_missing_import_stays_unresolved() {
         to: SymbolRef::unresolved("NonExistentClass", "src/main.kt"),
         kind: EdgeKind::TypeRef,
         line: Some(2),
+        entry_type: None,
     });
 
     let mut files = vec![file];
@@ -3014,5 +3028,548 @@ fn test_missing_import_stays_unresolved() {
         missing_edge.is_none(),
         "Unresolvable symbol should stay unresolved (not in resolved edges), got: {:?}",
         resolved_edges
+    );
+}
+
+// ============================================================================
+// Phase 9: resolve_file_modules() Tests
+// ============================================================================
+
+/// Helper to create a HasMember edge from an implicit module to a symbol
+fn make_hasmember_edge(
+    file_path: &str,
+    module_name: &str,
+    sym_name: &str,
+    sym_line: usize,
+) -> RawEdge {
+    RawEdge {
+        from: SymbolRef::resolved(SymbolId::new(file_path, module_name, 1)),
+        to: SymbolRef::resolved(SymbolId::new(file_path, sym_name, sym_line)),
+        kind: EdgeKind::HasMember,
+        line: Some(sym_line),
+        entry_type: None,
+    }
+}
+
+#[test]
+fn test_resolve_file_modules_creates_canonical_module() {
+    let extractor = KotlinExtractor;
+    let mut file1 = make_parsed_file(
+        "src/models.kt",
+        vec![make_symbol(
+            "User",
+            "class",
+            "src/models.kt",
+            3,
+            Some("com::example"),
+        )],
+    );
+    let mut file2 = make_parsed_file(
+        "src/service.kt",
+        vec![make_symbol(
+            "UserService",
+            "class",
+            "src/service.kt",
+            3,
+            Some("com::example"),
+        )],
+    );
+
+    // Add HasMember edges (simulating extract_hasmember_edges output)
+    file1.edges.push(make_hasmember_edge(
+        "src/models.kt",
+        "com.example",
+        "User",
+        3,
+    ));
+    file2.edges.push(make_hasmember_edge(
+        "src/service.kt",
+        "com.example",
+        "UserService",
+        3,
+    ));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: ONE module symbol (com.example) — no intermediate "com" node
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create only com.example module (no intermediate 'com'), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "com.example");
+
+    let example_module = modules[0];
+    assert_eq!(
+        example_module.signature,
+        Some("implicit_module: true, package: com::example".to_string())
+    );
+
+    // Verify: HasMember edges from canonical module to User and UserService
+    let canonical_id = SymbolId::new("src/models.kt", "com.example", 1);
+    let user_id = SymbolId::new("src/models.kt", "User", 3);
+    let service_id = SymbolId::new("src/service.kt", "UserService", 3);
+
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    let user_edge = all_edges.iter().find(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == canonical_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == user_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        user_edge.is_some(),
+        "Should have HasMember from canonical module to User"
+    );
+
+    let service_edge = all_edges.iter().find(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == canonical_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == service_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        service_edge.is_some(),
+        "Should have HasMember from canonical module to UserService"
+    );
+
+    // Verify: old per-file module edges from non-canonical files are rewritten
+    // (src/models.kt:com.example:1 is the canonical module, so edges from it are expected)
+    // (src/service.kt:com.example:1 is the old per-file module — should be rewritten)
+    let old_service_id = SymbolId::new("src/service.kt", "com.example", 1);
+    let old_service_edges = all_edges.iter().filter(
+        |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == old_service_id.as_str()),
+    );
+    assert_eq!(
+        old_service_edges.count(),
+        0,
+        "Old per-file module edges from service.kt should be rewritten to canonical module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_package_hierarchy() {
+    let extractor = KotlinExtractor;
+    let mut file1 = make_parsed_file(
+        "src/app.kt",
+        vec![make_symbol(
+            "App",
+            "class",
+            "src/app.kt",
+            3,
+            Some("com::example::app"),
+        )],
+    );
+    let mut file2 = make_parsed_file(
+        "src/models.kt",
+        vec![make_symbol(
+            "User",
+            "class",
+            "src/models.kt",
+            3,
+            Some("com::example::models"),
+        )],
+    );
+
+    // Add HasMember edges
+    file1.edges.push(make_hasmember_edge(
+        "src/app.kt",
+        "com.example.app",
+        "App",
+        3,
+    ));
+    file2.edges.push(make_hasmember_edge(
+        "src/models.kt",
+        "com.example.models",
+        "User",
+        3,
+    ));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: TWO module symbols (com.example.app, com.example.models)
+    // No intermediate "com" or "com.example" since they have no symbols
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        2,
+        "Should create 2 modules (com.example.app, com.example.models), got {}",
+        modules.len()
+    );
+
+    // Verify module names
+    let module_names: Vec<&str> = modules.iter().map(|m| m.name.as_str()).collect();
+    assert!(module_names.contains(&"com.example.app"));
+    assert!(module_names.contains(&"com.example.models"));
+
+    // Verify: NO hierarchy edges between packages (no parent packages have symbols)
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    // Helper to check if a SymbolId matches a module name (regardless of file path)
+    fn sym_id_matches(id: &SymbolId, module_name: &str) -> bool {
+        let s = id.as_str();
+        let last_colon = s.rfind(':').unwrap_or(0);
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':').unwrap_or(0);
+        let name = &s[second_last_colon + 1..last_colon];
+        name == module_name
+    }
+
+    // No com → com.example edge (com doesn't exist)
+    let com_to_example = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !com_to_example,
+        "Should NOT have HasMember from com to com.example (com doesn't exist)"
+    );
+
+    // No com.example → com.example.app edge (com.example doesn't exist)
+    let example_to_app = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.app"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !example_to_app,
+        "Should NOT have HasMember from com.example to com.example.app (com.example doesn't exist)"
+    );
+
+    // Verify: file symbols are children of their leaf package module
+    let app_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.app"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str().contains(":App:"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        app_edge,
+        "Should have HasMember from com.example.app to App"
+    );
+
+    let user_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.models"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str().contains(":User:"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        user_edge,
+        "Should have HasMember from com.example.models to User"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_empty_package() {
+    let extractor = KotlinExtractor;
+    // Files with no package (empty module_path)
+    let mut file1 = make_parsed_file(
+        "src/main.kt",
+        vec![make_symbol("main", "function", "src/main.kt", 1, None)],
+    );
+    let mut file2 = make_parsed_file(
+        "src/utils.kt",
+        vec![make_symbol("helper", "function", "src/utils.kt", 1, None)],
+    );
+
+    file1
+        .edges
+        .push(make_hasmember_edge("src/main.kt", "src/main.kt", "main", 1));
+    file2.edges.push(make_hasmember_edge(
+        "src/utils.kt",
+        "src/utils.kt",
+        "helper",
+        1,
+    ));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Should create a root module
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create one root module for empty package files"
+    );
+    assert_eq!(modules[0].name, "root");
+
+    // Verify HasMember edges from root module to symbols
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let root_id = SymbolId::new("src/main.kt", "root", 1);
+
+    let main_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == SymbolId::new("src/main.kt", "main", 1).as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(main_edge, "Should have HasMember from root to main");
+
+    let helper_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == SymbolId::new("src/utils.kt", "helper", 1).as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(helper_edge, "Should have HasMember from root to helper");
+}
+
+#[test]
+fn test_resolve_file_modules_no_kotlin_files() {
+    let extractor = KotlinExtractor;
+    // Non-Kotlin files should be ignored
+    let mut pf = ParsedFile::new("src/main.rs", "rust");
+    pf.symbols
+        .push(make_symbol("main", "function", "src/main.rs", 1, None));
+
+    let mut files = vec![pf];
+    extractor.resolve_file_modules(&mut files);
+
+    // No modules should be created
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert!(
+        modules.is_empty(),
+        "No modules should be created for non-Kotlin files"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_single_file() {
+    let extractor = KotlinExtractor;
+    let mut file = make_parsed_file(
+        "src/main.kt",
+        vec![
+            make_symbol("App", "class", "src/main.kt", 3, Some("com::example")),
+            make_symbol("main", "function", "src/main.kt", 10, Some("com::example")),
+        ],
+    );
+
+    file.edges
+        .push(make_hasmember_edge("src/main.kt", "com.example", "App", 3));
+    file.edges.push(make_hasmember_edge(
+        "src/main.kt",
+        "com.example",
+        "main",
+        10,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Should create ONE module: com.example (no intermediate "com")
+    let modules: Vec<&RawSymbol> = files[0]
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create only com.example module (no intermediate 'com')"
+    );
+
+    assert_eq!(modules[0].name, "com.example");
+
+    // Verify NO hierarchy edge (com doesn't exist)
+    let all_edges = &files[0].edges;
+    let com_id = SymbolId::new("src/main.kt", "com", 1);
+    let com_example_id = SymbolId::new("src/main.kt", "com.example", 1);
+
+    let hierarchy_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == com_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == com_example_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !hierarchy_edge,
+        "Should NOT have HasMember from com to com.example (com doesn't exist)"
+    );
+
+    // Verify file symbols are children of com.example
+    let app_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == com_example_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == SymbolId::new("src/main.kt", "App", 3).as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(app_edge, "Should have HasMember from com.example to App");
+
+    let main_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == com_example_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == SymbolId::new("src/main.kt", "main", 10).as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(main_edge, "Should have HasMember from com.example to main");
+}
+
+#[test]
+fn test_resolve_file_modules_parent_with_symbols_creates_hierarchy() {
+    let extractor = KotlinExtractor;
+    // Scenario: parent package com.example has its own symbols (AppConfig)
+    // Child packages com.example.app and com.example.service should be children of com.example
+    let mut file1 = make_parsed_file(
+        "src/config.kt",
+        vec![make_symbol(
+            "AppConfig",
+            "class",
+            "src/config.kt",
+            3,
+            Some("com::example"),
+        )],
+    );
+    let mut file2 = make_parsed_file(
+        "src/app.kt",
+        vec![make_symbol(
+            "User",
+            "class",
+            "src/app.kt",
+            3,
+            Some("com::example::app"),
+        )],
+    );
+    let mut file3 = make_parsed_file(
+        "src/service.kt",
+        vec![make_symbol(
+            "UserService",
+            "class",
+            "src/service.kt",
+            3,
+            Some("com::example::service"),
+        )],
+    );
+
+    // Add HasMember edges
+    file1.edges.push(make_hasmember_edge(
+        "src/config.kt",
+        "com.example",
+        "AppConfig",
+        3,
+    ));
+    file2.edges.push(make_hasmember_edge(
+        "src/app.kt",
+        "com.example.app",
+        "User",
+        3,
+    ));
+    file3.edges.push(make_hasmember_edge(
+        "src/service.kt",
+        "com.example.service",
+        "UserService",
+        3,
+    ));
+
+    let mut files = vec![file1, file2, file3];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: THREE module symbols (com.example, com.example.app, com.example.service)
+    // No intermediate "com" since it has no symbols
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        3,
+        "Should create 3 modules (com.example, com.example.app, com.example.service), got {}",
+        modules.len()
+    );
+
+    let module_names: Vec<&str> = modules.iter().map(|m| m.name.as_str()).collect();
+    assert!(module_names.contains(&"com.example"));
+    assert!(module_names.contains(&"com.example.app"));
+    assert!(module_names.contains(&"com.example.service"));
+
+    // Helper to check if a SymbolId matches a module name
+    fn sym_id_matches(id: &SymbolId, module_name: &str) -> bool {
+        let s = id.as_str();
+        let last_colon = s.rfind(':').unwrap_or(0);
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':').unwrap_or(0);
+        let name = &s[second_last_colon + 1..last_colon];
+        name == module_name
+    }
+
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    // com.example → com.example.app (parent has symbols)
+    let example_to_app = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.app"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        example_to_app,
+        "Should have HasMember from com.example to com.example.app (parent has symbols)"
+    );
+
+    // com.example → com.example.service (parent has symbols)
+    let example_to_service = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.service"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        example_to_service,
+        "Should have HasMember from com.example to com.example.service (parent has symbols)"
+    );
+
+    // No com → com.example edge (com doesn't exist)
+    let com_to_example = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !com_to_example,
+        "Should NOT have HasMember from com to com.example (com doesn't exist)"
+    );
+
+    // Verify file symbols are children of their leaf package module
+    let config_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str().contains(":AppConfig:"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        config_edge,
+        "Should have HasMember from com.example to AppConfig"
+    );
+
+    let user_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.app"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str().contains(":User:"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        user_edge,
+        "Should have HasMember from com.example.app to User"
+    );
+
+    let service_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "com.example.service"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str().contains(":UserService:"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        service_edge,
+        "Should have HasMember from com.example.service to UserService"
     );
 }

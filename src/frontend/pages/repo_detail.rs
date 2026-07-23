@@ -229,8 +229,13 @@ fn RepoDetailContent(repo: Repo) -> impl IntoView {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = initGraph)]
-    fn init_graph(container_id: &str, graph_data_json: &str, repo_id: &str, api_base: &str)
-    -> bool;
+    fn init_graph(
+        container_id: &str,
+        graph_data_json: &str,
+        repo_id: &str,
+        api_base: &str,
+        expand_depth: u32,
+    ) -> bool;
 
     #[wasm_bindgen(js_name = destroyGraph)]
     fn destroy_graph(container_id: &str);
@@ -327,8 +332,8 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     Effect::new(move || {
         let repo_id = repo_id_for_fetch.clone();
         spawn_local(async move {
-            // Initial load: no root, no depth, no visible_ids - fetches root symbols
-            match graph::get_repo_graph(&repo_id, None, None, None).await {
+            // Initial load: fetch root symbols with expand_depth=0 (collapsed roots only)
+            match graph::get_repo_graph(&repo_id, None, None, None, Some(0)).await {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
@@ -350,7 +355,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
             let rid = repo_id_for_init.clone();
             set_timeout(
                 move || {
-                    if init_graph(container_id, &data, &rid, API_BASE) {
+                    if init_graph(container_id, &data, &rid, API_BASE, 0) {
                         let kinds_json = get_kinds(container_id);
                         if let Ok(kinds) = serde_json::from_str::<Vec<KindInfo>>(&kinds_json) {
                             set_legend_kinds.set(kinds);
@@ -523,7 +528,7 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
                 // Graph canvas (square, takes remaining space)
                 <div
                     id=container_id
-                    class="flex-1 bg-ctp-mantle rounded-lg relative aspect-square max-h-[600px]"
+                    class="flex-1 bg-ctp-mantle rounded-lg relative min-h-[500px] h-[75vh] max-h-[900px]"
                     aria-label="Code graph visualization"
                 >
                     {move || match graph_state.get() {

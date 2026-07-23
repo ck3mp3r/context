@@ -167,7 +167,7 @@ impl SymbolRef {
 
 /// Semantic edge kinds for the code graph.
 /// These represent typed relationships between symbols.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EdgeKind {
     // Membership (parent contains child)
     HasField,  // class/struct → field/property
@@ -187,6 +187,9 @@ pub enum EdgeKind {
     ParamType,   // function → parameter type
     ReturnType,  // function → return type
     Usage,       // symbol → identifier it references (const, var, etc.)
+
+    // Module structure
+    DeclaresMod, // module → declared module (from mod declarations)
 }
 
 impl EdgeKind {
@@ -205,6 +208,7 @@ impl EdgeKind {
             Self::ParamType => "ParamType",
             Self::ReturnType => "ReturnType",
             Self::Usage => "Usage",
+            Self::DeclaresMod => "DeclaresMod",
         }
     }
 
@@ -225,6 +229,7 @@ impl EdgeKind {
             Self::ParamType => "Accepts",
             Self::ReturnType => "Returns",
             Self::Usage => "Uses",
+            Self::DeclaresMod => "declares_mod",
         }
     }
 }
@@ -241,7 +246,8 @@ pub struct RawEdge {
     pub from: SymbolRef, // was: SymbolId
     pub to: SymbolRef,   // was: SymbolId
     pub kind: EdgeKind,
-    pub line: Option<usize>, // NEW: source location of edge
+    pub line: Option<usize>,        // NEW: source location of edge
+    pub entry_type: Option<String>, // Test metadata for DeclaresMod edges (e.g., "test")
 }
 
 // ============================================================================
@@ -256,6 +262,7 @@ pub struct ResolvedEdge {
     pub to: SymbolId,
     pub kind: EdgeKind,
     pub line: Option<usize>,
+    pub entry_type: Option<String>, // Test metadata for DeclaresMod edges (e.g., "test")
 }
 
 // ============================================================================
@@ -469,6 +476,8 @@ pub struct QueryInfo {
     pub description: Option<String>,
     /// Parameters extracted from `-- Parameter:` comment lines
     pub params: Vec<QueryParam>,
+    /// Whether this is an internal query (marked with @internal)
+    pub internal: bool,
 }
 
 /// A parameter required by a query.

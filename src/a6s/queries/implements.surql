@@ -1,6 +1,9 @@
 -- Query: implements
 -- Description: Retrieve all trait/interface implementation relationships
 -- Returns: List of implements edges with implementor and interface details
+-- Examples:
+--   code_query(query_name="implements") → all interface implementations
+--   Use for: polymorphism discovery, interface usage
 
 SELECT
     in.symbol_id AS src_id,
@@ -12,5 +15,4 @@ SELECT
     out.kind AS interface_kind,
     out.file_path AS interface_file
 FROM implements
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
-FETCH in, out;
+WHERE repo_id = $repo_id;

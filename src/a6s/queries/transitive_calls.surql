@@ -1,12 +1,10 @@
 -- Find all functions reachable from a given function through call chains
--- Returns all transitive calls up to depth 3
---
--- Parameters:
---   $repo_id (String) - Repository ID
---   $name (String) - Source function name
---   $depth (Int) - Maximum depth (NOTE: currently fixed at 3)
---
--- Single query that matches calls at depth 1, 2, or 3
+-- Traverses up to 3 levels deep (depth is fixed, not configurable)
+-- Examples:
+--   $name = "main" finds all functions reachable from main (3 levels)
+--   $name = "handle_request" shows the call tree of a request handler
+-- Parameter: $name (String) - Source function name
+-- Returns: All transitively called functions with file locations
 --
 SELECT
     out.name AS name,
@@ -14,8 +12,8 @@ SELECT
     out.file_path AS file_path,
     out.start_line AS start_line
 FROM calls
-WHERE 
-    in.repo_id = $repo_id 
+WHERE
+    in.repo_id = $repo_id
     AND out.repo_id = $repo_id
     AND (
         -- Depth 1: in.name matches source
@@ -23,9 +21,9 @@ WHERE
         OR
         -- Depth 2: in is a symbol called by source
         in IN (
-            SELECT VALUE out FROM calls 
-            WHERE in.repo_id = $repo_id 
-              AND out.repo_id = $repo_id 
+            SELECT VALUE out FROM calls
+            WHERE in.repo_id = $repo_id
+              AND out.repo_id = $repo_id
               AND in.name = $name
         )
         OR
@@ -35,12 +33,11 @@ WHERE
             WHERE in.repo_id = $repo_id
               AND out.repo_id = $repo_id
               AND in IN (
-                  SELECT VALUE out FROM calls 
-                  WHERE in.repo_id = $repo_id 
-                    AND out.repo_id = $repo_id 
+                  SELECT VALUE out FROM calls
+                  WHERE in.repo_id = $repo_id
+                    AND out.repo_id = $repo_id
                     AND in.name = $name
               )
         )
     )
-GROUP BY out.name, out.kind, out.file_path, out.start_line
-FETCH out;
+GROUP BY out.name, out.kind, out.file_path, out.start_line;

@@ -4,9 +4,7 @@
   inputs,
   system,
 }: let
-  toolchain = inputs.rustnix.lib.rust.mkToolchain {
-    inherit system;
-  };
+  toolchain = inputs.rustnix.packages.${system}.toolchain;
 in
   pkgs.mkShellNoCC {
     name = "context-ci";

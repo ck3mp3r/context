@@ -1,3 +1,4 @@
+-- @internal
 -- Query: calls_edges
 -- Description: Retrieve all function call relationships with full source and target details
 -- Returns: List of call edges with complete symbol information for both caller and callee
@@ -18,5 +19,4 @@ SELECT
     out.start_line AS dst_start_line,
     out.entry_type AS dst_entry_type
 FROM calls
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
-FETCH in, out;
+WHERE repo_id = $repo_id;

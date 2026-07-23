@@ -1955,6 +1955,45 @@ fn test_module_path_root_only() {
     assert_eq!(path, None);
 }
 
+// ============================================================================
+// Workspace Crate Module Path Tests
+// ============================================================================
+
+#[test]
+fn test_module_path_workspace_crate_lib() {
+    // crates/foo/src/lib.rs → None (lib.rs is the crate root, no parent module)
+    let path = derive_module_path("crates/foo/src/lib.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_workspace_crate_main() {
+    // crates/bar/src/main.rs → crate name is "bar"
+    let path = derive_module_path("crates/bar/src/main.rs");
+    assert_eq!(path, Some("bar".to_string()));
+}
+
+#[test]
+fn test_module_path_single_crate_lib() {
+    // src/lib.rs → None (backward compatible, single crate at root)
+    let path = derive_module_path("src/lib.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_single_crate_main() {
+    // src/main.rs → None (backward compatible, single crate at root)
+    let path = derive_module_path("src/main.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_nested_workspace() {
+    // workspace/crates/baz/src/lib.rs → None (lib.rs is the crate root, no parent module)
+    let path = derive_module_path("workspace/crates/baz/src/lib.rs");
+    assert_eq!(path, None);
+}
+
 // Helper function that uses the trait method
 fn derive_module_path(file_path: &str) -> Option<String> {
     RustExtractor.derive_module_path(file_path)
@@ -2093,6 +2132,7 @@ fn test_top_level_symbols_linked_to_file_module() {
 #[test]
 fn test_deduplicates_module_symbols() {
     use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
 
     // Simulate two files:
     // 1. src/config/mod.rs with "mod defaults;" declaration
@@ -2114,62 +2154,76 @@ pub fn get_defaults() -> String {
 "#;
     let defaults_parsed = RustExtractor.extract(defaults_code, "src/config/defaults.rs");
 
-    // Count modules before resolution
-    let modules_before: Vec<_> = defaults_parsed
+    // Verify declaring file has NO module symbol for "defaults"
+    let decl_module_symbols: Vec<_> = mod_parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "module" && s.name == "defaults")
+        .collect();
+    assert_eq!(
+        decl_module_symbols.len(),
+        0,
+        "Declaring file should NOT have a module symbol for 'defaults' (it's now an edge)"
+    );
+
+    // Verify declaring file HAS a DeclaresMod edge
+    let declares_mod_edges: Vec<_> = mod_parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+    assert_eq!(
+        declares_mod_edges.len(),
+        1,
+        "Should have exactly one DeclaresMod edge"
+    );
+    // Verify the edge points to "defaults"
+    if let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &declares_mod_edges[0].to {
+        assert_eq!(name, "defaults", "Edge should point to 'defaults' module");
+    } else {
+        panic!("DeclaresMod edge 'to' should be Unresolved");
+    }
+
+    // Verify target file still has its implicit module symbol
+    let target_modules: Vec<_> = defaults_parsed
         .symbols
         .iter()
         .filter(|s| s.kind == "module")
         .collect();
-
-    // Should have 2 modules: one implicit from file, one explicit from declaration (in mod.rs)
-    // But the explicit one is in mod_parsed, not defaults_parsed
-    // defaults_parsed only has the implicit module
     assert_eq!(
-        modules_before.len(),
+        target_modules.len(),
         1,
-        "Should have 1 implicit module before resolution"
+        "Target file should have exactly one module symbol (implicit)"
     );
     assert!(
-        modules_before[0]
+        target_modules[0]
             .signature
             .as_ref()
             .unwrap()
             .contains("implicit_module: true"),
-        "Should be marked as implicit"
+        "Target module should still be marked as implicit"
     );
 
-    // Now call resolve_file_modules
+    // Verify NO resolved_from_explicit_declaration anywhere
     let mut files = vec![mod_parsed, defaults_parsed];
     RustExtractor.resolve_file_modules(&mut files);
 
-    // After resolution, the implicit module should be updated (not removed)
-    // because edges still reference it
-    let modules_after: Vec<_> = files[1]
-        .symbols
-        .iter()
-        .filter(|s| s.kind == "module")
-        .collect();
-
-    assert_eq!(
-        modules_after.len(),
-        1,
-        "Implicit module should be kept (not removed) to preserve edges"
-    );
-
-    // Verify it's marked as resolved
-    assert!(
-        modules_after[0]
-            .signature
-            .as_ref()
-            .unwrap()
-            .contains("resolved_from_explicit_declaration: true"),
-        "Module should be marked as resolved (not implicit anymore)"
-    );
+    for file in &files {
+        for sym in &file.symbols {
+            if let Some(sig) = &sym.signature {
+                assert!(
+                    !sig.contains("resolved_from_explicit_declaration"),
+                    "No symbol should have 'resolved_from_explicit_declaration' marker"
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn test_propagates_test_attribute_to_file_symbols() {
     use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
 
     // File 1: mod.rs with #[cfg(test)] mod test_module;
     let mod_rs_code = r#"
@@ -2180,13 +2234,22 @@ pub fn regular_function() {}
 "#;
     let mod_parsed = RustExtractor.extract(mod_rs_code, "src/config/mod.rs");
 
-    // Verify the module declaration is marked as test
-    let test_mod_decl = mod_parsed.symbols.iter().find(|s| s.name == "mod_test");
-    assert!(test_mod_decl.is_some(), "Should find mod_test declaration");
+    // Verify the DeclaresMod edge (not module symbol) is marked as test
+    let test_edge = mod_parsed
+        .edges
+        .iter()
+        .find(|e| {
+            e.kind == EdgeKind::DeclaresMod
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "mod_test")
+        });
+    assert!(
+        test_edge.is_some(),
+        "Should find DeclaresMod edge for mod_test"
+    );
     assert_eq!(
-        test_mod_decl.unwrap().entry_type,
+        test_edge.unwrap().entry_type,
         Some("test".to_string()),
-        "Module declaration should be marked as test"
+        "DeclaresMod edge should have entry_type='test'"
     );
 
     // File 2: mod_test.rs with test functions
@@ -2235,7 +2298,7 @@ fn helper_function() {
     assert_eq!(
         helper_after.unwrap().entry_type,
         Some("test".to_string()),
-        "helper_function should be marked as test after resolution"
+        "helper_function should be marked as test after resolution (propagated from DeclaresMod edge)"
     );
 }
 
@@ -2313,8 +2376,18 @@ pub fn manager_function() {}
     let manager_parsed = RustExtractor.extract(manager_code, "src/app/manager/mod.rs");
 
     // Call resolve_file_modules to create cross-file edges
-    let mut files = vec![app_parsed, manager_parsed];
+    let mut files = vec![app_parsed.clone(), manager_parsed];
     RustExtractor.resolve_file_modules(&mut files);
+
+    // Verify DeclaresMod edge exists in the declaring file (app/mod.rs)
+    let declares_mod_edge = app_parsed.edges.iter().find(|e| {
+        matches!(e.kind, crate::a6s::types::EdgeKind::DeclaresMod)
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "manager")
+    });
+    assert!(
+        declares_mod_edge.is_some(),
+        "Should have DeclaresMod edge from app module to manager"
+    );
 
     // After resolution, find the cross-file edge
     let edges_after: Vec<_> = files[0]
@@ -2350,6 +2423,107 @@ pub fn manager_function() {}
     } else {
         panic!("Edge source should be resolved");
     }
+}
+
+#[test]
+fn test_inline_module_remains_as_symbol() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // Inline module: mod foo { fn bar() {} }
+    let code = r#"
+mod foo {
+    fn bar() {}
+}
+"#;
+    let parsed = RustExtractor.extract(code, "src/lib.rs");
+
+    // Should have a module symbol for "foo"
+    let foo_module = parsed
+        .symbols
+        .iter()
+        .find(|s| s.kind == "module" && s.name == "foo");
+    assert!(
+        foo_module.is_some(),
+        "Should have a module symbol for inline module 'foo'"
+    );
+
+    // Should NOT have a DeclaresMod edge
+    let declares_mod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+    assert_eq!(
+        declares_mod_edges.len(),
+        0,
+        "Inline modules should NOT create DeclaresMod edges"
+    );
+}
+
+#[test]
+fn test_multiple_mod_declarations_create_edges() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // lib.rs with multiple module declarations
+    let code = r#"
+mod a;
+mod b;
+mod c;
+
+pub fn lib_function() {}
+"#;
+    let parsed = RustExtractor.extract(code, "src/lib.rs");
+
+    // Should have zero module symbols for declarations
+    let decl_modules: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "module" && (s.name == "a" || s.name == "b" || s.name == "c"))
+        .collect();
+    assert_eq!(
+        decl_modules.len(),
+        0,
+        "Module declarations should NOT create module symbols"
+    );
+
+    // Should have exactly 3 DeclaresMod edges
+    let declares_mod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+    assert_eq!(
+        declares_mod_edges.len(),
+        3,
+        "Should have 3 DeclaresMod edges for mod a; mod b; mod c;"
+    );
+
+    // Verify each edge points to the correct module
+    let module_names: Vec<String> = declares_mod_edges
+        .iter()
+        .filter_map(|e| {
+            if let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &e.to {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(
+        module_names.contains(&"a".to_string()),
+        "Should have edge to 'a'"
+    );
+    assert!(
+        module_names.contains(&"b".to_string()),
+        "Should have edge to 'b'"
+    );
+    assert!(
+        module_names.contains(&"c".to_string()),
+        "Should have edge to 'c'"
+    );
 }
 
 // ============================================================================
@@ -3063,5 +3237,260 @@ fn make_foo() {
         "Without qualifier context, ambiguous bare name 'new' should NOT resolve. \
          This confirms the index has separate entries (no collision). Got: {:?}",
         calls
+    );
+}
+
+#[test]
+fn test_declares_mod_edges_resolved_by_resolve_file_modules() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::{EdgeKind, SymbolRef};
+
+    // File 1: lib.rs declares `mod config;`
+    let lib_code = r#"
+pub mod config;
+
+pub fn main_fn() {}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: config.rs (the target module file)
+    let config_code = r#"
+pub struct Config {
+    pub name: String,
+}
+"#;
+    let config_parsed = RustExtractor.extract(config_code, "src/config.rs");
+
+    // Before resolve_file_modules: DeclaresMod edge should be Unresolved
+    let declares_edge = lib_parsed
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::DeclaresMod)
+        .expect("Should have DeclaresMod edge");
+
+    assert!(
+        matches!(declares_edge.to, SymbolRef::Unresolved { ref name, .. } if name == "config"),
+        "Before resolve_file_modules, DeclaresMod edge should be Unresolved('config')"
+    );
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, config_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // After resolve_file_modules: DeclaresMod edge should be Resolved
+    let lib_file = &files[0];
+    let declares_edge = lib_file
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::DeclaresMod)
+        .expect("Should still have DeclaresMod edge after resolution");
+
+    match &declares_edge.to {
+        SymbolRef::Resolved(symbol_id) => {
+            assert_eq!(
+                symbol_id.file_path(),
+                Some("src/config.rs"),
+                "Resolved edge should point to target file"
+            );
+            // Verify the full string format: "symbol:src/config.rs:config:1"
+            let expected = "symbol:src/config.rs:config:1";
+            assert_eq!(
+                symbol_id.as_str(),
+                expected,
+                "Resolved edge should point to implicit module 'config' at line 1"
+            );
+        }
+        SymbolRef::Unresolved { .. } => {
+            panic!(
+                "After resolve_file_modules, DeclaresMod edge should be Resolved, not Unresolved"
+            );
+        }
+    }
+}
+
+// ============================================================================
+// Phase 6: Binary-to-Lib Linking Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_file_modules_links_main_to_lib() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: src/lib.rs (crate root)
+    let lib_code = r#"
+pub fn greet() -> &'static str {
+    "hello"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: src/main.rs (binary entry point)
+    let main_code = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    let main_parsed = RustExtractor.extract(main_code, "src/main.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, main_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from lib to main
+    let lib_to_main = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:src/lib.rs:lib:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:src/main.rs:main:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        lib_to_main.is_some(),
+        "Should have HasMember edge from lib module to main module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_links_bin_to_lib() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: src/lib.rs (crate root)
+    let lib_code = r#"
+pub fn helper() -> &'static str {
+    "helper"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: src/bin/cli.rs (binary target in bin/ directory)
+    let cli_code = r#"
+fn main() {
+    println!("CLI tool");
+}
+"#;
+    let cli_parsed = RustExtractor.extract(cli_code, "src/bin/cli.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, cli_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from lib to cli
+    let lib_to_cli = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:src/lib.rs:lib:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:src/bin/cli.rs:cli:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        lib_to_cli.is_some(),
+        "Should have HasMember edge from lib module to cli binary module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_binary_only_no_link() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // Only src/main.rs (no lib.rs)
+    let main_code = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    let main_parsed = RustExtractor.extract(main_code, "src/main.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![main_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // main should stay as root — no HasMember edge for it
+    let main_as_child = has_member_edges.iter().find(|e| {
+        matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+            if to_id.as_str() == "symbol:src/main.rs:main:1")
+    });
+
+    assert!(
+        main_as_child.is_none(),
+        "main should NOT have a HasMember edge when there is no lib.rs"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_workspace_bin_linked() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: crates/foo/src/lib.rs (workspace crate root)
+    let lib_code = r#"
+pub fn helper() -> &'static str {
+    "helper"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "crates/foo/src/lib.rs");
+
+    // File 2: crates/foo/src/bin/tool.rs (binary in workspace crate)
+    let tool_code = r#"
+fn main() {
+    println!("Tool");
+}
+"#;
+    let tool_parsed = RustExtractor.extract(tool_code, "crates/foo/src/bin/tool.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, tool_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from foo (crate name) to tool
+    let foo_to_tool = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:crates/foo/src/lib.rs:foo:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:crates/foo/src/bin/tool.rs:tool:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        foo_to_tool.is_some(),
+        "Should have HasMember edge from foo crate to tool binary module"
     );
 }

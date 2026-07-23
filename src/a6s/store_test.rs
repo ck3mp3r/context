@@ -885,49 +885,51 @@ mod surrealdb_tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_compound_id_with_delimiter() {
-        // Test SurrealDB compound ID using delimited string
+    async fn test_record_id_is_deterministic_hex() {
+        // Test that record_id produces deterministic hex strings with no special characters
         let graph = CodeGraph::new_in_memory("test_repo".to_string())
             .await
             .expect("Failed to create graph");
 
-        // Compound ID format: "repo_id:file_path"
-        let compound_id = "repo1:src/main.rs";
+        // Same inputs should produce same hash
+        let id1 = graph.record_id("src/main.rs");
+        let id2 = graph.record_id("src/main.rs");
+        assert_eq!(id1, id2, "record_id should be deterministic");
 
+        // Different inputs should produce different hashes
+        let id3 = graph.record_id("src/other.rs");
+        assert_ne!(id1, id3, "Different inputs should produce different hashes");
+
+        // Different repo_ids should produce different hashes for same original_id
+        let graph2 = CodeGraph::new_in_memory("other_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+        let id4 = graph2.record_id("src/main.rs");
+        assert_ne!(id1, id4, "Different repos should produce different hashes");
+
+        // Output should be pure hex (no colons, slashes, dots, or special chars)
+        assert!(
+            id1.chars().all(|c| c.is_ascii_hexdigit()),
+            "record_id should be pure hex, got: {}",
+            id1
+        );
+        assert_eq!(id1.len(), 16, "record_id should be 16 hex chars");
+
+        // Verify it works as a SurrealDB record ID (no colon issues)
         let _: Option<serde_json::Value> = graph
             .db
-            .create(("file", compound_id))
+            .create(("file", id1.as_str()))
             .content(serde_json::json!({
                 "file_id": "src/main.rs",
-                "repo_id": "repo1",
+                "repo_id": "test_repo",
                 "path": "src/main.rs",
                 "language": "rust",
                 "hash": "abc123"
             }))
             .await
-            .expect("First file should succeed");
+            .expect("File with hash-based record ID should succeed");
 
-        // Try creating another file with SAME file_id but DIFFERENT repo_id
-        let compound_id2 = "repo2:src/main.rs";
-
-        let result: Result<Option<serde_json::Value>, _> = graph
-            .db
-            .create(("file", compound_id2))
-            .content(serde_json::json!({
-                "file_id": "src/main.rs",  // SAME file_id
-                "repo_id": "repo2",         // DIFFERENT repo_id
-                "path": "src/main.rs",
-                "language": "rust",
-                "hash": "def456"
-            }))
-            .await;
-
-        assert!(
-            result.is_ok(),
-            "Should allow same file_id in different repos with compound record ID"
-        );
-
-        // Verify both records exist
+        // Verify the record exists
         let mut query_result = graph
             .db
             .query("SELECT * FROM file WHERE path = 'src/main.rs'")
@@ -936,8 +938,8 @@ mod surrealdb_tests {
         let files: Vec<serde_json::Value> = query_result.take(0).expect("Should get results");
         assert_eq!(
             files.len(),
-            2,
-            "Should have 2 files with same path in different repos"
+            1,
+            "Should have 1 file with hash-based record ID"
         );
     }
 
@@ -1224,36 +1226,42 @@ mod surrealdb_tests {
                 to: SymbolId::new("src/main.rs", "bar", 12),
                 kind: EdgeKind::Calls,
                 line: Some(5),
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/main.rs", "field_x", 23),
                 kind: EdgeKind::HasField,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/main.rs", "my_method", 25),
                 kind: EdgeKind::HasMethod,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/lib.rs", "MyTrait", 1),
                 kind: EdgeKind::Implements,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "MyStruct", 22),
                 to: SymbolId::new("src/lib.rs", "Parent", 12),
                 kind: EdgeKind::Extends,
                 line: None,
+                entry_type: None,
             },
             ResolvedEdge {
                 from: SymbolId::new("src/main.rs", "foo", 1),
                 to: SymbolId::new("src/lib.rs", "MyTrait", 1),
                 kind: EdgeKind::TypeRef,
                 line: Some(3),
+                entry_type: None,
             },
         ];
 
@@ -1398,5 +1406,437 @@ mod surrealdb_tests {
         assert_eq!(rows[0]["signature"], "fn pub_fn() -> i32");
         assert_eq!(rows[0]["entry_type"], "entrypoint");
         assert_eq!(rows[0]["module_path"], "main");
+    }
+
+    /// Validation test for parameterized INSERT IGNORE INTO and INSERT RELATION INTO.
+    ///
+    /// **FINDINGS for SurrealDB SDK v3.0.5:**
+    ///
+    /// ✅ INSERT IGNORE INTO file $records - WORKS with .bind()
+    /// ✅ INSERT IGNORE INTO symbol $records - WORKS with .bind() (preserves single quotes)
+    /// ❌ INSERT RELATION INTO file_contains $edges - DOES NOT WORK
+    ///    - Query executes without error
+    ///    - But produces ZERO inserts
+    ///    - Must continue using string-based SQL construction for edges
+    ///
+    /// **Conclusion:** Parameterized binding works for node inserts but NOT for relation inserts.
+    /// The current approach in store.rs (building SQL strings for INSERT RELATION) is correct
+    /// and cannot be replaced with parameterized queries.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_parameterized_insert_and_relation() {
+        use serde_json::json;
+
+        // Create in-memory DB
+        let db = init_db(None).await.expect("Failed to create in-memory DB");
+
+        let repo_id = "test_repo";
+
+        // ========================================================================
+        // Test 1: INSERT IGNORE INTO file with .bind()
+        // ========================================================================
+
+        let file_records = vec![
+            json!({
+                "id": "file:test_repo_src/main.rs",
+                "file_id": "src/main.rs",
+                "repo_id": repo_id,
+                "path": "src/main.rs",
+                "language": "rust",
+                "hash": "abc123",
+            }),
+            json!({
+                "id": "file:test_repo_src/lib.rs",
+                "file_id": "src/lib.rs",
+                "repo_id": repo_id,
+                "path": "src/lib.rs",
+                "language": "rust",
+                "hash": "def456",
+            }),
+        ];
+
+        let result = db
+            .query("INSERT IGNORE INTO file $records RETURN NONE")
+            .bind(("records", file_records))
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "INSERT IGNORE INTO file with .bind() should succeed, got: {:?}",
+            result.err()
+        );
+
+        // Verify files inserted
+        let mut query_result = db
+            .query("SELECT * FROM file WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id))
+            .await
+            .expect("Query should succeed");
+        let files: Vec<serde_json::Value> = query_result.take(0).expect("Should get results");
+        assert_eq!(files.len(), 2, "Should have 2 files inserted");
+
+        // ========================================================================
+        // Test 2: INSERT IGNORE INTO symbol with .bind() - including single quote
+        // ========================================================================
+
+        let symbol_records = vec![
+            json!({
+                "id": "symbol:test_repo_src/main.rs:func1:10",
+                "symbol_id": "src/main.rs:func1:10",
+                "repo_id": repo_id,
+                "name": "when called with 'm1s' should throw", // Single quote in name
+                "kind": "function",
+                "language": "rust",
+                "file_path": "src/main.rs",
+                "start_line": 10,
+                "end_line": 20,
+            }),
+            json!({
+                "id": "symbol:test_repo_src/lib.rs:func2:30",
+                "symbol_id": "src/lib.rs:func2:30",
+                "repo_id": repo_id,
+                "name": "func2",
+                "kind": "function",
+                "language": "rust",
+                "file_path": "src/lib.rs",
+                "start_line": 30,
+                "end_line": 40,
+            }),
+        ];
+
+        let result = db
+            .query("INSERT IGNORE INTO symbol $records RETURN NONE")
+            .bind(("records", symbol_records))
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "INSERT IGNORE INTO symbol with .bind() should succeed, got: {:?}",
+            result.err()
+        );
+
+        // Verify symbols inserted
+        let mut query_result = db
+            .query("SELECT * FROM symbol WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id))
+            .await
+            .expect("Query should succeed");
+        let symbols: Vec<serde_json::Value> = query_result.take(0).expect("Should get results");
+        assert_eq!(symbols.len(), 2, "Should have 2 symbols inserted");
+
+        // Verify single quote was preserved
+        let func_with_quote = symbols
+            .iter()
+            .find(|s| s["name"].as_str().unwrap().contains("m1s"))
+            .expect("Should find symbol with single quote in name");
+        assert_eq!(
+            func_with_quote["name"], "when called with 'm1s' should throw",
+            "Single quote should be preserved"
+        );
+
+        // ========================================================================
+        // Test 3: INSERT RELATION INTO file_contains with .bind()
+        // ========================================================================
+
+        let edge_records = vec![
+            json!({
+                "in": "file:test_repo_src/main.rs",
+                "out": "symbol:test_repo_src/main.rs:func1:10",
+                "confidence": 1.0,
+                "repo_id": repo_id,
+            }),
+            json!({
+                "in": "file:test_repo_src/lib.rs",
+                "out": "symbol:test_repo_src/lib.rs:func2:30",
+                "confidence": 1.0,
+                "repo_id": repo_id,
+            }),
+        ];
+
+        let result = db
+            .query("INSERT RELATION INTO file_contains $edges RETURN NONE")
+            .bind(("edges", edge_records))
+            .await;
+
+        // Query executes without error, but produces no inserts
+        assert!(
+            result.is_ok(),
+            "INSERT RELATION query should execute without error (even though it won't insert anything)"
+        );
+
+        // Verify edges were NOT inserted (this is the bug/limitation)
+        let mut query_result = db
+            .query("SELECT * FROM file_contains WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id))
+            .await
+            .expect("Query should succeed");
+        let edges: Vec<serde_json::Value> = query_result.take(0).expect("Should get results");
+
+        // CRITICAL FINDING: INSERT RELATION INTO does NOT work with parameterized arrays.
+        // The query executes without error but produces zero inserts.
+        // This confirms that the current approach in store.rs (building SQL strings) is necessary.
+        assert_eq!(
+            edges.len(),
+            0,
+            "INSERT RELATION INTO with .bind() produces zero inserts - this is the expected limitation"
+        );
+
+        // Final verification: Edge structure check on files and symbols
+        let mut files_check = db
+            .query("SELECT * FROM file WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id))
+            .await
+            .expect("Query should succeed");
+        let file_list: Vec<serde_json::Value> = files_check.take(0).expect("Should get files");
+        assert_eq!(file_list.len(), 2, "Should have 2 files for relation test");
+
+        let mut symbols_check = db
+            .query("SELECT * FROM symbol WHERE repo_id = $repo_id")
+            .bind(("repo_id", repo_id))
+            .await
+            .expect("Query should succeed");
+        let symbol_list: Vec<serde_json::Value> =
+            symbols_check.take(0).expect("Should get symbols");
+        assert_eq!(
+            symbol_list.len(),
+            2,
+            "Should have 2 symbols for relation test"
+        );
+
+        // Verify edge structure
+        for edge in &edges {
+            assert_eq!(edge["confidence"], 1.0);
+            assert!(edge["in"].is_object(), "Edge should have 'in' field");
+            assert!(edge["out"].is_object(), "Edge should have 'out' field");
+        }
+    }
+
+    /// Test edge insertion with special characters (single quotes and backticks) in symbol names.
+    ///
+    /// This test verifies that `escape_surql_id` and `escape_surql_string` correctly handle:
+    /// - Backticks in record IDs (e.g., symbol:`test'repo`)
+    /// - Single quotes in string values (e.g., inheritance_type='extends`class')
+    /// - Backslashes (escape character itself)
+    ///
+    /// Without proper escaping, SurrealDB would fail to parse the query.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_edge_insertion_with_special_characters() {
+        let graph = CodeGraph::new_in_memory("test`repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        // Create symbols with special characters in names
+        let from_sym = RawSymbol {
+            name: "test 'm1s'".to_string(), // Single quotes
+            kind: "function".to_string(),
+            file_path: "src/main.rs".to_string(),
+            start_line: 10,
+            end_line: 20,
+            signature: None,
+            language: "rust".to_string(),
+            visibility: None,
+            entry_type: None,
+            module_path: None,
+        };
+
+        let to_sym = RawSymbol {
+            name: "target`func".to_string(), // Backtick
+            kind: "function".to_string(),
+            file_path: "src/lib.rs".to_string(),
+            start_line: 30,
+            end_line: 40,
+            signature: None,
+            language: "rust".to_string(),
+            visibility: None,
+            entry_type: None,
+            module_path: None,
+        };
+
+        graph
+            .insert_symbol(&from_sym)
+            .await
+            .expect("Insert from_sym should succeed");
+        graph
+            .insert_symbol(&to_sym)
+            .await
+            .expect("Insert to_sym should succeed");
+
+        let from_id = from_sym.symbol_id();
+        let to_id = to_sym.symbol_id();
+
+        // Test 1: Calls edge (backticks in IDs only)
+        graph
+            .insert_calls_edge(&from_id, &to_id, Some(15))
+            .await
+            .expect("Insert calls edge with special chars should succeed");
+
+        // Query and verify calls edge
+        let mut result = graph
+            .db
+            .query("SELECT * FROM calls WHERE repo_id = $repo_id")
+            .bind(("repo_id", graph.repo_id.clone()))
+            .await
+            .expect("Query calls should succeed");
+        let calls: Vec<serde_json::Value> = result.take(0).expect("Should get calls edges");
+        assert_eq!(calls.len(), 1, "Should have 1 calls edge");
+        assert_eq!(calls[0]["confidence"], 1.0);
+        assert_eq!(calls[0]["call_site_line"], 15);
+
+        // Test 2: Inherits edge (single quotes in string value)
+        graph
+            .insert_inherits_edge(&from_id, &to_id, Some("extends`class"))
+            .await
+            .expect("Insert inherits edge with backtick in string should succeed");
+
+        // Query and verify inherits edge
+        let mut result = graph
+            .db
+            .query("SELECT * FROM inherits WHERE repo_id = $repo_id")
+            .bind(("repo_id", graph.repo_id.clone()))
+            .await
+            .expect("Query inherits should succeed");
+        let inherits: Vec<serde_json::Value> = result.take(0).expect("Should get inherits edges");
+        assert_eq!(inherits.len(), 1, "Should have 1 inherits edge");
+        assert_eq!(inherits[0]["confidence"], 1.0);
+        assert_eq!(inherits[0]["inheritance_type"], "extends`class");
+
+        // Test 3: File imports edge with special chars in file ID
+        let file_id = FileId::new("src/file'test.rs");
+        graph
+            .insert_file("src/file'test.rs", "rust", "abc123")
+            .await
+            .expect("Insert file with quote should succeed");
+
+        graph
+            .insert_file_imports_edge(&file_id, &to_id)
+            .await
+            .expect("Insert file_imports edge with special chars should succeed");
+
+        // Query and verify file_imports edge
+        let mut result = graph
+            .db
+            .query("SELECT * FROM file_imports WHERE repo_id = $repo_id")
+            .bind(("repo_id", graph.repo_id.clone()))
+            .await
+            .expect("Query file_imports should succeed");
+        let imports: Vec<serde_json::Value> = result.take(0).expect("Should get import edges");
+        assert_eq!(imports.len(), 1, "Should have 1 file_imports edge");
+        assert_eq!(imports[0]["confidence"], 1.0);
+    }
+
+    /// Integration test: batch insert symbols then batch insert edges between them.
+    ///
+    /// This test verifies that edges (e.g., has_member) correctly reference symbols
+    /// inserted via `insert_symbols_batch`. The RecordId format must be consistent
+    /// between symbol insertion (`id: symbol:\`record_id\``) and edge references
+    /// (`in: (symbol:\`record_id\`)`). A mismatch would cause SurrealDB to silently
+    /// drop edges due to ENFORCED constraints (now removed) or non-existent record refs.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_batch_insert_symbols_then_edges() {
+        let graph = CodeGraph::new_in_memory("test_repo".to_string())
+            .await
+            .expect("Failed to create graph");
+
+        // Insert file first (needed for file_contains edges)
+        graph
+            .insert_file("src/main.rs", "rust", "abc123")
+            .await
+            .expect("Insert file should succeed");
+
+        // Batch insert symbols
+        let symbols = vec![
+            make_symbol("my_module", "module", "src/main.rs", 1, 30),
+            make_symbol("foo", "function", "src/main.rs", 5, 10),
+            make_symbol("bar", "function", "src/main.rs", 12, 20),
+            make_symbol("MyStruct", "struct", "src/main.rs", 22, 28),
+        ];
+        graph
+            .insert_symbols_batch(&symbols)
+            .await
+            .expect("Batch insert symbols should succeed");
+
+        // Verify all symbols inserted
+        let mut result = graph
+            .db
+            .query("SELECT * FROM symbol WHERE repo_id = $repo_id")
+            .bind(("repo_id", "test_repo"))
+            .await
+            .expect("Query should succeed");
+        let rows: Vec<serde_json::Value> = result.take(0).expect("Should get results");
+        assert_eq!(rows.len(), 4, "Should have 4 symbols");
+
+        // Batch insert edges between the symbols
+        let edges = vec![
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "my_module", 1),
+                to: SymbolId::new("src/main.rs", "foo", 5),
+                kind: EdgeKind::HasMember,
+                line: None,
+                entry_type: None,
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "my_module", 1),
+                to: SymbolId::new("src/main.rs", "bar", 12),
+                kind: EdgeKind::HasMember,
+                line: None,
+                entry_type: None,
+            },
+            ResolvedEdge {
+                from: SymbolId::new("src/main.rs", "my_module", 1),
+                to: SymbolId::new("src/main.rs", "MyStruct", 22),
+                kind: EdgeKind::HasMember,
+                line: None,
+                entry_type: None,
+            },
+        ];
+        graph
+            .insert_edges_batch(&edges)
+            .await
+            .expect("Batch insert edges should succeed");
+
+        // Verify has_member edges exist
+        let mut edge_result = graph
+            .db
+            .query("SELECT * FROM has_member WHERE repo_id = $repo_id")
+            .bind(("repo_id", "test_repo"))
+            .await
+            .expect("Query has_member should succeed");
+        let edge_rows: Vec<serde_json::Value> = edge_result.take(0).expect("Should get edges");
+        assert_eq!(
+            edge_rows.len(),
+            3,
+            "Should have 3 has_member edges (not silently dropped)"
+        );
+
+        // Verify each edge has valid in/out references by checking confidence
+        for edge in &edge_rows {
+            assert_eq!(edge["confidence"], 1.0);
+            // in/out may be returned as strings (record IDs) or objects depending on
+            // SurrealDB version — either is valid as long as the edge exists
+            assert!(
+                edge["in"].is_string() || edge["in"].is_object(),
+                "Edge 'in' should be a string or object (record reference), got: {:?}",
+                edge["in"]
+            );
+            assert!(
+                edge["out"].is_string() || edge["out"].is_object(),
+                "Edge 'out' should be a string or object (record reference), got: {:?}",
+                edge["out"]
+            );
+        }
+
+        // Verify file_contains edges also exist
+        let mut fc_result = graph
+            .db
+            .query("SELECT * FROM file_contains WHERE repo_id = $repo_id")
+            .bind(("repo_id", "test_repo"))
+            .await
+            .expect("Query file_contains should succeed");
+        let fc_rows: Vec<serde_json::Value> = fc_result.take(0).expect("Should get edges");
+        // 3 non-module symbols should have file_contains edges (module symbol skips it)
+        assert_eq!(
+            fc_rows.len(),
+            3,
+            "Should have 3 file_contains edges (module symbol skipped)"
+        );
     }
 }

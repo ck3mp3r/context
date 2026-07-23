@@ -196,3 +196,94 @@ def main [] {
         stats.imports_resolved
     );
 }
+
+#[cfg(feature = "backend")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_c5tignore_excludes_directory() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    std::fs::write(temp_dir.path().join(".c5tignore"), "testdata/\n").unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+    std::fs::write(temp_dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("testdata")).unwrap();
+    std::fs::write(temp_dir.path().join("testdata/test.rs"), "fn test() {}\n").unwrap();
+
+    let files = scan_supported_files(temp_dir.path());
+    let paths: Vec<String> = files
+        .iter()
+        .map(|p| {
+            p.strip_prefix(temp_dir.path())
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert!(
+        paths.iter().any(|p| p == "src/main.rs"),
+        "src/main.rs should be scanned"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("testdata")),
+        "testdata/ should be excluded"
+    );
+}
+
+#[cfg(feature = "backend")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_c5tignore_excludes_file_pattern() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    std::fs::write(temp_dir.path().join(".c5tignore"), "*.test.rs\n").unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+    std::fs::write(temp_dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(temp_dir.path().join("src/foo.test.rs"), "fn test() {}\n").unwrap();
+
+    let files = scan_supported_files(temp_dir.path());
+    let paths: Vec<String> = files
+        .iter()
+        .map(|p| {
+            p.strip_prefix(temp_dir.path())
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert!(
+        paths.iter().any(|p| p == "src/main.rs"),
+        "src/main.rs should be scanned"
+    );
+    assert!(
+        !paths.iter().any(|p| p == "src/foo.test.rs"),
+        "src/foo.test.rs should be excluded"
+    );
+}
+
+#[cfg(feature = "backend")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_c5tignore_not_present() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+    std::fs::write(temp_dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("testdata")).unwrap();
+    std::fs::write(temp_dir.path().join("testdata/test.rs"), "fn test() {}\n").unwrap();
+
+    let files = scan_supported_files(temp_dir.path());
+    let paths: Vec<String> = files
+        .iter()
+        .map(|p| {
+            p.strip_prefix(temp_dir.path())
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert!(
+        paths.iter().any(|p| p == "src/main.rs"),
+        "src/main.rs should be scanned"
+    );
+    assert!(
+        paths.iter().any(|p| p == "testdata/test.rs"),
+        "testdata/test.rs should be scanned when no .c5tignore"
+    );
+}

@@ -1,6 +1,9 @@
 -- Query: extends
 -- Description: Retrieve all type extension relationships
 -- Returns: List of extends edges with child and parent details
+-- Examples:
+--   code_query(query_name="extends") → all inheritance relationships
+--   Use for: class hierarchy, inheritance patterns
 
 SELECT
     in.symbol_id AS src_id,
@@ -12,5 +15,4 @@ SELECT
     out.kind AS parent_kind,
     out.file_path AS parent_file
 FROM extends
-WHERE in.repo_id = $repo_id AND out.repo_id = $repo_id
-FETCH in, out;
+WHERE repo_id = $repo_id;

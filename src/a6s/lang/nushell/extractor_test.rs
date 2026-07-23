@@ -1721,3 +1721,692 @@ fn test_testdata_file_with_main_runner() {
         "test_runner.nu should contain test functions"
     );
 }
+
+// ============================================================================
+// resolve_file_modules Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_file_modules_creates_directory_modules() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // Create two files in the same directory
+    let mut file1 = ParsedFile::new("src/lib/utils.nu", "nushell");
+    file1.symbols.push(RawSymbol {
+        name: "helper".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/utils.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("src/lib/mod.nu", "nushell");
+    file2.symbols.push(RawSymbol {
+        name: "greet".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/mod.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Should have added a directory module symbol for "src/lib"
+    // The module is added to the first file (file1 = utils.nu)
+    let lib_module = files[0]
+        .symbols
+        .iter()
+        .find(|s| s.name == "lib" && s.kind == "module");
+    assert!(
+        lib_module.is_some(),
+        "Should create 'lib' module symbol in first file, got symbols: {:?}",
+        files[0].symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
+    );
+
+    let lib_module = lib_module.unwrap();
+    assert_eq!(
+        lib_module.file_path, "src/lib",
+        "Module symbol file_path should be the directory path"
+    );
+    assert!(
+        lib_module
+            .signature
+            .as_ref()
+            .unwrap()
+            .contains("implicit_module"),
+        "Module should have implicit_module signature"
+    );
+
+    // Should have created structural container module for "src"
+    // since src/lib has files and src is a parent of src/lib
+    // (root is NOT created because no files exist at root level)
+    let src_module = files[0]
+        .symbols
+        .iter()
+        .find(|s| s.name == "src" && s.kind == "module");
+    assert!(
+        src_module.is_some(),
+        "Should create 'src' structural container module (parent of src/lib), got symbols: {:?}",
+        files[0].symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
+    );
+
+    let root_module = files
+        .iter()
+        .flat_map(|f| &f.symbols)
+        .find(|s| s.name == "root" && s.kind == "module");
+    assert!(
+        root_module.is_none(),
+        "Should NOT create 'root' module (no files at root level)"
+    );
+
+    // Check HasMember edges: hierarchy + file edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.edges)
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Should have exactly 3 edges: src→lib, lib→helper, lib→greet
+    // (no root→src because root doesn't exist)
+    assert_eq!(
+        has_member_edges.len(),
+        3,
+        "Should have exactly 3 HasMember edges (1 hierarchy + 2 file), got: {}",
+        has_member_edges.len()
+    );
+
+    // Verify src → lib hierarchy edge
+    let src_to_lib = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("src") && extract_name_from_ref(&e.to) == Some("lib")
+    });
+    assert!(src_to_lib, "Should have src → lib HasMember hierarchy edge");
+
+    // Verify lib → helper edge
+    let lib_to_helper = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("lib")
+            && extract_name_from_ref(&e.to) == Some("helper")
+    });
+    assert!(lib_to_helper, "Should have lib → helper HasMember edge");
+
+    // Verify lib → greet edge
+    let lib_to_greet = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("lib")
+            && extract_name_from_ref(&e.to) == Some("greet")
+    });
+    assert!(lib_to_greet, "Should have lib → greet HasMember edge");
+}
+
+#[test]
+fn test_resolve_file_modules_preserves_inline_module_edges() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = NushellExtractor;
+
+    // File with an inline module containing a function
+    let mut file = ParsedFile::new("src/lib/utils.nu", "nushell");
+    // Inline module "network" (lines 1-10)
+    file.symbols.push(RawSymbol {
+        name: "network".to_string(),
+        kind: "module".to_string(),
+        file_path: "src/lib/utils.nu".to_string(),
+        start_line: 1,
+        end_line: 10,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+    // Function inside inline module (lines 2-5)
+    file.symbols.push(RawSymbol {
+        name: "ping".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/utils.nu".to_string(),
+        start_line: 2,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+    // Top-level function (line 12-15)
+    file.symbols.push(RawSymbol {
+        name: "helper".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/utils.nu".to_string(),
+        start_line: 12,
+        end_line: 15,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    // Simulate the HasMember edge that extract() would create for inline module → child
+    // (resolve_file_modules should preserve this existing edge)
+    file.edges.push(RawEdge {
+        from: SymbolRef::resolved(SymbolId::new("src/lib/utils.nu", "network", 1)),
+        to: SymbolRef::resolved(SymbolId::new("src/lib/utils.nu", "ping", 2)),
+        kind: EdgeKind::HasMember,
+        line: Some(2),
+        entry_type: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Get all HasMember edges
+    let has_member_edges: Vec<_> = files[0]
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // The inline module "network" should still have its HasMember edge to "ping"
+    let network_to_ping = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("network")
+            && extract_name_from_ref(&e.to) == Some("ping")
+    });
+    assert!(
+        network_to_ping,
+        "Inline module 'network' should still have HasMember edge to 'ping'"
+    );
+
+    // The directory module "lib" should have HasMember to "helper" (top-level)
+    // but NOT to "ping" (inside inline module)
+    let lib_to_helper = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("lib")
+            && extract_name_from_ref(&e.to) == Some("helper")
+    });
+    assert!(
+        lib_to_helper,
+        "Directory module 'lib' should have HasMember edge to top-level 'helper'"
+    );
+
+    let lib_to_ping = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("lib")
+            && extract_name_from_ref(&e.to) == Some("ping")
+    });
+    assert!(
+        !lib_to_ping,
+        "Directory module 'lib' should NOT have HasMember edge to inline module child 'ping'"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_multiple_directories() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // Files in different directories
+    let mut file1 = ParsedFile::new("src/main.nu", "nushell");
+    file1.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "command".to_string(),
+        file_path: "src/main.nu".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: Some("main".to_string()),
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("src/lib/utils.nu", "nushell");
+    file2.symbols.push(RawSymbol {
+        name: "helper".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/utils.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file3 = ParsedFile::new("tests/test_math.nu", "nushell");
+    file3.symbols.push(RawSymbol {
+        name: "test math".to_string(),
+        kind: "command".to_string(),
+        file_path: "tests/test_math.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: Some("test".to_string()),
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2, file3];
+    extractor.resolve_file_modules(&mut files);
+
+    // Collect all module symbols across all files
+    let all_modules: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.symbols)
+        .filter(|s| s.kind == "module")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    // Should have modules for: src, lib, tests
+    // (root is NOT created because no files exist at root level)
+    assert!(
+        !all_modules.contains(&"root"),
+        "Should NOT have 'root' module (no files at root level), got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"src"),
+        "Should have 'src' module, got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"lib"),
+        "Should have 'lib' module, got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"tests"),
+        "Should have 'tests' module, got: {:?}",
+        all_modules
+    );
+
+    // Collect all HasMember edges
+    let all_has_member: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.edges)
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Verify NO root → src or root → tests edges (root has no files)
+    assert!(
+        !all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("root")),
+        "Should NOT have any edges from 'root' (no files at root level)"
+    );
+
+    // Verify hierarchy: src → lib (src has files, so it's a valid parent)
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("src")
+                && extract_name_from_ref(&e.to) == Some("lib")),
+        "Should have src → lib edge"
+    );
+
+    // Verify file symbols are children of their directory modules
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("src")
+                && extract_name_from_ref(&e.to) == Some("main")),
+        "Should have src → main edge"
+    );
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("helper")),
+        "Should have lib → helper edge"
+    );
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("tests")
+                && extract_name_from_ref(&e.to) == Some("test math")),
+        "Should have tests → test math edge"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_declares_mod_from_use_import() {
+    use crate::a6s::types::{EdgeKind, ImportEntry, ParsedFile, RawImport, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // File in src/lib/ that uses ./subdir
+    let mut file1 = ParsedFile::new("src/lib/main.nu", "nushell");
+    file1.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "command".to_string(),
+        file_path: "src/lib/main.nu".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: Some("main".to_string()),
+        module_path: None,
+    });
+    file1.imports.push(RawImport {
+        file_path: "src/lib/main.nu".to_string(),
+        entry: ImportEntry::glob_import("./subdir"),
+    });
+
+    // File in src/lib/subdir/ that has symbols
+    let mut file2 = ParsedFile::new("src/lib/subdir/helper.nu", "nushell");
+    file2.symbols.push(RawSymbol {
+        name: "helper".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/subdir/helper.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Should have a DeclaresMod edge from "lib" module to "subdir" module
+    let declares_mod_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.edges)
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+
+    assert!(
+        !declares_mod_edges.is_empty(),
+        "Should have at least one DeclaresMod edge"
+    );
+
+    let lib_to_subdir = declares_mod_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("lib")
+            && extract_name_from_ref(&e.to) == Some("subdir")
+    });
+    assert!(
+        lib_to_subdir,
+        "Should have DeclaresMod edge from 'lib' to 'subdir', got: {:?}",
+        declares_mod_edges
+            .iter()
+            .map(|e| { (extract_name_from_ref(&e.from), extract_name_from_ref(&e.to),) })
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_ignores_non_relative_imports() {
+    use crate::a6s::types::{EdgeKind, ImportEntry, ParsedFile, RawImport, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // File with a non-relative import (use std)
+    let mut file = ParsedFile::new("src/main.nu", "nushell");
+    file.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "command".to_string(),
+        file_path: "src/main.nu".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: Some("main".to_string()),
+        module_path: None,
+    });
+    file.imports.push(RawImport {
+        file_path: "src/main.nu".to_string(),
+        entry: ImportEntry::glob_import("std"),
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Should have HasMember edges but NO DeclaresMod edges
+    let declares_mod_edges: Vec<_> = files[0]
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+
+    assert!(
+        declares_mod_edges.is_empty(),
+        "Non-relative imports should NOT create DeclaresMod edges, got: {:?}",
+        declares_mod_edges
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_single_file() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // Single file at root level
+    let mut file = ParsedFile::new("main.nu", "nushell");
+    file.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "command".to_string(),
+        file_path: "main.nu".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: Some("main".to_string()),
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Should create a "root" module
+    let root_module = files[0]
+        .symbols
+        .iter()
+        .find(|s| s.name == "root" && s.kind == "module");
+    assert!(
+        root_module.is_some(),
+        "Should create 'root' module for top-level files"
+    );
+
+    // Should have HasMember edge from root to main
+    let has_member_edges: Vec<_> = files[0]
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    assert!(
+        has_member_edges
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("root")
+                && extract_name_from_ref(&e.to) == Some("main")),
+        "Should have root → main HasMember edge"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_structural_container() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // Files only in lib/math/mod.nu and lib/strings/mod.nu
+    // No direct files in lib/ — lib should be a structural container
+    let mut file1 = ParsedFile::new("lib/math/mod.nu", "nushell");
+    file1.symbols.push(RawSymbol {
+        name: "add".to_string(),
+        kind: "function".to_string(),
+        file_path: "lib/math/mod.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("lib/strings/mod.nu", "nushell");
+    file2.symbols.push(RawSymbol {
+        name: "concat".to_string(),
+        kind: "function".to_string(),
+        file_path: "lib/strings/mod.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Collect all module symbols
+    let all_modules: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.symbols)
+        .filter(|s| s.kind == "module")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    // Should have modules for: lib, math, strings
+    // (root is NOT created because no files exist at root level)
+    assert!(
+        !all_modules.contains(&"root"),
+        "Should NOT have 'root' module (no files at root level), got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"lib"),
+        "Should have 'lib' structural container module, got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"math"),
+        "Should have 'math' module, got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"strings"),
+        "Should have 'strings' module, got: {:?}",
+        all_modules
+    );
+
+    // Collect all HasMember edges
+    let all_has_member: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.edges)
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Verify hierarchy: lib → math (lib is structural container)
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("math")),
+        "Should have lib → math edge"
+    );
+
+    // Verify hierarchy: lib → math
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("math")),
+        "Should have lib → math edge"
+    );
+
+    // Verify hierarchy: lib → strings
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("strings")),
+        "Should have lib → strings edge"
+    );
+
+    // Verify file symbols are children of their directory modules
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("math")
+                && extract_name_from_ref(&e.to) == Some("add")),
+        "Should have math → add edge"
+    );
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("strings")
+                && extract_name_from_ref(&e.to) == Some("concat")),
+        "Should have strings → concat edge"
+    );
+
+    // Verify total edge count: lib→math, lib→strings, math→add, strings→concat = 4
+    assert_eq!(
+        all_has_member.len(),
+        4,
+        "Should have exactly 4 HasMember edges, got: {}",
+        all_has_member.len()
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_root_uses_dot() {
+    use crate::a6s::types::ParsedFile;
+
+    let extractor = NushellExtractor;
+
+    // Single file at root level
+    let mut file = ParsedFile::new("main.nu", "nushell");
+    file.symbols.push(crate::a6s::types::RawSymbol {
+        name: "main".to_string(),
+        kind: "command".to_string(),
+        file_path: "main.nu".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: Some("main".to_string()),
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Root module should use file_path = "."
+    let root_module = files[0]
+        .symbols
+        .iter()
+        .find(|s| s.name == "root" && s.kind == "module");
+    assert!(
+        root_module.is_some(),
+        "Should create 'root' module for top-level files"
+    );
+
+    let root_module = root_module.unwrap();
+    assert_eq!(
+        root_module.file_path, ".",
+        "Root module file_path should be '.', got: '{}'",
+        root_module.file_path
+    );
+}
