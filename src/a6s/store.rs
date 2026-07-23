@@ -643,45 +643,59 @@ impl CodeGraph {
 
     /// Batch insert resolved edges.
     ///
-    /// Uses batched RELATE statements (multiple statements per query, joined with `;`)
-    /// instead of INSERT RELATION INTO to avoid SurrealDB silently dropping edge records
-    /// when record IDs contain colons. The parenthesized record reference syntax
-    /// `(symbol:\`id\`)` handles colons in compound IDs correctly, unlike the
-    /// backtick-only syntax in INSERT RELATION INTO.
+    /// Uses INSERT RELATION INTO with parenthesized record references
+    /// `(symbol:\`id\`)` to avoid SurrealDB silently dropping edge records
+    /// when record IDs contain colons.
     pub async fn insert_edges_batch(&self, edges: &[ResolvedEdge]) -> Result<(), A6sError> {
         for chunk in edges.chunks(Self::BATCH_SIZE) {
-            let stmts: Vec<String> = chunk
-                .iter()
-                .map(|edge| {
-                    let table = Self::edge_table(&edge.kind);
-                    let compound_from = self.compound_id(edge.from.as_str());
-                    let compound_to = self.compound_id(edge.to.as_str());
+            // Group by edge table for batch insertion
+            use std::collections::HashMap;
+            let mut groups: HashMap<&str, Vec<String>> = HashMap::new();
 
-                    let mut sql = format!(
-                        "RELATE (symbol:`{}`) -> {} -> (symbol:`{}`) SET confidence = 1.0, repo_id = '{}'",
-                        Self::escape_surql_id(&compound_from),
+            for edge in chunk {
+                let table = Self::edge_table(&edge.kind);
+                let compound_from = self.compound_id(edge.from.as_str());
+                let compound_to = self.compound_id(edge.to.as_str());
+
+                let mut fields = format!(
+                    "in: (symbol:`{}`), out: (symbol:`{}`), confidence: 1.0, repo_id: '{}'",
+                    Self::escape_surql_id(&compound_from),
+                    Self::escape_surql_id(&compound_to),
+                    Self::escape_surql_string(&self.repo_id),
+                );
+                if let Some(l) = edge.line
+                    && matches!(edge.kind, EdgeKind::Calls)
+                {
+                    fields.push_str(&format!(", call_site_line: {}", l as i32));
+                }
+                if let Some(ref entry_type) = edge.entry_type {
+                    fields.push_str(&format!(
+                        ", entry_type: '{}'",
+                        Self::escape_surql_string(entry_type)
+                    ));
+                }
+
+                groups
+                    .entry(table)
+                    .or_default()
+                    .push(format!("{{ {} }}", fields));
+            }
+
+            // Execute one INSERT RELATION per table
+            let stmts: Vec<String> = groups
+                .into_iter()
+                .map(|(table, records)| {
+                    format!(
+                        "INSERT RELATION INTO {} [{}] RETURN NONE",
                         table,
-                        Self::escape_surql_id(&compound_to),
-                        Self::escape_surql_string(&self.repo_id),
-                    );
-                    if let Some(l) = edge.line
-                        && matches!(edge.kind, EdgeKind::Calls)
-                    {
-                        sql.push_str(&format!(", call_site_line = {}", l as i32));
-                    }
-                    if let Some(ref entry_type) = edge.entry_type {
-                        sql.push_str(&format!(
-                            ", entry_type = '{}'",
-                            Self::escape_surql_string(entry_type)
-                        ));
-                    }
-                    sql
+                        records.join(", ")
+                    )
                 })
                 .collect();
 
-            let combined = stmts.join("; ");
+            let sql = stmts.join(";\n");
             self.db
-                .query(&combined)
+                .query(&sql)
                 .await
                 .map_err(|e| A6sError::Custom(format!("Failed to batch insert edges: {}", e)))?;
         }
@@ -690,17 +704,17 @@ impl CodeGraph {
 
     /// Batch insert import edges (File -> Symbol).
     ///
-    /// Uses batched RELATE statements with parenthesized record references
+    /// Uses INSERT RELATION INTO with parenthesized record references
     /// to avoid SurrealDB silently dropping edge records when record IDs contain colons.
     pub async fn insert_imports_batch(&self, imports: &[ResolvedImport]) -> Result<(), A6sError> {
         for chunk in imports.chunks(Self::BATCH_SIZE) {
-            let stmts: Vec<String> = chunk
+            let records: Vec<String> = chunk
                 .iter()
                 .map(|import| {
                     let compound_file = self.compound_id(import.file_id.as_str());
                     let compound_sym = self.compound_id(import.target_symbol_id.as_str());
                     format!(
-                        "RELATE (file:`{}`) -> file_imports -> (symbol:`{}`) SET confidence = 1.0, repo_id = '{}'",
+                        "{{ in: (file:`{}`), out: (symbol:`{}`), confidence: 1.0, repo_id: '{}' }}",
                         Self::escape_surql_id(&compound_file),
                         Self::escape_surql_id(&compound_sym),
                         Self::escape_surql_string(&self.repo_id),
@@ -708,9 +722,12 @@ impl CodeGraph {
                 })
                 .collect();
 
-            let combined = stmts.join("; ");
+            let sql = format!(
+                "INSERT RELATION INTO file_imports [{}] RETURN NONE",
+                records.join(", ")
+            );
             self.db
-                .query(&combined)
+                .query(&sql)
                 .await
                 .map_err(|e| A6sError::Custom(format!("Failed to batch insert imports: {}", e)))?;
         }

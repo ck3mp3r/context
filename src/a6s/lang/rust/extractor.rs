@@ -42,7 +42,27 @@ impl LanguageExtractor for RustExtractor {
         };
 
         // Create implicit file-level module symbol
-        let module_name = Self::file_to_module_name(file_path);
+        let module_path = self.derive_module_path(file_path);
+        // For workspace crates (lib.rs in subdirectories), use the crate name
+        // as the module name instead of "lib" to avoid duplicate names.
+        // For main.rs, keep "main" — it's a child of the lib crate.
+        // For mod.rs and regular files, use file_to_module_name (parent dir or file stem).
+        let file_stem = std::path::Path::new(file_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let module_name = if file_stem == "lib" {
+            // For lib.rs: use crate name if in a workspace, otherwise "lib"
+            match Self::extract_crate_name(file_path) {
+                Some(crate_name) => crate_name,
+                None => file_stem.to_string(),
+            }
+        } else if file_stem == "main" {
+            // For main.rs: keep "main" — it's the binary entry point, child of lib crate
+            file_stem.to_string()
+        } else {
+            Self::file_to_module_name(file_path)
+        };
         let line_count = code.lines().count().max(1);
         let implicit_module = crate::a6s::types::RawSymbol {
             name: module_name.clone(),
@@ -54,7 +74,7 @@ impl LanguageExtractor for RustExtractor {
             language: "rust".to_string(),
             visibility: Some("pub".to_string()),
             entry_type: None,
-            module_path: self.derive_module_path(file_path),
+            module_path,
         };
         parsed.symbols.push(implicit_module);
 
@@ -566,6 +586,10 @@ impl LanguageExtractor for RustExtractor {
 
 impl RustExtractor {
     pub(crate) fn derive_module_path(&self, file_path: &str) -> Option<String> {
+        Self::derive_module_path_static(file_path)
+    }
+
+    fn derive_module_path_static(file_path: &str) -> Option<String> {
         if file_path.is_empty() {
             return None;
         }
@@ -604,7 +628,11 @@ impl RustExtractor {
                     let crate_name = crate_path.rsplit('/').next().unwrap_or("");
                     if crate_name.is_empty() {
                         None
+                    } else if path == "lib" {
+                        // lib.rs is the crate root — no parent module
+                        None
                     } else {
+                        // main.rs is a binary target — child of the lib crate
                         Some(crate_name.to_string())
                     }
                 }
@@ -867,6 +895,23 @@ impl RustExtractor {
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string()
+    }
+
+    /// Extract crate name from a workspace file path.
+    /// "crates/foo/src/lib.rs" → Some("foo")
+    /// "src/lib.rs" → None (single crate at root)
+    fn extract_crate_name(file_path: &str) -> Option<String> {
+        let idx = file_path.find("/src/")?;
+        let before_src = &file_path[..idx];
+        if before_src.is_empty() {
+            return None;
+        }
+        let crate_name = before_src.rsplit('/').next()?;
+        if crate_name.is_empty() {
+            None
+        } else {
+            Some(crate_name.to_string())
+        }
     }
 
     /// Collect all attributes and map them to the line number of the item they annotate
@@ -1308,7 +1353,22 @@ impl RustExtractor {
                 // Emit a DeclaresMod edge instead
                 use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
 
-                let implicit_module_name = Self::file_to_module_name(file_path);
+                let implicit_module_name = {
+                    let file_stem = std::path::Path::new(file_path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    if file_stem == "lib" {
+                        match Self::extract_crate_name(file_path) {
+                            Some(crate_name) => crate_name,
+                            None => file_stem.to_string(),
+                        }
+                    } else if file_stem == "main" {
+                        file_stem.to_string()
+                    } else {
+                        Self::file_to_module_name(file_path)
+                    }
+                };
                 let from = SymbolRef::resolved(SymbolId::new(file_path, &implicit_module_name, 1));
                 let to = SymbolRef::unresolved(&name, file_path);
 
