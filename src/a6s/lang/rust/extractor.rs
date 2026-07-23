@@ -198,10 +198,6 @@ impl LanguageExtractor for RustExtractor {
             }
         }
 
-        if decls.is_empty() {
-            return;
-        }
-
         // Phase 2: Build file index
         let file_idx: HashMap<String, usize> = parsed_files
             .iter()
@@ -375,6 +371,110 @@ impl LanguageExtractor for RustExtractor {
 
             // Add collected edges to this file
             pf.edges.extend(edges_to_add);
+        }
+
+        // Phase 6: Link binary targets (main.rs, src/bin/*.rs) to their lib crate module
+        // when a lib.rs exists in the same src/ directory.
+        let mut lib_modules: HashMap<String, (String, String, usize)> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            for sym in &pf.symbols {
+                if sym.kind != "module" || sym.module_path.is_some() {
+                    continue;
+                }
+                // Check if this is a lib.rs (file stem is "lib")
+                let stem = std::path::Path::new(&pf.file_path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                if stem == "lib" {
+                    // Extract the src/ directory path
+                    // "src/lib.rs" → "src"
+                    // "crates/foo/src/lib.rs" → "crates/foo/src"
+                    let src_dir = pf
+                        .file_path
+                        .rsplit_once("/src/")
+                        .map(|(before, _)| {
+                            if before.is_empty() {
+                                "src".to_string()
+                            } else {
+                                format!("{before}/src")
+                            }
+                        })
+                        .unwrap_or("src".to_string());
+                    lib_modules.insert(
+                        src_dir,
+                        (pf.file_path.clone(), sym.name.clone(), sym.start_line),
+                    );
+                }
+            }
+        }
+
+        if !lib_modules.is_empty() {
+            for pf in parsed_files.iter_mut() {
+                if pf.language != "rust" {
+                    continue;
+                }
+                let mut edges_to_add: Vec<RawEdge> = Vec::new();
+                for sym in &pf.symbols {
+                    if sym.kind != "module" {
+                        continue;
+                    }
+                    let stem = std::path::Path::new(&pf.file_path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    // Only link binaries: main.rs or files in a bin/ directory
+                    if stem != "main" && !pf.file_path.contains("/bin/") {
+                        continue;
+                    }
+                    // For main.rs in workspace crates (e.g., crates/foo/src/main.rs),
+                    // Phase 5 already creates HasMember edges via module_path.
+                    // Skip these to avoid duplicate edges.
+                    // Detect workspace by checking for a non-empty path before /src/.
+                    if stem == "main" {
+                        let before_src = pf
+                            .file_path
+                            .find("/src/")
+                            .map(|idx| &pf.file_path[..idx])
+                            .unwrap_or("");
+                        if !before_src.is_empty() {
+                            continue;
+                        }
+                    }
+                    // Find the src/ directory for this binary
+                    let src_dir = pf
+                        .file_path
+                        .rsplit_once("/src/")
+                        .map(|(before, _)| {
+                            if before.is_empty() {
+                                "src".to_string()
+                            } else {
+                                format!("{before}/src")
+                            }
+                        })
+                        .unwrap_or("src".to_string());
+                    if let Some((lib_file, lib_name, lib_line)) = lib_modules.get(&src_dir) {
+                        let from =
+                            SymbolRef::resolved(SymbolId::new(lib_file, lib_name, *lib_line));
+                        let to = SymbolRef::resolved(SymbolId::new(
+                            &pf.file_path,
+                            &sym.name,
+                            sym.start_line,
+                        ));
+                        edges_to_add.push(RawEdge {
+                            from,
+                            to,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        });
+                    }
+                }
+                pf.edges.extend(edges_to_add);
+            }
         }
     }
 

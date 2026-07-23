@@ -1961,9 +1961,9 @@ fn test_module_path_root_only() {
 
 #[test]
 fn test_module_path_workspace_crate_lib() {
-    // crates/foo/src/lib.rs → crate name is "foo"
+    // crates/foo/src/lib.rs → None (lib.rs is the crate root, no parent module)
     let path = derive_module_path("crates/foo/src/lib.rs");
-    assert_eq!(path, Some("foo".to_string()));
+    assert_eq!(path, None);
 }
 
 #[test]
@@ -1989,9 +1989,9 @@ fn test_module_path_single_crate_main() {
 
 #[test]
 fn test_module_path_nested_workspace() {
-    // workspace/crates/baz/src/lib.rs → crate name is "baz"
+    // workspace/crates/baz/src/lib.rs → None (lib.rs is the crate root, no parent module)
     let path = derive_module_path("workspace/crates/baz/src/lib.rs");
-    assert_eq!(path, Some("baz".to_string()));
+    assert_eq!(path, None);
 }
 
 // Helper function that uses the trait method
@@ -3306,4 +3306,191 @@ pub struct Config {
             );
         }
     }
+}
+
+// ============================================================================
+// Phase 6: Binary-to-Lib Linking Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_file_modules_links_main_to_lib() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: src/lib.rs (crate root)
+    let lib_code = r#"
+pub fn greet() -> &'static str {
+    "hello"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: src/main.rs (binary entry point)
+    let main_code = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    let main_parsed = RustExtractor.extract(main_code, "src/main.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, main_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from lib to main
+    let lib_to_main = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:src/lib.rs:lib:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:src/main.rs:main:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        lib_to_main.is_some(),
+        "Should have HasMember edge from lib module to main module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_links_bin_to_lib() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: src/lib.rs (crate root)
+    let lib_code = r#"
+pub fn helper() -> &'static str {
+    "helper"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: src/bin/cli.rs (binary target in bin/ directory)
+    let cli_code = r#"
+fn main() {
+    println!("CLI tool");
+}
+"#;
+    let cli_parsed = RustExtractor.extract(cli_code, "src/bin/cli.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, cli_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from lib to cli
+    let lib_to_cli = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:src/lib.rs:lib:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:src/bin/cli.rs:cli:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        lib_to_cli.is_some(),
+        "Should have HasMember edge from lib module to cli binary module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_binary_only_no_link() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // Only src/main.rs (no lib.rs)
+    let main_code = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    let main_parsed = RustExtractor.extract(main_code, "src/main.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![main_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // main should stay as root — no HasMember edge for it
+    let main_as_child = has_member_edges.iter().find(|e| {
+        matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+            if to_id.as_str() == "symbol:src/main.rs:main:1")
+    });
+
+    assert!(
+        main_as_child.is_none(),
+        "main should NOT have a HasMember edge when there is no lib.rs"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_workspace_bin_linked() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: crates/foo/src/lib.rs (workspace crate root)
+    let lib_code = r#"
+pub fn helper() -> &'static str {
+    "helper"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "crates/foo/src/lib.rs");
+
+    // File 2: crates/foo/src/bin/tool.rs (binary in workspace crate)
+    let tool_code = r#"
+fn main() {
+    println!("Tool");
+}
+"#;
+    let tool_parsed = RustExtractor.extract(tool_code, "crates/foo/src/bin/tool.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, tool_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from foo (crate name) to tool
+    let foo_to_tool = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:crates/foo/src/lib.rs:foo:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:crates/foo/src/bin/tool.rs:tool:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        foo_to_tool.is_some(),
+        "Should have HasMember edge from foo crate to tool binary module"
+    );
 }

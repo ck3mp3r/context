@@ -112,12 +112,21 @@ pub async fn analyze_with_graph(
 ///
 /// Skips: .git/, target/, node_modules/, vendor/ (respects .gitignore)
 /// Returns only files with extensions recognized by registered extractors.
-fn scan_supported_files(repo_path: &Path) -> Vec<PathBuf> {
+pub(crate) fn scan_supported_files(repo_path: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
-    let walker = ignore::WalkBuilder::new(repo_path)
-        .follow_links(false)
-        .build();
+    let mut builder = ignore::WalkBuilder::new(repo_path);
+    builder.follow_links(false);
+
+    // Add .c5tignore if it exists in the repo root
+    let c5tignore_path = repo_path.join(".c5tignore");
+    if c5tignore_path.exists()
+        && let Some(err) = builder.add_ignore(&c5tignore_path)
+    {
+        debug!("Failed to load .c5tignore: {}", err);
+    }
+
+    let walker = builder.build();
 
     for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
@@ -125,6 +134,10 @@ fn scan_supported_files(repo_path: &Path) -> Vec<PathBuf> {
         }
 
         let path = entry.path();
+        // Skip Cargo build scripts (build.rs at crate root)
+        if path.file_name().is_some_and(|name| name == "build.rs") {
+            continue;
+        }
         if let Some(ext) = path.extension().and_then(|s| s.to_str())
             && extract::supported_extensions().contains(&ext)
         {
