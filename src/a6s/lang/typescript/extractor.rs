@@ -402,11 +402,34 @@ impl LanguageExtractor for TypeScriptExtractor {
                 file_indices[0]
             };
 
-            // Extract module name (full directory path for uniqueness)
+            // Extract module name (cleaned directory path for meaningful names)
+            // Only clean leaf directories (those with files) to avoid name collisions
+            // with structural containers (empty directories that group subdirectories)
             let dir_name = if dir.is_empty() {
                 "root".to_string()
-            } else {
+            } else if file_indices.is_empty() {
+                // Structural container: keep full path for uniqueness
                 dir.to_string()
+            } else {
+                // Leaf directory with files: clean up for a meaningful module name
+                let mut name = dir.to_string();
+
+                // Strip "packages/" prefix if present
+                if let Some(stripped) = name.strip_prefix("packages/") {
+                    name = stripped.to_string();
+                }
+
+                // Strip "/src" suffix if present (src is the default source directory)
+                if let Some(stripped) = name.strip_suffix("/src") {
+                    name = stripped.to_string();
+                }
+
+                // If the entire path was just "src", use "root"
+                if name == "src" {
+                    name = "root".to_string();
+                }
+
+                name
             };
 
             // Extract parent directory for module_path
@@ -444,7 +467,15 @@ impl LanguageExtractor for TypeScriptExtractor {
                 signature: Some(format!("implicit_module: true, directory: {}", dir)),
                 language: "typescript".to_string(),
                 visibility: Some("pub".to_string()),
-                entry_type: None,
+                entry_type: if dir.contains("/test")
+                    || dir.contains("/tests")
+                    || dir.ends_with("test")
+                    || dir.ends_with("tests")
+                {
+                    Some("test".to_string())
+                } else {
+                    None
+                },
                 module_path,
             };
 

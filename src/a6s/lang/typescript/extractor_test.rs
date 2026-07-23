@@ -1842,7 +1842,7 @@ fn test_resolve_file_modules_single_file() {
     let mut files = vec![file];
     extractor.resolve_file_modules(&mut files);
 
-    // Verify: one module symbol created (src)
+    // Verify: one module symbol created (root, cleaned from "src")
     let modules: Vec<&RawSymbol> = files
         .iter()
         .flat_map(|f| f.symbols.iter())
@@ -1851,22 +1851,23 @@ fn test_resolve_file_modules_single_file() {
     assert_eq!(
         modules.len(),
         1,
-        "Should create 1 module (src), got {}",
+        "Should create 1 module (root), got {}",
         modules.len()
     );
-    assert_eq!(modules[0].name, "src");
+    assert_eq!(modules[0].name, "root");
+    assert_eq!(modules[0].file_path, "src");
 
-    // Verify: HasMember edge from src module to main
+    // Verify: HasMember edge from root module to main
     let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
-    let src_id = SymbolId::new("src", "src", 1);
+    let root_id = SymbolId::new("src", "root", 1);
     let main_id = SymbolId::new("src/index.ts", "main", 1);
 
     let main_edge = all_edges.iter().any(|e| {
-        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == src_id.as_str())
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
             && e.kind == EdgeKind::HasMember
     });
-    assert!(main_edge, "Should have HasMember from src module to main");
+    assert!(main_edge, "Should have HasMember from root module to main");
 }
 
 #[test]
@@ -1973,8 +1974,8 @@ fn test_resolve_file_modules_monorepo() {
     let mut files = vec![file1, file2];
     extractor.resolve_file_modules(&mut files);
 
-    // Verify: 5 module symbols (packages, packages/foo, packages/foo/src,
-    // packages/bar, packages/bar/src)
+    // Verify: 5 module symbols (packages, packages/foo, foo,
+    // packages/bar, bar)
     let modules: Vec<&RawSymbol> = files
         .iter()
         .flat_map(|f| f.symbols.iter())
@@ -1987,7 +1988,8 @@ fn test_resolve_file_modules_monorepo() {
         modules.len()
     );
 
-    // Verify module names use full directory paths (no collision)
+    // Verify module names: structural containers keep full paths,
+    // leaf directories get cleaned names
     let module_names: Vec<&str> = modules.iter().map(|m| m.name.as_str()).collect();
     assert!(
         module_names.contains(&"packages"),
@@ -1998,26 +2000,26 @@ fn test_resolve_file_modules_monorepo() {
         "Should have 'packages/foo' module"
     );
     assert!(
-        module_names.contains(&"packages/foo/src"),
-        "Should have 'packages/foo/src' module"
+        module_names.contains(&"foo"),
+        "Should have 'foo' module (cleaned from packages/foo/src)"
     );
     assert!(
         module_names.contains(&"packages/bar"),
         "Should have 'packages/bar' module"
     );
     assert!(
-        module_names.contains(&"packages/bar/src"),
-        "Should have 'packages/bar/src' module"
+        module_names.contains(&"bar"),
+        "Should have 'bar' module (cleaned from packages/bar/src)"
     );
 
-    // Verify hierarchy edges: packages → packages/foo → packages/foo/src
+    // Verify hierarchy edges: packages → packages/foo → foo
     let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
 
     let packages_id = SymbolId::new("packages", "packages", 1);
     let foo_id = SymbolId::new("packages/foo", "packages/foo", 1);
-    let foo_src_id = SymbolId::new("packages/foo/src", "packages/foo/src", 1);
+    let foo_src_id = SymbolId::new("packages/foo/src", "foo", 1);
     let bar_id = SymbolId::new("packages/bar", "packages/bar", 1);
-    let bar_src_id = SymbolId::new("packages/bar/src", "packages/bar/src", 1);
+    let bar_src_id = SymbolId::new("packages/bar/src", "bar", 1);
 
     // packages → packages/foo
     let packages_to_foo = all_edges.iter().any(|e| {
@@ -2030,7 +2032,7 @@ fn test_resolve_file_modules_monorepo() {
         "Should have HasMember from packages to packages/foo"
     );
 
-    // packages/foo → packages/foo/src
+    // packages/foo → foo (cleaned from packages/foo/src)
     let foo_to_src = all_edges.iter().any(|e| {
         matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == foo_id.as_str())
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == foo_src_id.as_str())
@@ -2038,7 +2040,7 @@ fn test_resolve_file_modules_monorepo() {
     });
     assert!(
         foo_to_src,
-        "Should have HasMember from packages/foo to packages/foo/src"
+        "Should have HasMember from packages/foo to foo (cleaned from packages/foo/src)"
     );
 
     // packages → packages/bar
@@ -2052,7 +2054,7 @@ fn test_resolve_file_modules_monorepo() {
         "Should have HasMember from packages to packages/bar"
     );
 
-    // packages/bar → packages/bar/src
+    // packages/bar → bar (cleaned from packages/bar/src)
     let bar_to_src = all_edges.iter().any(|e| {
         matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == bar_id.as_str())
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == bar_src_id.as_str())
@@ -2060,7 +2062,7 @@ fn test_resolve_file_modules_monorepo() {
     });
     assert!(
         bar_to_src,
-        "Should have HasMember from packages/bar to packages/bar/src"
+        "Should have HasMember from packages/bar to bar (cleaned from packages/bar/src)"
     );
 
     // Verify: HasMember edges from leaf modules to their symbols
@@ -2074,7 +2076,7 @@ fn test_resolve_file_modules_monorepo() {
     });
     assert!(
         foo_main_edge,
-        "Should have HasMember from packages/foo/src to fooMain"
+        "Should have HasMember from foo module to fooMain"
     );
 
     let bar_main_edge = all_edges.iter().any(|e| {
@@ -2084,7 +2086,7 @@ fn test_resolve_file_modules_monorepo() {
     });
     assert!(
         bar_main_edge,
-        "Should have HasMember from packages/bar/src to barMain"
+        "Should have HasMember from bar module to barMain"
     );
 }
 
@@ -2145,16 +2147,311 @@ fn test_resolve_file_modules_module_naming() {
         "Module names should be unique — found duplicate names"
     );
 
-    // Verify specific names use full directory paths
-    let foo_src = modules.iter().find(|m| m.name == "packages/foo/src");
+    // Verify leaf modules get cleaned names (packages/foo/src → foo, packages/bar/src → bar)
+    let foo_module = modules.iter().find(|m| m.name == "foo");
     assert!(
-        foo_src.is_some(),
-        "Should have module named 'packages/foo/src' (not just 'src')"
+        foo_module.is_some(),
+        "Should have module named 'foo' (cleaned from 'packages/foo/src')"
     );
 
-    let bar_src = modules.iter().find(|m| m.name == "packages/bar/src");
+    let bar_module = modules.iter().find(|m| m.name == "bar");
     assert!(
-        bar_src.is_some(),
-        "Should have module named 'packages/bar/src' (not just 'src')"
+        bar_module.is_some(),
+        "Should have module named 'bar' (cleaned from 'packages/bar/src')"
+    );
+
+    // Verify structural containers keep full paths
+    let packages_foo = modules.iter().find(|m| m.name == "packages/foo");
+    assert!(
+        packages_foo.is_some(),
+        "Should have structural container module named 'packages/foo'"
+    );
+
+    let packages_bar = modules.iter().find(|m| m.name == "packages/bar");
+    assert!(
+        packages_bar.is_some(),
+        "Should have structural container module named 'packages/bar'"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_cleans_package_src() {
+    let extractor = TypeScriptExtractor;
+
+    // File in packages/agent/src/index.ts → module named "agent"
+    let mut file = make_ts_parsed_file(
+        "packages/agent/src/index.ts",
+        vec![make_ts_symbol(
+            "agentMain",
+            "function",
+            "packages/agent/src/index.ts",
+            1,
+        )],
+    );
+
+    file.edges.push(make_hasmember_edge(
+        "packages/agent/src/index.ts",
+        "packages/agent/src/index.ts",
+        "agentMain",
+        1,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+
+    // Should have 3 modules: packages (structural), packages/agent (structural), agent (leaf)
+    assert_eq!(
+        modules.len(),
+        3,
+        "Should create 3 modules, got {}",
+        modules.len()
+    );
+
+    // The leaf module should be named "agent" (cleaned from "packages/agent/src")
+    let agent_module = modules.iter().find(|m| m.name == "agent").unwrap();
+    assert_eq!(
+        agent_module.file_path, "packages/agent/src",
+        "file_path should still be the actual directory path"
+    );
+    assert_eq!(
+        agent_module.entry_type, None,
+        "agent module should not have test entry_type"
+    );
+
+    // Structural containers keep full paths
+    assert!(
+        modules.iter().any(|m| m.name == "packages"),
+        "Should have 'packages' structural container"
+    );
+    assert!(
+        modules.iter().any(|m| m.name == "packages/agent"),
+        "Should have 'packages/agent' structural container"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_cleans_package_test() {
+    let extractor = TypeScriptExtractor;
+
+    // File in packages/agent/test/foo.test.ts → module named "agent/test" with entry_type test
+    let mut file = make_ts_parsed_file(
+        "packages/agent/test/foo.test.ts",
+        vec![make_ts_symbol(
+            "testFoo",
+            "function",
+            "packages/agent/test/foo.test.ts",
+            1,
+        )],
+    );
+
+    file.edges.push(make_hasmember_edge(
+        "packages/agent/test/foo.test.ts",
+        "packages/agent/test/foo.test.ts",
+        "testFoo",
+        1,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+
+    // Should have 3 modules: packages (structural), packages/agent (structural), agent/test (leaf)
+    assert_eq!(
+        modules.len(),
+        3,
+        "Should create 3 modules, got {}",
+        modules.len()
+    );
+
+    // The leaf module should be named "agent/test" (cleaned from "packages/agent/test")
+    let test_module = modules.iter().find(|m| m.name == "agent/test").unwrap();
+    assert_eq!(
+        test_module.file_path, "packages/agent/test",
+        "file_path should still be the actual directory path"
+    );
+    assert_eq!(
+        test_module.entry_type,
+        Some("test".to_string()),
+        "test module should have entry_type 'test'"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_cleans_package_examples() {
+    let extractor = TypeScriptExtractor;
+
+    // File in packages/coding-agent/examples/demo.ts → module named "coding-agent/examples"
+    let mut file = make_ts_parsed_file(
+        "packages/coding-agent/examples/demo.ts",
+        vec![make_ts_symbol(
+            "demo",
+            "function",
+            "packages/coding-agent/examples/demo.ts",
+            1,
+        )],
+    );
+
+    file.edges.push(make_hasmember_edge(
+        "packages/coding-agent/examples/demo.ts",
+        "packages/coding-agent/examples/demo.ts",
+        "demo",
+        1,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+
+    // Should have 3 modules: packages (structural), packages/coding-agent (structural),
+    // coding-agent/examples (leaf)
+    assert_eq!(
+        modules.len(),
+        3,
+        "Should create 3 modules, got {}",
+        modules.len()
+    );
+
+    // The leaf module should be named "coding-agent/examples"
+    // (cleaned from "packages/coding-agent/examples")
+    let examples_module = modules
+        .iter()
+        .find(|m| m.name == "coding-agent/examples")
+        .unwrap();
+    assert_eq!(
+        examples_module.file_path, "packages/coding-agent/examples",
+        "file_path should still be the actual directory path"
+    );
+    assert_eq!(
+        examples_module.entry_type, None,
+        "examples module should not have test entry_type"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_root_scripts() {
+    let extractor = TypeScriptExtractor;
+
+    // File in scripts/helper.ts → module named "scripts" (unchanged, no packages/ prefix)
+    let mut file = make_ts_parsed_file(
+        "scripts/helper.ts",
+        vec![make_ts_symbol("helper", "function", "scripts/helper.ts", 1)],
+    );
+
+    file.edges.push(make_hasmember_edge(
+        "scripts/helper.ts",
+        "scripts/helper.ts",
+        "helper",
+        1,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+
+    // Should have 1 module: scripts (leaf, no structural containers needed)
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create 1 module, got {}",
+        modules.len()
+    );
+
+    // The module should be named "scripts" (unchanged)
+    let scripts_module = modules.iter().find(|m| m.name == "scripts").unwrap();
+    assert_eq!(
+        scripts_module.file_path, "scripts",
+        "file_path should be the actual directory path"
+    );
+    assert_eq!(
+        scripts_module.entry_type, None,
+        "scripts module should not have test entry_type"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_nested_src() {
+    let extractor = TypeScriptExtractor;
+
+    // File in packages/web-ui/example/src/App.tsx → module named "web-ui/example"
+    let mut file = make_ts_parsed_file(
+        "packages/web-ui/example/src/App.tsx",
+        vec![make_ts_symbol(
+            "App",
+            "function",
+            "packages/web-ui/example/src/App.tsx",
+            1,
+        )],
+    );
+
+    file.edges.push(make_hasmember_edge(
+        "packages/web-ui/example/src/App.tsx",
+        "packages/web-ui/example/src/App.tsx",
+        "App",
+        1,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+
+    // Should have 4 modules: packages (structural), packages/web-ui (structural),
+    // packages/web-ui/example (structural), web-ui/example (leaf)
+    assert_eq!(
+        modules.len(),
+        4,
+        "Should create 4 modules, got {}",
+        modules.len()
+    );
+
+    // The leaf module should be named "web-ui/example"
+    // (cleaned from "packages/web-ui/example/src")
+    let example_module = modules.iter().find(|m| m.name == "web-ui/example").unwrap();
+    assert_eq!(
+        example_module.file_path, "packages/web-ui/example/src",
+        "file_path should still be the actual directory path"
+    );
+    assert_eq!(
+        example_module.entry_type, None,
+        "example module should not have test entry_type"
+    );
+
+    // Structural containers keep full paths
+    assert!(
+        modules.iter().any(|m| m.name == "packages"),
+        "Should have 'packages' structural container"
+    );
+    assert!(
+        modules.iter().any(|m| m.name == "packages/web-ui"),
+        "Should have 'packages/web-ui' structural container"
+    );
+    assert!(
+        modules.iter().any(|m| m.name == "packages/web-ui/example"),
+        "Should have 'packages/web-ui/example' structural container"
     );
 }
