@@ -997,7 +997,7 @@ pub fn TaskDetailDialog(
 
     view! {
         <Dialog open=open>
-            <DialogSurface class="max-w-3xl max-h-[60vh] overflow-hidden flex flex-col">
+            <DialogSurface class="task-detail-dialog-surface w-2/3 max-h-[85vh] overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
                     <DialogContent class="flex-1 overflow-y-auto">
                         <Suspense fallback=move || {
