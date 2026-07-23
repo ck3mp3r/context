@@ -214,11 +214,13 @@ pub mod graph {
     /// - `root`: Optional root symbol ID for subtree view
     /// - `depth`: Optional depth of children to expand (capped at 5)
     /// - `visible_ids`: Optional comma-separated list of visible symbol IDs
+    /// - `expand_depth`: How many levels of children to auto-expand (0 = collapsed roots only)
     pub async fn get_repo_graph(
         repo_id: &str,
         root: Option<&str>,
         depth: Option<u32>,
         visible_ids: Option<&str>,
+        expand_depth: Option<u32>,
     ) -> Result<Option<String>> {
         let mut url = format!("{}/repos/{}/graph", API_BASE, repo_id);
         let mut query_params = vec![];
@@ -232,6 +234,9 @@ pub mod graph {
         }
         if let Some(ids) = visible_ids {
             query_params.push(format!("visible_ids={}", ids));
+        }
+        if let Some(ed) = expand_depth {
+            query_params.push(format!("expand_depth={}", ed));
         }
 
         if !query_params.is_empty() {

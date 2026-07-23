@@ -921,7 +921,11 @@ const MaxSize = 100
 var GlobalVar int
 type UserID string
 "#;
-    let result = extractor.extract(code, "test.go");
+    let mut result = extractor.extract(code, "test.go");
+    // extract_package_members is no longer called from extract() — it's handled
+    // by resolve_file_modules during cross-file resolution. Call it directly
+    // for this unit test.
+    GolangExtractor::extract_package_members("test.go", &mut result);
 
     // Should have 6 symbols: package, function, struct, const, var, type_alias
     assert_eq!(
@@ -991,7 +995,9 @@ func (s *Server) Start() error { return nil }
 
 func TopLevel() {}
 "#;
-    let result = extractor.extract(code, "test.go");
+    let mut result = extractor.extract(code, "test.go");
+    // extract_package_members is no longer called from extract() — call directly
+    GolangExtractor::extract_package_members("test.go", &mut result);
 
     let hasmember_edges: Vec<_> = result
         .edges
@@ -1052,7 +1058,9 @@ package main
 
 func Hello() {}
 "#;
-    let result = extractor.extract(code, "test.go");
+    let mut result = extractor.extract(code, "test.go");
+    // extract_package_members is no longer called from extract() — call directly
+    GolangExtractor::extract_package_members("test.go", &mut result);
 
     let hasmember_edges: Vec<_> = result
         .edges
@@ -2957,4 +2965,479 @@ func Run() {}
         "Should resolve to pkg/a's Run specifically, got: {:?}",
         calls
     );
+}
+
+// ============================================================================
+// resolve_file_modules tests
+// ============================================================================
+
+#[test]
+fn test_resolve_file_modules_creates_directory_modules() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // Two Go files in the same directory: src/api
+    let mut file1 = ParsedFile::new("src/api/handler.go", "go");
+    file1.symbols.push(RawSymbol {
+        name: "HandleRequest".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/api/handler.go".to_string(),
+        start_line: 3,
+        end_line: 10,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("src/api/router.go", "go");
+    file2.symbols.push(RawSymbol {
+        name: "NewRouter".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/api/router.go".to_string(),
+        start_line: 5,
+        end_line: 12,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: ONE module symbol (api) — no intermediate "src" node
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create only 1 module (api), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "api");
+    assert_eq!(modules[0].file_path, "src/api");
+    assert_eq!(
+        modules[0].signature,
+        Some("implicit_module: true, directory: src/api".to_string())
+    );
+    // No parent module since src has no files
+    assert_eq!(modules[0].module_path, None);
+
+    // Verify: 2 HasMember edges: api → HandleRequest, api → NewRouter
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+    assert_eq!(
+        has_member_edges.len(),
+        2,
+        "Should have 2 HasMember edges, got {}",
+        has_member_edges.len()
+    );
+
+    let api_id = SymbolId::new("src/api", "api", 1);
+    let handler_id = SymbolId::new("src/api/handler.go", "HandleRequest", 3);
+    let router_id = SymbolId::new("src/api/router.go", "NewRouter", 5);
+
+    let handler_edge = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == api_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == handler_id.as_str())
+    });
+    assert!(
+        handler_edge,
+        "Should have HasMember from api to HandleRequest"
+    );
+
+    let router_edge = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == api_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == router_id.as_str())
+    });
+    assert!(router_edge, "Should have HasMember from api to NewRouter");
+}
+
+#[test]
+fn test_resolve_file_modules_no_intermediate_nodes() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // File in cmd/server/ — no files directly in cmd/
+    let mut file = ParsedFile::new("cmd/server/main.go", "go");
+    file.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "function".to_string(),
+        file_path: "cmd/server/main.go".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: ONE module symbol (server) — no intermediate "cmd" node
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create only 1 module (server), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "server");
+    assert_eq!(modules[0].file_path, "cmd/server");
+
+    // Verify: NO "cmd" module exists
+    let cmd_module = modules.iter().find(|m| m.name == "cmd");
+    assert!(
+        cmd_module.is_none(),
+        "Should NOT create intermediate 'cmd' module (no files in cmd/)"
+    );
+
+    // Verify: module_path is None (parent cmd has no symbols)
+    assert_eq!(modules[0].module_path, None);
+
+    // Verify: 1 HasMember edge: server → main
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+    assert_eq!(
+        has_member_edges.len(),
+        1,
+        "Should have 1 HasMember edge, got {}",
+        has_member_edges.len()
+    );
+
+    let server_id = SymbolId::new("cmd/server", "server", 1);
+    let main_id = SymbolId::new("cmd/server/main.go", "main", 1);
+
+    let main_edge = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+    });
+    assert!(main_edge, "Should have HasMember from server to main");
+
+    // Verify: NO hierarchy edges (no parent cmd module)
+    let has_hierarchy = has_member_edges
+        .iter()
+        .any(|e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str().contains(":cmd:")));
+    assert!(
+        !has_hierarchy,
+        "Should NOT have any HasMember edges involving 'cmd' module (it doesn't exist)"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_hierarchy_with_parent_symbols() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // File in cmd/ — this directory HAS symbols
+    let mut file1 = ParsedFile::new("cmd/main.go", "go");
+    file1.symbols.push(RawSymbol {
+        name: "Execute".to_string(),
+        kind: "function".to_string(),
+        file_path: "cmd/main.go".to_string(),
+        start_line: 1,
+        end_line: 10,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    // File in cmd/server/ — child directory
+    let mut file2 = ParsedFile::new("cmd/server/main.go", "go");
+    file2.symbols.push(RawSymbol {
+        name: "start".to_string(),
+        kind: "function".to_string(),
+        file_path: "cmd/server/main.go".to_string(),
+        start_line: 3,
+        end_line: 8,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: TWO module symbols (cmd and server)
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        2,
+        "Should create 2 modules (cmd, server), got {}",
+        modules.len()
+    );
+
+    let cmd_module = modules.iter().find(|m| m.name == "cmd").unwrap();
+    assert_eq!(cmd_module.file_path, "cmd");
+    assert_eq!(
+        cmd_module.module_path, None,
+        "cmd should have no parent (no module above it)"
+    );
+
+    let server_module = modules.iter().find(|m| m.name == "server").unwrap();
+    assert_eq!(server_module.file_path, "cmd/server");
+    assert_eq!(
+        server_module.module_path,
+        Some("cmd".to_string()),
+        "server should have parent 'cmd' (cmd has symbols)"
+    );
+
+    // Verify HasMember edges
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // 3 edges: cmd → Execute, cmd → server, server → start
+    assert_eq!(
+        has_member_edges.len(),
+        3,
+        "Should have 3 HasMember edges, got {}",
+        has_member_edges.len()
+    );
+
+    let cmd_id = SymbolId::new("cmd", "cmd", 1);
+    let server_id = SymbolId::new("cmd/server", "server", 1);
+    let execute_id = SymbolId::new("cmd/main.go", "Execute", 1);
+    let start_id = SymbolId::new("cmd/server/main.go", "start", 3);
+
+    // cmd → Execute
+    let cmd_to_execute = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == cmd_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == execute_id.as_str())
+    });
+    assert!(cmd_to_execute, "Should have HasMember from cmd to Execute");
+
+    // cmd → server (hierarchy edge)
+    let cmd_to_server = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == cmd_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
+    });
+    assert!(
+        cmd_to_server,
+        "Should have HasMember from cmd to server (hierarchy edge)"
+    );
+
+    // server → start
+    let server_to_start = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == start_id.as_str())
+    });
+    assert!(
+        server_to_start,
+        "Should have HasMember from server to start"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_no_go_files() {
+    use crate::a6s::types::{ParsedFile, RawSymbol};
+
+    let extractor = GolangExtractor;
+
+    // Non-Go files should be ignored
+    let mut file = ParsedFile::new("main.rs", "rust");
+    file.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "function".to_string(),
+        file_path: "main.rs".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "rust".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // No modules should be created
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert!(
+        modules.is_empty(),
+        "No modules should be created for non-Go files"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_single_file() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // Single Go file in src/
+    let mut file = ParsedFile::new("src/main.go", "go");
+    file.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/main.go".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: ONE module symbol (src)
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create 1 module (src), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "src");
+    assert_eq!(modules[0].file_path, "src");
+    assert_eq!(modules[0].module_path, None);
+
+    // Verify: 1 HasMember edge: src → main
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+    assert_eq!(
+        has_member_edges.len(),
+        1,
+        "Should have 1 HasMember edge, got {}",
+        has_member_edges.len()
+    );
+
+    let src_id = SymbolId::new("src", "src", 1);
+    let main_id = SymbolId::new("src/main.go", "main", 1);
+
+    let main_edge = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == src_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+    });
+    assert!(main_edge, "Should have HasMember from src to main");
+}
+
+#[test]
+fn test_resolve_file_modules_root_level_files() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // Two root-level Go files
+    let mut file1 = ParsedFile::new("main.go", "go");
+    file1.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "function".to_string(),
+        file_path: "main.go".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("utils.go", "go");
+    file2.symbols.push(RawSymbol {
+        name: "helper".to_string(),
+        kind: "function".to_string(),
+        file_path: "utils.go".to_string(),
+        start_line: 3,
+        end_line: 8,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: ONE module symbol (root)
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create 1 module (root), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "root");
+    assert_eq!(modules[0].file_path, ".");
+    assert_eq!(modules[0].module_path, None);
+
+    // Verify: 2 HasMember edges: root → main, root → helper
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+    assert_eq!(
+        has_member_edges.len(),
+        2,
+        "Should have 2 HasMember edges, got {}",
+        has_member_edges.len()
+    );
+
+    let root_id = SymbolId::new(".", "root", 1);
+    let main_id = SymbolId::new("main.go", "main", 1);
+    let helper_id = SymbolId::new("utils.go", "helper", 3);
+
+    let main_edge = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+    });
+    assert!(main_edge, "Should have HasMember from root to main");
+
+    let helper_edge = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == helper_id.as_str())
+    });
+    assert!(helper_edge, "Should have HasMember from root to helper");
 }

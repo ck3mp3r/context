@@ -388,9 +388,247 @@ impl LanguageExtractor for KotlinExtractor {
 
         (resolved_edges, resolved_imports)
     }
+
+    /// Resolve file-level modules for Kotlin files.
+    ///
+    /// Groups files by package path, creates ONE canonical module symbol per
+    /// unique package path (no intermediate nodes), rewrites HasMember edges
+    /// to point to canonical modules, and creates package hierarchy edges
+    /// ONLY when the parent package has actual symbols.
+    fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
+        use crate::a6s::types::{EdgeKind, RawEdge, RawSymbol, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Phase 1: Group files by package path
+        let mut pkg_files: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (i, pf) in parsed_files.iter().enumerate() {
+            if pf.language != "kotlin" {
+                continue;
+            }
+            let pkg = pf
+                .symbols
+                .first()
+                .and_then(|s| s.module_path.clone())
+                .unwrap_or_default();
+            pkg_files.entry(pkg).or_default().push(i);
+        }
+
+        if pkg_files.is_empty() {
+            return;
+        }
+
+        // Phase 2: Sort packages by depth (shallowest first)
+        let mut sorted_pkgs: Vec<&String> = pkg_files.keys().collect();
+        sorted_pkgs.sort_by(|a, b| {
+            let depth_a = if a.is_empty() {
+                0
+            } else {
+                a.split("::").count()
+            };
+            let depth_b = if b.is_empty() {
+                0
+            } else {
+                b.split("::").count()
+            };
+            depth_a.cmp(&depth_b)
+        });
+
+        // Phase 3: Create ONE RawSymbol per unique package path (no intermediate nodes)
+        // Map: package_path -> (module_name, first_file_idx)
+        let mut pkg_module_map: HashMap<String, (String, usize)> = HashMap::new();
+
+        for pkg in &sorted_pkgs {
+            let file_indices = pkg_files.get(pkg.as_str()).unwrap();
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let target_idx = file_indices[0];
+
+            // Module name: package path with dots (e.g., "com.example.app")
+            let module_name = if pkg.is_empty() {
+                "root".to_string()
+            } else {
+                pkg.replace("::", ".")
+            };
+
+            // Determine parent package path
+            let parent_pkg = if pkg.is_empty() {
+                None
+            } else {
+                let components: Vec<&str> = pkg.split("::").collect();
+                if components.len() <= 1 {
+                    None
+                } else {
+                    Some(components[..components.len() - 1].join("::"))
+                }
+            };
+
+            // Set module_path to parent package ONLY if parent has actual symbols
+            let module_path = parent_pkg.as_ref().and_then(|parent| {
+                if Self::pkg_has_symbols(parent, &pkg_files, parsed_files) {
+                    Some(parent.clone())
+                } else {
+                    None
+                }
+            });
+
+            // Create module symbol
+            let module_sym = RawSymbol {
+                name: module_name.clone(),
+                kind: "module".to_string(),
+                file_path: parsed_files[target_idx].file_path.clone(),
+                start_line: 1,
+                end_line: 1,
+                signature: Some(format!("implicit_module: true, package: {}", pkg)),
+                language: "kotlin".to_string(),
+                visibility: Some("pub".to_string()),
+                entry_type: None,
+                module_path,
+            };
+
+            parsed_files[target_idx].symbols.push(module_sym);
+            pkg_module_map.insert(pkg.to_string(), (module_name, target_idx));
+        }
+
+        // Phase 4: Rewrite existing HasMember edges to point to canonical module
+        for (pkg, file_indices) in &pkg_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some((canonical_name, canonical_file_idx)) = pkg_module_map.get(pkg.as_str())
+            else {
+                continue;
+            };
+            let canonical_file_path = &parsed_files[*canonical_file_idx].file_path;
+            let canonical_id = SymbolId::new(canonical_file_path, canonical_name, 1);
+
+            for &file_idx in file_indices {
+                let file_path = &parsed_files[file_idx].file_path;
+                let old_module_name = pkg.replace("::", ".");
+                let old_module_id = SymbolId::new(file_path, &old_module_name, 1);
+
+                for edge in &mut parsed_files[file_idx].edges {
+                    if edge.kind == EdgeKind::HasMember
+                        && let SymbolRef::Resolved(ref id) = edge.from
+                        && id.as_str() == old_module_id.as_str()
+                    {
+                        edge.from = SymbolRef::resolved(canonical_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Phase 5: Create HasMember edges for package nesting
+        // ONLY when parent package has actual symbols (non-module)
+        let mut edges_to_add: Vec<(usize, RawEdge)> = Vec::new();
+
+        for pkg in &sorted_pkgs {
+            if pkg.is_empty() {
+                continue;
+            }
+
+            let components: Vec<&str> = pkg.split("::").collect();
+            if components.len() <= 1 {
+                continue;
+            }
+
+            let parent_pkg = components[..components.len() - 1].join("::");
+
+            // Only create edge if parent package has actual symbols
+            if !Self::pkg_has_symbols(&parent_pkg, &pkg_files, parsed_files) {
+                continue;
+            }
+
+            if let Some(&(ref parent_name, parent_file_idx)) = pkg_module_map.get(&parent_pkg)
+                && let Some(&(ref child_name, child_file_idx)) = pkg_module_map.get(pkg.as_str())
+            {
+                let parent_file_path = &parsed_files[parent_file_idx].file_path;
+                let child_file_path = &parsed_files[child_file_idx].file_path;
+
+                let from = SymbolRef::resolved(SymbolId::new(parent_file_path, parent_name, 1));
+                let to = SymbolRef::resolved(SymbolId::new(child_file_path, child_name, 1));
+
+                edges_to_add.push((
+                    child_file_idx,
+                    RawEdge {
+                        from,
+                        to,
+                        kind: EdgeKind::HasMember,
+                        line: Some(1),
+                        entry_type: None,
+                    },
+                ));
+            }
+        }
+
+        // Phase 6: Create HasMember edges from leaf package module → file symbols
+        for (pkg, file_indices) in &pkg_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some(&(ref module_name, module_file_idx)) = pkg_module_map.get(pkg.as_str()) else {
+                continue;
+            };
+            let module_file_path = &parsed_files[module_file_idx].file_path;
+            let module_id = SymbolRef::resolved(SymbolId::new(module_file_path, module_name, 1));
+
+            for &file_idx in file_indices {
+                for sym in &parsed_files[file_idx].symbols {
+                    if sym.kind == "module" {
+                        continue;
+                    }
+
+                    let sym_id = SymbolRef::resolved(SymbolId::new(
+                        &parsed_files[file_idx].file_path,
+                        &sym.name,
+                        sym.start_line,
+                    ));
+
+                    edges_to_add.push((
+                        file_idx,
+                        RawEdge {
+                            from: module_id.clone(),
+                            to: sym_id,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // Add all collected edges
+        for (file_idx, edge) in edges_to_add {
+            parsed_files[file_idx].edges.push(edge);
+        }
+    }
 }
 
 impl KotlinExtractor {
+    /// Check if a package has any non-module symbols in its files.
+    /// Used to determine whether to create parent-child HasMember edges
+    /// between packages.
+    fn pkg_has_symbols(
+        pkg: &str,
+        pkg_files: &std::collections::HashMap<String, Vec<usize>>,
+        parsed_files: &[ParsedFile],
+    ) -> bool {
+        if let Some(indices) = pkg_files.get(pkg) {
+            for &idx in indices {
+                for sym in &parsed_files[idx].symbols {
+                    if sym.kind != "module" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
     /// Check if a resolved symbol's kind is compatible with the edge kind.
     fn is_kind_compatible(
         edge_kind: &crate::a6s::types::EdgeKind,

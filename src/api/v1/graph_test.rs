@@ -325,8 +325,268 @@ async fn test_aggregate_edges_multiple_types() {
 }
 
 // =============================================================================
-// Tests for search endpoint
+// Tests for expand_depth / expand_children_bfs
 // =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_expand_depth_0_returns_only_roots() {
+    use super::graph::expand_children_bfs;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    // Setup: Root A with child A1, root B with child B1
+    // A -> A1, B -> B1
+    let root_ids = vec!["A".to_string(), "B".to_string()];
+
+    let mut all_symbols_map: HashMap<String, serde_json::Value> = HashMap::new();
+    all_symbols_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+    all_symbols_map.insert("A1".to_string(), json!({"symbol_id": "A1", "name": "A1"}));
+    all_symbols_map.insert("B".to_string(), json!({"symbol_id": "B", "name": "B"}));
+    all_symbols_map.insert("B1".to_string(), json!({"symbol_id": "B1", "name": "B1"}));
+
+    let mut containment_edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    containment_edges.insert(
+        "A".to_string(),
+        vec![("A1".to_string(), "HasMember".to_string())],
+    );
+    containment_edges.insert(
+        "B".to_string(),
+        vec![("B1".to_string(), "HasMember".to_string())],
+    );
+
+    let child_counts: HashMap<String, u32> = [("A".to_string(), 1), ("B".to_string(), 1)]
+        .iter()
+        .cloned()
+        .collect();
+
+    // Start with only roots in symbol_map
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
+    symbol_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+    symbol_map.insert("B".to_string(), json!({"symbol_id": "B", "name": "B"}));
+
+    let (result_map, containment_edges_result) = expand_children_bfs(
+        &root_ids,
+        0, // expand_depth = 0
+        &all_symbols_map,
+        &containment_edges,
+        &child_counts,
+        symbol_map,
+    );
+
+    // Should only have roots — no children added
+    assert_eq!(
+        result_map.len(),
+        2,
+        "expand_depth=0 should only return roots"
+    );
+    assert!(result_map.contains_key("A"), "Root A should be present");
+    assert!(result_map.contains_key("B"), "Root B should be present");
+    assert!(
+        !result_map.contains_key("A1"),
+        "Child A1 should NOT be present with expand_depth=0"
+    );
+    assert!(
+        !result_map.contains_key("B1"),
+        "Child B1 should NOT be present with expand_depth=0"
+    );
+    assert!(
+        containment_edges_result.is_empty(),
+        "No containment edges should be present with expand_depth=0"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_expand_depth_1_returns_roots_and_children() {
+    use super::graph::expand_children_bfs;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    // Setup: Root A with child A1, root B with child B1
+    let root_ids = vec!["A".to_string(), "B".to_string()];
+
+    let mut all_symbols_map: HashMap<String, serde_json::Value> = HashMap::new();
+    all_symbols_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+    all_symbols_map.insert("A1".to_string(), json!({"symbol_id": "A1", "name": "A1"}));
+    all_symbols_map.insert("B".to_string(), json!({"symbol_id": "B", "name": "B"}));
+    all_symbols_map.insert("B1".to_string(), json!({"symbol_id": "B1", "name": "B1"}));
+
+    let mut containment_edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    containment_edges.insert(
+        "A".to_string(),
+        vec![("A1".to_string(), "HasMember".to_string())],
+    );
+    containment_edges.insert(
+        "B".to_string(),
+        vec![("B1".to_string(), "HasMember".to_string())],
+    );
+
+    let child_counts: HashMap<String, u32> = [("A".to_string(), 1), ("B".to_string(), 1)]
+        .iter()
+        .cloned()
+        .collect();
+
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
+    symbol_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+    symbol_map.insert("B".to_string(), json!({"symbol_id": "B", "name": "B"}));
+
+    let (result_map, containment_edges_result) = expand_children_bfs(
+        &root_ids,
+        1, // expand_depth = 1
+        &all_symbols_map,
+        &containment_edges,
+        &child_counts,
+        symbol_map,
+    );
+
+    // Should have roots + direct children
+    assert_eq!(
+        result_map.len(),
+        4,
+        "expand_depth=1 should return roots + children"
+    );
+    assert!(result_map.contains_key("A"), "Root A should be present");
+    assert!(result_map.contains_key("B"), "Root B should be present");
+    assert!(
+        result_map.contains_key("A1"),
+        "Child A1 should be present with expand_depth=1"
+    );
+    assert!(
+        result_map.contains_key("B1"),
+        "Child B1 should be present with expand_depth=1"
+    );
+
+    // Should have containment edges
+    assert_eq!(
+        containment_edges_result.len(),
+        2,
+        "Should have 2 containment edges"
+    );
+
+    // Verify child has parent_id injected
+    let a1 = result_map.get("A1").unwrap();
+    assert_eq!(
+        a1["parent_id"].as_str(),
+        Some("A"),
+        "A1 should have parent_id=A"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_expand_depth_2_returns_grandchildren() {
+    use super::graph::expand_children_bfs;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    // Setup: A -> A1 -> A2 (two levels deep)
+    let root_ids = vec!["A".to_string()];
+
+    let mut all_symbols_map: HashMap<String, serde_json::Value> = HashMap::new();
+    all_symbols_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+    all_symbols_map.insert("A1".to_string(), json!({"symbol_id": "A1", "name": "A1"}));
+    all_symbols_map.insert("A2".to_string(), json!({"symbol_id": "A2", "name": "A2"}));
+
+    let mut containment_edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    containment_edges.insert(
+        "A".to_string(),
+        vec![("A1".to_string(), "HasMember".to_string())],
+    );
+    containment_edges.insert(
+        "A1".to_string(),
+        vec![("A2".to_string(), "HasMember".to_string())],
+    );
+
+    let child_counts: HashMap<String, u32> = [("A".to_string(), 1), ("A1".to_string(), 1)]
+        .iter()
+        .cloned()
+        .collect();
+
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
+    symbol_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+
+    let (result_map, containment_edges_result) = expand_children_bfs(
+        &root_ids,
+        2, // expand_depth = 2
+        &all_symbols_map,
+        &containment_edges,
+        &child_counts,
+        symbol_map,
+    );
+
+    // Should have root + child + grandchild
+    assert_eq!(
+        result_map.len(),
+        3,
+        "expand_depth=2 should return root + child + grandchild"
+    );
+    assert!(result_map.contains_key("A"), "Root A should be present");
+    assert!(result_map.contains_key("A1"), "Child A1 should be present");
+    assert!(
+        result_map.contains_key("A2"),
+        "Grandchild A2 should be present"
+    );
+
+    // Should have 2 containment edges
+    assert_eq!(
+        containment_edges_result.len(),
+        2,
+        "Should have 2 containment edges (A->A1, A1->A2)"
+    );
+
+    // Verify grandchild has parent_id=A1
+    let a2 = result_map.get("A2").unwrap();
+    assert_eq!(
+        a2["parent_id"].as_str(),
+        Some("A1"),
+        "A2 should have parent_id=A1"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_expand_depth_default_is_1() {
+    // Verify that when expand_depth is not provided, it defaults to 1
+    // This is tested via the handler logic: query.expand_depth.unwrap_or(1)
+    // We verify the default behavior matches expand_depth=1
+    use super::graph::expand_children_bfs;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    let root_ids = vec!["A".to_string()];
+
+    let mut all_symbols_map: HashMap<String, serde_json::Value> = HashMap::new();
+    all_symbols_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+    all_symbols_map.insert("A1".to_string(), json!({"symbol_id": "A1", "name": "A1"}));
+
+    let mut containment_edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    containment_edges.insert(
+        "A".to_string(),
+        vec![("A1".to_string(), "HasMember".to_string())],
+    );
+
+    let child_counts: HashMap<String, u32> = [("A".to_string(), 1)].iter().cloned().collect();
+
+    let mut symbol_map: HashMap<String, serde_json::Value> = HashMap::new();
+    symbol_map.insert("A".to_string(), json!({"symbol_id": "A", "name": "A"}));
+
+    // Default behavior (expand_depth=1)
+    let (result_map, _) = expand_children_bfs(
+        &root_ids,
+        1,
+        &all_symbols_map,
+        &containment_edges,
+        &child_counts,
+        symbol_map,
+    );
+
+    assert_eq!(
+        result_map.len(),
+        2,
+        "Default expand_depth=1 should return root + child"
+    );
+    assert!(
+        result_map.contains_key("A1"),
+        "Child should be present with default depth"
+    );
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_search_returns_empty_when_no_analysis() {

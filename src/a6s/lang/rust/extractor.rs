@@ -570,20 +570,45 @@ impl RustExtractor {
             return None;
         }
 
-        // Strip src/ prefix if present
-        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
+        // Find src/ anywhere in the path and split at that point.
+        // For "src/lib.rs" → before="", after="lib.rs"
+        // For "crates/foo/src/lib.rs" → before="crates/foo", after="lib.rs"
+        // For "db/project.rs" (no src/) → before="", after="db/project.rs"
+        let (before_src, after_src) = if let Some(idx) = file_path.find("/src/") {
+            let before = &file_path[..idx];
+            let after = &file_path[idx + 5..]; // skip "/src/"
+            (Some(before), after)
+        } else if let Some(after) = file_path.strip_prefix("src/") {
+            (None, after)
+        } else {
+            (None, file_path)
+        };
 
         // Handle empty or root-only paths
-        if path.is_empty() || path == "/" {
+        if after_src.is_empty() || after_src == "/" {
             return None;
         }
 
         // Remove .rs extension
-        let path = path.strip_suffix(".rs")?;
+        let path = after_src.strip_suffix(".rs")?;
 
         // Handle crate roots (main.rs, lib.rs)
         if path == "main" || path == "lib" {
-            return None;
+            // Check if this is a workspace crate (src/ is not at repo root).
+            // before_src tells us the crate location.
+            return match before_src {
+                None => None, // Single crate at root: src/lib.rs (backward compatible)
+                Some("") => None,
+                Some(crate_path) => {
+                    // Use the last component as the crate name
+                    let crate_name = crate_path.rsplit('/').next().unwrap_or("");
+                    if crate_name.is_empty() {
+                        None
+                    } else {
+                        Some(crate_name.to_string())
+                    }
+                }
+            };
         }
 
         // Handle mod.rs - return GRANDPARENT directory path (parent's parent)

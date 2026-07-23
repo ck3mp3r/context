@@ -327,9 +327,11 @@
    * @param {string} graphDataJson - JSON string with { nodes, edges, stats }
    * @param {string} repoId - Repository ID for API calls
    * @param {string} apiBase - API base URL (e.g., "/dev/api/v1" or "/api/v1")
+   * @param {number} [expandDepth=1] - How many levels of children to auto-expand (0 = collapsed roots only)
    * @returns {boolean} true if successful
    */
-  window.initGraph = function(containerId, graphDataJson, repoId, apiBase) {
+  window.initGraph = function(containerId, graphDataJson, repoId, apiBase, expandDepth) {
+    var expandDepth = expandDepth !== undefined ? expandDepth : 1;
     // Clean up existing instance
     if (instances[containerId]) {
       instances[containerId].renderer.kill();
@@ -470,6 +472,7 @@
         renderer: renderer,
         repoId: repoId,
         apiBase: apiBase || "/api/v1",  // Fallback for backward compatibility
+        expandDepth: expandDepth,
         expandedNodes: new Set(),
         knownNodes: new Map(),
         filteredKinds: filteredKinds,
@@ -1207,7 +1210,7 @@
 
     try {
       // Fetch root data again using configured API base
-      var url = inst.apiBase + "/repos/" + inst.repoId + "/graph";
+      var url = inst.apiBase + "/repos/" + inst.repoId + "/graph?expand_depth=" + (inst.expandDepth || 1);
       var response = await fetch(url);
       if (!response.ok) {
         console.error("Failed to fetch root graph:", response.statusText);

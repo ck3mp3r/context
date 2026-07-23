@@ -264,8 +264,49 @@ async fn load_and_commit(
         .collect();
     graph.insert_symbols_batch(&all_symbols).await?;
 
-    // Batch insert resolved edges
-    graph.insert_edges_batch(resolved_edges).await?;
+    // Collect per-file edges that are already resolved (HasMember from resolve_file_modules, etc.)
+    // These are edges that resolve_cross_file may not have returned (e.g., Nushell only processes Calls)
+    let per_file_edges: Vec<ResolvedEdge> = parsed_files
+        .iter()
+        .flat_map(|pf| {
+            pf.edges.iter().filter_map(|raw_edge| {
+                // Only collect edges where both endpoints are already resolved
+                let from = match &raw_edge.from {
+                    SymbolRef::Resolved(id) => id.clone(),
+                    SymbolRef::Unresolved { .. } => return None,
+                };
+                let to = match &raw_edge.to {
+                    SymbolRef::Resolved(id) => id.clone(),
+                    SymbolRef::Unresolved { .. } => return None,
+                };
+                Some(ResolvedEdge {
+                    from,
+                    to,
+                    kind: raw_edge.kind.clone(),
+                    line: raw_edge.line,
+                    entry_type: raw_edge.entry_type.clone(),
+                })
+            })
+        })
+        .collect();
+
+    // Deduplicate: skip per-file edges that are already in resolved_edges
+    // (Rust/Go/TS/Kotlin resolve_cross_file already returns all edges including HasMember)
+    let existing: std::collections::HashSet<(SymbolId, SymbolId, EdgeKind)> = resolved_edges
+        .iter()
+        .map(|e| (e.from.clone(), e.to.clone(), e.kind.clone()))
+        .collect();
+
+    let mut all_edges: Vec<ResolvedEdge> = resolved_edges.to_vec();
+    for edge in per_file_edges {
+        let key = (edge.from.clone(), edge.to.clone(), edge.kind.clone());
+        if !existing.contains(&key) {
+            all_edges.push(edge);
+        }
+    }
+
+    // Batch insert all resolved edges
+    graph.insert_edges_batch(&all_edges).await?;
 
     // Batch insert import edges
     graph.insert_imports_batch(import_edges).await?;

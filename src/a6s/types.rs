@@ -167,7 +167,7 @@ impl SymbolRef {
 
 /// Semantic edge kinds for the code graph.
 /// These represent typed relationships between symbols.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EdgeKind {
     // Membership (parent contains child)
     HasField,  // class/struct → field/property

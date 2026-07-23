@@ -1,6 +1,6 @@
 use super::extractor::TypeScriptExtractor;
 use crate::a6s::extract::LanguageExtractor;
-use crate::a6s::types::EdgeKind;
+use crate::a6s::types::{EdgeKind, ParsedFile};
 
 fn load_testdata(name: &str) -> String {
     let path = format!(
@@ -1376,5 +1376,530 @@ export function main() { run(); }
         calls.iter().any(|e| e.to.as_str().contains("module_a")),
         "Should resolve to module_a's run specifically, got: {:?}",
         calls
+    );
+}
+
+// ============================================================================
+// Phase 8: resolve_file_modules() Tests
+// ============================================================================
+
+use crate::a6s::types::{RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+/// Helper to create a RawSymbol for testing
+fn make_ts_symbol(name: &str, kind: &str, file_path: &str, start_line: usize) -> RawSymbol {
+    RawSymbol {
+        name: name.to_string(),
+        kind: kind.to_string(),
+        file_path: file_path.to_string(),
+        start_line,
+        end_line: start_line + 5,
+        signature: None,
+        language: "typescript".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    }
+}
+
+/// Helper to create a ParsedFile for testing
+fn make_ts_parsed_file(file_path: &str, symbols: Vec<RawSymbol>) -> ParsedFile {
+    ParsedFile {
+        file_path: file_path.to_string(),
+        language: "typescript".to_string(),
+        symbols,
+        edges: Vec::new(),
+        imports: Vec::new(),
+        file_category: None,
+    }
+}
+
+/// Helper to create a HasMember edge from an implicit module to a symbol
+fn make_hasmember_edge(
+    file_path: &str,
+    module_name: &str,
+    sym_name: &str,
+    sym_line: usize,
+) -> RawEdge {
+    RawEdge {
+        from: SymbolRef::resolved(SymbolId::new(file_path, module_name, 1)),
+        to: SymbolRef::resolved(SymbolId::new(file_path, sym_name, sym_line)),
+        kind: EdgeKind::HasMember,
+        line: Some(sym_line),
+        entry_type: None,
+    }
+}
+
+#[test]
+fn test_resolve_file_modules_creates_canonical_module() {
+    let extractor = TypeScriptExtractor;
+    let mut file1 = make_ts_parsed_file(
+        "src/api/users.ts",
+        vec![make_ts_symbol("User", "interface", "src/api/users.ts", 3)],
+    );
+    let mut file2 = make_ts_parsed_file(
+        "src/api/handler.ts",
+        vec![make_ts_symbol(
+            "handleUser",
+            "function",
+            "src/api/handler.ts",
+            3,
+        )],
+    );
+
+    // Add HasMember edges (simulating extract_hasmember_edges output)
+    file1.edges.push(make_hasmember_edge(
+        "src/api/users.ts",
+        "src/api/users.ts",
+        "User",
+        3,
+    ));
+    file2.edges.push(make_hasmember_edge(
+        "src/api/handler.ts",
+        "src/api/handler.ts",
+        "handleUser",
+        3,
+    ));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: one RawSymbol with kind == "module" (api only — no intermediate src)
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create only 1 module (api), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "api");
+
+    let api_module = &modules[0];
+    assert_eq!(
+        api_module.signature,
+        Some("implicit_module: true, directory: src/api".to_string())
+    );
+    assert_eq!(api_module.file_path, "src/api");
+    // No parent module since src has no files
+    assert_eq!(api_module.module_path, None);
+
+    // Verify: HasMember edges from canonical module to User and handleUser
+    let canonical_id = SymbolId::new("src/api", "api", 1);
+    let user_id = SymbolId::new("src/api/users.ts", "User", 3);
+    let handler_id = SymbolId::new("src/api/handler.ts", "handleUser", 3);
+
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    let user_edge = all_edges.iter().find(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == canonical_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == user_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        user_edge.is_some(),
+        "Should have HasMember from canonical module to User"
+    );
+
+    let handler_edge = all_edges.iter().find(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == canonical_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == handler_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        handler_edge.is_some(),
+        "Should have HasMember from canonical module to handleUser"
+    );
+
+    // Verify: old per-file module edges from non-canonical files are rewritten
+    let old_handler_id = SymbolId::new("src/api/handler.ts", "src/api/handler.ts", 1);
+    let old_handler_edges = all_edges.iter().filter(
+        |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == old_handler_id.as_str()),
+    );
+    assert_eq!(
+        old_handler_edges.count(),
+        0,
+        "Old per-file module edges from handler.ts should be rewritten to canonical module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_directory_hierarchy() {
+    let extractor = TypeScriptExtractor;
+    let mut file1 = make_ts_parsed_file(
+        "src/api/v1/users.ts",
+        vec![make_ts_symbol(
+            "User",
+            "interface",
+            "src/api/v1/users.ts",
+            3,
+        )],
+    );
+    let mut file2 = make_ts_parsed_file(
+        "src/api/v1/handler.ts",
+        vec![make_ts_symbol(
+            "handleUser",
+            "function",
+            "src/api/v1/handler.ts",
+            3,
+        )],
+    );
+
+    // Add HasMember edges (simulating extract_hasmember_edges output)
+    file1.edges.push(make_hasmember_edge(
+        "src/api/v1/users.ts",
+        "src/api/v1/users.ts",
+        "User",
+        3,
+    ));
+    file2.edges.push(make_hasmember_edge(
+        "src/api/v1/handler.ts",
+        "src/api/v1/handler.ts",
+        "handleUser",
+        3,
+    ));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: only 1 module symbol created (v1) — no intermediate src or src/api
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create 1 module (v1), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "v1");
+
+    let v1_module = &modules[0];
+    assert_eq!(
+        v1_module.signature,
+        Some("implicit_module: true, directory: src/api/v1".to_string())
+    );
+    assert_eq!(v1_module.file_path, "src/api/v1");
+    // No parent module since src/api has no files
+    assert_eq!(v1_module.module_path, None);
+
+    // Verify: NO hierarchy edges (no parent modules exist)
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    // Helper to check if a SymbolId matches a module name (regardless of file path)
+    fn sym_id_matches(id: &SymbolId, module_name: &str) -> bool {
+        let s = id.as_str();
+        let last_colon = s.rfind(':').unwrap_or(0);
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':').unwrap_or(0);
+        let name = &s[second_last_colon + 1..last_colon];
+        name == module_name
+    }
+
+    // No src or api modules, so no hierarchy edges
+    let src_to_api = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "src"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "api"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !src_to_api,
+        "Should NOT have HasMember from src to api (src doesn't exist)"
+    );
+
+    let api_to_v1 = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "api"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "v1"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !api_to_v1,
+        "Should NOT have HasMember from api to v1 (api doesn't exist)"
+    );
+
+    // Verify: HasMember edges from v1 module to file symbols
+    let v1_id = SymbolId::new("src/api/v1", "v1", 1);
+    let user_id = SymbolId::new("src/api/v1/users.ts", "User", 3);
+    let handler_id = SymbolId::new("src/api/v1/handler.ts", "handleUser", 3);
+
+    let user_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == v1_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == user_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(user_edge, "Should have HasMember from v1 module to User");
+
+    let handler_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == v1_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == handler_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        handler_edge,
+        "Should have HasMember from v1 module to handleUser"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_parent_with_files_creates_hierarchy() {
+    let extractor = TypeScriptExtractor;
+
+    // File in parent directory: src/api/handler.ts
+    let mut file1 = make_ts_parsed_file(
+        "src/api/handler.ts",
+        vec![make_ts_symbol(
+            "handleUser",
+            "function",
+            "src/api/handler.ts",
+            3,
+        )],
+    );
+    // File in child directory: src/api/v1/tasks.ts
+    let mut file2 = make_ts_parsed_file(
+        "src/api/v1/tasks.ts",
+        vec![make_ts_symbol(
+            "Task",
+            "interface",
+            "src/api/v1/tasks.ts",
+            5,
+        )],
+    );
+
+    // Add HasMember edges
+    file1.edges.push(make_hasmember_edge(
+        "src/api/handler.ts",
+        "src/api/handler.ts",
+        "handleUser",
+        3,
+    ));
+    file2.edges.push(make_hasmember_edge(
+        "src/api/v1/tasks.ts",
+        "src/api/v1/tasks.ts",
+        "Task",
+        5,
+    ));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: 2 module symbols (api and v1) — no src intermediate
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        2,
+        "Should create 2 modules (api, v1), got {}",
+        modules.len()
+    );
+
+    let api_module = modules.iter().find(|m| m.name == "api").unwrap();
+    assert_eq!(
+        api_module.module_path, None,
+        "api should have no parent (src has no files)"
+    );
+
+    let v1_module = modules.iter().find(|m| m.name == "v1").unwrap();
+    assert_eq!(
+        v1_module.module_path,
+        Some("src/api".to_string()),
+        "v1 should have parent src/api (api has files)"
+    );
+
+    // Verify: HasMember hierarchy edge from api → v1
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    fn sym_id_matches(id: &SymbolId, module_name: &str) -> bool {
+        let s = id.as_str();
+        let last_colon = s.rfind(':').unwrap_or(0);
+        let before_last = &s[..last_colon];
+        let second_last_colon = before_last.rfind(':').unwrap_or(0);
+        let name = &s[second_last_colon + 1..last_colon];
+        name == module_name
+    }
+
+    let api_to_v1 = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "api"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "v1"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        api_to_v1,
+        "Should have HasMember from api to v1 (api has files)"
+    );
+
+    // Verify: no src → api edge (src has no files)
+    let src_to_api = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if sym_id_matches(id, "src"))
+            && matches!(&e.to, SymbolRef::Resolved(id) if sym_id_matches(id, "api"))
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !src_to_api,
+        "Should NOT have HasMember from src to api (src has no files)"
+    );
+
+    // Verify: HasMember edges from api module to handleUser
+    let api_id = SymbolId::new("src/api", "api", 1);
+    let handler_id = SymbolId::new("src/api/handler.ts", "handleUser", 3);
+    let handler_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == api_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == handler_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        handler_edge,
+        "Should have HasMember from api module to handleUser"
+    );
+
+    // Verify: HasMember edges from v1 module to Task
+    let v1_id = SymbolId::new("src/api/v1", "v1", 1);
+    let task_id = SymbolId::new("src/api/v1/tasks.ts", "Task", 5);
+    let task_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == v1_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == task_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(task_edge, "Should have HasMember from v1 module to Task");
+}
+
+#[test]
+fn test_resolve_file_modules_no_typescript_files() {
+    let extractor = TypeScriptExtractor;
+    let mut files = vec![ParsedFile {
+        file_path: "main.rs".to_string(),
+        language: "rust".to_string(),
+        symbols: vec![],
+        edges: vec![],
+        imports: vec![],
+        file_category: None,
+    }];
+
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: no module symbols added
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        0,
+        "Should not create modules for non-TS files"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_single_file() {
+    let extractor = TypeScriptExtractor;
+    let mut file = make_ts_parsed_file(
+        "src/index.ts",
+        vec![make_ts_symbol("main", "function", "src/index.ts", 1)],
+    );
+
+    file.edges.push(make_hasmember_edge(
+        "src/index.ts",
+        "src/index.ts",
+        "main",
+        1,
+    ));
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: one module symbol created (src)
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create 1 module (src), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "src");
+
+    // Verify: HasMember edge from src module to main
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let src_id = SymbolId::new("src", "src", 1);
+    let main_id = SymbolId::new("src/index.ts", "main", 1);
+
+    let main_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == src_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(main_edge, "Should have HasMember from src module to main");
+}
+
+#[test]
+fn test_resolve_file_modules_root_level_files() {
+    let extractor = TypeScriptExtractor;
+    let mut file1 = make_ts_parsed_file(
+        "index.ts",
+        vec![make_ts_symbol("main", "function", "index.ts", 1)],
+    );
+    let mut file2 = make_ts_parsed_file(
+        "utils.ts",
+        vec![make_ts_symbol("helper", "function", "utils.ts", 3)],
+    );
+
+    // Add HasMember edges
+    file1
+        .edges
+        .push(make_hasmember_edge("index.ts", "index.ts", "main", 1));
+    file2
+        .edges
+        .push(make_hasmember_edge("utils.ts", "utils.ts", "helper", 3));
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: one module symbol created (root)
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        1,
+        "Should create 1 module (root), got {}",
+        modules.len()
+    );
+    assert_eq!(modules[0].name, "root");
+    assert_eq!(modules[0].file_path, "");
+    assert_eq!(modules[0].module_path, None);
+
+    // Verify: HasMember edges from root module to main and helper
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let root_id = SymbolId::new("", "root", 1);
+    let main_id = SymbolId::new("index.ts", "main", 1);
+    let helper_id = SymbolId::new("utils.ts", "helper", 3);
+
+    let main_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(main_edge, "Should have HasMember from root module to main");
+
+    let helper_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == root_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == helper_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        helper_edge,
+        "Should have HasMember from root module to helper"
     );
 }

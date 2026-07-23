@@ -261,9 +261,284 @@ impl LanguageExtractor for GolangExtractor {
 
         (resolved_edges, resolved_imports)
     }
+
+    fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
+        use crate::a6s::types::{EdgeKind, RawEdge, RawSymbol, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Phase 1: Group Go files by directory
+        let mut dir_files: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (i, pf) in parsed_files.iter().enumerate() {
+            if pf.language != "go" {
+                continue;
+            }
+            let dir = self.derive_module_path(&pf.file_path).unwrap_or_default();
+            dir_files.entry(dir).or_default().push(i);
+        }
+
+        if dir_files.is_empty() {
+            return;
+        }
+
+        // Sort directories by depth so parents are processed before children
+        let mut sorted_dirs: Vec<&String> = dir_files.keys().collect();
+        sorted_dirs.sort_by(|a, b| {
+            let depth_a = if a.is_empty() {
+                0
+            } else {
+                a.split('/').count()
+            };
+            let depth_b = if b.is_empty() {
+                0
+            } else {
+                b.split('/').count()
+            };
+            depth_a.cmp(&depth_b)
+        });
+
+        // Phase 2: Deduplicate package symbols
+        // For each directory, keep only the FIRST file's package symbol
+        let mut symbols_to_remove: Vec<(usize, usize)> = Vec::new();
+
+        for file_indices in dir_files.values() {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            // Find the first file that has a package symbol
+            let first_pkg_file_idx = file_indices.iter().find(|&&idx| {
+                parsed_files[idx]
+                    .symbols
+                    .iter()
+                    .any(|s| s.kind == "package")
+            });
+
+            if let Some(&first_idx) = first_pkg_file_idx {
+                // Remove package symbols from all OTHER files in the same directory
+                for &idx in file_indices {
+                    if idx == first_idx {
+                        continue;
+                    }
+                    for (sym_idx, sym) in parsed_files[idx].symbols.iter().enumerate() {
+                        if sym.kind == "package" {
+                            symbols_to_remove.push((idx, sym_idx));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Capture SymbolIds of package symbols to be removed (before removal)
+        let removed_pkg_ids: Vec<SymbolId> = symbols_to_remove
+            .iter()
+            .map(|(file_idx, sym_idx)| {
+                let pf = &parsed_files[*file_idx];
+                let sym = &pf.symbols[*sym_idx];
+                SymbolId::new(&pf.file_path, &sym.name, sym.start_line)
+            })
+            .collect();
+
+        // Remove symbols in reverse order to maintain indices
+        symbols_to_remove.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        for (file_idx, sym_idx) in &symbols_to_remove {
+            parsed_files[*file_idx].symbols.remove(*sym_idx);
+        }
+
+        // Safety net: Remove orphaned HasMember edges that reference removed package symbols.
+        // When a package symbol is removed, any HasMember edges from/to that symbol become
+        // orphaned and would fail during DB insertion. This cleanup handles any code paths
+        // that may have created such edges before deduplication.
+        let removed_pkg_set: std::collections::HashSet<&SymbolId> =
+            removed_pkg_ids.iter().collect();
+
+        for (file_idx, _) in &symbols_to_remove {
+            parsed_files[*file_idx].edges.retain(|edge| {
+                let is_orphaned = match &edge.from {
+                    crate::a6s::types::SymbolRef::Resolved(id) => removed_pkg_set.contains(id),
+                    _ => false,
+                } || match &edge.to {
+                    crate::a6s::types::SymbolRef::Resolved(id) => removed_pkg_set.contains(id),
+                    _ => false,
+                };
+                !is_orphaned
+            });
+        }
+
+        // Phase 3: Create directory-level module symbols
+        // ONLY for directories that actually have files (no intermediate nodes)
+        // Map: dir_path -> (module_name, first_file_idx)
+        let mut dir_module_map: HashMap<String, (String, usize)> = HashMap::new();
+
+        for dir in &sorted_dirs {
+            let file_indices = &dir_files[dir.as_str()];
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let target_idx = file_indices[0];
+
+            // Extract module name (last component of directory path)
+            let dir_name = if dir.is_empty() {
+                "root".to_string()
+            } else {
+                dir.rsplit('/').next().unwrap_or("").to_string()
+            };
+
+            // Extract parent directory for module_path
+            let parent_dir = if dir.is_empty() {
+                None
+            } else {
+                let path = std::path::Path::new(dir.as_str());
+                match path.parent().and_then(|p| p.to_str()) {
+                    Some("") => None,
+                    Some(p) => Some(p.to_string()),
+                    None => None,
+                }
+            };
+
+            // Set module_path to parent directory ONLY if parent has actual symbols
+            let module_path = parent_dir.as_ref().and_then(|parent| {
+                if Self::dir_has_symbols(parent, &dir_files, parsed_files) {
+                    Some(parent.clone())
+                } else {
+                    None
+                }
+            });
+
+            // Create module symbol
+            let module_sym = RawSymbol {
+                name: dir_name.clone(),
+                kind: "module".to_string(),
+                file_path: if dir.is_empty() {
+                    ".".to_string()
+                } else {
+                    dir.to_string()
+                },
+                start_line: 1,
+                end_line: 1,
+                signature: Some(format!("implicit_module: true, directory: {}", dir)),
+                language: "go".to_string(),
+                visibility: Some("pub".to_string()),
+                entry_type: None,
+                module_path,
+            };
+
+            parsed_files[target_idx].symbols.push(module_sym);
+            dir_module_map.insert(dir.to_string(), (dir_name, target_idx));
+        }
+
+        // Phase 4: Create HasMember edges for directory hierarchy
+        // and from directory module → file symbols
+        let mut edges_to_add: Vec<(usize, RawEdge)> = Vec::new();
+
+        // 4a: Parent → child directory hierarchy edges
+        // ONLY when parent directory has actual symbols
+        for dir in &sorted_dirs {
+            if dir.is_empty() {
+                continue;
+            }
+
+            let path = std::path::Path::new(dir.as_str());
+            let parent = match path.parent().and_then(|p| p.to_str()) {
+                Some("") => "root".to_string(),
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+
+            // Only create edge if parent directory has actual symbols
+            if !Self::dir_has_symbols(&parent, &dir_files, parsed_files) {
+                continue;
+            }
+
+            if let Some(&(ref parent_name, _parent_file_idx)) = dir_module_map.get(&parent)
+                && let Some(&(ref child_name, child_file_idx)) = dir_module_map.get(dir.as_str())
+            {
+                let from = SymbolRef::resolved(SymbolId::new(&parent, parent_name, 1));
+                let to = SymbolRef::resolved(SymbolId::new(dir, child_name, 1));
+
+                edges_to_add.push((
+                    child_file_idx,
+                    RawEdge {
+                        from,
+                        to,
+                        kind: EdgeKind::HasMember,
+                        line: Some(1),
+                        entry_type: None,
+                    },
+                ));
+            }
+        }
+
+        // 4b: Directory module → all file symbols
+        for (dir, file_indices) in &dir_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some(&(ref module_name, _module_file_idx)) = dir_module_map.get(dir.as_str())
+            else {
+                continue;
+            };
+
+            let module_file_path = if dir.is_empty() { "." } else { dir.as_str() };
+            let module_id = SymbolRef::resolved(SymbolId::new(module_file_path, module_name, 1));
+
+            for &file_idx in file_indices {
+                for sym in &parsed_files[file_idx].symbols {
+                    // Skip the module symbol itself (no self-edges)
+                    if sym.kind == "module" {
+                        continue;
+                    }
+
+                    let sym_id = SymbolRef::resolved(SymbolId::new(
+                        &parsed_files[file_idx].file_path,
+                        &sym.name,
+                        sym.start_line,
+                    ));
+
+                    edges_to_add.push((
+                        file_idx,
+                        RawEdge {
+                            from: module_id.clone(),
+                            to: sym_id,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // Add all collected edges
+        for (file_idx, edge) in edges_to_add {
+            parsed_files[file_idx].edges.push(edge);
+        }
+    }
 }
 
 impl GolangExtractor {
+    /// Check if a directory has any non-module symbols in its files.
+    /// Used to determine whether to create parent-child HasMember edges
+    /// between directories.
+    fn dir_has_symbols(
+        dir: &str,
+        dir_files: &std::collections::HashMap<String, Vec<usize>>,
+        parsed_files: &[ParsedFile],
+    ) -> bool {
+        if let Some(indices) = dir_files.get(dir) {
+            for &idx in indices {
+                for sym in &parsed_files[idx].symbols {
+                    if sym.kind != "module" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub(crate) fn derive_module_path(&self, file_path: &str) -> Option<String> {
         // Go packages = directory. All files in the same directory share one namespace.
         // "cmd/server/main.go" → "cmd/server"
@@ -529,8 +804,10 @@ impl GolangExtractor {
         // Extract Implements edges: concrete type → interface (implicit satisfaction)
         Self::extract_implements_edges(file_path, parsed);
 
-        // Extract HasMember edges: package → top-level symbols
-        Self::extract_package_members(file_path, parsed);
+        // HasMember edges are created by resolve_file_modules() during cross-file
+        // resolution, which uses consistent SymbolIds. The per-file version
+        // (extract_package_members) is NOT called here because it creates edges
+        // referencing package symbols that may be removed during deduplication.
 
         // Extract Calls edges: function → called functions
         let mut cursor = QueryCursor::new();
@@ -1112,7 +1389,8 @@ impl GolangExtractor {
     /// Skips fields (belong to structs via HasField), interface_methods (belong to
     /// interfaces via HasMethod), methods (belong to receiver types via HasMethod),
     /// and the package symbol itself.
-    fn extract_package_members(file_path: &str, parsed: &mut ParsedFile) {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn extract_package_members(file_path: &str, parsed: &mut ParsedFile) {
         use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
 
         // Find the package symbol

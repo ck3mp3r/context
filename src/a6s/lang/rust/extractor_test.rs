@@ -1955,6 +1955,45 @@ fn test_module_path_root_only() {
     assert_eq!(path, None);
 }
 
+// ============================================================================
+// Workspace Crate Module Path Tests
+// ============================================================================
+
+#[test]
+fn test_module_path_workspace_crate_lib() {
+    // crates/foo/src/lib.rs → crate name is "foo"
+    let path = derive_module_path("crates/foo/src/lib.rs");
+    assert_eq!(path, Some("foo".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_crate_main() {
+    // crates/bar/src/main.rs → crate name is "bar"
+    let path = derive_module_path("crates/bar/src/main.rs");
+    assert_eq!(path, Some("bar".to_string()));
+}
+
+#[test]
+fn test_module_path_single_crate_lib() {
+    // src/lib.rs → None (backward compatible, single crate at root)
+    let path = derive_module_path("src/lib.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_single_crate_main() {
+    // src/main.rs → None (backward compatible, single crate at root)
+    let path = derive_module_path("src/main.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_nested_workspace() {
+    // workspace/crates/baz/src/lib.rs → crate name is "baz"
+    let path = derive_module_path("workspace/crates/baz/src/lib.rs");
+    assert_eq!(path, Some("baz".to_string()));
+}
+
 // Helper function that uses the trait method
 fn derive_module_path(file_path: &str) -> Option<String> {
     RustExtractor.derive_module_path(file_path)
