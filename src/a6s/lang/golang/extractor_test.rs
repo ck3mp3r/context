@@ -3009,7 +3009,7 @@ fn test_resolve_file_modules_creates_directory_modules() {
     let mut files = vec![file1, file2];
     extractor.resolve_file_modules(&mut files);
 
-    // Verify: ONE module symbol (api) — no intermediate "src" node
+    // Verify: TWO module symbols (src and api) — src is a structural container
     let modules: Vec<&RawSymbol> = files
         .iter()
         .flat_map(|f| f.symbols.iter())
@@ -3017,20 +3017,25 @@ fn test_resolve_file_modules_creates_directory_modules() {
         .collect();
     assert_eq!(
         modules.len(),
-        1,
-        "Should create only 1 module (api), got {}",
+        2,
+        "Should create 2 modules (src, api), got {}",
         modules.len()
     );
-    assert_eq!(modules[0].name, "api");
-    assert_eq!(modules[0].file_path, "src/api");
+
+    let src_module = modules.iter().find(|m| m.name == "src").unwrap();
+    assert_eq!(src_module.file_path, "src");
+    assert_eq!(src_module.module_path, None);
+
+    let api_module = modules.iter().find(|m| m.name == "api").unwrap();
+    assert_eq!(api_module.file_path, "src/api");
     assert_eq!(
-        modules[0].signature,
+        api_module.signature,
         Some("implicit_module: true, directory: src/api".to_string())
     );
-    // No parent module since src has no files
-    assert_eq!(modules[0].module_path, None);
+    // No parent module since src has no non-module symbols
+    assert_eq!(api_module.module_path, None);
 
-    // Verify: 2 HasMember edges: api → HandleRequest, api → NewRouter
+    // Verify: 3 HasMember edges: src → api (hierarchy), api → HandleRequest, api → NewRouter
     let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
     let has_member_edges: Vec<_> = all_edges
         .iter()
@@ -3038,15 +3043,27 @@ fn test_resolve_file_modules_creates_directory_modules() {
         .collect();
     assert_eq!(
         has_member_edges.len(),
-        2,
-        "Should have 2 HasMember edges, got {}",
+        3,
+        "Should have 3 HasMember edges, got {}",
         has_member_edges.len()
     );
 
+    let src_id = SymbolId::new("src", "src", 1);
     let api_id = SymbolId::new("src/api", "api", 1);
     let handler_id = SymbolId::new("src/api/handler.go", "HandleRequest", 3);
     let router_id = SymbolId::new("src/api/router.go", "NewRouter", 5);
 
+    // src → api (hierarchy edge)
+    let src_to_api = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == src_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == api_id.as_str())
+    });
+    assert!(
+        src_to_api,
+        "Should have HasMember from src to api (hierarchy edge)"
+    );
+
+    // api → HandleRequest
     let handler_edge = has_member_edges.iter().any(|e| {
         matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == api_id.as_str())
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == handler_id.as_str())
@@ -3056,6 +3073,7 @@ fn test_resolve_file_modules_creates_directory_modules() {
         "Should have HasMember from api to HandleRequest"
     );
 
+    // api → NewRouter
     let router_edge = has_member_edges.iter().any(|e| {
         matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == api_id.as_str())
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == router_id.as_str())
@@ -3087,7 +3105,7 @@ fn test_resolve_file_modules_no_intermediate_nodes() {
     let mut files = vec![file];
     extractor.resolve_file_modules(&mut files);
 
-    // Verify: ONE module symbol (server) — no intermediate "cmd" node
+    // Verify: TWO module symbols (cmd and server) — cmd is a structural container
     let modules: Vec<&RawSymbol> = files
         .iter()
         .flat_map(|f| f.symbols.iter())
@@ -3095,24 +3113,24 @@ fn test_resolve_file_modules_no_intermediate_nodes() {
         .collect();
     assert_eq!(
         modules.len(),
-        1,
-        "Should create only 1 module (server), got {}",
+        2,
+        "Should create 2 modules (cmd, server), got {}",
         modules.len()
     );
-    assert_eq!(modules[0].name, "server");
-    assert_eq!(modules[0].file_path, "cmd/server");
 
-    // Verify: NO "cmd" module exists
-    let cmd_module = modules.iter().find(|m| m.name == "cmd");
-    assert!(
-        cmd_module.is_none(),
-        "Should NOT create intermediate 'cmd' module (no files in cmd/)"
+    let cmd_module = modules.iter().find(|m| m.name == "cmd").unwrap();
+    assert_eq!(cmd_module.file_path, "cmd");
+    assert_eq!(
+        cmd_module.module_path, None,
+        "cmd should have no parent (no module above it)"
     );
 
-    // Verify: module_path is None (parent cmd has no symbols)
-    assert_eq!(modules[0].module_path, None);
+    let server_module = modules.iter().find(|m| m.name == "server").unwrap();
+    assert_eq!(server_module.file_path, "cmd/server");
+    // module_path is None because cmd has no non-module symbols
+    assert_eq!(server_module.module_path, None);
 
-    // Verify: 1 HasMember edge: server → main
+    // Verify: 2 HasMember edges: cmd → server (hierarchy), server → main
     let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
     let has_member_edges: Vec<_> = all_edges
         .iter()
@@ -3120,28 +3138,31 @@ fn test_resolve_file_modules_no_intermediate_nodes() {
         .collect();
     assert_eq!(
         has_member_edges.len(),
-        1,
-        "Should have 1 HasMember edge, got {}",
+        2,
+        "Should have 2 HasMember edges, got {}",
         has_member_edges.len()
     );
 
+    let cmd_id = SymbolId::new("cmd", "cmd", 1);
     let server_id = SymbolId::new("cmd/server", "server", 1);
     let main_id = SymbolId::new("cmd/server/main.go", "main", 1);
 
+    // cmd → server (hierarchy edge)
+    let cmd_to_server = has_member_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == cmd_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
+    });
+    assert!(
+        cmd_to_server,
+        "Should have HasMember from cmd to server (hierarchy edge)"
+    );
+
+    // server → main
     let main_edge = has_member_edges.iter().any(|e| {
         matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
     });
     assert!(main_edge, "Should have HasMember from server to main");
-
-    // Verify: NO hierarchy edges (no parent cmd module)
-    let has_hierarchy = has_member_edges
-        .iter()
-        .any(|e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str().contains(":cmd:")));
-    assert!(
-        !has_hierarchy,
-        "Should NOT have any HasMember edges involving 'cmd' module (it doesn't exist)"
-    );
 }
 
 #[test]
@@ -3440,4 +3461,234 @@ fn test_resolve_file_modules_root_level_files() {
             && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == helper_id.as_str())
     });
     assert!(helper_edge, "Should have HasMember from root to helper");
+}
+
+#[test]
+fn test_resolve_file_modules_structural_containers() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // Files in cmd/server/main.go and pkg/cache/cache.go
+    // cmd/ and pkg/ are structural containers with no direct .go files
+    let mut file1 = ParsedFile::new("cmd/server/main.go", "go");
+    file1.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "function".to_string(),
+        file_path: "cmd/server/main.go".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("pkg/cache/cache.go", "go");
+    file2.symbols.push(RawSymbol {
+        name: "Get".to_string(),
+        kind: "function".to_string(),
+        file_path: "pkg/cache/cache.go".to_string(),
+        start_line: 3,
+        end_line: 10,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: 4 module symbols (cmd, pkg, server, cache) — no root since no root-level files
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        4,
+        "Should create 4 modules (cmd, pkg, server, cache), got {}",
+        modules.len()
+    );
+
+    // Verify structural containers
+    let cmd_module = modules.iter().find(|m| m.name == "cmd").unwrap();
+    assert_eq!(cmd_module.file_path, "cmd");
+    assert_eq!(cmd_module.module_path, None);
+
+    let pkg_module = modules.iter().find(|m| m.name == "pkg").unwrap();
+    assert_eq!(pkg_module.file_path, "pkg");
+    assert_eq!(pkg_module.module_path, None);
+
+    // Verify leaf modules
+    let server_module = modules.iter().find(|m| m.name == "server").unwrap();
+    assert_eq!(server_module.file_path, "cmd/server");
+    assert_eq!(server_module.module_path, None);
+
+    let cache_module = modules.iter().find(|m| m.name == "cache").unwrap();
+    assert_eq!(cache_module.file_path, "pkg/cache");
+    assert_eq!(cache_module.module_path, None);
+
+    // Verify HasMember edges
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // 2 hierarchy edges: cmd → server, pkg → cache
+    // 2 module→file edges: server → main, cache → Get
+    // Total: 4
+    assert_eq!(
+        has_member_edges.len(),
+        4,
+        "Should have 4 HasMember edges, got {}",
+        has_member_edges.len()
+    );
+
+    let cmd_id = SymbolId::new("cmd", "cmd", 1);
+    let pkg_id = SymbolId::new("pkg", "pkg", 1);
+    let server_id = SymbolId::new("cmd/server", "server", 1);
+    let cache_id = SymbolId::new("pkg/cache", "cache", 1);
+    let main_id = SymbolId::new("cmd/server/main.go", "main", 1);
+    let get_id = SymbolId::new("pkg/cache/cache.go", "Get", 3);
+
+    // cmd → server
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == cmd_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
+        ),
+        "Should have HasMember from cmd to server"
+    );
+
+    // pkg → cache
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == pkg_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == cache_id.as_str())
+        ),
+        "Should have HasMember from pkg to cache"
+    );
+
+    // server → main
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == server_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+        ),
+        "Should have HasMember from server to main"
+    );
+
+    // cache → Get
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == cache_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == get_id.as_str())
+        ),
+        "Should have HasMember from cache to Get"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_deep_nesting() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = GolangExtractor;
+
+    // File in a/b/c/main.go — deep nesting with no intermediate files
+    let mut file = ParsedFile::new("a/b/c/main.go", "go");
+    file.symbols.push(RawSymbol {
+        name: "main".to_string(),
+        kind: "function".to_string(),
+        file_path: "a/b/c/main.go".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "go".to_string(),
+        visibility: Some("pub".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Verify: 3 module symbols (a, a/b, a/b/c) — no root since no root-level files
+    let modules: Vec<&RawSymbol> = files
+        .iter()
+        .flat_map(|f| f.symbols.iter())
+        .filter(|s| s.kind == "module")
+        .collect();
+    assert_eq!(
+        modules.len(),
+        3,
+        "Should create 3 modules (a, a/b, a/b/c), got {}",
+        modules.len()
+    );
+
+    let a_module = modules.iter().find(|m| m.name == "a").unwrap();
+    assert_eq!(a_module.file_path, "a");
+    assert_eq!(a_module.module_path, None);
+
+    let ab_module = modules.iter().find(|m| m.name == "b").unwrap();
+    assert_eq!(ab_module.file_path, "a/b");
+    assert_eq!(ab_module.module_path, None);
+
+    let abc_module = modules.iter().find(|m| m.name == "c").unwrap();
+    assert_eq!(abc_module.file_path, "a/b/c");
+    assert_eq!(abc_module.module_path, None);
+
+    // Verify HasMember edges
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+    let has_member_edges: Vec<_> = all_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // 2 hierarchy edges: a → a/b, a/b → a/b/c
+    // 1 module→file edge: a/b/c → main
+    // Total: 3
+    assert_eq!(
+        has_member_edges.len(),
+        3,
+        "Should have 3 HasMember edges, got {}",
+        has_member_edges.len()
+    );
+
+    let a_id = SymbolId::new("a", "a", 1);
+    let ab_id = SymbolId::new("a/b", "b", 1);
+    let abc_id = SymbolId::new("a/b/c", "c", 1);
+    let main_id = SymbolId::new("a/b/c/main.go", "main", 1);
+
+    // a → a/b
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == a_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == ab_id.as_str())
+        ),
+        "Should have HasMember from a to a/b"
+    );
+
+    // a/b → a/b/c
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == ab_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == abc_id.as_str())
+        ),
+        "Should have HasMember from a/b to a/b/c"
+    );
+
+    // a/b/c → main
+    assert!(
+        has_member_edges.iter().any(
+            |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == abc_id.as_str())
+                && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == main_id.as_str())
+        ),
+        "Should have HasMember from a/b/c to main"
+    );
 }

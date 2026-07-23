@@ -341,6 +341,32 @@ impl NushellExtractor {
             dir_files.entry(dir).or_default().push(i);
         }
 
+        // Ensure all ancestor directories exist in dir_files (structural containers)
+        let mut dirs_to_add: Vec<String> = Vec::new();
+        for dir in dir_files.keys() {
+            if dir.is_empty() {
+                continue;
+            }
+            let mut parent = std::path::Path::new(dir)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            while !parent.is_empty() && !dir_files.contains_key(&parent) {
+                if !dirs_to_add.contains(&parent) {
+                    dirs_to_add.push(parent.clone());
+                }
+                parent = std::path::Path::new(&parent)
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+        }
+        for dir in dirs_to_add {
+            dir_files.insert(dir, Vec::new());
+        }
+
         if dir_files.is_empty() {
             return;
         }
@@ -362,17 +388,27 @@ impl NushellExtractor {
         });
 
         // Phase 2: Create directory-level module symbols
-        // ONLY for directories that actually have files (no intermediate nodes)
+        // For directories with files: creates module in the first file
+        // For structural containers (no files, but have child dirs with files):
+        //   creates module in the first child's first file
         // Map: dir_path -> (module_name, start_line, file_path_for_symbol_id)
         let mut dir_module_map: HashMap<String, (String, usize, String)> = HashMap::new();
 
         for dir in &sorted_dirs {
             let file_indices = &dir_files[dir.as_str()];
-            if file_indices.is_empty() {
-                continue;
-            }
 
-            let target_idx = file_indices[0];
+            let target_idx = if file_indices.is_empty() {
+                // Structural container: find first child directory with files
+                let prefix = format!("{}/", dir);
+                sorted_dirs
+                    .iter()
+                    .find(|d| d.starts_with(&prefix))
+                    .and_then(|d| dir_files.get(*d))
+                    .and_then(|indices| indices.first().copied())
+                    .unwrap_or(0)
+            } else {
+                file_indices[0]
+            };
 
             // Extract module name (last component of directory path)
             let dir_name = if dir.is_empty() {
@@ -403,10 +439,11 @@ impl NushellExtractor {
             });
 
             // Create module symbol
-            // For the root directory (""), use the first file's path as file_path
-            // to ensure SymbolId format is valid
+            // For the root directory (""), use "." as file_path
+            // For structural containers (no files), use the directory path
+            // For normal directories, use the directory path
             let module_file_path = if dir.is_empty() {
-                parsed_files[target_idx].file_path.clone()
+                ".".to_string()
             } else {
                 dir.to_string()
             };
@@ -444,8 +481,13 @@ impl NushellExtractor {
                 None => continue,
             };
 
-            // Only create edge if parent directory has actual symbols
-            if !Self::dir_has_symbols(&parent, &dir_files, parsed_files) {
+            // Only create edge if parent directory has actual symbols or is a structural container
+            let parent_has_symbols = Self::dir_has_symbols(&parent, &dir_files, parsed_files);
+            let parent_is_container = dir_files
+                .get(&parent)
+                .map(|indices| indices.is_empty())
+                .unwrap_or(false);
+            if !parent_has_symbols && !parent_is_container {
                 continue;
             }
 
@@ -459,8 +501,19 @@ impl NushellExtractor {
                 let to =
                     SymbolRef::resolved(SymbolId::new(child_file_path, child_name, child_line));
 
-                // Add edge to the child's first file
-                let edge_file_idx = dir_files[dir.as_str()][0];
+                // Add edge to the child's first file (or first child's first file for structural containers)
+                let edge_file_idx = if dir_files[dir.as_str()].is_empty() {
+                    // Structural container: find first child directory with files
+                    let prefix = format!("{}/", dir);
+                    sorted_dirs
+                        .iter()
+                        .find(|d| d.starts_with(&prefix))
+                        .and_then(|d| dir_files.get(*d))
+                        .and_then(|indices| indices.first().copied())
+                        .unwrap_or(0)
+                } else {
+                    dir_files[dir.as_str()][0]
+                };
                 edges_to_add.push((
                     edge_file_idx,
                     RawEdge {

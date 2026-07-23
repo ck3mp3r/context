@@ -1790,15 +1790,17 @@ fn test_resolve_file_modules_creates_directory_modules() {
         "Module should have implicit_module signature"
     );
 
-    // Should NOT have created intermediate "src" or "root" modules
-    // since only src/lib has files
+    // Should have created structural container module for "src"
+    // since src/lib has files and src is a parent of src/lib
+    // (root is NOT created because no files exist at root level)
     let src_module = files[0]
         .symbols
         .iter()
         .find(|s| s.name == "src" && s.kind == "module");
     assert!(
-        src_module.is_none(),
-        "Should NOT create 'src' intermediate module (no files in src/)"
+        src_module.is_some(),
+        "Should create 'src' structural container module (parent of src/lib), got symbols: {:?}",
+        files[0].symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
     );
 
     let root_module = files
@@ -1810,31 +1812,27 @@ fn test_resolve_file_modules_creates_directory_modules() {
         "Should NOT create 'root' module (no files at root level)"
     );
 
-    // Check HasMember edges: only lib → helper and lib → greet
+    // Check HasMember edges: hierarchy + file edges
     let has_member_edges: Vec<_> = files
         .iter()
         .flat_map(|f| &f.edges)
         .filter(|e| e.kind == EdgeKind::HasMember)
         .collect();
 
-    // Should have exactly 2 edges: lib→helper, lib→greet
+    // Should have exactly 3 edges: src→lib, lib→helper, lib→greet
+    // (no root→src because root doesn't exist)
     assert_eq!(
         has_member_edges.len(),
-        2,
-        "Should have exactly 2 HasMember edges (no hierarchy edges), got: {}",
+        3,
+        "Should have exactly 3 HasMember edges (1 hierarchy + 2 file), got: {}",
         has_member_edges.len()
     );
 
-    // Verify NO root → src or src → lib edges
-    let has_hierarchy_edges = has_member_edges.iter().any(|e| {
-        let from = extract_name_from_ref(&e.from);
-        let to = extract_name_from_ref(&e.to);
-        (from == Some("root") && to == Some("src")) || (from == Some("src") && to == Some("lib"))
+    // Verify src → lib hierarchy edge
+    let src_to_lib = has_member_edges.iter().any(|e| {
+        extract_name_from_ref(&e.from) == Some("src") && extract_name_from_ref(&e.to) == Some("lib")
     });
-    assert!(
-        !has_hierarchy_edges,
-        "Should NOT have hierarchy edges between empty intermediate directories"
-    );
+    assert!(src_to_lib, "Should have src → lib HasMember hierarchy edge");
 
     // Verify lib → helper edge
     let lib_to_helper = has_member_edges.iter().any(|e| {
@@ -2010,7 +2008,8 @@ fn test_resolve_file_modules_multiple_directories() {
         .map(|s| s.name.as_str())
         .collect();
 
-    // Should have modules for: src, lib, tests (NOT root — no files at root level)
+    // Should have modules for: src, lib, tests
+    // (root is NOT created because no files exist at root level)
     assert!(
         !all_modules.contains(&"root"),
         "Should NOT have 'root' module (no files at root level), got: {:?}",
@@ -2039,6 +2038,14 @@ fn test_resolve_file_modules_multiple_directories() {
         .filter(|e| e.kind == EdgeKind::HasMember)
         .collect();
 
+    // Verify NO root → src or root → tests edges (root has no files)
+    assert!(
+        !all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("root")),
+        "Should NOT have any edges from 'root' (no files at root level)"
+    );
+
     // Verify hierarchy: src → lib (src has files, so it's a valid parent)
     assert!(
         all_has_member
@@ -2046,14 +2053,6 @@ fn test_resolve_file_modules_multiple_directories() {
             .any(|e| extract_name_from_ref(&e.from) == Some("src")
                 && extract_name_from_ref(&e.to) == Some("lib")),
         "Should have src → lib edge"
-    );
-
-    // Verify NO root → src or root → tests edges (root has no files)
-    assert!(
-        !all_has_member
-            .iter()
-            .any(|e| extract_name_from_ref(&e.from) == Some("root")),
-        "Should NOT have any edges from 'root' (no files at root level)"
     );
 
     // Verify file symbols are children of their directory modules
@@ -2238,5 +2237,176 @@ fn test_resolve_file_modules_single_file() {
             .any(|e| extract_name_from_ref(&e.from) == Some("root")
                 && extract_name_from_ref(&e.to) == Some("main")),
         "Should have root → main HasMember edge"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_structural_container() {
+    use crate::a6s::types::{EdgeKind, ParsedFile, RawSymbol};
+
+    let extractor = NushellExtractor;
+
+    // Files only in lib/math/mod.nu and lib/strings/mod.nu
+    // No direct files in lib/ — lib should be a structural container
+    let mut file1 = ParsedFile::new("lib/math/mod.nu", "nushell");
+    file1.symbols.push(RawSymbol {
+        name: "add".to_string(),
+        kind: "function".to_string(),
+        file_path: "lib/math/mod.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut file2 = ParsedFile::new("lib/strings/mod.nu", "nushell");
+    file2.symbols.push(RawSymbol {
+        name: "concat".to_string(),
+        kind: "function".to_string(),
+        file_path: "lib/strings/mod.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    let mut files = vec![file1, file2];
+    extractor.resolve_file_modules(&mut files);
+
+    // Collect all module symbols
+    let all_modules: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.symbols)
+        .filter(|s| s.kind == "module")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    // Should have modules for: lib, math, strings
+    // (root is NOT created because no files exist at root level)
+    assert!(
+        !all_modules.contains(&"root"),
+        "Should NOT have 'root' module (no files at root level), got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"lib"),
+        "Should have 'lib' structural container module, got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"math"),
+        "Should have 'math' module, got: {:?}",
+        all_modules
+    );
+    assert!(
+        all_modules.contains(&"strings"),
+        "Should have 'strings' module, got: {:?}",
+        all_modules
+    );
+
+    // Collect all HasMember edges
+    let all_has_member: Vec<_> = files
+        .iter()
+        .flat_map(|f| &f.edges)
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Verify hierarchy: lib → math (lib is structural container)
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("math")),
+        "Should have lib → math edge"
+    );
+
+    // Verify hierarchy: lib → math
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("math")),
+        "Should have lib → math edge"
+    );
+
+    // Verify hierarchy: lib → strings
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("lib")
+                && extract_name_from_ref(&e.to) == Some("strings")),
+        "Should have lib → strings edge"
+    );
+
+    // Verify file symbols are children of their directory modules
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("math")
+                && extract_name_from_ref(&e.to) == Some("add")),
+        "Should have math → add edge"
+    );
+    assert!(
+        all_has_member
+            .iter()
+            .any(|e| extract_name_from_ref(&e.from) == Some("strings")
+                && extract_name_from_ref(&e.to) == Some("concat")),
+        "Should have strings → concat edge"
+    );
+
+    // Verify total edge count: lib→math, lib→strings, math→add, strings→concat = 4
+    assert_eq!(
+        all_has_member.len(),
+        4,
+        "Should have exactly 4 HasMember edges, got: {}",
+        all_has_member.len()
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_root_uses_dot() {
+    use crate::a6s::types::ParsedFile;
+
+    let extractor = NushellExtractor;
+
+    // Single file at root level
+    let mut file = ParsedFile::new("main.nu", "nushell");
+    file.symbols.push(crate::a6s::types::RawSymbol {
+        name: "main".to_string(),
+        kind: "command".to_string(),
+        file_path: "main.nu".to_string(),
+        start_line: 1,
+        end_line: 5,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("private".to_string()),
+        entry_type: Some("main".to_string()),
+        module_path: None,
+    });
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // Root module should use file_path = "."
+    let root_module = files[0]
+        .symbols
+        .iter()
+        .find(|s| s.name == "root" && s.kind == "module");
+    assert!(
+        root_module.is_some(),
+        "Should create 'root' module for top-level files"
+    );
+
+    let root_module = root_module.unwrap();
+    assert_eq!(
+        root_module.file_path, ".",
+        "Root module file_path should be '.', got: '{}'",
+        root_module.file_path
     );
 }

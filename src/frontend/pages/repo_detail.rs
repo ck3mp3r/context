@@ -332,8 +332,8 @@ fn GraphViewer(repo_id: String) -> impl IntoView {
     Effect::new(move || {
         let repo_id = repo_id_for_fetch.clone();
         spawn_local(async move {
-            // Initial load: no root, no depth, no visible_ids - fetches root symbols with expand_depth=0 (collapsed)
-            match graph::get_repo_graph(&repo_id, None, None, None, Some(0)).await {
+            // Initial load: fetch root symbols with expand_depth=1 (show top-level + 1 level of children)
+            match graph::get_repo_graph(&repo_id, None, None, None, Some(1)).await {
                 Ok(Some(json_data)) => {
                     set_graph_state.set(GraphState::Ready(json_data));
                 }
