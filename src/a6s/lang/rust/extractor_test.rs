@@ -10,6 +10,12 @@ fn extract(code: &str) -> crate::a6s::types::ParsedFile {
     RustExtractor.extract(code, "test.rs")
 }
 
+fn extract_with_resolve(code: &str) -> crate::a6s::types::ParsedFile {
+    let mut files = vec![RustExtractor.extract(code, "test.rs")];
+    RustExtractor.resolve_file_modules(&mut files);
+    files.into_iter().next().unwrap()
+}
+
 fn find_symbol<'a>(
     parsed: &'a crate::a6s::types::ParsedFile,
     name: &str,
@@ -474,7 +480,7 @@ mod my_module {
     fn inner_function() {}
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 2 HasMember edges:
     // 1. test (implicit file module) -> my_module
@@ -499,7 +505,7 @@ mod my_module {
     struct InnerStruct { x: i32 }
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 2 HasMember edges:
     // 1. test (implicit file module) -> my_module
@@ -527,7 +533,7 @@ mod my_module {
     enum MyEnum {}
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 5 HasMember edges:
     // 1. test (implicit file module) -> my_module
@@ -554,7 +560,7 @@ mod outer {
     }
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 4 edges now (with implicit file module):
     // 1. test (implicit file module) -> outer
@@ -570,6 +576,54 @@ mod outer {
         member_edges.len(),
         4,
         "Should have 4 HasMember edges (including implicit file module)"
+    );
+}
+
+#[test]
+fn test_phase5b_skips_symbols_inside_inline_modules() {
+    let code = r#"
+fn top_level_fn() {}
+
+mod my_module {
+    fn inner_fn() {}
+    struct InnerStruct { x: i32 }
+}
+"#;
+    let parsed = extract_with_resolve(code);
+
+    // HasMember edges expected:
+    // 1. test (file module) -> top_level_fn        [Phase 5b — top-level]
+    // 2. test (file module) -> my_module           [Phase 5b — top-level module]
+    // 3. my_module -> inner_fn                     [extract_hasmember_edges — inline]
+    // 4. my_module -> InnerStruct                  [extract_hasmember_edges — inline]
+    // Plus 1 HasField edge: InnerStruct -> x       [extract_hasfield_edges]
+    //
+    // my_module's inner symbols (inner_fn, InnerStruct) should NOT have edges
+    // from the file module (test) — they're inside an inline module.
+    let member_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
+        .collect();
+    assert_eq!(
+        member_edges.len(),
+        4,
+        "Should have 4 HasMember edges (2 from file module, 2 from inline module)"
+    );
+
+    // Verify NO edge from file module (test) to inner_fn or InnerStruct
+    let file_module_to_inner = member_edges.iter().any(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str().contains(":test:")
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str().contains(":inner_fn:") || to_id.as_str().contains(":InnerStruct:"))
+        } else {
+            false
+        }
+    });
+    assert!(
+        !file_module_to_inner,
+        "File module should NOT have edges to inline-module symbols"
     );
 }
 
@@ -2103,15 +2157,14 @@ fn test_implicit_file_module_created() {
 
 #[test]
 fn test_top_level_symbols_linked_to_file_module() {
-    let extractor = RustExtractor;
     let code = r#"
         fn top_level_function() {}
         struct TopStruct {}
     "#;
 
-    let parsed = extractor.extract(code, "src/example.rs");
+    let parsed = extract_with_resolve(code);
 
-    // Should have HasMember edges: example -> top_level_function, TopStruct
+    // Should have HasMember edges: test -> top_level_function, TopStruct
     let member_edges: Vec<_> = parsed
         .edges
         .iter()
@@ -3434,16 +3487,31 @@ fn main() {
         .filter(|e| e.kind == EdgeKind::HasMember)
         .collect();
 
-    // main should stay as root — no HasMember edge for it
-    let main_as_child = has_member_edges.iter().find(|e| {
-        matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
-            if to_id.as_str() == "symbol:src/main.rs:main:1")
-    });
+    // main function should have exactly ONE HasMember edge — from the file module (Phase 5b).
+    // It should NOT have a cross-file edge from a lib crate (no lib.rs exists).
+    let main_as_child: Vec<_> = has_member_edges
+        .iter()
+        .filter(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                if to_id.as_str() == "symbol:src/main.rs:main:2")
+        })
+        .collect();
 
-    assert!(
-        main_as_child.is_none(),
-        "main should NOT have a HasMember edge when there is no lib.rs"
+    assert_eq!(
+        main_as_child.len(),
+        1,
+        "main should have exactly 1 HasMember edge (from file module, not from lib crate)"
     );
+
+    // Verify the edge source is the file module (src/main.rs), not a lib crate
+    if let crate::a6s::types::SymbolRef::Resolved(from_id) = &main_as_child[0].from {
+        assert!(
+            from_id.as_str().contains("src/main.rs"),
+            "Edge source should be the file module in src/main.rs, not a lib crate"
+        );
+    } else {
+        panic!("Edge source should be resolved");
+    }
 }
 
 #[test]

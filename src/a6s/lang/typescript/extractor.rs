@@ -128,7 +128,6 @@ impl LanguageExtractor for TypeScriptExtractor {
         // Extract structural edges
         Self::extract_hasfield_edges(file_path, &mut parsed);
         Self::extract_hasmethod_edges(file_path, &mut parsed);
-        Self::extract_hasmember_edges(file_path, &module_path, &mut parsed);
         Self::extract_inheritance_edges(file_path, code, &tree, &mut parsed);
         Self::extract_calls_edges(file_path, code, &tree, &mut parsed);
 
@@ -483,35 +482,6 @@ impl LanguageExtractor for TypeScriptExtractor {
             dir_module_map.insert(dir.to_string(), (dir_name, target_idx));
         }
 
-        // Phase 3: Rewrite existing HasMember edges to point to canonical module
-        for (dir, file_indices) in &dir_files {
-            if file_indices.is_empty() {
-                continue;
-            }
-
-            let Some((canonical_name, _canonical_file_idx)) = dir_module_map.get(dir.as_str())
-            else {
-                continue;
-            };
-            // The canonical SymbolId uses the directory path (matching the module RawSymbol's file_path)
-            let canonical_id = SymbolId::new(dir, canonical_name, 1);
-
-            for &file_idx in file_indices {
-                let file_path = &parsed_files[file_idx].file_path;
-                // The old module SymbolId was SymbolId::new(file_path, file_path, 1)
-                let old_module_id = SymbolId::new(file_path, file_path, 1);
-
-                for edge in &mut parsed_files[file_idx].edges {
-                    if edge.kind == EdgeKind::HasMember
-                        && let SymbolRef::Resolved(ref id) = edge.from
-                        && id.as_str() == old_module_id.as_str()
-                    {
-                        edge.from = SymbolRef::resolved(canonical_id.clone());
-                    }
-                }
-            }
-        }
-
         // Phase 4: Create HasMember edges for directory hierarchy
         // and from directory module → file symbols
         let mut edges_to_add: Vec<(usize, RawEdge)> = Vec::new();
@@ -560,7 +530,12 @@ impl LanguageExtractor for TypeScriptExtractor {
             }
         }
 
-        // 4b: Directory module → all file symbols
+        // 4b: Directory module → top-level file symbols
+        // Top-level = symbols that are NOT container members (methods, properties,
+        // enum entries) and NOT inside any class/interface/enum body.
+        // Container members get their parent edges from extract_hasmethod_edges
+        // and extract_hasfield_edges — they should NOT also get a HasMember edge
+        // from the directory module (that would cause double-parenting).
         for (dir, file_indices) in &dir_files {
             if file_indices.is_empty() {
                 continue;
@@ -574,14 +549,46 @@ impl LanguageExtractor for TypeScriptExtractor {
             let module_id = SymbolRef::resolved(SymbolId::new(dir, module_name, 1));
 
             for &file_idx in file_indices {
-                for sym in &parsed_files[file_idx].symbols {
+                let pf = &parsed_files[file_idx];
+
+                // Build container line ranges (class, interface, enum) for this file.
+                // Symbols inside these ranges are container members and are skipped.
+                let containers: Vec<(usize, usize)> = pf
+                    .symbols
+                    .iter()
+                    .filter(|s| s.kind == "class" || s.kind == "interface" || s.kind == "enum")
+                    .map(|s| (s.start_line, s.end_line))
+                    .collect();
+
+                for sym in &pf.symbols {
                     // Skip the module symbol itself (no self-edges)
                     if sym.kind == "module" {
                         continue;
                     }
 
+                    // Skip container member kinds — they get parented by
+                    // extract_hasmethod_edges / extract_hasfield_edges.
+                    if sym.kind == "property"
+                        || sym.kind == "method"
+                        || sym.kind == "interface_method"
+                        || sym.kind == "enum_entry"
+                    {
+                        continue;
+                    }
+
+                    // Skip symbols inside class/interface/enum bodies.
+                    // These are container members even if their kind isn't one of
+                    // the explicit member kinds above (e.g., a nested function inside
+                    // a class method, or a type alias inside a class).
+                    let is_inside_container = containers
+                        .iter()
+                        .any(|&(start, end)| sym.start_line > start && sym.start_line <= end);
+                    if is_inside_container {
+                        continue;
+                    }
+
                     let sym_id = SymbolRef::resolved(SymbolId::new(
-                        &parsed_files[file_idx].file_path,
+                        &pf.file_path,
                         &sym.name,
                         sym.start_line,
                     ));
@@ -1283,51 +1290,6 @@ impl TypeScriptExtractor {
                         line: Some(method.start_line),
                         entry_type: None,
                     })
-            })
-            .collect();
-
-        parsed.edges.extend(edges);
-    }
-
-    fn extract_hasmember_edges(
-        file_path: &str,
-        _module_path: &Option<String>,
-        parsed: &mut ParsedFile,
-    ) {
-        use crate::a6s::types::SymbolId;
-
-        // Namespace members
-        // For TypeScript, namespaces are rare but we handle them
-        // Also link top-level symbols to an implicit file module
-        let module_id = SymbolId::new(file_path, file_path, 1);
-
-        let containers: Vec<(usize, usize)> = parsed
-            .symbols
-            .iter()
-            .filter(|s| s.kind == "class" || s.kind == "interface" || s.kind == "enum")
-            .map(|s| (s.start_line, s.end_line))
-            .collect();
-
-        let edges: Vec<RawEdge> = parsed
-            .symbols
-            .iter()
-            .filter(|s| {
-                s.kind != "property"
-                    && s.kind != "method"
-                    && s.kind != "interface_method"
-                    && s.kind != "enum_entry"
-            })
-            .filter(|s| {
-                !containers
-                    .iter()
-                    .any(|&(start, end)| s.start_line > start && s.start_line <= end)
-            })
-            .map(|s| RawEdge {
-                from: SymbolRef::resolved(module_id.clone()),
-                to: SymbolRef::resolved(SymbolId::new(file_path, &s.name, s.start_line)),
-                kind: EdgeKind::HasMember,
-                line: Some(s.start_line),
-                entry_type: None,
             })
             .collect();
 

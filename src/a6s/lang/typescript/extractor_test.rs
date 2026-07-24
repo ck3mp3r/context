@@ -532,26 +532,16 @@ fn test_has_member_edges_top_level() {
     let code = load_testdata("edges.ts");
     let result = ext.extract(&code, "edges.ts");
 
-    // Top-level symbols should have HasMember edges from the file module
+    // extract() alone should produce NO HasMember edges.
+    // HasMember edges are now created by resolve_file_modules() in Phase 4b.
     let file_member_edges: Vec<_> = result
         .edges
         .iter()
         .filter(|e| e.kind == EdgeKind::HasMember)
         .collect();
     assert!(
-        !file_member_edges.is_empty(),
-        "Should have HasMember edges for top-level symbols"
-    );
-
-    // Calculator should be a member of the file module
-    assert!(
-        file_member_edges.iter().any(|e| {
-            match &e.to {
-                crate::a6s::types::SymbolRef::Resolved(id) => id.as_str().contains(":Calculator:"),
-                _ => false,
-            }
-        }),
-        "Calculator should be a HasMember of the file module"
+        file_member_edges.is_empty(),
+        "extract() alone should produce NO HasMember edges (they come from resolve_file_modules)"
     );
 }
 
@@ -1446,19 +1436,8 @@ fn test_resolve_file_modules_creates_canonical_module() {
         )],
     );
 
-    // Add HasMember edges (simulating extract_hasmember_edges output)
-    file1.edges.push(make_hasmember_edge(
-        "src/api/users.ts",
-        "src/api/users.ts",
-        "User",
-        3,
-    ));
-    file2.edges.push(make_hasmember_edge(
-        "src/api/handler.ts",
-        "src/api/handler.ts",
-        "handleUser",
-        3,
-    ));
+    // No make_hasmember_edge calls — extract_hasmember_edges is removed.
+    // Phase 4b now creates the real HasMember edges from directory module to symbols.
 
     let mut files = vec![file1, file2];
     extractor.resolve_file_modules(&mut files);
@@ -1520,17 +1499,6 @@ fn test_resolve_file_modules_creates_canonical_module() {
         "Should have HasMember from canonical module to handleUser"
     );
 
-    // Verify: old per-file module edges from non-canonical files are rewritten
-    let old_handler_id = SymbolId::new("src/api/handler.ts", "src/api/handler.ts", 1);
-    let old_handler_edges = all_edges.iter().filter(
-        |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == old_handler_id.as_str()),
-    );
-    assert_eq!(
-        old_handler_edges.count(),
-        0,
-        "Old per-file module edges from handler.ts should be rewritten to canonical module"
-    );
-
     // Verify: hierarchy edge from src → src/api
     let src_id = SymbolId::new("src", "src", 1);
     let api_id = SymbolId::new("src/api", "src/api", 1);
@@ -1567,19 +1535,8 @@ fn test_resolve_file_modules_directory_hierarchy() {
         )],
     );
 
-    // Add HasMember edges (simulating extract_hasmember_edges output)
-    file1.edges.push(make_hasmember_edge(
-        "src/api/v1/users.ts",
-        "src/api/v1/users.ts",
-        "User",
-        3,
-    ));
-    file2.edges.push(make_hasmember_edge(
-        "src/api/v1/handler.ts",
-        "src/api/v1/handler.ts",
-        "handleUser",
-        3,
-    ));
+    // No make_hasmember_edge calls — extract_hasmember_edges is removed.
+    // Phase 4b now creates the real HasMember edges from directory module to symbols.
 
     let mut files = vec![file1, file2];
     extractor.resolve_file_modules(&mut files);
@@ -1697,19 +1654,8 @@ fn test_resolve_file_modules_parent_with_files_creates_hierarchy() {
         )],
     );
 
-    // Add HasMember edges
-    file1.edges.push(make_hasmember_edge(
-        "src/api/handler.ts",
-        "src/api/handler.ts",
-        "handleUser",
-        3,
-    ));
-    file2.edges.push(make_hasmember_edge(
-        "src/api/v1/tasks.ts",
-        "src/api/v1/tasks.ts",
-        "Task",
-        5,
-    ));
+    // No make_hasmember_edge calls — extract_hasmember_edges is removed.
+    // Phase 4b now creates the real HasMember edges from directory module to symbols.
 
     let mut files = vec![file1, file2];
     extractor.resolve_file_modules(&mut files);
@@ -2453,5 +2399,108 @@ fn test_resolve_file_modules_nested_src() {
     assert!(
         modules.iter().any(|m| m.name == "packages/web-ui/example"),
         "Should have 'packages/web-ui/example' structural container"
+    );
+}
+
+#[test]
+fn test_phase4b_skips_container_members() {
+    let extractor = TypeScriptExtractor;
+
+    // File with a class containing methods and properties,
+    // plus a top-level function.
+    let mut file = make_ts_parsed_file(
+        "src/api/service.ts",
+        vec![
+            make_ts_symbol("MyClass", "class", "src/api/service.ts", 1),
+            make_ts_symbol("doThing", "method", "src/api/service.ts", 2),
+            make_ts_symbol("myProp", "property", "src/api/service.ts", 3),
+            make_ts_symbol("topFn", "function", "src/api/service.ts", 10),
+        ],
+    );
+    // Set end_line for MyClass to encompass lines 1-5
+    file.symbols[0].end_line = 5;
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    let all_edges: Vec<&RawEdge> = files.iter().flat_map(|f| f.edges.iter()).collect();
+
+    let module_id = SymbolId::new("src/api", "src/api", 1);
+
+    // Should have edge: module → MyClass (the class is top-level)
+    let class_id = SymbolId::new("src/api/service.ts", "MyClass", 1);
+    let class_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == module_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == class_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        class_edge,
+        "Should have HasMember from module to MyClass (top-level)"
+    );
+
+    // Should have edge: module → topFn (top-level function)
+    let fn_id = SymbolId::new("src/api/service.ts", "topFn", 10);
+    let fn_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == module_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == fn_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        fn_edge,
+        "Should have HasMember from module to topFn (top-level)"
+    );
+
+    // Should NOT have edge: module → doThing (method inside class)
+    let method_id = SymbolId::new("src/api/service.ts", "doThing", 2);
+    let method_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == module_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == method_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !method_edge,
+        "Should NOT have HasMember from module to doThing (method inside class)"
+    );
+
+    // Should NOT have edge: module → myProp (property inside class)
+    let prop_id = SymbolId::new("src/api/service.ts", "myProp", 3);
+    let prop_edge = all_edges.iter().any(|e| {
+        matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == module_id.as_str())
+            && matches!(&e.to, SymbolRef::Resolved(id) if id.as_str() == prop_id.as_str())
+            && e.kind == EdgeKind::HasMember
+    });
+    assert!(
+        !prop_edge,
+        "Should NOT have HasMember from module to myProp (property inside class)"
+    );
+}
+
+#[test]
+fn test_no_per_file_module_edges_after_fix() {
+    let extractor = TypeScriptExtractor;
+    let file = make_ts_parsed_file(
+        "src/api/handler.ts",
+        vec![make_ts_symbol(
+            "handleUser",
+            "function",
+            "src/api/handler.ts",
+            3,
+        )],
+    );
+    // Do NOT add any make_hasmember_edge — extract_hasmember_edges is removed.
+
+    let mut files = vec![file];
+    extractor.resolve_file_modules(&mut files);
+
+    // There should be NO edge with from = SymbolId::new("src/api/handler.ts", "src/api/handler.ts", 1)
+    // (the old per-file module ID that extract_hasmember_edges used to create)
+    let old_module_id = SymbolId::new("src/api/handler.ts", "src/api/handler.ts", 1);
+    let has_old_edges = files.iter().flat_map(|f| f.edges.iter()).any(
+        |e| matches!(&e.from, SymbolRef::Resolved(id) if id.as_str() == old_module_id.as_str()),
+    );
+    assert!(
+        !has_old_edges,
+        "Should have no edges from old per-file module ID (extract_hasmember_edges removed)"
     );
 }

@@ -373,6 +373,96 @@ impl LanguageExtractor for RustExtractor {
             pf.edges.extend(edges_to_add);
         }
 
+        // Phase 5b: Create file-module → top-level symbol edges
+        // Top-level = symbols NOT inside any inline `mod foo { ... }` block.
+        // Inline-module-contained symbols get their HasMember edges from
+        // extract_hasmember_edges (which only handles inline modules after this refactor).
+        // We skip fields (they use HasField) and modules (modules are linked in Phase 5).
+        for pf in parsed_files.iter_mut() {
+            if pf.language != "rust" {
+                continue;
+            }
+
+            // Find the implicit file module symbol for this file.
+            // It was created in extract() with signature "implicit_module: true".
+            let Some(implicit_mod) = pf.symbols.iter().find(|s| {
+                s.kind == "module"
+                    && s.signature
+                        .as_ref()
+                        .is_some_and(|sig| sig.contains("implicit_module: true"))
+            }) else {
+                continue;
+            };
+            let implicit_mod_name = implicit_mod.name.clone();
+            let implicit_mod_line = implicit_mod.start_line;
+
+            // Build line ranges of inline modules (modules that are NOT the implicit file module).
+            // These are `mod foo { ... }` blocks defined inside the file.
+            let inline_module_ranges: Vec<(usize, usize)> = pf
+                .symbols
+                .iter()
+                .filter(|s| {
+                    s.kind == "module"
+                        && !s
+                            .signature
+                            .as_ref()
+                            .is_some_and(|sig| sig.contains("implicit_module: true"))
+                })
+                .map(|s| (s.start_line, s.end_line))
+                .collect();
+
+            // Collect edges to add (can't modify while iterating symbols)
+            let mut edges_to_add: Vec<RawEdge> = Vec::new();
+
+            for sym in &pf.symbols {
+                // Skip the implicit module itself — no self-edges.
+                if sym
+                    .signature
+                    .as_ref()
+                    .is_some_and(|sig| sig.contains("implicit_module: true"))
+                {
+                    continue;
+                }
+                // Skip fields — they get HasField edges, not HasMember.
+                if sym.kind == "field" {
+                    continue;
+                }
+                // Skip NESTED inline modules (modules inside another inline module).
+                // Top-level inline modules (mod foo { } at file top level) should get
+                // a HasMember edge from the file module — they're top-level symbols.
+                // Only skip modules that are INSIDE another inline module's range.
+                let is_inside_inline_module = inline_module_ranges
+                    .iter()
+                    .any(|(start, end)| sym.start_line > *start && sym.end_line <= *end);
+                if sym.kind == "module" && is_inside_inline_module {
+                    continue;
+                }
+                // Skip non-module symbols inside inline modules — they get HasMember edges
+                // from extract_hasmember_edges (the inline-module parent).
+                if sym.kind != "module" && is_inside_inline_module {
+                    continue;
+                }
+
+                let from = SymbolRef::resolved(SymbolId::new(
+                    &pf.file_path,
+                    &implicit_mod_name,
+                    implicit_mod_line,
+                ));
+                let to =
+                    SymbolRef::resolved(SymbolId::new(&pf.file_path, &sym.name, sym.start_line));
+
+                edges_to_add.push(RawEdge {
+                    from,
+                    to,
+                    kind: EdgeKind::HasMember,
+                    line: Some(sym.start_line),
+                    entry_type: None,
+                });
+            }
+
+            pf.edges.extend(edges_to_add);
+        }
+
         // Phase 6: Link binary targets (main.rs, src/bin/*.rs) to their lib crate module
         // when a lib.rs exists in the same src/ directory.
         let mut lib_modules: HashMap<String, (String, String, usize)> = HashMap::new();
@@ -1922,12 +2012,20 @@ impl RustExtractor {
     fn extract_hasmember_edges(file_path: &str, parsed: &mut ParsedFile) {
         use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
 
-        // Collect all modules with their line ranges
+        // Collect inline modules (mod foo { ... } blocks) with their line ranges.
+        // Skip the implicit file module — its edges to top-level symbols are
+        // created by resolve_file_modules Phase 5b with canonical SymbolIds.
         let modules: Vec<(usize, &str, usize, usize)> = parsed
             .symbols
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.kind == "module")
+            .filter(|(_, s)| {
+                s.kind == "module"
+                    && !s
+                        .signature
+                        .as_ref()
+                        .is_some_and(|sig| sig.contains("implicit_module: true"))
+            })
             .map(|(idx, s)| (idx, s.name.as_str(), s.start_line, s.end_line))
             .collect();
 
