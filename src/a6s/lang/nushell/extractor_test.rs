@@ -630,6 +630,59 @@ fn test_resolve_imports_nonexistent() {
 }
 
 #[test]
+fn test_resolve_cross_file_returns_has_member_edges() {
+    use crate::a6s::types::{ParsedFile, RawEdge, RawSymbol, SymbolId, SymbolRef};
+
+    let extractor = NushellExtractor;
+
+    // Create a file with a symbol
+    let mut file = ParsedFile::new("src/lib/utils.nu", "nushell");
+    file.symbols.push(RawSymbol {
+        name: "helper".to_string(),
+        kind: "function".to_string(),
+        file_path: "src/lib/utils.nu".to_string(),
+        start_line: 1,
+        end_line: 3,
+        signature: None,
+        language: "nushell".to_string(),
+        visibility: Some("public".to_string()),
+        entry_type: None,
+        module_path: None,
+    });
+
+    // Add a HasMember edge with both endpoints Resolved (as resolve_file_modules would create)
+    let from_id = SymbolId::new("src/lib/mod.nu", "lib", 1);
+    let to_id = SymbolId::new("src/lib/utils.nu", "helper", 1);
+    file.edges.push(RawEdge {
+        from: SymbolRef::resolved(from_id.clone()),
+        to: SymbolRef::resolved(to_id.clone()),
+        kind: EdgeKind::HasMember,
+        line: Some(1),
+        entry_type: None,
+    });
+
+    // Call resolve_cross_file
+    let (resolved_edges, _resolved_imports) = extractor.resolve_cross_file(&mut [file]);
+
+    // Verify HasMember edges are returned
+    let has_member_edges: Vec<_> = resolved_edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    assert_eq!(
+        has_member_edges.len(),
+        1,
+        "resolve_cross_file should return HasMember edges"
+    );
+    assert_eq!(
+        has_member_edges[0].from, from_id,
+        "HasMember 'from' should match"
+    );
+    assert_eq!(has_member_edges[0].to, to_id, "HasMember 'to' should match");
+}
+
+#[test]
 fn test_extracts_glob_import() {
     let extractor = NushellExtractor;
     let code = "use std *";

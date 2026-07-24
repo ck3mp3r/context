@@ -211,7 +211,7 @@ impl LanguageExtractor for NushellExtractor {
             }
         }
 
-        // Step 4: Resolve Calls edges where `to` is Unresolved
+        // Step 4: Resolve all edges — pass through Resolved endpoints, resolve Unresolved for Calls
         let mut resolved_edges = Vec::new();
 
         for pf in parsed_files.iter() {
@@ -227,26 +227,19 @@ impl LanguageExtractor for NushellExtractor {
                 .unwrap_or((&empty_globs, &empty_names));
 
             for edge in &pf.edges {
-                if edge.kind != EdgeKind::Calls {
-                    continue;
-                }
-
-                // Only resolve edges where `to` is Unresolved
-                let callee_name = match &edge.to {
-                    SymbolRef::Unresolved { name, .. } => name.as_str(),
-                    SymbolRef::Resolved(_) => continue,
-                };
-
-                // Resolve `from` — should already be Resolved for Nushell
+                // Resolve `from` endpoint
                 let from_id = match &edge.from {
-                    SymbolRef::Resolved(id) => id.clone(),
+                    SymbolRef::Resolved(id) => Some(id.clone()),
                     SymbolRef::Unresolved {
                         name, file_path, ..
                     } => {
-                        // Try to resolve from in same module
+                        // Only resolve for Calls edges; other edge types with Unresolved are skipped
+                        if edge.kind != EdgeKind::Calls {
+                            continue;
+                        }
                         let qname = QualifiedName::new(file_module_path, name);
                         match symbol_index.get(&qname) {
-                            Some(id) => id.clone(),
+                            Some(id) => Some(id.clone()),
                             None => {
                                 tracing::debug!(
                                     "Could not resolve 'from' symbol '{}' in file '{}'",
@@ -259,34 +252,47 @@ impl LanguageExtractor for NushellExtractor {
                     }
                 };
 
-                // Try to resolve `to`:
-                // 1. Same module (local scope)
-                let to_id = {
-                    let qname = QualifiedName::new(file_module_path, callee_name);
-                    symbol_index.get(&qname).cloned()
+                // Resolve `to` endpoint
+                let to_id = match &edge.to {
+                    SymbolRef::Resolved(id) => Some(id.clone()),
+                    SymbolRef::Unresolved { name, .. } => {
+                        // Only resolve for Calls edges; other edge types with Unresolved are skipped
+                        if edge.kind != EdgeKind::Calls {
+                            continue;
+                        }
+                        let callee_name = name.as_str();
+
+                        // 1. Same module (local scope)
+                        let mut resolved = {
+                            let qname = QualifiedName::new(file_module_path, callee_name);
+                            symbol_index.get(&qname).cloned()
+                        };
+
+                        // 2. Glob imports
+                        resolved = resolved.or_else(|| {
+                            glob_modules.iter().find_map(|glob_module| {
+                                let qname = QualifiedName::new(glob_module, callee_name);
+                                symbol_index.get(&qname).cloned()
+                            })
+                        });
+
+                        // 3. Named imports
+                        resolved = resolved.or_else(|| {
+                            name_to_module.get(callee_name).and_then(|mapped_module| {
+                                let qname = QualifiedName::new(mapped_module, callee_name);
+                                symbol_index.get(&qname).cloned()
+                            })
+                        });
+
+                        resolved
+                    }
                 };
 
-                // 2. Glob imports
-                let to_id = to_id.or_else(|| {
-                    glob_modules.iter().find_map(|glob_module| {
-                        let qname = QualifiedName::new(glob_module, callee_name);
-                        symbol_index.get(&qname).cloned()
-                    })
-                });
-
-                // 3. Named imports
-                let to_id = to_id.or_else(|| {
-                    name_to_module.get(callee_name).and_then(|mapped_module| {
-                        let qname = QualifiedName::new(mapped_module, callee_name);
-                        symbol_index.get(&qname).cloned()
-                    })
-                });
-
-                if let Some(to_id) = to_id {
+                if let (Some(from), Some(to)) = (from_id, to_id) {
                     resolved_edges.push(ResolvedEdge {
-                        from: from_id,
-                        to: to_id,
-                        kind: EdgeKind::Calls,
+                        from,
+                        to,
+                        kind: edge.kind.clone(),
                         line: edge.line,
                         entry_type: None,
                     });

@@ -1228,7 +1228,9 @@ fn test_hasmethod_edges_object() {
 // --- Subtask 3: HasMember edges ---
 
 #[test]
-fn test_hasmember_top_level_function() {
+fn test_hasmember_not_created_during_extract() {
+    // HasMember edges are now created during resolve_file_modules (Phase 6),
+    // not during single-file extract(). Verify extract() produces no HasMember edges.
     let extractor = KotlinExtractor;
     let code = load_testdata("edges.kt");
     let parsed = extractor.extract(&code, "edges.kt");
@@ -1239,34 +1241,9 @@ fn test_hasmember_top_level_function() {
         .filter(|e| e.kind == crate::a6s::types::EdgeKind::HasMember)
         .collect();
 
-    let module_to_toplevel = hasmember_edges.iter().any(|e| {
-        matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains("topLevelFunction"))
-    });
     assert!(
-        module_to_toplevel,
-        "Should have HasMember edge to topLevelFunction, got edges: {:?}",
-        hasmember_edges
-    );
-}
-
-#[test]
-fn test_hasmember_top_level_class() {
-    let extractor = KotlinExtractor;
-    let code = load_testdata("edges.kt");
-    let parsed = extractor.extract(&code, "edges.kt");
-
-    let hasmember_edges: Vec<_> = parsed
-        .edges
-        .iter()
-        .filter(|e| e.kind == crate::a6s::types::EdgeKind::HasMember)
-        .collect();
-
-    let module_to_class = hasmember_edges.iter().any(|e| {
-        matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(id) if id.as_str().contains("TopLevelClass"))
-    });
-    assert!(
-        module_to_class,
-        "Should have HasMember edge to TopLevelClass, got edges: {:?}",
+        hasmember_edges.is_empty(),
+        "extract() should not create HasMember edges (handled by resolve_file_modules), got: {:?}",
         hasmember_edges
     );
 }

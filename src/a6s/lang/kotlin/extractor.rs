@@ -136,7 +136,6 @@ impl LanguageExtractor for KotlinExtractor {
         // Extract structural edges
         Self::extract_hasfield_edges(file_path, &mut parsed);
         Self::extract_hasmethod_edges(file_path, &mut parsed);
-        Self::extract_hasmember_edges(file_path, &module_path, &mut parsed);
         Self::extract_inheritance_edges(file_path, code, &tree, &mut parsed);
         Self::extract_calls_edges(file_path, code, &tree, &mut parsed);
 
@@ -1816,6 +1815,9 @@ impl KotlinExtractor {
     /// Extract HasMember edges: implicit module → top-level declarations.
     /// Follows Go extractor pattern: creates HasMember from a module symbol
     /// to every top-level symbol (not fields, methods, interface_methods, enum_entries).
+    /// NOTE: Not called during extract() — HasMember edges are created by
+    /// resolve_file_modules (Phase 6). Kept for potential reuse.
+    #[allow(dead_code)]
     fn extract_hasmember_edges(
         file_path: &str,
         module_path: &Option<String>,
