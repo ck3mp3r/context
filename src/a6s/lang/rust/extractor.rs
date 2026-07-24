@@ -619,11 +619,8 @@ impl LanguageExtractor for RustExtractor {
             if pf.language != "rust" {
                 continue;
             }
-            let module_path = file_module_paths
-                .get(&pf.file_path)
-                .map(|s| s.as_str())
-                .unwrap_or("");
             for sym in &pf.symbols {
+                let module_path = sym.module_path.as_deref().unwrap_or("");
                 let sym_id = sym.symbol_id();
 
                 // For methods with a parent type, use module::ParentType::method_name
