@@ -58,6 +58,14 @@ function withNested() {
   type NestedType = string;
 }
 
+// === Nested class with methods (should NOT be extracted) ===
+function withNestedClass() {
+  class NestedClassWithMethods {
+    nestedMethod(): void {}
+    nestedField: number = 0;
+  }
+}
+
 // === Inline object type method signatures (should NOT be extracted) ===
 // is_inside_inline_object_type band-aid fixed these; now the query handles it.
 export type WithInline = {

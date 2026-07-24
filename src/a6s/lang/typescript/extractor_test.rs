@@ -1259,6 +1259,22 @@ fn test_query_constraints_nested_declarations_not_extracted() {
         !result.symbols.iter().any(|s| s.name == "NestedType"),
         "NestedType (nested type alias) should NOT be extracted"
     );
+
+    // Nested class members inside function bodies must NOT be extracted.
+    assert!(
+        !result
+            .symbols
+            .iter()
+            .any(|s| s.name == "nestedMethod" && s.kind == "method"),
+        "nestedMethod (method inside nested class) should NOT be extracted"
+    );
+    assert!(
+        !result
+            .symbols
+            .iter()
+            .any(|s| s.name == "nestedField" && s.kind == "property"),
+        "nestedField (field inside nested class) should NOT be extracted"
+    );
 }
 
 #[test]

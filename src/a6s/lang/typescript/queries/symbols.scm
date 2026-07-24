@@ -53,10 +53,18 @@
   (enum_declaration
     name: (identifier) @enum_name) @enum_def)
 
-;;; Enum members — only direct children of enum_body
-(enum_body
-  (enum_assignment
-    name: (property_identifier) @enum_member_name) @enum_member_def)
+;;; Enum members — only direct children of top-level enum_body
+(program
+  (enum_declaration
+    (enum_body
+      (enum_assignment
+        name: (property_identifier) @enum_member_name) @enum_member_def)))
+
+(export_statement
+  (enum_declaration
+    (enum_body
+      (enum_assignment
+        name: (property_identifier) @enum_member_name) @enum_member_def)))
 
 ;;; Functions — top-level
 (program
@@ -76,39 +84,91 @@
   (generator_function_declaration
     name: (identifier) @gen_fn_name) @gen_fn_def)
 
-;;; Methods — only direct children of class_body
+;;; Methods — only direct children of top-level class_body
 ;;; This is the headline fix: the bare query also matched object-literal
 ;;; methods (`const obj = { foo() {} }`) because `method_definition` is a
 ;;; child of BOTH class_body AND object. Anchoring to class_body excludes
 ;;; object literals (whose method_definition parent is `object`).
-(class_body
-  (method_definition
-    name: (property_identifier) @method_name) @method_def)
+;;; Anchoring to (program (class_declaration ...)) excludes nested classes.
+(program
+  (class_declaration
+    (class_body
+      (method_definition
+        name: (property_identifier) @method_name) @method_def)))
 
-;;; Abstract method signatures — only direct children of class_body
-(class_body
-  (abstract_method_signature
-    name: (property_identifier) @abstract_method_name) @abstract_method_def)
+(export_statement
+  (class_declaration
+    (class_body
+      (method_definition
+        name: (property_identifier) @method_name) @method_def)))
 
-;;; Interface method signatures — only direct children of interface_body
+;;; Abstract method signatures — only direct children of top-level class_body
+(program
+  (class_declaration
+    (class_body
+      (abstract_method_signature
+        name: (property_identifier) @abstract_method_name) @abstract_method_def)))
+
+(export_statement
+  (class_declaration
+    (class_body
+      (abstract_method_signature
+        name: (property_identifier) @abstract_method_name) @abstract_method_def)))
+
+;;; Also match abstract class declarations
+(program
+  (abstract_class_declaration
+    (class_body
+      (abstract_method_signature
+        name: (property_identifier) @abstract_method_name) @abstract_method_def)))
+
+(export_statement
+  (abstract_class_declaration
+    (class_body
+      (abstract_method_signature
+        name: (property_identifier) @abstract_method_name) @abstract_method_def)))
+
+;;; Interface method signatures — only direct children of top-level interface_body
 ;;; This REPLACES the is_inside_inline_object_type Rust post-filter, which
 ;;; existed because method_signature is a child of BOTH interface_body (want)
 ;;; AND object_type (inline type literals — don't want).
-(interface_body
-  (method_signature
-    name: (property_identifier) @method_sig_name) @method_sig_def)
+(program
+  (interface_declaration
+    (interface_body
+      (method_signature
+        name: (property_identifier) @method_sig_name) @method_sig_def)))
 
-;;; Class-body method signatures (overload signatures) — preserve current
-;;; extraction behavior. The process_match handler maps @method_sig_name to
-;;; the `interface_method` kind; keep that mapping.
-(class_body
-  (method_signature
-    name: (property_identifier) @method_sig_name) @method_sig_def)
+(export_statement
+  (interface_declaration
+    (interface_body
+      (method_signature
+        name: (property_identifier) @method_sig_name) @method_sig_def)))
 
-;;; Class fields — only direct children of class_body
-(class_body
-  (public_field_definition
-    name: (property_identifier) @field_name) @field_def)
+;;; Class-body method signatures (overload signatures) — only top-level class_body
+(program
+  (class_declaration
+    (class_body
+      (method_signature
+        name: (property_identifier) @method_sig_name) @method_sig_def)))
+
+(export_statement
+  (class_declaration
+    (class_body
+      (method_signature
+        name: (property_identifier) @method_sig_name) @method_sig_def)))
+
+;;; Class fields — only direct children of top-level class_body
+(program
+  (class_declaration
+    (class_body
+      (public_field_definition
+        name: (property_identifier) @field_name) @field_def)))
+
+(export_statement
+  (class_declaration
+    (class_body
+      (public_field_definition
+        name: (property_identifier) @field_name) @field_def)))
 
 ;;; Top-level lexical declarations (const/let) — dual anchor
 ;;; This REPLACES the is_top_level Rust post-filter for variables.
