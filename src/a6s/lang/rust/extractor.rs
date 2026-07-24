@@ -1901,7 +1901,10 @@ impl RustExtractor {
         query: &Query,
         parsed: &mut ParsedFile,
     ) {
-        // 1. HasField: struct → field symbols
+        // 1. HasMember: module → functions/structs/enums/etc.
+        Self::extract_hasmember_edges(file_path, parsed);
+
+        // 2. HasField: struct → field symbols
         Self::extract_hasfield_edges(file_path, parsed);
 
         // 3. HasMethod: struct/enum/trait → method functions
@@ -1916,7 +1919,6 @@ impl RustExtractor {
     }
 
     /// Extract HasMember edges: module → child symbols
-    #[allow(dead_code)]
     fn extract_hasmember_edges(file_path: &str, parsed: &mut ParsedFile) {
         use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
 
