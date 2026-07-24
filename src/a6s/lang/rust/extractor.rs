@@ -681,9 +681,14 @@ impl LanguageExtractor for RustExtractor {
                 // Resolve `from`
                 let from_id = match &edge.from {
                     SymbolRef::Resolved(id) => Some(id.clone()),
-                    SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
-                    }
+                    SymbolRef::Unresolved { name, .. } => Self::resolve_name(
+                        name,
+                        file_module,
+                        &symbol_index,
+                        &bare_index,
+                        imports,
+                        &pf.file_path,
+                    ),
                 };
 
                 // Resolve `to` with qualifier-aware lookup and kind filtering
@@ -708,6 +713,7 @@ impl LanguageExtractor for RustExtractor {
                                     &symbol_index,
                                     &bare_index,
                                     imports,
+                                    &pf.file_path,
                                 )
                             })
                         } else {
@@ -717,6 +723,7 @@ impl LanguageExtractor for RustExtractor {
                                 &symbol_index,
                                 &bare_index,
                                 imports,
+                                &pf.file_path,
                             )
                         };
                         resolved
@@ -829,6 +836,29 @@ impl RustExtractor {
             };
         }
 
+        // Helper: prepend crate name for workspace crates
+        let apply_crate_prefix = |dir_module: &str, before_src: Option<&str>| -> Option<String> {
+            match before_src {
+                Some(crate_path) if !crate_path.is_empty() => {
+                    let crate_name = crate_path.rsplit('/').next().unwrap_or("");
+                    // Normalize crate name: nu-agent-tty → nu_agent_tty
+                    let crate_module = crate_name.replace('-', "_");
+                    if dir_module.is_empty() {
+                        Some(crate_module)
+                    } else {
+                        Some(format!("{}::{}", crate_module, dir_module))
+                    }
+                }
+                _ => {
+                    if dir_module.is_empty() {
+                        None
+                    } else {
+                        Some(dir_module.to_string())
+                    }
+                }
+            }
+        };
+
         // Handle mod.rs - return GRANDPARENT directory path (parent's parent)
         if path.ends_with("/mod") {
             let dir_path = path.strip_suffix("/mod")?;
@@ -839,19 +869,21 @@ impl RustExtractor {
 
             // Get the parent of the directory (grandparent of the file)
             let parent_path = std::path::Path::new(dir_path).parent();
-            match parent_path {
-                Some(p) if p.as_os_str().is_empty() => None, // Top-level module
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
-                None => None,
-            }
+            let dir_module = match parent_path {
+                Some(p) if p.as_os_str().is_empty() => String::new(), // Top-level module
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")).unwrap_or_default(),
+                None => String::new(),
+            };
+            apply_crate_prefix(&dir_module, before_src)
         } else {
             // Regular file - return containing directory's module path
             let parent_path = std::path::Path::new(path).parent();
-            match parent_path {
-                Some(p) if p.as_os_str().is_empty() => None, // Top-level file
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
-                None => None,
-            }
+            let dir_module = match parent_path {
+                Some(p) if p.as_os_str().is_empty() => String::new(), // Top-level file
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")).unwrap_or_default(),
+                None => String::new(),
+            };
+            apply_crate_prefix(&dir_module, before_src)
         }
     }
 
@@ -947,6 +979,7 @@ impl RustExtractor {
         >,
         bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
         imports: &[&crate::a6s::types::RawImport],
+        caller_file_path: &str,
     ) -> Option<crate::a6s::types::SymbolId> {
         use crate::a6s::types::QualifiedName;
 
@@ -994,11 +1027,18 @@ impl RustExtractor {
             }
         }
 
-        // 3. Bare name fallback: only if exactly one candidate
+        // 3. Bare name fallback: only if exactly one candidate AND same crate
         if let Some(candidates) = bare_index.get(name)
             && candidates.len() == 1
         {
-            return Some(candidates[0].clone());
+            let candidate = &candidates[0];
+            // Gate by same-crate: compare before_src portions
+            let caller_crate = Self::extract_crate_path(caller_file_path);
+            let candidate_file_path = candidate.file_path().unwrap_or("");
+            let candidate_crate = Self::extract_crate_path(candidate_file_path);
+            if caller_crate == candidate_crate {
+                return Some(candidate.clone());
+            }
         }
 
         None
@@ -1101,6 +1141,20 @@ impl RustExtractor {
             None
         } else {
             Some(crate_name.to_string())
+        }
+    }
+
+    /// Extract the crate path (before_src) from a file path.
+    /// "crates/foo/src/lib.rs" → Some("crates/foo")
+    /// "src/lib.rs" → None (single crate at root)
+    /// Used to gate bare-name fallback by same-crate.
+    fn extract_crate_path(file_path: &str) -> Option<String> {
+        let idx = file_path.find("/src/")?;
+        let before_src = &file_path[..idx];
+        if before_src.is_empty() {
+            None
+        } else {
+            Some(before_src.to_string())
         }
     }
 
@@ -1829,7 +1883,16 @@ impl RustExtractor {
             } else if child.kind() == "scoped_identifier" {
                 // Handle simple imports: use std::collections::HashMap;
                 let path = Self::node_text(child, code);
-                Self::create_import_entry(path, path, file_path, parsed, false);
+                // Split the last :: segment as the imported name
+                // use a::b::c; → module_path="a::b", imported_name="c"
+                // use foo;     → module_path="", imported_name="foo"
+                // use foo::*;  → handled by use_wildcard above
+                if let Some((module_path, imported_name)) = path.rsplit_once("::") {
+                    Self::create_import_entry(module_path, imported_name, file_path, parsed, false);
+                } else {
+                    // Single segment: use foo;
+                    Self::create_import_entry(path, path, file_path, parsed, false);
+                }
             } else if child.kind() == "identifier" {
                 // Handle single identifier imports: use HashMap;
                 let name = Self::node_text(child, code);

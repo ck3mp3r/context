@@ -1127,6 +1127,63 @@ use self::inner::function;
 }
 
 #[test]
+fn test_scoped_identifier_import_parsed_as_named_import() {
+    // use a::b::c; should be parsed as named import (module_path="a::b", imported_name="c")
+    let code = r#"use nu_agent_core::policy::Verbosity;"#;
+    let parsed = extract(code);
+
+    assert_eq!(parsed.imports.len(), 1, "Should have exactly 1 import");
+    let import = &parsed.imports[0];
+    assert_eq!(
+        import.entry.module_path, "nu_agent_core::policy",
+        "module_path should be the path without the last segment"
+    );
+    assert_eq!(
+        import.entry.imported_names,
+        vec!["Verbosity".to_string()],
+        "imported_names should contain the last segment"
+    );
+    assert!(!import.entry.is_glob, "Should not be a glob import");
+}
+
+#[test]
+fn test_single_segment_import_parsed_as_module_import() {
+    // use foo; should be parsed as module import (module_path="foo", imported_names=[])
+    let code = r#"use foo;"#;
+    let parsed = extract(code);
+
+    assert_eq!(parsed.imports.len(), 1, "Should have exactly 1 import");
+    let import = &parsed.imports[0];
+    assert_eq!(
+        import.entry.module_path, "foo",
+        "module_path should be 'foo'"
+    );
+    assert!(
+        import.entry.imported_names.is_empty(),
+        "imported_names should be empty for single-segment import"
+    );
+}
+
+#[test]
+fn test_two_segment_import_parsed_as_named_import() {
+    // use foo::bar; should be parsed as named import (module_path="foo", imported_name="bar")
+    let code = r#"use std::io;"#;
+    let parsed = extract(code);
+
+    assert_eq!(parsed.imports.len(), 1, "Should have exactly 1 import");
+    let import = &parsed.imports[0];
+    assert_eq!(
+        import.entry.module_path, "std",
+        "module_path should be 'std'"
+    );
+    assert_eq!(
+        import.entry.imported_names,
+        vec!["io".to_string()],
+        "imported_names should contain 'io'"
+    );
+}
+
+#[test]
 fn test_imports_fixture() {
     let fixture = load_testdata("imports.rs");
     let parsed = extract(&fixture);
@@ -2046,6 +2103,36 @@ fn test_module_path_nested_workspace() {
     // workspace/crates/baz/src/lib.rs → None (lib.rs is the crate root, no parent module)
     let path = derive_module_path("workspace/crates/baz/src/lib.rs");
     assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_workspace_regular_file() {
+    // crates/foo/src/formatter.rs → Some("foo") (crate name prefix)
+    let path = derive_module_path("crates/foo/src/formatter.rs");
+    assert_eq!(path, Some("foo".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_nested_file() {
+    // crates/foo/src/platform/mod.rs → Some("foo") (crate name prefix, parent module path)
+    // The full path "foo::platform" is constructed by symbols_module_path logic
+    let path = derive_module_path("crates/foo/src/platform/mod.rs");
+    assert_eq!(path, Some("foo".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_crate_name_normalization() {
+    // crates/nu-agent-tty/src/formatter.rs → Some("nu_agent_tty") (hyphen → underscore)
+    let path = derive_module_path("crates/nu-agent-tty/src/formatter.rs");
+    assert_eq!(path, Some("nu_agent_tty".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_nested_with_hyphen() {
+    // crates/nu-agent-tui/src/platform/mod.rs → Some("nu_agent_tui") (parent module path)
+    // The full path "nu_agent_tui::platform" is constructed by symbols_module_path logic
+    let path = derive_module_path("crates/nu-agent-tui/src/platform/mod.rs");
+    assert_eq!(path, Some("nu_agent_tui".to_string()));
 }
 
 // Helper function that uses the trait method
@@ -3039,6 +3126,76 @@ fn main() { run(); }
     assert!(
         calls.iter().any(|e| e.to.as_str().contains("module_a")),
         "Should resolve to module_a's run specifically, got: {:?}",
+        calls
+    );
+}
+
+// ============================================================================
+// Cross-crate resolution: same-named symbols in different workspace crates
+// ============================================================================
+
+#[test]
+fn test_resolve_cross_file_different_crates_same_name_no_resolve() {
+    let extractor = RustExtractor;
+
+    // File 1 in crates/a/src/lib.rs: calls render()
+    let code1 = r#"fn handler() { render(); }"#;
+    let file1 = extractor.extract(code1, "crates/a/src/handler.rs");
+
+    // File 2 in crates/a/src/lib.rs: defines render() (same crate)
+    let code2 = r#"fn render() {}"#;
+    let file2 = extractor.extract(code2, "crates/a/src/render.rs");
+
+    // File 3 in crates/b/src/lib.rs: ALSO defines render() (different crate)
+    let code3 = r#"fn render() {}"#;
+    let file3 = extractor.extract(code3, "crates/b/src/render.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With same-crate gating, render() should resolve to crate a's render
+    // (same before_src "crates/a"), not crate b's
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":render:")),
+        "Should resolve render() to same-crate candidate, got: {:?}",
+        calls
+    );
+    // Verify it resolved to crate a's render, not crate b's
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains("crates/a")),
+        "Should resolve to crate a's render, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_different_crates_no_cross_crate_edge() {
+    let extractor = RustExtractor;
+
+    // File 1 in crates/a/src/lib.rs: calls render()
+    let code1 = r#"fn handler() { render(); }"#;
+    let file1 = extractor.extract(code1, "crates/a/src/handler.rs");
+
+    // File 2 in crates/b/src/lib.rs: defines render() (different crate, no same-crate match)
+    let code2 = r#"fn render() {}"#;
+    let file2 = extractor.extract(code2, "crates/b/src/render.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With same-crate gating, render() should NOT resolve because
+    // caller is in crates/a and candidate is in crates/b
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.is_empty(),
+        "Should NOT resolve render() across different crates, got: {:?}",
         calls
     );
 }
