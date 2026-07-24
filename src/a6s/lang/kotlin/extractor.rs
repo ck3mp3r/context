@@ -170,7 +170,8 @@ impl LanguageExtractor for KotlinExtractor {
             .map(|pf| {
                 let mp = pf
                     .symbols
-                    .first()
+                    .iter()
+                    .find(|s| s.kind != "module")
                     .and_then(|s| s.module_path.clone())
                     .unwrap_or_default();
                 (pf.file_path.clone(), mp)
