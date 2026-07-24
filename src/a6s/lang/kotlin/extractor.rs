@@ -22,39 +22,7 @@ impl LanguageExtractor for KotlinExtractor {
     }
 
     fn symbol_queries(&self) -> &'static str {
-        r#"
-; Classes (covers regular, data, sealed, abstract, inner, value, enum)
-(class_declaration
-  (type_identifier) @class_name) @class_def
-
-; Object declarations (singletons)
-(object_declaration
-  (type_identifier) @object_name) @object_def
-
-; Companion objects
-(companion_object) @companion_def
-
-; Functions
-(function_declaration
-  (simple_identifier) @fn_name) @fn_def
-
-; Properties
-(property_declaration
-  (variable_declaration
-    (simple_identifier) @prop_name)) @prop_def
-
-; Type aliases
-(type_alias
-  (type_identifier) @typealias_name) @typealias_def
-
-; Enum entries
-(enum_entry
-  (simple_identifier) @enum_entry_name) @enum_entry_def
-
-; Class parameters with val/var (become fields)
-(class_parameter
-  (simple_identifier) @class_param_name) @class_param_def
-"#
+        include_str!("queries/symbols.scm")
     }
 
     fn type_ref_queries(&self) -> &'static str {
@@ -665,18 +633,6 @@ impl KotlinExtractor {
         &code[node.byte_range()]
     }
 
-    /// Determine if a node is inside a class_body (making it a member)
-    fn is_inside_class_body(node: Node) -> bool {
-        let mut parent = node.parent();
-        while let Some(p) = parent {
-            if p.kind() == "class_body" {
-                return true;
-            }
-            parent = p.parent();
-        }
-        false
-    }
-
     /// Determine if a node is inside an interface (class_declaration with "interface" keyword)
     fn is_inside_interface(node: Node, code: &str) -> bool {
         let mut parent = node.parent();
@@ -906,7 +862,7 @@ impl KotlinExtractor {
             return;
         }
 
-        // Function declaration
+        // Top-level function declaration (direct child of source_file)
         if let (Some(&name_node), Some(&def_node)) =
             (captures.get("fn_name"), captures.get("fn_def"))
         {
@@ -915,13 +871,11 @@ impl KotlinExtractor {
             let end_line = def_node.end_position().row + 1;
             let visibility = Self::extract_visibility(def_node, code);
 
-            // Determine kind: extension_function, method (member), interface_method, or function
-            let kind = if Self::is_inside_interface(def_node, code) {
-                "interface_method"
-            } else if Self::has_receiver_type(def_node) {
+            // Top-level context: only extension_function vs function.
+            // is_inside_interface/is_inside_class_body no longer needed here —
+            // the query's source_file anchor guarantees top-level.
+            let kind = if Self::has_receiver_type(def_node) {
                 "extension_function"
-            } else if Self::is_inside_class_body(def_node) {
-                "method"
             } else {
                 "function"
             };
@@ -950,7 +904,52 @@ impl KotlinExtractor {
             return;
         }
 
-        // Property declaration
+        // Class/object member function (direct child of class_body)
+        if let (Some(&name_node), Some(&def_node)) =
+            (captures.get("method_name"), captures.get("method_def"))
+        {
+            let name = Self::node_text(name_node, code).to_string();
+            let start_line = def_node.start_position().row + 1;
+            let end_line = def_node.end_position().row + 1;
+            let visibility = Self::extract_visibility(def_node, code);
+
+            // Member context: interface_method vs method vs extension_function.
+            // is_inside_interface is STILL needed here to split interface vs
+            // class members (the query cannot express "class_declaration that
+            // is an interface" because `interface` is a non-named token).
+            let kind = if Self::is_inside_interface(def_node, code) {
+                "interface_method"
+            } else if Self::has_receiver_type(def_node) {
+                "extension_function"
+            } else {
+                "method"
+            };
+
+            let signature = Some(Self::build_function_signature(def_node, code));
+
+            let entry_type =
+                if Self::has_test_annotation(def_node, code) || Self::is_test_by_name(&name) {
+                    Some("test".to_string())
+                } else {
+                    None
+                };
+
+            parsed.symbols.push(RawSymbol {
+                name,
+                kind: kind.to_string(),
+                file_path: file_path.to_string(),
+                start_line,
+                end_line,
+                signature,
+                language: "kotlin".to_string(),
+                visibility,
+                entry_type,
+                module_path: None,
+            });
+            return;
+        }
+
+        // Top-level property declaration (direct child of source_file)
         if let (Some(&name_node), Some(&def_node)) =
             (captures.get("prop_name"), captures.get("prop_def"))
         {
@@ -961,17 +960,46 @@ impl KotlinExtractor {
 
             let binding_kind = Self::get_binding_kind(def_node, code);
             let is_const = Self::has_const_modifier(def_node, code);
-            let is_member = Self::is_inside_class_body(def_node);
 
-            let kind = if is_const {
-                "const"
-            } else if is_member {
-                "property"
-            } else if binding_kind.as_deref() == Some("val") {
+            // Top-level: no is_inside_class_body check needed (query anchors
+            // to source_file). const modifier or val -> const; var -> var.
+            let kind = if is_const || binding_kind.as_deref() == Some("val") {
                 "const"
             } else {
                 "var"
             };
+
+            parsed.symbols.push(RawSymbol {
+                name,
+                kind: kind.to_string(),
+                file_path: file_path.to_string(),
+                start_line,
+                end_line,
+                signature: Some(Self::build_property_signature(def_node, code)),
+                language: "kotlin".to_string(),
+                visibility,
+                entry_type: None,
+                module_path: None,
+            });
+            return;
+        }
+
+        // Class/object member property (direct child of class_body)
+        if let (Some(&name_node), Some(&def_node)) = (
+            captures.get("member_prop_name"),
+            captures.get("member_prop_def"),
+        ) {
+            let name = Self::node_text(name_node, code).to_string();
+            let start_line = def_node.start_position().row + 1;
+            let end_line = def_node.end_position().row + 1;
+            let visibility = Self::extract_visibility(def_node, code);
+
+            let is_const = Self::has_const_modifier(def_node, code);
+
+            // Member context: const -> const; otherwise -> property.
+            // (is_inside_class_body is no longer needed — the query's
+            // class_body anchor guarantees member context.)
+            let kind = if is_const { "const" } else { "property" };
 
             parsed.symbols.push(RawSymbol {
                 name,

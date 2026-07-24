@@ -1173,6 +1173,244 @@ fn test_no_duplicate_symbol_ids() {
 }
 
 // ============================================================================
+// Constrained query tests (c5t note 7d1244e0, Task 1)
+// ============================================================================
+
+#[test]
+fn test_query_constraints_object_literal_methods_not_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // Object-literal methods must NOT be extracted — the headline bug.
+    assert!(
+        !result
+            .symbols
+            .iter()
+            .any(|s| s.name == "objMethod" && s.kind == "method"),
+        "objMethod (object literal) should NOT be extracted. Got: {:?}",
+        result
+            .symbols
+            .iter()
+            .filter(|s| s.name == "objMethod")
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !result
+            .symbols
+            .iter()
+            .any(|s| s.name == "objMethod2" && s.kind == "method"),
+        "objMethod2 (object literal) should NOT be extracted"
+    );
+    assert!(
+        !result
+            .symbols
+            .iter()
+            .any(|s| s.name == "handle" && s.kind == "method"),
+        "handle (object literal) should NOT be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_local_variables_not_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // Local variables inside function bodies must NOT be extracted.
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "localConst"),
+        "localConst (local) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "localLet"),
+        "localLet (local) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "localVar"),
+        "localVar (local) should NOT be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_nested_declarations_not_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // Nested declarations inside function bodies must NOT be extracted.
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "nestedFn"),
+        "nestedFn (nested function) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "NestedClass"),
+        "NestedClass (nested class) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "NestedIface"),
+        "NestedIface (nested interface) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "NestedEnum"),
+        "NestedEnum (nested enum) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "NestedType"),
+        "NestedType (nested type alias) should NOT be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_inline_object_type_methods_not_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // Inline object_type method signatures must NOT be extracted.
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "inlineMethod"),
+        "inlineMethod (inline object_type) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "cleanup"),
+        "cleanup (inline object_type) should NOT be extracted"
+    );
+    assert!(
+        !result.symbols.iter().any(|s| s.name == "process"),
+        "process (nested inline object_type) should NOT be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_top_level_declarations_still_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // All top-level declarations (exported and internal) MUST still be extracted.
+    let names: Vec<&str> = result.symbols.iter().map(|s| s.name.as_str()).collect();
+    for required in [
+        "TopClass",
+        "InternalClass",
+        "TopInterface",
+        "TopType",
+        "InternalType",
+        "TopEnum",
+        "topFunction",
+        "internalFunction",
+        "TOP_CONST",
+        "INTERNAL_CONST",
+        "TOP_LET",
+    ] {
+        assert!(
+            names.contains(&required),
+            "Top-level declaration '{required}' should be extracted. Got: {:?}",
+            names
+        );
+    }
+}
+
+#[test]
+fn test_query_constraints_class_members_still_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // Class methods and fields MUST still be extracted.
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "method" && s.kind == "method" && s.start_line > 0),
+        "TopClass.method should be extracted"
+    );
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "field" && s.kind == "property"),
+        "TopClass.field should be extracted"
+    );
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "helper" && s.kind == "method"),
+        "InternalClass.helper should be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_interface_methods_still_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "ifaceMethod" && s.kind == "interface_method"),
+        "TopInterface.ifaceMethod should be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_enum_members_still_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    let members: Vec<&str> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "enum_entry")
+        .map(|s| s.name.as_str())
+        .collect();
+    assert!(members.contains(&"A"), "TopEnum.A should be extracted");
+    assert!(members.contains(&"B"), "TopEnum.B should be extracted");
+}
+
+#[test]
+fn test_query_constraints_class_overload_signatures_extracted() {
+    // Class-body method_signature overloads should still be extracted
+    // (preserves current behavior — see critical constraint #6 in parent note).
+    let ext = TypeScriptExtractor;
+    let code = load_testdata("query_constraints.ts");
+    let result = ext.extract(&code, "query_constraints.ts");
+
+    // The two overload signatures (lines: `method(x: string): string;` and
+    // `method(x: number): number;`) are method_signature nodes in class_body.
+    // They share the name "method" with the implementation (method_definition).
+    // So we expect >=3 "method" symbols in WithOverload: 2 overloads + 1 impl.
+    let method_symbols: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.name == "method")
+        .collect();
+    assert!(
+        method_symbols.len() >= 2,
+        "WithOverload should have >=2 method symbols (overloads + impl). Got: {:?}",
+        method_symbols
+            .iter()
+            .map(|s| s.kind.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_query_constraints_queries_compile() {
+    // Regression guard: the .scm file must compile against both TS and TSX grammars.
+    let ext = TypeScriptExtractor;
+    let sq = ext.symbol_queries();
+    tree_sitter::Query::new(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), sq)
+        .expect("symbol_queries should parse against TypeScript grammar");
+    tree_sitter::Query::new(&tree_sitter_typescript::LANGUAGE_TSX.into(), sq)
+        .expect("symbol_queries should parse against TSX grammar");
+}
+
+// ============================================================================
 // Import-Aware Cross-File Resolution Tests
 // ============================================================================
 

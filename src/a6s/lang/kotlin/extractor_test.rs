@@ -2647,6 +2647,258 @@ fn test_nested_class_extraction() {
     );
 }
 
+// ============================================================================
+// Constrained query tests (c5t note 7d1244e0, Task 2)
+// ============================================================================
+
+#[test]
+fn test_query_constraints_local_functions_not_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    // Local functions inside function bodies must NOT be extracted.
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "localFun"),
+        "localFun (local function) should NOT be extracted"
+    );
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "localExtension"),
+        "localExtension (local extension function) should NOT be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_local_properties_not_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    // Local properties inside function bodies must NOT be extracted.
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "localVal"),
+        "localVal (local) should NOT be extracted"
+    );
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "localVar"),
+        "localVar (local) should NOT be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_top_level_declarations_still_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    let names: Vec<&str> = parsed.symbols.iter().map(|s| s.name.as_str()).collect();
+    for required in [
+        "TopClass",
+        "TopObject",
+        "TopInterface",
+        "WithCompanion",
+        "TopEnum",
+        "TopTypeAlias",
+        "topLevelFun",
+        "topLevelExtensionFun",
+        "topLevelVal",
+        "topLevelVar",
+        "TOP_LEVEL_CONST",
+    ] {
+        assert!(
+            names.contains(&required),
+            "Top-level declaration '{required}' should be extracted. Got: {:?}",
+            names
+        );
+    }
+}
+
+#[test]
+fn test_query_constraints_class_members_still_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    // Class member functions and properties MUST still be extracted.
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "memberFun" && s.kind == "method"),
+        "TopClass.memberFun should be extracted as method"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "memberVal" && s.kind == "property"),
+        "TopClass.memberVal should be extracted as property"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "memberVar" && s.kind == "property"),
+        "TopClass.memberVar should be extracted as property"
+    );
+}
+
+#[test]
+fn test_query_constraints_object_members_still_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "objectFun" && s.kind == "method"),
+        "TopObject.objectFun should be extracted as method"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "CONST_IN_OBJECT" && s.kind == "const"),
+        "TopObject.CONST_IN_OBJECT should be extracted as const"
+    );
+}
+
+#[test]
+fn test_query_constraints_companion_members_still_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "companionFun" && s.kind == "method"),
+        "WithCompanion.companionFun should be extracted as method"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "COMPANION_CONST" && s.kind == "const"),
+        "WithCompanion.COMPANION_CONST should be extracted as const"
+    );
+}
+
+#[test]
+fn test_query_constraints_interface_methods_still_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "ifaceMethod" && s.kind == "interface_method"),
+        "TopInterface.ifaceMethod should be extracted as interface_method"
+    );
+}
+
+#[test]
+fn test_query_constraints_enum_entries_still_extracted() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    let entries: Vec<&str> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "enum_entry")
+        .map(|s| s.name.as_str())
+        .collect();
+    assert!(entries.contains(&"RED"), "TopEnum.RED should be extracted");
+    assert!(
+        entries.contains(&"GREEN"),
+        "TopEnum.GREEN should be extracted"
+    );
+    assert!(
+        entries.contains(&"BLUE"),
+        "TopEnum.BLUE should be extracted"
+    );
+}
+
+#[test]
+fn test_query_constraints_extension_function_kind_preserved() {
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    // Top-level extension function should still be extension_function.
+    let ext = parsed
+        .symbols
+        .iter()
+        .find(|s| s.name == "topLevelExtensionFun");
+    assert!(ext.is_some(), "topLevelExtensionFun should be extracted");
+    assert_eq!(
+        ext.unwrap().kind,
+        "extension_function",
+        "topLevelExtensionFun should be extension_function"
+    );
+}
+
+#[test]
+fn test_query_constraints_nested_classes_still_extracted() {
+    // Regression guard for the existing test contract: nested/inner classes
+    // MUST still be extracted (the query intentionally does NOT anchor
+    // class_declaration to source_file).
+    let extractor = KotlinExtractor;
+    let code = load_testdata("query_constraints.kt");
+    let parsed = extractor.extract(&code, "query_constraints.kt");
+
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "Outer" && s.kind == "class"),
+        "Outer should be extracted"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "Nested" && s.kind == "class"),
+        "Nested (nested class) should be extracted"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "Inner" && s.kind == "class"),
+        "Inner (inner class) should be extracted"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "nestedMethod" && s.kind == "method"),
+        "Nested.nestedMethod should be extracted as method"
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|s| s.name == "innerMethod" && s.kind == "method"),
+        "Inner.innerMethod should be extracted as method"
+    );
+}
+
+#[test]
+fn test_query_constraints_queries_compile() {
+    // Regression guard: the .scm file must compile against the Kotlin grammar.
+    let extractor = KotlinExtractor;
+    let sq = extractor.symbol_queries();
+    tree_sitter::Query::new(&tree_sitter_kotlin::LANGUAGE.into(), sq)
+        .expect("symbol_queries should parse against Kotlin grammar");
+}
+
 #[test]
 fn test_extension_function_edges() {
     let extractor = KotlinExtractor;

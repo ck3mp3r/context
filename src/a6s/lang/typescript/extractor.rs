@@ -22,60 +22,7 @@ impl LanguageExtractor for TypeScriptExtractor {
     }
 
     fn symbol_queries(&self) -> &'static str {
-        r#"
-; Classes
-(class_declaration
-  name: (type_identifier) @class_name) @class_def
-
-; Abstract classes
-(abstract_class_declaration
-  name: (type_identifier) @abstract_class_name) @abstract_class_def
-
-; Interfaces
-(interface_declaration
-  name: (type_identifier) @interface_name) @interface_def
-
-; Type aliases
-(type_alias_declaration
-  name: (type_identifier) @typealias_name) @typealias_def
-
-; Enums
-(enum_declaration
-  name: (identifier) @enum_name) @enum_def
-
-; Enum members
-(enum_assignment
-  name: (property_identifier) @enum_member_name) @enum_member_def
-
-; Functions
-(function_declaration
-  name: (identifier) @fn_name) @fn_def
-
-; Generator functions
-(generator_function_declaration
-  name: (identifier) @gen_fn_name) @gen_fn_def
-
-; Methods (inside class body)
-(method_definition
-  name: (property_identifier) @method_name) @method_def
-
-; Abstract method signatures
-(abstract_method_signature
-  name: (property_identifier) @abstract_method_name) @abstract_method_def
-
-; Interface method signatures
-(method_signature
-  name: (property_identifier) @method_sig_name) @method_sig_def
-
-; Class fields
-(public_field_definition
-  name: (property_identifier) @field_name) @field_def
-
-; Variable declarations (const/let)
-(lexical_declaration
-  (variable_declarator
-    name: (identifier) @var_name)) @var_def
-"#
+        include_str!("queries/symbols.scm")
     }
 
     fn type_ref_queries(&self) -> &'static str {
@@ -661,49 +608,6 @@ impl TypeScriptExtractor {
         false
     }
 
-    /// Check if a node is at the top level of the file (directly under `program` or `export_statement`).
-    /// Returns `false` if any ancestor is a local scope (class body, function body, method, block, etc.).
-    fn is_top_level(node: Node) -> bool {
-        let mut current = node;
-        loop {
-            match current.parent() {
-                None => return false,
-                Some(parent) => match parent.kind() {
-                    "program" | "export_statement" => return true,
-                    "class_body"
-                    | "function_declaration"
-                    | "generator_function_declaration"
-                    | "method_definition"
-                    | "function_expression"
-                    | "statement_block"
-                    | "if_statement"
-                    | "for_statement"
-                    | "for_in_statement"
-                    | "while_statement"
-                    | "switch_case"
-                    | "catch_clause" => return false,
-                    _ => current = parent,
-                },
-            }
-        }
-    }
-
-    /// Check if a node is inside an object_type (inline type literal)
-    /// but NOT inside an interface_body or class_body.
-    /// Returns true for nodes like `{ dispose?(): void }` in type annotations.
-    fn is_inside_inline_object_type(node: Node) -> bool {
-        let mut parent = node.parent();
-        while let Some(p) = parent {
-            match p.kind() {
-                "object_type" => return true,
-                "interface_body" | "class_body" => return false,
-                _ => {}
-            }
-            parent = p.parent();
-        }
-        false
-    }
-
     /// Extract accessibility modifier from a class field or method
     fn extract_member_visibility(node: Node, code: &str) -> Option<String> {
         let mut cursor = node.walk();
@@ -1087,11 +991,6 @@ impl TypeScriptExtractor {
             captures.get("method_sig_name"),
             captures.get("method_sig_def"),
         ) {
-            // Skip method signatures inside inline object types (e.g., `{ dispose?(): void }`)
-            if Self::is_inside_inline_object_type(def_node) {
-                return;
-            }
-
             let name = Self::node_text(name_node, code).to_string();
             let start_line = def_node.start_position().row + 1;
             let end_line = def_node.end_position().row + 1;
@@ -1141,11 +1040,6 @@ impl TypeScriptExtractor {
             (captures.get("var_name"), captures.get("var_def"))
         {
             let name = Self::node_text(name_node, code).to_string();
-
-            // Skip local-scope variables (inside class bodies, function bodies, blocks, etc.)
-            if !Self::is_top_level(def_node) {
-                return;
-            }
 
             // The def_node is lexical_declaration, find the variable_declarator for line range
             let var_decl = name_node.parent(); // variable_declarator
