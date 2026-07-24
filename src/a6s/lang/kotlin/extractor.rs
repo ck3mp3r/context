@@ -408,7 +408,8 @@ impl LanguageExtractor for KotlinExtractor {
             }
             let pkg = pf
                 .symbols
-                .first()
+                .iter()
+                .find(|s| s.kind != "module")
                 .and_then(|s| s.module_path.clone())
                 .unwrap_or_default();
             pkg_files.entry(pkg).or_default().push(i);
