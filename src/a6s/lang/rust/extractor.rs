@@ -42,7 +42,12 @@ impl LanguageExtractor for RustExtractor {
         };
 
         // Create implicit file-level module symbol
-        let module_path = self.derive_module_path(file_path);
+        // derive_module_path now returns the FULL module path (crate + file stem).
+        // The implicit module's module_path should be the PARENT path.
+        let full_module_path = self.derive_module_path(file_path);
+        let parent_module_path = full_module_path
+            .as_ref()
+            .and_then(|mp| mp.rsplit_once("::").map(|(parent, _)| parent.to_string()));
         // For workspace crates (lib.rs in subdirectories), use the crate name
         // as the module name instead of "lib" to avoid duplicate names.
         // For main.rs, keep "main" — it's a child of the lib crate.
@@ -74,7 +79,7 @@ impl LanguageExtractor for RustExtractor {
             language: "rust".to_string(),
             visibility: Some("pub".to_string()),
             entry_type: None,
-            module_path,
+            module_path: parent_module_path,
         };
         parsed.symbols.push(implicit_module);
 
@@ -112,28 +117,12 @@ impl LanguageExtractor for RustExtractor {
         }
 
         // Set module_path for symbols based on file path
-        let module_path = self.derive_module_path(file_path);
-
-        // For mod.rs files, we need special handling:
-        // - Implicit module gets parent module path (already set above)
-        // - Other symbols get the current module's full path
-        let is_mod_rs = file_path.ends_with("/mod.rs");
-        let symbols_module_path = if is_mod_rs {
-            // For src/common/cmd/mod.rs:
-            // - module_name = "cmd"
-            // - parent_module_path = Some("common")
-            // - full_path = "common::cmd"
-            let module_name = Self::file_to_module_name(file_path);
-            match &module_path {
-                Some(parent) => Some(format!("{}::{}", parent, module_name)),
-                None => Some(module_name), // Top-level module like src/api/mod.rs
-            }
-        } else {
-            module_path.clone()
-        };
+        // derive_module_path now returns the FULL module path (crate + file stem).
+        // Non-implicit symbols get this full path as their module_path.
+        let symbols_module_path = self.derive_module_path(file_path);
 
         for symbol in &mut parsed.symbols {
-            // Skip the implicit module - it already has the correct module_path
+            // Skip the implicit module - it already has the correct module_path (parent path)
             if symbol
                 .signature
                 .as_ref()
@@ -702,6 +691,8 @@ impl LanguageExtractor for RustExtractor {
                                 file_module,
                                 &symbol_index,
                                 imports,
+                                &bare_index,
+                                &pf.file_path,
                             )
                             .or_else(|| {
                                 Self::resolve_name(
@@ -856,7 +847,7 @@ impl RustExtractor {
             }
         };
 
-        // Handle mod.rs - return GRANDPARENT directory path (parent's parent)
+        // Handle mod.rs - return the directory path as the module name
         if path.ends_with("/mod") {
             let dir_path = path.strip_suffix("/mod")?;
 
@@ -864,23 +855,41 @@ impl RustExtractor {
                 return None; // src/mod.rs - no parent
             }
 
-            // Get the parent of the directory (grandparent of the file)
-            let parent_path = std::path::Path::new(dir_path).parent();
-            let dir_module = match parent_path {
-                Some(p) if p.as_os_str().is_empty() => String::new(), // Top-level module
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")).unwrap_or_default(),
-                None => String::new(),
-            };
+            // The module name is the directory path (e.g., "api" for "api/mod.rs")
+            let dir_module = dir_path.replace('/', "::");
             apply_crate_prefix(&dir_module, before_src)
         } else {
-            // Regular file - return containing directory's module path
+            // Regular file - return containing directory's module path + file stem
             let parent_path = std::path::Path::new(path).parent();
             let dir_module = match parent_path {
                 Some(p) if p.as_os_str().is_empty() => String::new(), // Top-level file
                 Some(p) => p.to_str().map(|s| s.replace('/', "::")).unwrap_or_default(),
                 None => String::new(),
             };
-            apply_crate_prefix(&dir_module, before_src)
+
+            // Extract the file stem (the module name for this file)
+            let file_stem = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+
+            // Apply crate prefix, then append the file stem
+            let crate_module = apply_crate_prefix(&dir_module, before_src);
+            match crate_module {
+                Some(prefix) => {
+                    // Workspace crate: prefix already includes dir_module
+                    // Append file_stem to get the full module path
+                    Some(format!("{}::{}", prefix, file_stem))
+                }
+                None => {
+                    // Single crate (no prefix)
+                    if dir_module.is_empty() {
+                        None // Top-level file in single crate, no module path
+                    } else {
+                        Some(format!("{}::{}", dir_module, file_stem))
+                    }
+                }
+            }
         }
     }
 
@@ -930,6 +939,8 @@ impl RustExtractor {
             crate::a6s::types::SymbolId,
         >,
         imports: &[&crate::a6s::types::RawImport],
+        bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
+        caller_file_path: &str,
     ) -> Option<crate::a6s::types::SymbolId> {
         use crate::a6s::types::QualifiedName;
 
@@ -942,6 +953,44 @@ impl RustExtractor {
         let qname = QualifiedName::new(&parent_path, name);
         if let Some(id) = symbol_index.get(&qname) {
             return Some(id.clone());
+        }
+
+        // Try parent module::Qualifier::name (file_module may include file stem)
+        // e.g., "utils::factory" → try "utils::Foo::new"
+        if let Some((parent_module, _)) = file_module.rsplit_once("::") {
+            let parent_path = format!("{}::{}", parent_module, qualifier);
+            let qname = QualifiedName::new(&parent_path, name);
+            if let Some(id) = symbol_index.get(&qname) {
+                return Some(id.clone());
+            }
+        }
+
+        // Try to find the qualifier as a type in the same crate, then look up the method.
+        // Search symbol_index for entries where bare_name == qualifier and kind is a type.
+        // Then try module_path::qualifier::name for each candidate.
+        if let Some(candidates) = bare_index.get(qualifier) {
+            let caller_crate = Self::extract_crate_path(caller_file_path);
+            for candidate in candidates {
+                let candidate_file = candidate.file_path().unwrap_or("");
+                if Self::extract_crate_path(candidate_file) != caller_crate {
+                    continue;
+                }
+                // The candidate's QualifiedName is in the symbol_index.
+                // Extract its module_path from the QualifiedName.
+                // e.g., "utils::types::Foo" → module_path = "utils::types"
+                let candidate_qname = symbol_index
+                    .iter()
+                    .find(|(_, v)| *v == candidate)
+                    .map(|(k, _)| k);
+                if let Some(qname) = candidate_qname {
+                    let type_module = qname.module_path();
+                    let method_module = format!("{}::{}", type_module, qualifier);
+                    let method_qname = QualifiedName::new(&method_module, name);
+                    if let Some(id) = symbol_index.get(&method_qname) {
+                        return Some(id.clone());
+                    }
+                }
+            }
         }
 
         // Try via imports: if qualifier is imported, use its module path
@@ -991,6 +1040,15 @@ impl RustExtractor {
             return Some(id.clone());
         }
 
+        // Also try parent module (file_module may include file stem)
+        // e.g., "a::handler" → try "a::render"
+        if let Some((parent_module, _)) = file_module.rsplit_once("::") {
+            let qname = QualifiedName::new(parent_module, name);
+            if let Some(id) = symbol_index.get(&qname) {
+                return Some(id.clone());
+            }
+        }
+
         // 2. Import resolution
         for imp in imports {
             let entry = &imp.entry;
@@ -1035,6 +1093,24 @@ impl RustExtractor {
             let candidate_crate = Self::extract_crate_path(candidate_file_path);
             if caller_crate == candidate_crate {
                 return Some(candidate.clone());
+            }
+        }
+
+        // 4. Multi-candidate bare name fallback: if all candidates are in the same crate
+        // as the caller, pick the first one (they're in the same crate, so any works)
+        if let Some(candidates) = bare_index.get(name)
+            && candidates.len() > 1
+        {
+            let caller_crate = Self::extract_crate_path(caller_file_path);
+            let same_crate_candidates: Vec<_> = candidates
+                .iter()
+                .filter(|c| {
+                    let cfp = c.file_path().unwrap_or("");
+                    Self::extract_crate_path(cfp) == caller_crate
+                })
+                .collect();
+            if same_crate_candidates.len() == 1 {
+                return Some(same_crate_candidates[0].clone());
             }
         }
 
@@ -1126,8 +1202,9 @@ impl RustExtractor {
 
     /// Extract crate name from a workspace file path.
     /// "crates/foo/src/lib.rs" → Some("foo")
+    /// "crates/nu-agent-core/src/lib.rs" → Some("nu_agent_core") (hyphen → underscore)
     /// "src/lib.rs" → None (single crate at root)
-    fn extract_crate_name(file_path: &str) -> Option<String> {
+    pub(crate) fn extract_crate_name(file_path: &str) -> Option<String> {
         let idx = file_path.find("/src/")?;
         let before_src = &file_path[..idx];
         if before_src.is_empty() {
@@ -1137,7 +1214,7 @@ impl RustExtractor {
         if crate_name.is_empty() {
             None
         } else {
-            Some(crate_name.to_string())
+            Some(crate_name.replace('-', "_"))
         }
     }
 
@@ -1937,7 +2014,34 @@ impl RustExtractor {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
-                "scoped_identifier" | "identifier" => {
+                "scoped_identifier" => {
+                    let text = Self::node_text(child, code);
+                    // Split the last :: segment to get the imported name
+                    // e.g., path::PathBuf → prefix="path", name="PathBuf"
+                    if let Some((prefix, name)) = text.rsplit_once("::") {
+                        let full_module_path = if base_path.is_empty() {
+                            prefix.to_string()
+                        } else {
+                            format!("{}::{}", base_path, prefix)
+                        };
+                        Self::create_import_entry(
+                            &full_module_path,
+                            name,
+                            file_path,
+                            parsed,
+                            false,
+                        );
+                    } else {
+                        // Single segment (shouldn't happen for scoped_identifier)
+                        let full_path = if base_path.is_empty() {
+                            text.to_string()
+                        } else {
+                            format!("{}::{}", base_path, text)
+                        };
+                        Self::create_import_entry(&full_path, text, file_path, parsed, false);
+                    }
+                }
+                "identifier" => {
                     let name = Self::node_text(child, code);
                     let full_path = if base_path.is_empty() {
                         name.to_string()

@@ -2002,25 +2002,25 @@ fn fibonacci(n: u32) -> u32 {
 #[test]
 fn test_module_path_simple() {
     let path = derive_module_path("src/db/project.rs");
-    assert_eq!(path, Some("db".to_string())); // Parent module of project
+    assert_eq!(path, Some("db::project".to_string())); // Full module path
 }
 
 #[test]
 fn test_module_path_nested() {
     let path = derive_module_path("src/api/v1/tasks.rs");
-    assert_eq!(path, Some("api::v1".to_string())); // Parent module of tasks
+    assert_eq!(path, Some("api::v1::tasks".to_string())); // Full module path
 }
 
 #[test]
 fn test_module_path_mod_rs() {
     let path = derive_module_path("src/api/mod.rs");
-    assert_eq!(path, None); // api is top-level, no parent
+    assert_eq!(path, Some("api".to_string())); // api is the module path
 }
 
 #[test]
 fn test_module_path_nested_mod_rs() {
     let path = derive_module_path("src/db/sqlite/mod.rs");
-    assert_eq!(path, Some("db".to_string())); // Parent module of sqlite
+    assert_eq!(path, Some("db::sqlite".to_string())); // Full module path
 }
 
 #[test]
@@ -2045,13 +2045,13 @@ fn test_module_path_single_level() {
 fn test_module_path_without_src_prefix() {
     // Should handle paths without src/ prefix
     let path = derive_module_path("db/project.rs");
-    assert_eq!(path, Some("db".to_string())); // Parent module of project
+    assert_eq!(path, Some("db::project".to_string())); // Full module path
 }
 
 #[test]
 fn test_module_path_deep_nesting() {
     let path = derive_module_path("src/analysis/lang/rust/extractor.rs");
-    assert_eq!(path, Some("analysis::lang::rust".to_string())); // Parent module of extractor
+    assert_eq!(path, Some("analysis::lang::rust::extractor".to_string())); // Full module path
 }
 
 #[test]
@@ -2107,37 +2107,208 @@ fn test_module_path_nested_workspace() {
 
 #[test]
 fn test_module_path_workspace_regular_file() {
-    // crates/foo/src/formatter.rs → Some("foo") (crate name prefix)
+    // crates/foo/src/formatter.rs → Some("foo::formatter") (crate name prefix + file stem)
     let path = derive_module_path("crates/foo/src/formatter.rs");
-    assert_eq!(path, Some("foo".to_string()));
+    assert_eq!(path, Some("foo::formatter".to_string()));
 }
 
 #[test]
 fn test_module_path_workspace_nested_file() {
-    // crates/foo/src/platform/mod.rs → Some("foo") (crate name prefix, parent module path)
-    // The full path "foo::platform" is constructed by symbols_module_path logic
+    // crates/foo/src/platform/mod.rs → Some("foo::platform") (crate name prefix + directory)
     let path = derive_module_path("crates/foo/src/platform/mod.rs");
-    assert_eq!(path, Some("foo".to_string()));
+    assert_eq!(path, Some("foo::platform".to_string()));
 }
 
 #[test]
 fn test_module_path_workspace_crate_name_normalization() {
-    // crates/nu-agent-tty/src/formatter.rs → Some("nu_agent_tty") (hyphen → underscore)
+    // crates/nu-agent-tty/src/formatter.rs → Some("nu_agent_tty::formatter") (hyphen → underscore + file stem)
     let path = derive_module_path("crates/nu-agent-tty/src/formatter.rs");
-    assert_eq!(path, Some("nu_agent_tty".to_string()));
+    assert_eq!(path, Some("nu_agent_tty::formatter".to_string()));
 }
 
 #[test]
 fn test_module_path_workspace_nested_with_hyphen() {
-    // crates/nu-agent-tui/src/platform/mod.rs → Some("nu_agent_tui") (parent module path)
-    // The full path "nu_agent_tui::platform" is constructed by symbols_module_path logic
+    // crates/nu-agent-tui/src/platform/mod.rs → Some("nu_agent_tui::platform") (directory path)
     let path = derive_module_path("crates/nu-agent-tui/src/platform/mod.rs");
-    assert_eq!(path, Some("nu_agent_tui".to_string()));
+    assert_eq!(path, Some("nu_agent_tui::platform".to_string()));
 }
 
 // Helper function that uses the trait method
 fn derive_module_path(file_path: &str) -> Option<String> {
     RustExtractor.derive_module_path(file_path)
+}
+
+#[test]
+fn test_module_path_workspace_subdirectory_file() {
+    // crates/foo/src/api/tasks.rs → Some("foo::api::tasks") (crate + subdirectory + file stem)
+    let path = derive_module_path("crates/foo/src/api/tasks.rs");
+    assert_eq!(path, Some("foo::api::tasks".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_mod_rs() {
+    // crates/foo/src/api/mod.rs → Some("foo::api") (crate + directory name)
+    let path = derive_module_path("crates/foo/src/api/mod.rs");
+    assert_eq!(path, Some("foo::api".to_string()));
+}
+
+#[test]
+fn test_extract_crate_name_underscored() {
+    // crates/nu-agent-core/src/lib.rs → "nu_agent_core" (hyphen → underscore)
+    let name = RustExtractor::extract_crate_name("crates/nu-agent-core/src/lib.rs");
+    assert_eq!(name, Some("nu_agent_core".to_string()));
+    // crates/foo/src/lib.rs → "foo" (no hyphen, unchanged)
+    let name2 = RustExtractor::extract_crate_name("crates/foo/src/lib.rs");
+    assert_eq!(name2, Some("foo".to_string()));
+    // src/lib.rs → None (single crate)
+    let name3 = RustExtractor::extract_crate_name("src/lib.rs");
+    assert_eq!(name3, None);
+}
+
+#[test]
+fn test_scoped_use_list_nested_identifier() {
+    use crate::a6s::types::ImportEntry;
+    // use std::{path::PathBuf} should produce imported_names = ["PathBuf"], module_path = "std::path"
+    let code = "use std::{path::PathBuf};";
+    let parsed = RustExtractor.extract(code, "src/test.rs");
+    let import = parsed
+        .imports
+        .iter()
+        .find(|i| i.entry.imported_names.contains(&"PathBuf".to_string()));
+    assert!(
+        import.is_some(),
+        "Should find import for PathBuf, got: {:?}",
+        parsed.imports
+    );
+    let entry = &import.unwrap().entry;
+    assert_eq!(
+        entry.module_path, "std::path",
+        "module_path should be 'std::path', got: '{}'",
+        entry.module_path
+    );
+    assert_eq!(
+        entry.imported_names,
+        vec!["PathBuf".to_string()],
+        "imported_names should be ['PathBuf'], got: {:?}",
+        entry.imported_names
+    );
+    assert!(!entry.is_glob, "Should not be a glob import");
+}
+
+#[test]
+fn test_cross_crate_import_resolution() {
+    use crate::a6s::types::EdgeKind;
+    let extractor = RustExtractor;
+
+    // File 1: crates/nu-agent-core/src/policy.rs — defines Verbosity enum
+    let code1 = r#"
+pub enum Verbosity { Quiet, Normal, Verbose, VeryVerbose, Trace }
+"#;
+    let file1 = extractor.extract(code1, "crates/nu-agent-core/src/policy.rs");
+
+    // File 2: crates/nu-agent-tty/src/formatter.rs — imports Verbosity and uses it
+    let code2 = r#"
+use nu_agent_core::policy::Verbosity;
+pub fn format_tool_start(verbosity: Verbosity) -> String {
+    match verbosity {
+        Verbosity::Quiet => "quiet".to_string(),
+        _ => "loud".to_string(),
+    }
+}
+"#;
+    let file2 = extractor.extract(code2, "crates/nu-agent-tty/src/formatter.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, resolved_imports) = extractor.resolve_cross_file(&mut files);
+
+    // Check that the import resolved: Verbosity from nu-agent-core::policy
+    let verbosity_import = resolved_imports
+        .iter()
+        .find(|ri| ri.target_symbol_id.as_str().contains("Verbosity"));
+    assert!(
+        verbosity_import.is_some(),
+        "Import for Verbosity should resolve, got: {:?}",
+        resolved_imports
+    );
+    // Verify it resolved to the policy.rs file
+    let import = verbosity_import.unwrap();
+    assert!(
+        import.target_symbol_id.as_str().contains("policy.rs"),
+        "Verbosity should resolve to policy.rs, got: {}",
+        import.target_symbol_id
+    );
+
+    // Check that ParamType edge resolved (format_tool_start → Verbosity)
+    let param_type = resolved.iter().find(|e| e.kind == EdgeKind::ParamType);
+    assert!(
+        param_type.is_some(),
+        "ParamType edge for Verbosity should resolve, got: {:?}",
+        resolved
+    );
+    let pt = param_type.unwrap();
+    assert!(
+        pt.to.as_str().contains("Verbosity"),
+        "ParamType should resolve to Verbosity, got: {}",
+        pt.to
+    );
+    assert!(
+        pt.to.as_str().contains("policy.rs"),
+        "ParamType should resolve to policy.rs, got: {}",
+        pt.to
+    );
+}
+
+#[test]
+fn test_cross_crate_no_false_positive() {
+    // Verify that nu-agent-tty does NOT get edges to nu-agent-tui
+    let extractor = RustExtractor;
+
+    // File 1: crates/nu-agent-tty/src/formatter.rs
+    let code1 = r#"
+use nu_agent_core::policy::Verbosity;
+pub fn format_tool_start(verbosity: Verbosity) -> String {
+    match verbosity {
+        Verbosity::Quiet => "quiet".to_string(),
+        _ => "loud".to_string(),
+    }
+}
+"#;
+    let file1 = extractor.extract(code1, "crates/nu-agent-tty/src/formatter.rs");
+
+    // File 2: crates/nu-agent-tui/src/renderer.rs — defines a different Verbosity
+    let code2 = r#"
+pub enum Verbosity { Low, High }
+"#;
+    let file2 = extractor.extract(code2, "crates/nu-agent-tui/src/renderer.rs");
+
+    // File 3: crates/nu-agent-core/src/policy.rs — the real Verbosity
+    let code3 = r#"
+pub enum Verbosity { Quiet, Normal, Verbose, VeryVerbose, Trace }
+"#;
+    let file3 = extractor.extract(code3, "crates/nu-agent-core/src/policy.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, resolved_imports) = extractor.resolve_cross_file(&mut files);
+
+    // The import should resolve to nu-agent-core's Verbosity, not nu-agent-tui's
+    let verbosity_import = resolved_imports
+        .iter()
+        .find(|ri| ri.target_symbol_id.as_str().contains("Verbosity"));
+    assert!(
+        verbosity_import.is_some(),
+        "Import for Verbosity should resolve"
+    );
+    let import = verbosity_import.unwrap();
+    assert!(
+        import.target_symbol_id.as_str().contains("nu-agent-core"),
+        "Verbosity should resolve to nu-agent-core, got: {}",
+        import.target_symbol_id
+    );
+    assert!(
+        !import.target_symbol_id.as_str().contains("nu-agent-tui"),
+        "Verbosity should NOT resolve to nu-agent-tui, got: {}",
+        import.target_symbol_id
+    );
 }
 
 // ============================================================================
@@ -2152,15 +2323,24 @@ struct TestStruct {}
 "#;
     let parsed = RustExtractor.extract(code, "src/api/handlers.rs");
 
-    // Non-implicit symbols should have module_path set to "api" (their parent module)
-    // The implicit module "handlers" should also have module_path "api"
+    // Non-implicit symbols should have module_path set to "api::handlers" (full path)
+    // The implicit module "handlers" should have module_path "api" (parent path)
     for symbol in &parsed.symbols {
-        assert_eq!(
-            symbol.module_path.as_deref(),
-            Some("api"),
-            "Symbol {} should have module_path set to api (parent module)",
-            symbol.name
-        );
+        if symbol.signature.as_deref() == Some("implicit_module: true") {
+            assert_eq!(
+                symbol.module_path.as_deref(),
+                Some("api"),
+                "Implicit module '{}' should have module_path set to 'api' (parent path)",
+                symbol.name
+            );
+        } else {
+            assert_eq!(
+                symbol.module_path.as_deref(),
+                Some("api::handlers"),
+                "Symbol '{}' should have module_path set to 'api::handlers' (full path)",
+                symbol.name
+            );
+        }
     }
 }
 
@@ -2198,7 +2378,7 @@ fn helper() {}
         "Implicit module 'api' should have None module_path (it's top-level)"
     );
 
-    // Regular symbols should have module_path "api"
+    // Regular symbols should have module_path "api" (the full path for mod.rs)
     let func = parsed.symbols.iter().find(|s| s.name == "helper");
     assert!(func.is_some());
     assert_eq!(
@@ -2933,17 +3113,17 @@ fn handler() { helper(); }
 "#;
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
     // Add a RawImport that maps to the symbol_index module_path
-    // src/db/utils.rs → derive_module_path → "db"
+    // src/db/utils.rs → derive_module_path → "db::utils"
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
-        entry: ImportEntry::named_import("db", vec!["helper".to_string()]),
+        entry: ImportEntry::named_import("db::utils", vec!["helper".to_string()]),
     });
 
-    // File 2: defines helper() in src/db/utils.rs (module_path = "db")
+    // File 2: defines helper() in src/db/utils.rs (module_path = "db::utils")
     let code2 = r#"fn helper() {}"#;
     let file2 = extractor.extract(code2, "src/db/utils.rs");
 
-    // File 3: ALSO defines helper() in src/core/helpers.rs (module_path = "core")
+    // File 3: ALSO defines helper() in src/core/helpers.rs (module_path = "core::helpers")
     let code3 = r#"fn helper() {}"#;
     let file3 = extractor.extract(code3, "src/core/helpers.rs");
 
@@ -2974,8 +3154,8 @@ use crate::db::utils::helper as db_helper;
 fn handler() { db_helper(); }
 "#;
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
-    // Aliased import: db_helper → helper in module "db"
-    let mut entry = ImportEntry::named_import("db", vec!["helper".to_string()]);
+    // Aliased import: db_helper → helper in module "db::utils"
+    let mut entry = ImportEntry::named_import("db::utils", vec!["helper".to_string()]);
     entry.alias = Some("db_helper".to_string());
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
@@ -3014,14 +3194,14 @@ fn handler() { helper(); }
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
-        entry: ImportEntry::glob_import("db"),
+        entry: ImportEntry::glob_import("db::utils"),
     });
 
-    // File 2: defines helper() in module "db"
+    // File 2: defines helper() in module "db::utils"
     let code2 = r#"fn helper() {}"#;
     let file2 = extractor.extract(code2, "src/db/utils.rs");
 
-    // File 3: ALSO defines helper() in module "core"
+    // File 3: ALSO defines helper() in module "core::helpers"
     let code3 = r#"fn helper() {}"#;
     let file3 = extractor.extract(code3, "src/core/helpers.rs");
 
@@ -3053,7 +3233,7 @@ fn handler() {}
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
-        entry: ImportEntry::named_import("db", vec!["helper".to_string()]),
+        entry: ImportEntry::named_import("db::utils", vec!["helper".to_string()]),
     });
 
     // File 2: defines helper()
@@ -3088,17 +3268,13 @@ use crate::module_a::run;
 fn main() { run(); }
 "#;
     let mut file1 = extractor.extract(code1, "src/main.rs");
-    // src/module_a.rs → derive_module_path → None (top-level file, parent is empty)
-    // Actually for top-level files, module_path is None/empty string
-    // So QualifiedName is ("", "run") — but that would collide with other top-level files
-    // Let's use subdirectory files instead to have distinct module paths
+    // src/module_a/runner.rs → derive_module_path → "module_a::runner"
     file1.imports.push(RawImport {
         file_path: "src/main.rs".to_string(),
-        entry: ImportEntry::named_import("module_a", vec!["run".to_string()]),
+        entry: ImportEntry::named_import("module_a::runner", vec!["run".to_string()]),
     });
 
-    // File 2: defines run() in src/module_a/lib.rs → module "module_a"
-    // Actually, use a subdirectory to get a real module_path
+    // File 2: defines run() in src/module_a/runner.rs → module "module_a::runner"
     let code2 = r#"fn run() {}"#;
     let file2 = extractor.extract(code2, "src/module_a/runner.rs");
 
