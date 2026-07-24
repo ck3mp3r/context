@@ -2504,3 +2504,56 @@ fn test_no_per_file_module_edges_after_fix() {
         "Should have no edges from old per-file module ID (extract_hasmember_edges removed)"
     );
 }
+
+#[test]
+fn test_local_variables_not_extracted() {
+    let ext = TypeScriptExtractor;
+    let code = r#"
+const topLevelConst = 42;
+
+class MyClass {
+    doSomething() {
+        const localConst = 10;
+        let localLet = 20;
+        const arrowFn = () => {};
+    }
+}
+
+function topLevelFn() {
+    const insideFn = 30;
+}
+"#;
+    let parsed = ext.extract(code, "test.ts");
+
+    // Top-level const should be extracted
+    assert!(
+        parsed.symbols.iter().any(|s| s.name == "topLevelConst"),
+        "Top-level const should be extracted"
+    );
+
+    // Local variables inside class method should NOT be extracted
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "localConst"),
+        "Local const inside method should NOT be extracted"
+    );
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "localLet"),
+        "Local let inside method should NOT be extracted"
+    );
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "arrowFn"),
+        "Local arrow function inside method should NOT be extracted"
+    );
+
+    // Local variable inside function should NOT be extracted
+    assert!(
+        !parsed.symbols.iter().any(|s| s.name == "insideFn"),
+        "Local const inside function should NOT be extracted"
+    );
+
+    // Top-level function should be extracted
+    assert!(
+        parsed.symbols.iter().any(|s| s.name == "topLevelFn"),
+        "Top-level function should be extracted"
+    );
+}

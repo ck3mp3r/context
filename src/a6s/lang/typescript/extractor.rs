@@ -661,30 +661,31 @@ impl TypeScriptExtractor {
         false
     }
 
-    /// Check if node is inside a class_body
-    #[allow(dead_code)]
-    fn is_inside_class_body(node: Node) -> bool {
-        let mut parent = node.parent();
-        while let Some(p) = parent {
-            if p.kind() == "class_body" {
-                return true;
+    /// Check if a node is at the top level of the file (directly under `program` or `export_statement`).
+    /// Returns `false` if any ancestor is a local scope (class body, function body, method, block, etc.).
+    fn is_top_level(node: Node) -> bool {
+        let mut current = node;
+        loop {
+            match current.parent() {
+                None => return false,
+                Some(parent) => match parent.kind() {
+                    "program" | "export_statement" => return true,
+                    "class_body"
+                    | "function_declaration"
+                    | "generator_function_declaration"
+                    | "method_definition"
+                    | "function_expression"
+                    | "statement_block"
+                    | "if_statement"
+                    | "for_statement"
+                    | "for_in_statement"
+                    | "while_statement"
+                    | "switch_case"
+                    | "catch_clause" => return false,
+                    _ => current = parent,
+                },
             }
-            parent = p.parent();
         }
-        false
-    }
-
-    /// Check if a node is inside an interface_body
-    #[allow(dead_code)]
-    fn is_inside_interface_body(node: Node) -> bool {
-        let mut parent = node.parent();
-        while let Some(p) = parent {
-            if p.kind() == "interface_body" {
-                return true;
-            }
-            parent = p.parent();
-        }
-        false
     }
 
     /// Check if a node is inside an object_type (inline type literal)
@@ -1140,6 +1141,12 @@ impl TypeScriptExtractor {
             (captures.get("var_name"), captures.get("var_def"))
         {
             let name = Self::node_text(name_node, code).to_string();
+
+            // Skip local-scope variables (inside class bodies, function bodies, blocks, etc.)
+            if !Self::is_top_level(def_node) {
+                return;
+            }
+
             // The def_node is lexical_declaration, find the variable_declarator for line range
             let var_decl = name_node.parent(); // variable_declarator
 
