@@ -318,8 +318,19 @@ async fn load_and_commit(
         }
     }
 
+    // Final dedup: remove any remaining duplicate edges
+    let mut seen: std::collections::HashSet<(SymbolId, SymbolId, EdgeKind)> =
+        std::collections::HashSet::new();
+    let mut deduped_edges: Vec<ResolvedEdge> = Vec::with_capacity(all_edges.len());
+    for edge in all_edges {
+        let key = (edge.from.clone(), edge.to.clone(), edge.kind.clone());
+        if seen.insert(key) {
+            deduped_edges.push(edge);
+        }
+    }
+
     // Batch insert all resolved edges
-    graph.insert_edges_batch(&all_edges).await?;
+    graph.insert_edges_batch(&deduped_edges).await?;
 
     // Batch insert import edges
     graph.insert_imports_batch(import_edges).await?;
