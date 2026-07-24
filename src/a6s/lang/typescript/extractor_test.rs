@@ -532,26 +532,16 @@ fn test_has_member_edges_top_level() {
     let code = load_testdata("edges.ts");
     let result = ext.extract(&code, "edges.ts");
 
-    // Top-level symbols should have HasMember edges from the file module
+    // HasMember edges are no longer created during extract() — they are
+    // created during resolve_file_modules() to avoid duplicates.
     let file_member_edges: Vec<_> = result
         .edges
         .iter()
         .filter(|e| e.kind == EdgeKind::HasMember)
         .collect();
     assert!(
-        !file_member_edges.is_empty(),
-        "Should have HasMember edges for top-level symbols"
-    );
-
-    // Calculator should be a member of the file module
-    assert!(
-        file_member_edges.iter().any(|e| {
-            match &e.to {
-                crate::a6s::types::SymbolRef::Resolved(id) => id.as_str().contains(":Calculator:"),
-                _ => false,
-            }
-        }),
-        "Calculator should be a HasMember of the file module"
+        file_member_edges.is_empty(),
+        "Should have no HasMember edges from extract() — they are created by resolve_file_modules()"
     );
 }
 

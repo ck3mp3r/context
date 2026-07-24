@@ -476,19 +476,16 @@ mod my_module {
 "#;
     let parsed = extract(code);
 
-    // Should have 2 HasMember edges:
-    // 1. test (implicit file module) -> my_module
-    // 2. my_module -> inner_function
-    assert_eq!(
-        parsed.edges.len(),
-        2,
-        "Should have two edges (including implicit file module)"
-    );
+    // HasMember edges are no longer created during extract() — they are
+    // created during resolve_file_modules() to avoid duplicates.
+    let member_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
+        .collect();
     assert!(
-        parsed
-            .edges
-            .iter()
-            .all(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
+        member_edges.is_empty(),
+        "Should have no HasMember edges from extract() — they are created by resolve_file_modules()"
     );
 }
 
@@ -501,19 +498,16 @@ mod my_module {
 "#;
     let parsed = extract(code);
 
-    // Should have 2 HasMember edges:
-    // 1. test (implicit file module) -> my_module
-    // 2. my_module -> InnerStruct
-    // Plus 1 HasField edge for the field x
+    // HasMember edges are no longer created during extract() — they are
+    // created during resolve_file_modules() to avoid duplicates.
     let member_edges: Vec<_> = parsed
         .edges
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
         .collect();
-    assert_eq!(
-        member_edges.len(),
-        2,
-        "Should have 2 HasMember edges (including implicit file module)"
+    assert!(
+        member_edges.is_empty(),
+        "Should have no HasMember edges from extract() — they are created by resolve_file_modules()"
     );
 }
 
@@ -529,18 +523,16 @@ mod my_module {
 "#;
     let parsed = extract(code);
 
-    // Should have 5 HasMember edges:
-    // 1. test (implicit file module) -> my_module
-    // 2-5. my_module -> (func1, func2, MyStruct, MyEnum)
+    // HasMember edges are no longer created during extract() — they are
+    // created during resolve_file_modules() to avoid duplicates.
     let member_edges: Vec<_> = parsed
         .edges
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
         .collect();
-    assert_eq!(
-        member_edges.len(),
-        5,
-        "Should have 5 HasMember edges (including implicit file module)"
+    assert!(
+        member_edges.is_empty(),
+        "Should have no HasMember edges from extract() — they are created by resolve_file_modules()"
     );
 }
 
@@ -556,20 +548,16 @@ mod outer {
 "#;
     let parsed = extract(code);
 
-    // Should have 4 edges now (with implicit file module):
-    // 1. test (implicit file module) -> outer
-    // 2. outer -> outer_fn
-    // 3. outer -> inner (nested module)
-    // 4. inner -> inner_fn
+    // HasMember edges are no longer created during extract() — they are
+    // created during resolve_file_modules() to avoid duplicates.
     let member_edges: Vec<_> = parsed
         .edges
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
         .collect();
-    assert_eq!(
-        member_edges.len(),
-        4,
-        "Should have 4 HasMember edges (including implicit file module)"
+    assert!(
+        member_edges.is_empty(),
+        "Should have no HasMember edges from extract() — they are created by resolve_file_modules()"
     );
 }
 
@@ -2111,17 +2099,17 @@ fn test_top_level_symbols_linked_to_file_module() {
 
     let parsed = extractor.extract(code, "src/example.rs");
 
-    // Should have HasMember edges: example -> top_level_function, TopStruct
+    // HasMember edges are no longer created during extract() — they are
+    // created during resolve_file_modules() to avoid duplicates.
     let member_edges: Vec<_> = parsed
         .edges
         .iter()
         .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
         .collect();
 
-    assert_eq!(
-        member_edges.len(),
-        2,
-        "Should link both symbols to file module"
+    assert!(
+        member_edges.is_empty(),
+        "Should have no HasMember edges from extract() — they are created by resolve_file_modules()"
     );
 }
 
