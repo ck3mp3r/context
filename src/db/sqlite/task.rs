@@ -551,7 +551,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         let result = sqlx::query(
             r#"
-            UPDATE task 
+            UPDATE task
             SET list_id = ?, parent_id = ?, title = ?, description = ?, status = ?, priority = ?, tags = ?, external_refs = ?, updated_at = ?
             WHERE id = ?
             "#,
@@ -628,7 +628,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn get_stats_for_list(&self, list_id: &str) -> DbResult<TaskStats> {
         let rows = sqlx::query(
             r#"
-            SELECT 
+            SELECT
                 status,
                 COUNT(*) as count
             FROM task
@@ -801,7 +801,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Update all tasks status
         let update_query = format!(
             r#"
-            UPDATE task 
+            UPDATE task
             SET status = ?,
                 updated_at = ?
             WHERE id IN ({})
@@ -895,8 +895,8 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         // Get transitions ordered by newest first
         let rows = sqlx::query(
-            "SELECT id, task_id, status, transitioned_at 
-             FROM task_transition_log 
+            "SELECT id, task_id, status, transitioned_at
+             FROM task_transition_log
              WHERE task_id = ?
              ORDER BY transitioned_at DESC
              LIMIT ? OFFSET ?",

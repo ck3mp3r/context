@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_task_transition_log_task_time ON task_transition_
 
 -- Backfill transitions to in_progress (from started_at)
 INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
-SELECT 
+SELECT
     lower(hex(randomblob(4))),  -- Generate 8-char hex ID
     id,
     'in_progress',
@@ -38,7 +38,7 @@ WHERE started_at IS NOT NULL;
 -- Backfill transitions to final status (from completed_at)
 -- Only for tasks in 'done' or 'cancelled' status
 INSERT INTO task_transition_log (id, task_id, status, transitioned_at)
-SELECT 
+SELECT
     lower(hex(randomblob(4))),  -- Generate 8-char hex ID
     id,
     status,  -- Use current status (done or cancelled)

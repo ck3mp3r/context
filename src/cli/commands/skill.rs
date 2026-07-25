@@ -127,7 +127,7 @@ pub async fn get_skill(api_client: &ApiClient, id: &str, format: &str) -> CliRes
             "ID: {}\nName: {}\nDescription: {}\nTags: {}\nProject IDs: {}\nCreated: {}\nUpdated: {}\n\nContent:\n{}",
             skill.id,
             skill.name,
-            &skill.description,
+            skill.description,
             format_tags(Some(&skill.tags)),
             if skill.project_ids.is_empty() {
                 "N/A".to_string()

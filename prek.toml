@@ -18,6 +18,7 @@ hooks = [
     language = "system",
     entry = "sh -c 'cargo fmt && git diff --name-only | xargs git add'",
     types = ["rust"],
+    stages = ["pre-push"],
     pass_filenames = false,
   },
   {
@@ -26,6 +27,7 @@ hooks = [
     language = "system",
     entry = "cargo clippy -- -D warnings",
     types = ["rust"],
+    stages = ["pre-push"],
     pass_filenames = false,
   },
   {
@@ -34,13 +36,9 @@ hooks = [
     language = "system",
     entry = "nix fmt .",
     types = ["nix"],
+    stages = ["pre-push"],
     pass_filenames = false,
   },
-]
-
-[[repos]]
-repo = "local"
-hooks = [
   {
     id = "tests",
     name = "tests",

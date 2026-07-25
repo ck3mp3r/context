@@ -179,7 +179,7 @@ pub struct PatchTaskRequest {
     /// Parent task ID (for subtasks). Use Some(None) or empty string to remove parent.
     #[serde(
         default,
-        deserialize_with = "crate::serde_utils::double_option_string_or_empty"
+        deserialize_with = "crate::common::serde::double_option_string_or_empty"
     )]
     pub parent_id: Option<Option<String>>,
     /// Tags for categorization

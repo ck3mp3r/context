@@ -22,39 +22,7 @@ impl LanguageExtractor for KotlinExtractor {
     }
 
     fn symbol_queries(&self) -> &'static str {
-        r#"
-; Classes (covers regular, data, sealed, abstract, inner, value, enum)
-(class_declaration
-  (type_identifier) @class_name) @class_def
-
-; Object declarations (singletons)
-(object_declaration
-  (type_identifier) @object_name) @object_def
-
-; Companion objects
-(companion_object) @companion_def
-
-; Functions
-(function_declaration
-  (simple_identifier) @fn_name) @fn_def
-
-; Properties
-(property_declaration
-  (variable_declaration
-    (simple_identifier) @prop_name)) @prop_def
-
-; Type aliases
-(type_alias
-  (type_identifier) @typealias_name) @typealias_def
-
-; Enum entries
-(enum_entry
-  (simple_identifier) @enum_entry_name) @enum_entry_def
-
-; Class parameters with val/var (become fields)
-(class_parameter
-  (simple_identifier) @class_param_name) @class_param_def
-"#
+        include_str!("queries/symbols.scm")
     }
 
     fn type_ref_queries(&self) -> &'static str {
@@ -136,7 +104,6 @@ impl LanguageExtractor for KotlinExtractor {
         // Extract structural edges
         Self::extract_hasfield_edges(file_path, &mut parsed);
         Self::extract_hasmethod_edges(file_path, &mut parsed);
-        Self::extract_hasmember_edges(file_path, &module_path, &mut parsed);
         Self::extract_inheritance_edges(file_path, code, &tree, &mut parsed);
         Self::extract_calls_edges(file_path, code, &tree, &mut parsed);
 
@@ -343,6 +310,7 @@ impl LanguageExtractor for KotlinExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -387,9 +355,247 @@ impl LanguageExtractor for KotlinExtractor {
 
         (resolved_edges, resolved_imports)
     }
+
+    /// Resolve file-level modules for Kotlin files.
+    ///
+    /// Groups files by package path, creates ONE canonical module symbol per
+    /// unique package path (no intermediate nodes), rewrites HasMember edges
+    /// to point to canonical modules, and creates package hierarchy edges
+    /// ONLY when the parent package has actual symbols.
+    fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
+        use crate::a6s::types::{EdgeKind, RawEdge, RawSymbol, SymbolId, SymbolRef};
+        use std::collections::HashMap;
+
+        // Phase 1: Group files by package path
+        let mut pkg_files: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (i, pf) in parsed_files.iter().enumerate() {
+            if pf.language != "kotlin" {
+                continue;
+            }
+            let pkg = pf
+                .symbols
+                .first()
+                .and_then(|s| s.module_path.clone())
+                .unwrap_or_default();
+            pkg_files.entry(pkg).or_default().push(i);
+        }
+
+        if pkg_files.is_empty() {
+            return;
+        }
+
+        // Phase 2: Sort packages by depth (shallowest first)
+        let mut sorted_pkgs: Vec<&String> = pkg_files.keys().collect();
+        sorted_pkgs.sort_by(|a, b| {
+            let depth_a = if a.is_empty() {
+                0
+            } else {
+                a.split("::").count()
+            };
+            let depth_b = if b.is_empty() {
+                0
+            } else {
+                b.split("::").count()
+            };
+            depth_a.cmp(&depth_b)
+        });
+
+        // Phase 3: Create ONE RawSymbol per unique package path (no intermediate nodes)
+        // Map: package_path -> (module_name, first_file_idx)
+        let mut pkg_module_map: HashMap<String, (String, usize)> = HashMap::new();
+
+        for pkg in &sorted_pkgs {
+            let file_indices = pkg_files.get(pkg.as_str()).unwrap();
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let target_idx = file_indices[0];
+
+            // Module name: package path with dots (e.g., "com.example.app")
+            let module_name = if pkg.is_empty() {
+                "root".to_string()
+            } else {
+                pkg.replace("::", ".")
+            };
+
+            // Determine parent package path
+            let parent_pkg = if pkg.is_empty() {
+                None
+            } else {
+                let components: Vec<&str> = pkg.split("::").collect();
+                if components.len() <= 1 {
+                    None
+                } else {
+                    Some(components[..components.len() - 1].join("::"))
+                }
+            };
+
+            // Set module_path to parent package ONLY if parent has actual symbols
+            let module_path = parent_pkg.as_ref().and_then(|parent| {
+                if Self::pkg_has_symbols(parent, &pkg_files, parsed_files) {
+                    Some(parent.clone())
+                } else {
+                    None
+                }
+            });
+
+            // Create module symbol
+            let module_sym = RawSymbol {
+                name: module_name.clone(),
+                kind: "module".to_string(),
+                file_path: parsed_files[target_idx].file_path.clone(),
+                start_line: 1,
+                end_line: 1,
+                signature: Some(format!("implicit_module: true, package: {}", pkg)),
+                language: "kotlin".to_string(),
+                visibility: Some("pub".to_string()),
+                entry_type: None,
+                module_path,
+            };
+
+            parsed_files[target_idx].symbols.push(module_sym);
+            pkg_module_map.insert(pkg.to_string(), (module_name, target_idx));
+        }
+
+        // Phase 4: Rewrite existing HasMember edges to point to canonical module
+        for (pkg, file_indices) in &pkg_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some((canonical_name, canonical_file_idx)) = pkg_module_map.get(pkg.as_str())
+            else {
+                continue;
+            };
+            let canonical_file_path = &parsed_files[*canonical_file_idx].file_path;
+            let canonical_id = SymbolId::new(canonical_file_path, canonical_name, 1);
+
+            for &file_idx in file_indices {
+                let file_path = &parsed_files[file_idx].file_path;
+                let old_module_name = pkg.replace("::", ".");
+                let old_module_id = SymbolId::new(file_path, &old_module_name, 1);
+
+                for edge in &mut parsed_files[file_idx].edges {
+                    if edge.kind == EdgeKind::HasMember
+                        && let SymbolRef::Resolved(ref id) = edge.from
+                        && id.as_str() == old_module_id.as_str()
+                    {
+                        edge.from = SymbolRef::resolved(canonical_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Phase 5: Create HasMember edges for package nesting
+        // ONLY when parent package has actual symbols (non-module)
+        let mut edges_to_add: Vec<(usize, RawEdge)> = Vec::new();
+
+        for pkg in &sorted_pkgs {
+            if pkg.is_empty() {
+                continue;
+            }
+
+            let components: Vec<&str> = pkg.split("::").collect();
+            if components.len() <= 1 {
+                continue;
+            }
+
+            let parent_pkg = components[..components.len() - 1].join("::");
+
+            // Only create edge if parent package has actual symbols
+            if !Self::pkg_has_symbols(&parent_pkg, &pkg_files, parsed_files) {
+                continue;
+            }
+
+            if let Some(&(ref parent_name, parent_file_idx)) = pkg_module_map.get(&parent_pkg)
+                && let Some(&(ref child_name, child_file_idx)) = pkg_module_map.get(pkg.as_str())
+            {
+                let parent_file_path = &parsed_files[parent_file_idx].file_path;
+                let child_file_path = &parsed_files[child_file_idx].file_path;
+
+                let from = SymbolRef::resolved(SymbolId::new(parent_file_path, parent_name, 1));
+                let to = SymbolRef::resolved(SymbolId::new(child_file_path, child_name, 1));
+
+                edges_to_add.push((
+                    child_file_idx,
+                    RawEdge {
+                        from,
+                        to,
+                        kind: EdgeKind::HasMember,
+                        line: Some(1),
+                        entry_type: None,
+                    },
+                ));
+            }
+        }
+
+        // Phase 6: Create HasMember edges from leaf package module → file symbols
+        for (pkg, file_indices) in &pkg_files {
+            if file_indices.is_empty() {
+                continue;
+            }
+
+            let Some(&(ref module_name, module_file_idx)) = pkg_module_map.get(pkg.as_str()) else {
+                continue;
+            };
+            let module_file_path = &parsed_files[module_file_idx].file_path;
+            let module_id = SymbolRef::resolved(SymbolId::new(module_file_path, module_name, 1));
+
+            for &file_idx in file_indices {
+                for sym in &parsed_files[file_idx].symbols {
+                    if sym.kind == "module" {
+                        continue;
+                    }
+
+                    let sym_id = SymbolRef::resolved(SymbolId::new(
+                        &parsed_files[file_idx].file_path,
+                        &sym.name,
+                        sym.start_line,
+                    ));
+
+                    edges_to_add.push((
+                        file_idx,
+                        RawEdge {
+                            from: module_id.clone(),
+                            to: sym_id,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // Add all collected edges
+        for (file_idx, edge) in edges_to_add {
+            parsed_files[file_idx].edges.push(edge);
+        }
+    }
 }
 
 impl KotlinExtractor {
+    /// Check if a package has any non-module symbols in its files.
+    /// Used to determine whether to create parent-child HasMember edges
+    /// between packages.
+    fn pkg_has_symbols(
+        pkg: &str,
+        pkg_files: &std::collections::HashMap<String, Vec<usize>>,
+        parsed_files: &[ParsedFile],
+    ) -> bool {
+        if let Some(indices) = pkg_files.get(pkg) {
+            for &idx in indices {
+                for sym in &parsed_files[idx].symbols {
+                    if sym.kind != "module" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
     /// Check if a resolved symbol's kind is compatible with the edge kind.
     fn is_kind_compatible(
         edge_kind: &crate::a6s::types::EdgeKind,
@@ -425,18 +631,6 @@ impl KotlinExtractor {
     /// Helper to extract text from a tree-sitter node
     fn node_text<'a>(node: Node, code: &'a str) -> &'a str {
         &code[node.byte_range()]
-    }
-
-    /// Determine if a node is inside a class_body (making it a member)
-    fn is_inside_class_body(node: Node) -> bool {
-        let mut parent = node.parent();
-        while let Some(p) = parent {
-            if p.kind() == "class_body" {
-                return true;
-            }
-            parent = p.parent();
-        }
-        false
     }
 
     /// Determine if a node is inside an interface (class_declaration with "interface" keyword)
@@ -668,7 +862,7 @@ impl KotlinExtractor {
             return;
         }
 
-        // Function declaration
+        // Top-level function declaration (direct child of source_file)
         if let (Some(&name_node), Some(&def_node)) =
             (captures.get("fn_name"), captures.get("fn_def"))
         {
@@ -677,13 +871,11 @@ impl KotlinExtractor {
             let end_line = def_node.end_position().row + 1;
             let visibility = Self::extract_visibility(def_node, code);
 
-            // Determine kind: extension_function, method (member), interface_method, or function
-            let kind = if Self::is_inside_interface(def_node, code) {
-                "interface_method"
-            } else if Self::has_receiver_type(def_node) {
+            // Top-level context: only extension_function vs function.
+            // is_inside_interface/is_inside_class_body no longer needed here —
+            // the query's source_file anchor guarantees top-level.
+            let kind = if Self::has_receiver_type(def_node) {
                 "extension_function"
-            } else if Self::is_inside_class_body(def_node) {
-                "method"
             } else {
                 "function"
             };
@@ -712,7 +904,52 @@ impl KotlinExtractor {
             return;
         }
 
-        // Property declaration
+        // Class/object member function (direct child of class_body)
+        if let (Some(&name_node), Some(&def_node)) =
+            (captures.get("method_name"), captures.get("method_def"))
+        {
+            let name = Self::node_text(name_node, code).to_string();
+            let start_line = def_node.start_position().row + 1;
+            let end_line = def_node.end_position().row + 1;
+            let visibility = Self::extract_visibility(def_node, code);
+
+            // Member context: interface_method vs method vs extension_function.
+            // is_inside_interface is STILL needed here to split interface vs
+            // class members (the query cannot express "class_declaration that
+            // is an interface" because `interface` is a non-named token).
+            let kind = if Self::is_inside_interface(def_node, code) {
+                "interface_method"
+            } else if Self::has_receiver_type(def_node) {
+                "extension_function"
+            } else {
+                "method"
+            };
+
+            let signature = Some(Self::build_function_signature(def_node, code));
+
+            let entry_type =
+                if Self::has_test_annotation(def_node, code) || Self::is_test_by_name(&name) {
+                    Some("test".to_string())
+                } else {
+                    None
+                };
+
+            parsed.symbols.push(RawSymbol {
+                name,
+                kind: kind.to_string(),
+                file_path: file_path.to_string(),
+                start_line,
+                end_line,
+                signature,
+                language: "kotlin".to_string(),
+                visibility,
+                entry_type,
+                module_path: None,
+            });
+            return;
+        }
+
+        // Top-level property declaration (direct child of source_file)
         if let (Some(&name_node), Some(&def_node)) =
             (captures.get("prop_name"), captures.get("prop_def"))
         {
@@ -723,17 +960,46 @@ impl KotlinExtractor {
 
             let binding_kind = Self::get_binding_kind(def_node, code);
             let is_const = Self::has_const_modifier(def_node, code);
-            let is_member = Self::is_inside_class_body(def_node);
 
-            let kind = if is_const {
-                "const"
-            } else if is_member {
-                "property"
-            } else if binding_kind.as_deref() == Some("val") {
+            // Top-level: no is_inside_class_body check needed (query anchors
+            // to source_file). const modifier or val -> const; var -> var.
+            let kind = if is_const || binding_kind.as_deref() == Some("val") {
                 "const"
             } else {
                 "var"
             };
+
+            parsed.symbols.push(RawSymbol {
+                name,
+                kind: kind.to_string(),
+                file_path: file_path.to_string(),
+                start_line,
+                end_line,
+                signature: Some(Self::build_property_signature(def_node, code)),
+                language: "kotlin".to_string(),
+                visibility,
+                entry_type: None,
+                module_path: None,
+            });
+            return;
+        }
+
+        // Class/object member property (direct child of class_body)
+        if let (Some(&name_node), Some(&def_node)) = (
+            captures.get("member_prop_name"),
+            captures.get("member_prop_def"),
+        ) {
+            let name = Self::node_text(name_node, code).to_string();
+            let start_line = def_node.start_position().row + 1;
+            let end_line = def_node.end_position().row + 1;
+            let visibility = Self::extract_visibility(def_node, code);
+
+            let is_const = Self::has_const_modifier(def_node, code);
+
+            // Member context: const -> const; otherwise -> property.
+            // (is_inside_class_body is no longer needed — the query's
+            // class_body anchor guarantees member context.)
+            let kind = if is_const { "const" } else { "property" };
 
             parsed.symbols.push(RawSymbol {
                 name,
@@ -997,6 +1263,7 @@ impl KotlinExtractor {
                         to: SymbolRef::unresolved(type_name, file_path),
                         kind: EdgeKind::ParamType,
                         line: Some(type_node.start_position().row + 1),
+                        entry_type: None,
                     });
                 }
                 // Extract generic type arguments from the parameter's parent user_type
@@ -1034,6 +1301,7 @@ impl KotlinExtractor {
                         to: SymbolRef::unresolved(type_name, file_path),
                         kind: EdgeKind::ReturnType,
                         line: Some(type_node.start_position().row + 1),
+                        entry_type: None,
                     });
                 }
                 // Extract generic type arguments from the return type's parent user_type
@@ -1070,6 +1338,7 @@ impl KotlinExtractor {
                             to: SymbolRef::unresolved(type_name, file_path),
                             kind: EdgeKind::FieldType,
                             line: Some(type_node.start_position().row + 1),
+                            entry_type: None,
                         });
                     }
                 }
@@ -1255,6 +1524,7 @@ impl KotlinExtractor {
                             to: SymbolRef::unresolved(type_name, file_path),
                             kind: edge_kind,
                             line: Some(type_id.start_position().row + 1),
+                            entry_type: None,
                         });
                     }
                 }
@@ -1521,6 +1791,7 @@ impl KotlinExtractor {
                         )),
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -1561,6 +1832,7 @@ impl KotlinExtractor {
                         )),
                         kind: EdgeKind::HasMethod,
                         line: Some(method.start_line),
+                        entry_type: None,
                     })
             })
             .collect();
@@ -1571,6 +1843,9 @@ impl KotlinExtractor {
     /// Extract HasMember edges: implicit module → top-level declarations.
     /// Follows Go extractor pattern: creates HasMember from a module symbol
     /// to every top-level symbol (not fields, methods, interface_methods, enum_entries).
+    /// NOTE: Not called during extract() — HasMember edges are created by
+    /// resolve_file_modules (Phase 6). Kept for potential reuse.
+    #[allow(dead_code)]
     fn extract_hasmember_edges(
         file_path: &str,
         module_path: &Option<String>,
@@ -1620,6 +1895,7 @@ impl KotlinExtractor {
                 to: SymbolRef::resolved(SymbolId::new(file_path, &s.name, s.start_line)),
                 kind: EdgeKind::HasMember,
                 line: Some(s.start_line),
+                entry_type: None,
             })
             .collect();
 
@@ -1678,6 +1954,7 @@ impl KotlinExtractor {
                                         to: SymbolRef::unresolved(super_name, file_path),
                                         kind: EdgeKind::Extends,
                                         line: Some(child.start_position().row + 1),
+                                        entry_type: None,
                                     });
                                 }
                             }
@@ -1692,6 +1969,7 @@ impl KotlinExtractor {
                                         to: SymbolRef::unresolved(iface_name, file_path),
                                         kind: EdgeKind::Implements,
                                         line: Some(child.start_position().row + 1),
+                                        entry_type: None,
                                     });
                                 }
                             }
@@ -1741,6 +2019,7 @@ impl KotlinExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             }
         }

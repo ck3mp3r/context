@@ -159,20 +159,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
 
 -- FTS sync triggers for notes - keep full-text index in sync with note table
 CREATE TRIGGER IF NOT EXISTS note_ai AFTER INSERT ON note BEGIN
-    INSERT INTO note_fts(rowid, title, content, tags) 
+    INSERT INTO note_fts(rowid, title, content, tags)
     VALUES (new.rowid, new.title, new.content, new.tags);
 END;
 
-CREATE TRIGGER IF NOT EXISTS note_au AFTER UPDATE ON note 
+CREATE TRIGGER IF NOT EXISTS note_au AFTER UPDATE ON note
 WHEN old.title != new.title OR old.content != new.content OR old.tags != new.tags BEGIN
-    INSERT INTO note_fts(note_fts, rowid, title, content, tags) 
+    INSERT INTO note_fts(note_fts, rowid, title, content, tags)
     VALUES('delete', old.rowid, old.title, old.content, old.tags);
-    INSERT INTO note_fts(rowid, title, content, tags) 
+    INSERT INTO note_fts(rowid, title, content, tags)
     VALUES (new.rowid, new.title, new.content, new.tags);
 END;
 
 CREATE TRIGGER IF NOT EXISTS note_ad AFTER DELETE ON note BEGIN
-    INSERT INTO note_fts(note_fts, rowid, title, content, tags) 
+    INSERT INTO note_fts(note_fts, rowid, title, content, tags)
     VALUES('delete', old.rowid, old.title, old.content, old.tags);
 END;
 
@@ -223,4 +223,3 @@ END;
 -- by explicit SQL in:
 -- - src/db/sqlite/sync.rs (import)
 -- - src/db/sqlite/task.rs (create/update repository methods)
-

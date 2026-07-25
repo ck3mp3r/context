@@ -118,7 +118,7 @@ pub struct PatchProjectRequest {
     /// Project title
     #[schema(example = "Updated Project")]
     pub title: Option<String>,
-    /// Optional description  
+    /// Optional description
     #[schema(example = "Updated description")]
     pub description: Option<String>,
     /// Tags for categorization

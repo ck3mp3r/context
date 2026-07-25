@@ -18,7 +18,7 @@ pub fn ProjectNotes() -> impl IntoView {
     let project_id = move || params.read().get("id").unwrap_or_default();
 
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
-    
+
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
     let search = use_search();

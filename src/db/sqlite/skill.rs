@@ -43,7 +43,7 @@ fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
 ///
 /// Validation rules:
 /// - name: required, not empty
-/// - description: required, not empty, max 1024 chars  
+/// - description: required, not empty, max 1024 chars
 /// - content: required, not empty, must start with '---' (YAML frontmatter delimiter)
 fn validate_skill(skill: &Skill) -> DbResult<()> {
     let mut errors = Vec::new();

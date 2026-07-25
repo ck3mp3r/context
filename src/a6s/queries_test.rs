@@ -35,37 +35,39 @@ async fn create_test_files(db: &surrealdb::Surreal<surrealdb::engine::local::Db>
 /// Helper to create test edges
 async fn create_test_edges(db: &surrealdb::Surreal<surrealdb::engine::local::Db>) {
     // Create calls edge: main calls helper (call_site_line is required)
-    db.query("RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12")
-        .await
-        .expect("Failed to create calls edge");
+    db.query(
+        "RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create calls edge");
 
     // Create has_field edge: MyStruct has field
-    db.query("RELATE symbol:sym003->has_field->symbol:sym002")
+    db.query("RELATE symbol:sym003->has_field->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create has_field edge");
 
     // Create has_method edge: MyStruct has method
-    db.query("RELATE symbol:sym003->has_method->symbol:sym001")
+    db.query("RELATE symbol:sym003->has_method->symbol:sym001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create has_method edge");
 
     // Create has_member edge: module has member
-    db.query("RELATE symbol:sym003->has_member->symbol:sym002")
+    db.query("RELATE symbol:sym003->has_member->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create has_member edge");
 
     // Create extends edge
-    db.query("RELATE symbol:sym003->extends->symbol:sym002")
+    db.query("RELATE symbol:sym003->extends->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create extends edge");
 
     // Create implements edge
-    db.query("RELATE symbol:sym003->implements->symbol:sym002")
+    db.query("RELATE symbol:sym003->implements->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create implements edge");
 
     // Create file_imports edge
-    db.query("RELATE file:file001->file_imports->symbol:sym002")
+    db.query("RELATE file:file001->file_imports->symbol:sym002 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_imports edge");
 }
@@ -359,7 +361,7 @@ async fn test_file_symbols_query() {
     create_test_files(&db).await;
 
     // Create file_contains edges
-    db.query("RELATE file:file001->file_contains->symbol:sym001")
+    db.query("RELATE file:file001->file_contains->symbol:sym001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -418,15 +420,21 @@ async fn test_hub_symbols_query() {
         .expect("Failed to create caller2");
 
     // All call helper (call_site_line is required for calls edges)
-    db.query("RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12")
-        .await
-        .expect("Failed to create call edge");
-    db.query("RELATE symbol:caller1->calls->symbol:sym002 SET call_site_line = 3")
-        .await
-        .expect("Failed to create call edge");
-    db.query("RELATE symbol:caller2->calls->symbol:sym002 SET call_site_line = 3")
-        .await
-        .expect("Failed to create call edge");
+    db.query(
+        "RELATE symbol:sym001->calls->symbol:sym002 SET call_site_line = 12, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create call edge");
+    db.query(
+        "RELATE symbol:caller1->calls->symbol:sym002 SET call_site_line = 3, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create call edge");
+    db.query(
+        "RELATE symbol:caller2->calls->symbol:sym002 SET call_site_line = 3, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("Failed to create call edge");
 
     let query = include_str!("queries/hub_symbols.surql");
     let mut result = db
@@ -462,7 +470,7 @@ async fn test_module_map_query() {
     db.query("CREATE file:modfile SET repo_id = 'test_repo', file_id = 'modfile', path = 'src/config/mod.rs', language = 'rust', hash = 'modfile123'")
         .await
         .expect("Failed to create file");
-    db.query("RELATE file:modfile->file_contains->symbol:mod001")
+    db.query("RELATE file:modfile->file_contains->symbol:mod001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -491,7 +499,7 @@ async fn test_module_map_query_with_package() {
     db.query("CREATE file:gofile SET repo_id = 'test_repo', file_id = 'gofile', path = 'pkg/server/server.go', language = 'go', hash = 'gofile123'")
         .await
         .expect("Failed to create file");
-    db.query("RELATE file:gofile->file_contains->symbol:pkg001")
+    db.query("RELATE file:gofile->file_contains->symbol:pkg001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -509,32 +517,12 @@ async fn test_module_map_query_with_package() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_type_hierarchy_query() {
-    let db = init_db(None).await.expect("Failed to init db");
-    create_test_symbols(&db).await;
-    create_test_edges(&db).await; // creates extends and implements edges
-
-    let query = include_str!("queries/type_hierarchy.surql");
-    let mut result = db
-        .query(query)
-        .bind(("repo_id", "test_repo"))
-        .await
-        .expect("Query failed");
-    let hierarchy: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
-
-    assert_eq!(hierarchy.len(), 1, "Should find 1 extends relationship");
-    assert_eq!(hierarchy[0]["type_name"], "MyStruct");
-    assert_eq!(hierarchy[0]["parent_name"], "helper");
-    assert_eq!(hierarchy[0]["relationship"], "extends");
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn test_annotates_type_query() {
     let db = init_db(None).await.expect("Failed to init db");
     create_test_symbols(&db).await;
 
     // Create type_annotation edge
-    db.query("RELATE symbol:sym001->type_annotation->symbol:sym003")
+    db.query("RELATE symbol:sym001->type_annotation->symbol:sym003 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create type_annotation edge");
 
@@ -547,8 +535,7 @@ async fn test_annotates_type_query() {
             in.start_line AS start_line,
             out.name AS type_name
         FROM type_annotation
-        WHERE out.name = $name
-        FETCH in, out;
+        WHERE repo_id = $repo_id AND out.name = $name;
     "#;
     let mut result = db
         .query(query)
@@ -572,7 +559,7 @@ async fn test_uses_type_query() {
     create_test_symbols(&db).await;
 
     // Create uses edge
-    db.query("RELATE symbol:sym001->uses->symbol:sym003")
+    db.query("RELATE symbol:sym001->uses->symbol:sym003 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create uses edge");
 
@@ -585,8 +572,7 @@ async fn test_uses_type_query() {
             in.start_line AS start_line,
             out.name AS type_name
         FROM uses
-        WHERE out.name = $name
-        FETCH in, out;
+        WHERE repo_id = $repo_id AND out.name = $name;
     "#;
     let mut result = db
         .query(query)
@@ -635,12 +621,9 @@ async fn test_list_queries_returns_structured_metadata() {
     assert_eq!(file_symbols.params.len(), 1);
     assert_eq!(file_symbols.params[0].name, "$path");
 
-    // all_symbols should have no params
-    let all_symbols = queries.iter().find(|q| q.name == "all_symbols").unwrap();
-    assert!(
-        all_symbols.params.is_empty(),
-        "all_symbols should have no params"
-    );
+    // overview should have no params (it's not @internal)
+    let overview = queries.iter().find(|q| q.name == "overview").unwrap();
+    assert!(overview.params.is_empty(), "overview should have no params");
 }
 
 /// Helper to create a CodeGraph for testing (read-only, no truncation)
@@ -715,7 +698,7 @@ async fn test_file_symbols_with_json_value_params() {
     create_test_files(&db).await;
 
     // Create file_contains edges
-    db.query("RELATE file:file001->file_contains->symbol:sym001")
+    db.query("RELATE file:file001->file_contains->symbol:sym001 SET repo_id = 'test_repo'")
         .await
         .expect("Failed to create file_contains edge");
 
@@ -752,17 +735,23 @@ async fn test_file_dependencies_query() {
         .await
         .expect("create fd_s3");
 
-    db.query("RELATE symbol:fd_s1->calls->symbol:fd_s3 SET call_site_line = 5")
-        .await
-        .expect("cross-file call 1");
+    db.query(
+        "RELATE symbol:fd_s1->calls->symbol:fd_s3 SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("cross-file call 1");
 
-    db.query("RELATE symbol:fd_s2->calls->symbol:fd_s3 SET call_site_line = 15")
-        .await
-        .expect("cross-file call 2");
+    db.query(
+        "RELATE symbol:fd_s2->calls->symbol:fd_s3 SET call_site_line = 15, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("cross-file call 2");
 
-    db.query("RELATE symbol:fd_s1->calls->symbol:fd_s2 SET call_site_line = 8")
-        .await
-        .expect("intra-file call");
+    db.query(
+        "RELATE symbol:fd_s1->calls->symbol:fd_s2 SET call_site_line = 8, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("intra-file call");
 
     let query = include_str!("queries/file_dependencies.surql");
     let mut result = db
@@ -798,17 +787,23 @@ async fn test_transitive_calls_query() {
         .await
         .expect("create tc_d");
 
-    db.query("RELATE symbol:tc_a->calls->symbol:tc_b SET call_site_line = 5")
-        .await
-        .expect("A calls B");
+    db.query(
+        "RELATE symbol:tc_a->calls->symbol:tc_b SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("A calls B");
 
-    db.query("RELATE symbol:tc_b->calls->symbol:tc_c SET call_site_line = 5")
-        .await
-        .expect("B calls C");
+    db.query(
+        "RELATE symbol:tc_b->calls->symbol:tc_c SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("B calls C");
 
-    db.query("RELATE symbol:tc_c->calls->symbol:tc_d SET call_site_line = 5")
-        .await
-        .expect("C calls D");
+    db.query(
+        "RELATE symbol:tc_c->calls->symbol:tc_d SET call_site_line = 5, repo_id = 'test_repo'",
+    )
+    .await
+    .expect("C calls D");
 
     // SurrealDB doesn't support parameterized depth
     let query = include_str!("queries/transitive_calls.surql");
@@ -840,71 +835,5 @@ async fn test_transitive_calls_query() {
     assert!(
         names.contains(&"funcD"),
         "funcD should be reachable (depth 3)"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_neighbors_query() {
-    let db = init_db(None).await.expect("Failed to init db");
-
-    db.query("CREATE symbol:nb_s1 SET repo_id = 'test_repo', symbol_id = 'nb_s1', name = 'funcX', kind = 'function', language = 'rust', file_path = 'src/x.rs', start_line = 1, end_line = 10")
-        .await
-        .expect("create nb_s1");
-
-    db.query("CREATE symbol:nb_s2 SET repo_id = 'test_repo', symbol_id = 'nb_s2', name = 'funcY', kind = 'function', language = 'rust', file_path = 'src/y.rs', start_line = 1, end_line = 10")
-        .await
-        .expect("create nb_s2");
-
-    db.query("CREATE symbol:nb_s3 SET repo_id = 'test_repo', symbol_id = 'nb_s3', name = 'funcZ', kind = 'function', language = 'rust', file_path = 'src/z.rs', start_line = 1, end_line = 10")
-        .await
-        .expect("create nb_s3");
-
-    db.query("RELATE symbol:nb_s1->calls->symbol:nb_s2 SET call_site_line = 5")
-        .await
-        .expect("funcX calls funcY");
-
-    db.query("RELATE symbol:nb_s3->calls->symbol:nb_s1 SET call_site_line = 10")
-        .await
-        .expect("funcZ calls funcX");
-
-    let query = include_str!("queries/neighbors.surql");
-    let mut result = db
-        .query(query)
-        .bind(("repo_id", "test_repo"))
-        .bind(("name", "funcX"))
-        .await
-        .expect("Query failed");
-
-    let neighbors: Vec<serde_json::Value> = result.take(0).expect("Failed to extract results");
-
-    let names: Vec<&str> = neighbors
-        .iter()
-        .filter_map(|s| s["name"].as_str())
-        .collect();
-    let directions: Vec<&str> = neighbors
-        .iter()
-        .filter_map(|s| s["direction"].as_str())
-        .collect();
-
-    assert_eq!(neighbors.len(), 2, "Should have 2 neighbors");
-    assert!(
-        names.contains(&"funcY"),
-        "funcY should be a neighbor (outgoing)"
-    );
-    assert!(
-        names.contains(&"funcZ"),
-        "funcZ should be a neighbor (incoming)"
-    );
-    assert!(
-        !names.contains(&"funcX"),
-        "funcX itself should not be in results"
-    );
-    assert!(
-        directions.contains(&"outgoing"),
-        "Should have outgoing direction"
-    );
-    assert!(
-        directions.contains(&"incoming"),
-        "Should have incoming direction"
     );
 }

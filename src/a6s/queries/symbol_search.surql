@@ -9,4 +9,4 @@ SELECT
     start_line,
     signature
 FROM symbol
-WHERE repo_id = $repo_id AND name = $name;
+WHERE repo_id = $repo_id AND name CONTAINS $name;

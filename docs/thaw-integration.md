@@ -44,7 +44,7 @@ thaw = { version = "0.4", features = ["csr"], optional = true }
   - Example:
     ```rust
     let open = RwSignal::new(false);
-    
+
     view! {
         <Button on_click=move |_| open.set(true)>"Create Task"</Button>
         <OverlayDrawer open>
@@ -107,12 +107,12 @@ use thaw::*;
 fn CreateTaskDrawer(show: RwSignal<bool>) -> impl IntoView {
     let task_name = RwSignal::new(String::new());
     let task_content = RwSignal::new(String::new());
-    
+
     let on_save = move |_| {
         // Call API to create task
         show.set(false);
     };
-    
+
     view! {
         <OverlayDrawer open=show>
             <DrawerHeader>

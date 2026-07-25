@@ -1,3 +1,4 @@
+-- @internal
 -- Query: all_symbols
 -- Description: Retrieve all symbols from the code graph
 -- Returns: List of symbols with their basic properties

@@ -123,7 +123,7 @@ Access the Web UI at http://localhost:3737
 
 **Notes:**
 - Container size: ~150MB (includes git for sync support)
-  - Base c5t binary: ~23MB  
+  - Base c5t binary: ~23MB
   - Custom minimal git: ~126MB (stripped of docs, perl, python, GUI tools)
 - Images built from static musl binaries for minimal attack surface
 

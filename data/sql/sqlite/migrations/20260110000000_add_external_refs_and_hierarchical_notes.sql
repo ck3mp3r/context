@@ -41,8 +41,8 @@ ALTER TABLE note DROP COLUMN note_type;
 ALTER TABLE task_list ADD COLUMN external_refs TEXT NOT NULL DEFAULT '[]';
 
 -- Migrate existing external_ref data if present
-UPDATE task_list 
-SET external_refs = json_array(external_ref) 
+UPDATE task_list
+SET external_refs = json_array(external_ref)
 WHERE external_ref IS NOT NULL;
 
 -- Drop old column
@@ -55,8 +55,8 @@ ALTER TABLE task_list DROP COLUMN external_ref;
 ALTER TABLE task ADD COLUMN external_refs TEXT NOT NULL DEFAULT '[]';
 
 -- Migrate existing external_ref data if present
-UPDATE task 
-SET external_refs = json_array(external_ref) 
+UPDATE task
+SET external_refs = json_array(external_ref)
 WHERE external_ref IS NOT NULL;
 
 -- Drop old column
@@ -138,7 +138,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS task_list_fts USING fts5(
 
 -- Populate from existing data
 INSERT INTO task_list_fts (id, title, description, notes, tags, external_refs)
-SELECT 
+SELECT
     id,
     title,
     COALESCE(description, ''),
@@ -199,7 +199,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS task_fts USING fts5(
 
 -- Populate from existing data
 INSERT INTO task_fts (id, title, description, tags, external_refs)
-SELECT 
+SELECT
     id,
     title,
     COALESCE(description, ''),

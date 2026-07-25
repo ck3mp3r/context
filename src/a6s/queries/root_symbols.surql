@@ -9,6 +9,9 @@
 -- - has_field: struct/class has fields
 --
 -- Root symbols are those with no incoming containment edges (no parent container)
+-- Examples:
+--   code_query(query_name="root_symbols") → top-level symbols (not nested)
+--   Use for: architecture overview, main module structure
 
 SELECT
     symbol_id,

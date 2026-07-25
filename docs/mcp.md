@@ -130,7 +130,7 @@ Special tags that link notes together using note IDs:
 
 **Supported Types**:
 - `parent:NOTE_ID` - This note continues or follows the parent note
-- `related:NOTE_ID` - See also this other note  
+- `related:NOTE_ID` - See also this other note
 - `supersedes:NOTE_ID` - This note replaces/updates that note
 - `obsoletes:NOTE_ID` - This note makes that note obsolete
 
@@ -980,7 +980,7 @@ list_task_lists({
 
 **Recovery Strategy:**
 - **Before compaction**: Update session note with current state
-- **After compaction**: 
+- **After compaction**:
   1. Search for session notes by project/tags
   2. Read full session note content
   3. List incomplete tasks
@@ -1023,9 +1023,9 @@ Session Note (session, refactoring, component-name)
 
 ### Benefits
 
-✅ **Survives context compaction** - State persists in database  
-✅ **Visible to user** - Web UI shows real-time progress  
-✅ **Resumable** - Pick up exactly where you left off  
-✅ **Organized** - All work linked to projects  
-✅ **Auditable** - Complete history of decisions and progress  
+✅ **Survives context compaction** - State persists in database
+✅ **Visible to user** - Web UI shows real-time progress
+✅ **Resumable** - Pick up exactly where you left off
+✅ **Organized** - All work linked to projects
+✅ **Auditable** - Complete history of decisions and progress
 ✅ **Collaborative** - Shared state across sessions and agents

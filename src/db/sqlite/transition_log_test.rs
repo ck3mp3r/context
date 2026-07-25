@@ -6,7 +6,7 @@ use crate::db::{Database, SqliteDatabase, TaskStatus, TransitionLog};
 async fn setup_test_task(db: &SqliteDatabase, task_id: &str, status: &str) {
     // Create project
     sqlx::query(
-        "INSERT INTO project (id, title, tags, created_at, updated_at) 
+        "INSERT INTO project (id, title, tags, created_at, updated_at)
          VALUES ('proj1234', 'Test Project', '[]', datetime('now'), datetime('now'))",
     )
     .execute(db.pool())
@@ -15,7 +15,7 @@ async fn setup_test_task(db: &SqliteDatabase, task_id: &str, status: &str) {
 
     // Create task list
     sqlx::query(
-        "INSERT INTO task_list (id, project_id, title, status, tags, created_at, updated_at) 
+        "INSERT INTO task_list (id, project_id, title, status, tags, created_at, updated_at)
          VALUES ('list5678', 'proj1234', 'Test List', 'active', '[]', datetime('now'), datetime('now'))"
     )
     .execute(db.pool())
@@ -24,8 +24,8 @@ async fn setup_test_task(db: &SqliteDatabase, task_id: &str, status: &str) {
 
     // Create task
     sqlx::query(
-        "INSERT INTO task (id, list_id, title, status, tags, external_refs, created_at, updated_at) 
-         VALUES (?, 'list5678', 'Test Task', ?, '[]', '[]', datetime('now'), datetime('now'))"
+        "INSERT INTO task (id, list_id, title, status, tags, external_refs, created_at, updated_at)
+         VALUES (?, 'list5678', 'Test Task', ?, '[]', '[]', datetime('now'), datetime('now'))",
     )
     .bind(task_id)
     .bind(status)

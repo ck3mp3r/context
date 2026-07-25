@@ -42,7 +42,32 @@ impl LanguageExtractor for RustExtractor {
         };
 
         // Create implicit file-level module symbol
-        let module_name = Self::file_to_module_name(file_path);
+        // derive_module_path now returns the FULL module path (crate + file stem).
+        // The implicit module's module_path should be the PARENT path.
+        let full_module_path = self.derive_module_path(file_path);
+        let parent_module_path = full_module_path
+            .as_ref()
+            .and_then(|mp| mp.rsplit_once("::").map(|(parent, _)| parent.to_string()));
+        // For workspace crates (lib.rs in subdirectories), use the crate name
+        // as the module name instead of "lib" to avoid duplicate names.
+        // For main.rs, keep "main" — it's a child of the lib crate.
+        // For mod.rs and regular files, use file_to_module_name (parent dir or file stem).
+        let file_stem = std::path::Path::new(file_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let module_name = if file_stem == "lib" {
+            // For lib.rs: use crate name if in a workspace, otherwise "lib"
+            match Self::extract_crate_name(file_path) {
+                Some(crate_name) => crate_name,
+                None => file_stem.to_string(),
+            }
+        } else if file_stem == "main" {
+            // For main.rs: keep "main" — it's the binary entry point, child of lib crate
+            file_stem.to_string()
+        } else {
+            Self::file_to_module_name(file_path)
+        };
         let line_count = code.lines().count().max(1);
         let implicit_module = crate::a6s::types::RawSymbol {
             name: module_name.clone(),
@@ -54,7 +79,7 @@ impl LanguageExtractor for RustExtractor {
             language: "rust".to_string(),
             visibility: Some("pub".to_string()),
             entry_type: None,
-            module_path: self.derive_module_path(file_path),
+            module_path: parent_module_path,
         };
         parsed.symbols.push(implicit_module);
 
@@ -92,28 +117,12 @@ impl LanguageExtractor for RustExtractor {
         }
 
         // Set module_path for symbols based on file path
-        let module_path = self.derive_module_path(file_path);
-
-        // For mod.rs files, we need special handling:
-        // - Implicit module gets parent module path (already set above)
-        // - Other symbols get the current module's full path
-        let is_mod_rs = file_path.ends_with("/mod.rs");
-        let symbols_module_path = if is_mod_rs {
-            // For src/common/cmd/mod.rs:
-            // - module_name = "cmd"
-            // - parent_module_path = Some("common")
-            // - full_path = "common::cmd"
-            let module_name = Self::file_to_module_name(file_path);
-            match &module_path {
-                Some(parent) => Some(format!("{}::{}", parent, module_name)),
-                None => Some(module_name), // Top-level module like src/api/mod.rs
-            }
-        } else {
-            module_path.clone()
-        };
+        // derive_module_path now returns the FULL module path (crate + file stem).
+        // Non-implicit symbols get this full path as their module_path.
+        let symbols_module_path = self.derive_module_path(file_path);
 
         for symbol in &mut parsed.symbols {
-            // Skip the implicit module - it already has the correct module_path
+            // Skip the implicit module - it already has the correct module_path (parent path)
             if symbol
                 .signature
                 .as_ref()
@@ -135,17 +144,17 @@ impl LanguageExtractor for RustExtractor {
         parsed
     }
 
-    /// Post-extraction: deduplicate module symbols and propagate test attributes.
+    /// Post-extraction: resolve module declarations and propagate test attributes.
     ///
-    /// Handles two issues:
-    /// 1. Deduplication: Files with explicit `mod xxx;` declarations create duplicate modules
-    ///    (one implicit from file, one explicit from declaration). Keep the explicit one.
-    /// 2. Test propagation: When `#[cfg(test)] mod xxx;` is found, mark all symbols in that
-    ///    file with `entry_type: "test"`.
+    /// Handles:
+    /// 1. Module resolution: DeclaresMod edges from `mod xxx;` declarations identify which
+    ///    files should be loaded as modules.
+    /// 2. Test propagation: When `#[cfg(test)] mod xxx;` is found (DeclaresMod edge with
+    ///    entry_type="test"), mark all symbols in that file with `entry_type: "test"`.
     fn resolve_file_modules(&self, parsed_files: &mut [ParsedFile]) {
         use std::collections::{HashMap, HashSet};
 
-        // Phase 1: Collect module declarations (single-line `mod xxx;` statements)
+        // Phase 1: Collect module declarations from DeclaresMod edges
         struct ModDecl {
             mod_name: String,
             declaring_dir: String,
@@ -158,25 +167,24 @@ impl LanguageExtractor for RustExtractor {
             if pf.language != "rust" {
                 continue;
             }
-            for sym in &pf.symbols {
-                // Module declarations are single-line (start_line == end_line)
-                if sym.kind == "module" && sym.start_line == sym.end_line {
-                    let dir = if let Some(pos) = pf.file_path.rfind('/') {
-                        &pf.file_path[..pos]
-                    } else {
-                        ""
-                    };
-                    decls.push(ModDecl {
-                        mod_name: sym.name.clone(),
-                        declaring_dir: dir.to_string(),
-                        is_test: sym.entry_type.as_deref() == Some("test"),
-                    });
+            for edge in &pf.edges {
+                // Find DeclaresMod edges
+                if edge.kind == crate::a6s::types::EdgeKind::DeclaresMod {
+                    // Extract module name from the "to" SymbolRef
+                    if let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &edge.to {
+                        let dir = if let Some(pos) = pf.file_path.rfind('/') {
+                            &pf.file_path[..pos]
+                        } else {
+                            ""
+                        };
+                        decls.push(ModDecl {
+                            mod_name: name.clone(),
+                            declaring_dir: dir.to_string(),
+                            is_test: edge.entry_type.as_deref() == Some("test"),
+                        });
+                    }
                 }
             }
-        }
-
-        if decls.is_empty() {
-            return;
         }
 
         // Phase 2: Build file index
@@ -186,8 +194,10 @@ impl LanguageExtractor for RustExtractor {
             .map(|(i, pf)| (pf.file_path.clone(), i))
             .collect();
 
-        // Phase 3: Process each declaration
+        // Phase 3: Process each declaration to find target files
         let mut files_to_process = HashSet::new();
+        // Build a map: (declaring_dir, mod_name) -> target_file_path
+        let mut mod_resolution_map: HashMap<(String, String), String> = HashMap::new();
 
         for decl in &decls {
             // Resolve target file: dir/mod_name.rs or dir/mod_name/mod.rs
@@ -206,29 +216,31 @@ impl LanguageExtractor for RustExtractor {
 
             if let Some(&tidx) = target_idx {
                 files_to_process.insert((tidx, decl.is_test));
+
+                // Store the resolution: (declaring_dir, mod_name) -> target_file_path
+                let target_file = parsed_files[tidx].file_path.clone();
+                mod_resolution_map.insert(
+                    (decl.declaring_dir.clone(), decl.mod_name.clone()),
+                    target_file,
+                );
             }
         }
 
-        // Phase 4: Update implicit modules and propagate test attributes
+        // Phase 4: Propagate test attributes to file symbols
         for (tidx, is_test) in files_to_process {
             let pf = &mut parsed_files[tidx];
 
-            // Find the implicit module (should be exactly one per file)
-            if let Some(implicit_mod) = pf.symbols.iter_mut().find(|sym| {
-                sym.kind == "module"
-                    && sym
-                        .signature
-                        .as_ref()
-                        .is_some_and(|s| s.contains("implicit_module: true"))
-            }) {
-                // Mark it as resolved (remove the implicit flag, add a note)
-                implicit_mod.signature =
-                    Some("resolved_from_explicit_declaration: true".to_string());
-
-                // If this is a test module, mark the module itself as test
-                if is_test {
-                    implicit_mod.entry_type = Some("test".to_string());
-                }
+            // If this is a test module, mark the implicit module itself as test
+            if is_test
+                && let Some(implicit_mod) = pf.symbols.iter_mut().find(|sym| {
+                    sym.kind == "module"
+                        && sym
+                            .signature
+                            .as_ref()
+                            .is_some_and(|s| s.contains("implicit_module: true"))
+                })
+            {
+                implicit_mod.entry_type = Some("test".to_string());
             }
 
             // Propagate test attribute to ALL symbols in the file
@@ -237,6 +249,35 @@ impl LanguageExtractor for RustExtractor {
                     if sym.entry_type.is_none() {
                         sym.entry_type = Some("test".to_string());
                     }
+                }
+            }
+        }
+
+        // Phase 4.5: Resolve DeclaresMod edges' `to` endpoints
+        // Now that we have mod_resolution_map, update all DeclaresMod edges
+        for pf in parsed_files.iter_mut() {
+            if pf.language != "rust" {
+                continue;
+            }
+
+            // Extract directory from file path
+            let dir = if let Some(pos) = pf.file_path.rfind('/') {
+                &pf.file_path[..pos]
+            } else {
+                ""
+            };
+
+            for edge in &mut pf.edges {
+                if edge.kind == crate::a6s::types::EdgeKind::DeclaresMod
+                    && let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &edge.to
+                    // Look up the resolved target file using (dir, mod_name)
+                    && let Some(target_file_path) =
+                        mod_resolution_map.get(&(dir.to_string(), name.clone()))
+                {
+                    // Resolve to the implicit module symbol in the target file (line 1)
+                    edge.to = crate::a6s::types::SymbolRef::Resolved(
+                        crate::a6s::types::SymbolId::new(target_file_path, name, 1),
+                    );
                 }
             }
         }
@@ -310,6 +351,7 @@ impl LanguageExtractor for RustExtractor {
                                 to,
                                 kind: EdgeKind::HasMember,
                                 line: Some(sym.start_line),
+                                entry_type: None,
                             });
                         }
                     }
@@ -318,6 +360,200 @@ impl LanguageExtractor for RustExtractor {
 
             // Add collected edges to this file
             pf.edges.extend(edges_to_add);
+        }
+
+        // Phase 5b: Create file-module → top-level symbol edges
+        // Top-level = symbols NOT inside any inline `mod foo { ... }` block.
+        // Inline-module-contained symbols get their HasMember edges from
+        // extract_hasmember_edges (which only handles inline modules after this refactor).
+        // We skip fields (they use HasField) and modules (modules are linked in Phase 5).
+        for pf in parsed_files.iter_mut() {
+            if pf.language != "rust" {
+                continue;
+            }
+
+            // Find the implicit file module symbol for this file.
+            // It was created in extract() with signature "implicit_module: true".
+            let Some(implicit_mod) = pf.symbols.iter().find(|s| {
+                s.kind == "module"
+                    && s.signature
+                        .as_ref()
+                        .is_some_and(|sig| sig.contains("implicit_module: true"))
+            }) else {
+                continue;
+            };
+            let implicit_mod_name = implicit_mod.name.clone();
+            let implicit_mod_line = implicit_mod.start_line;
+
+            // Build line ranges of inline modules (modules that are NOT the implicit file module).
+            // These are `mod foo { ... }` blocks defined inside the file.
+            let inline_module_ranges: Vec<(usize, usize)> = pf
+                .symbols
+                .iter()
+                .filter(|s| {
+                    s.kind == "module"
+                        && !s
+                            .signature
+                            .as_ref()
+                            .is_some_and(|sig| sig.contains("implicit_module: true"))
+                })
+                .map(|s| (s.start_line, s.end_line))
+                .collect();
+
+            // Collect edges to add (can't modify while iterating symbols)
+            let mut edges_to_add: Vec<RawEdge> = Vec::new();
+
+            for sym in &pf.symbols {
+                // Skip the implicit module itself — no self-edges.
+                if sym
+                    .signature
+                    .as_ref()
+                    .is_some_and(|sig| sig.contains("implicit_module: true"))
+                {
+                    continue;
+                }
+                // Skip fields — they get HasField edges, not HasMember.
+                if sym.kind == "field" {
+                    continue;
+                }
+                // Skip NESTED inline modules (modules inside another inline module).
+                // Top-level inline modules (mod foo { } at file top level) should get
+                // a HasMember edge from the file module — they're top-level symbols.
+                // Only skip modules that are INSIDE another inline module's range.
+                let is_inside_inline_module = inline_module_ranges
+                    .iter()
+                    .any(|(start, end)| sym.start_line > *start && sym.end_line <= *end);
+                if sym.kind == "module" && is_inside_inline_module {
+                    continue;
+                }
+                // Skip non-module symbols inside inline modules — they get HasMember edges
+                // from extract_hasmember_edges (the inline-module parent).
+                if sym.kind != "module" && is_inside_inline_module {
+                    continue;
+                }
+
+                let from = SymbolRef::resolved(SymbolId::new(
+                    &pf.file_path,
+                    &implicit_mod_name,
+                    implicit_mod_line,
+                ));
+                let to =
+                    SymbolRef::resolved(SymbolId::new(&pf.file_path, &sym.name, sym.start_line));
+
+                edges_to_add.push(RawEdge {
+                    from,
+                    to,
+                    kind: EdgeKind::HasMember,
+                    line: Some(sym.start_line),
+                    entry_type: None,
+                });
+            }
+
+            pf.edges.extend(edges_to_add);
+        }
+
+        // Phase 6: Link binary targets (main.rs, src/bin/*.rs) to their lib crate module
+        // when a lib.rs exists in the same src/ directory.
+        let mut lib_modules: HashMap<String, (String, String, usize)> = HashMap::new();
+        for pf in parsed_files.iter() {
+            if pf.language != "rust" {
+                continue;
+            }
+            for sym in &pf.symbols {
+                if sym.kind != "module" || sym.module_path.is_some() {
+                    continue;
+                }
+                // Check if this is a lib.rs (file stem is "lib")
+                let stem = std::path::Path::new(&pf.file_path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                if stem == "lib" {
+                    // Extract the src/ directory path
+                    // "src/lib.rs" → "src"
+                    // "crates/foo/src/lib.rs" → "crates/foo/src"
+                    let src_dir = pf
+                        .file_path
+                        .rsplit_once("/src/")
+                        .map(|(before, _)| {
+                            if before.is_empty() {
+                                "src".to_string()
+                            } else {
+                                format!("{before}/src")
+                            }
+                        })
+                        .unwrap_or("src".to_string());
+                    lib_modules.insert(
+                        src_dir,
+                        (pf.file_path.clone(), sym.name.clone(), sym.start_line),
+                    );
+                }
+            }
+        }
+
+        if !lib_modules.is_empty() {
+            for pf in parsed_files.iter_mut() {
+                if pf.language != "rust" {
+                    continue;
+                }
+                let mut edges_to_add: Vec<RawEdge> = Vec::new();
+                for sym in &pf.symbols {
+                    if sym.kind != "module" {
+                        continue;
+                    }
+                    let stem = std::path::Path::new(&pf.file_path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    // Only link binaries: main.rs or files in a bin/ directory
+                    if stem != "main" && !pf.file_path.contains("/bin/") {
+                        continue;
+                    }
+                    // For main.rs in workspace crates (e.g., crates/foo/src/main.rs),
+                    // Phase 5 already creates HasMember edges via module_path.
+                    // Skip these to avoid duplicate edges.
+                    // Detect workspace by checking for a non-empty path before /src/.
+                    if stem == "main" {
+                        let before_src = pf
+                            .file_path
+                            .find("/src/")
+                            .map(|idx| &pf.file_path[..idx])
+                            .unwrap_or("");
+                        if !before_src.is_empty() {
+                            continue;
+                        }
+                    }
+                    // Find the src/ directory for this binary
+                    let src_dir = pf
+                        .file_path
+                        .rsplit_once("/src/")
+                        .map(|(before, _)| {
+                            if before.is_empty() {
+                                "src".to_string()
+                            } else {
+                                format!("{before}/src")
+                            }
+                        })
+                        .unwrap_or("src".to_string());
+                    if let Some((lib_file, lib_name, lib_line)) = lib_modules.get(&src_dir) {
+                        let from =
+                            SymbolRef::resolved(SymbolId::new(lib_file, lib_name, *lib_line));
+                        let to = SymbolRef::resolved(SymbolId::new(
+                            &pf.file_path,
+                            &sym.name,
+                            sym.start_line,
+                        ));
+                        edges_to_add.push(RawEdge {
+                            from,
+                            to,
+                            kind: EdgeKind::HasMember,
+                            line: Some(sym.start_line),
+                            entry_type: None,
+                        });
+                    }
+                }
+                pf.edges.extend(edges_to_add);
+            }
         }
     }
 
@@ -372,11 +608,8 @@ impl LanguageExtractor for RustExtractor {
             if pf.language != "rust" {
                 continue;
             }
-            let module_path = file_module_paths
-                .get(&pf.file_path)
-                .map(|s| s.as_str())
-                .unwrap_or("");
             for sym in &pf.symbols {
+                let module_path = sym.module_path.as_deref().unwrap_or("");
                 let sym_id = sym.symbol_id();
 
                 // For methods with a parent type, use module::ParentType::method_name
@@ -434,9 +667,14 @@ impl LanguageExtractor for RustExtractor {
                 // Resolve `from`
                 let from_id = match &edge.from {
                     SymbolRef::Resolved(id) => Some(id.clone()),
-                    SymbolRef::Unresolved { name, .. } => {
-                        Self::resolve_name(name, file_module, &symbol_index, &bare_index, imports)
-                    }
+                    SymbolRef::Unresolved { name, .. } => Self::resolve_name(
+                        name,
+                        file_module,
+                        &symbol_index,
+                        &bare_index,
+                        imports,
+                        &pf.file_path,
+                    ),
                 };
 
                 // Resolve `to` with qualifier-aware lookup and kind filtering
@@ -453,6 +691,8 @@ impl LanguageExtractor for RustExtractor {
                                 file_module,
                                 &symbol_index,
                                 imports,
+                                &bare_index,
+                                &pf.file_path,
                             )
                             .or_else(|| {
                                 Self::resolve_name(
@@ -461,6 +701,7 @@ impl LanguageExtractor for RustExtractor {
                                     &symbol_index,
                                     &bare_index,
                                     imports,
+                                    &pf.file_path,
                                 )
                             })
                         } else {
@@ -470,6 +711,7 @@ impl LanguageExtractor for RustExtractor {
                                 &symbol_index,
                                 &bare_index,
                                 imports,
+                                &pf.file_path,
                             )
                         };
                         resolved
@@ -483,6 +725,7 @@ impl LanguageExtractor for RustExtractor {
                         to,
                         kind: edge.kind.clone(),
                         line: edge.line,
+                        entry_type: None,
                     });
                 }
             }
@@ -528,27 +771,83 @@ impl LanguageExtractor for RustExtractor {
 
 impl RustExtractor {
     pub(crate) fn derive_module_path(&self, file_path: &str) -> Option<String> {
+        Self::derive_module_path_static(file_path)
+    }
+
+    fn derive_module_path_static(file_path: &str) -> Option<String> {
         if file_path.is_empty() {
             return None;
         }
 
-        // Strip src/ prefix if present
-        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
+        // Find src/ anywhere in the path and split at that point.
+        // For "src/lib.rs" → before="", after="lib.rs"
+        // For "crates/foo/src/lib.rs" → before="crates/foo", after="lib.rs"
+        // For "db/project.rs" (no src/) → before="", after="db/project.rs"
+        let (before_src, after_src) = if let Some(idx) = file_path.find("/src/") {
+            let before = &file_path[..idx];
+            let after = &file_path[idx + 5..]; // skip "/src/"
+            (Some(before), after)
+        } else if let Some(after) = file_path.strip_prefix("src/") {
+            (None, after)
+        } else {
+            (None, file_path)
+        };
 
         // Handle empty or root-only paths
-        if path.is_empty() || path == "/" {
+        if after_src.is_empty() || after_src == "/" {
             return None;
         }
 
         // Remove .rs extension
-        let path = path.strip_suffix(".rs")?;
+        let path = after_src.strip_suffix(".rs")?;
 
         // Handle crate roots (main.rs, lib.rs)
         if path == "main" || path == "lib" {
-            return None;
+            // Check if this is a workspace crate (src/ is not at repo root).
+            // before_src tells us the crate location.
+            return match before_src {
+                None => None, // Single crate at root: src/lib.rs (backward compatible)
+                Some("") => None,
+                Some(crate_path) => {
+                    // Use the last component as the crate name
+                    let crate_name = crate_path.rsplit('/').next().unwrap_or("");
+                    if crate_name.is_empty() {
+                        None
+                    } else if path == "lib" {
+                        // lib.rs is the crate root — no parent module
+                        None
+                    } else {
+                        // main.rs is a binary target — child of the lib crate
+                        Some(crate_name.to_string())
+                    }
+                }
+            };
         }
 
-        // Handle mod.rs - return GRANDPARENT directory path (parent's parent)
+        // Helper: prepend crate name for workspace crates
+        let apply_crate_prefix = |dir_module: &str, before_src: Option<&str>| -> Option<String> {
+            match before_src {
+                Some(crate_path) if !crate_path.is_empty() => {
+                    let crate_name = crate_path.rsplit('/').next().unwrap_or("");
+                    // Normalize crate name: nu-agent-tty → nu_agent_tty
+                    let crate_module = crate_name.replace('-', "_");
+                    if dir_module.is_empty() {
+                        Some(crate_module)
+                    } else {
+                        Some(format!("{}::{}", crate_module, dir_module))
+                    }
+                }
+                _ => {
+                    if dir_module.is_empty() {
+                        None
+                    } else {
+                        Some(dir_module.to_string())
+                    }
+                }
+            }
+        };
+
+        // Handle mod.rs - return the directory path as the module name
         if path.ends_with("/mod") {
             let dir_path = path.strip_suffix("/mod")?;
 
@@ -556,20 +855,40 @@ impl RustExtractor {
                 return None; // src/mod.rs - no parent
             }
 
-            // Get the parent of the directory (grandparent of the file)
-            let parent_path = std::path::Path::new(dir_path).parent();
-            match parent_path {
-                Some(p) if p.as_os_str().is_empty() => None, // Top-level module
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
-                None => None,
-            }
+            // The module name is the directory path (e.g., "api" for "api/mod.rs")
+            let dir_module = dir_path.replace('/', "::");
+            apply_crate_prefix(&dir_module, before_src)
         } else {
-            // Regular file - return containing directory's module path
+            // Regular file - return containing directory's module path + file stem
             let parent_path = std::path::Path::new(path).parent();
-            match parent_path {
-                Some(p) if p.as_os_str().is_empty() => None, // Top-level file
-                Some(p) => p.to_str().map(|s| s.replace('/', "::")),
-                None => None,
+            let dir_module = match parent_path {
+                Some(p) if p.as_os_str().is_empty() => String::new(), // Top-level file
+                Some(p) => p.to_str().map(|s| s.replace('/', "::")).unwrap_or_default(),
+                None => String::new(),
+            };
+
+            // Extract the file stem (the module name for this file)
+            let file_stem = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+
+            // Apply crate prefix, then append the file stem
+            let crate_module = apply_crate_prefix(&dir_module, before_src);
+            match crate_module {
+                Some(prefix) => {
+                    // Workspace crate: prefix already includes dir_module
+                    // Append file_stem to get the full module path
+                    Some(format!("{}::{}", prefix, file_stem))
+                }
+                None => {
+                    // Single crate (no prefix)
+                    if dir_module.is_empty() {
+                        None // Top-level file in single crate, no module path
+                    } else {
+                        Some(format!("{}::{}", dir_module, file_stem))
+                    }
+                }
             }
         }
     }
@@ -620,6 +939,8 @@ impl RustExtractor {
             crate::a6s::types::SymbolId,
         >,
         imports: &[&crate::a6s::types::RawImport],
+        bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
+        caller_file_path: &str,
     ) -> Option<crate::a6s::types::SymbolId> {
         use crate::a6s::types::QualifiedName;
 
@@ -632,6 +953,44 @@ impl RustExtractor {
         let qname = QualifiedName::new(&parent_path, name);
         if let Some(id) = symbol_index.get(&qname) {
             return Some(id.clone());
+        }
+
+        // Try parent module::Qualifier::name (file_module may include file stem)
+        // e.g., "utils::factory" → try "utils::Foo::new"
+        if let Some((parent_module, _)) = file_module.rsplit_once("::") {
+            let parent_path = format!("{}::{}", parent_module, qualifier);
+            let qname = QualifiedName::new(&parent_path, name);
+            if let Some(id) = symbol_index.get(&qname) {
+                return Some(id.clone());
+            }
+        }
+
+        // Try to find the qualifier as a type in the same crate, then look up the method.
+        // Search symbol_index for entries where bare_name == qualifier and kind is a type.
+        // Then try module_path::qualifier::name for each candidate.
+        if let Some(candidates) = bare_index.get(qualifier) {
+            let caller_crate = Self::extract_crate_path(caller_file_path);
+            for candidate in candidates {
+                let candidate_file = candidate.file_path().unwrap_or("");
+                if Self::extract_crate_path(candidate_file) != caller_crate {
+                    continue;
+                }
+                // The candidate's QualifiedName is in the symbol_index.
+                // Extract its module_path from the QualifiedName.
+                // e.g., "utils::types::Foo" → module_path = "utils::types"
+                let candidate_qname = symbol_index
+                    .iter()
+                    .find(|(_, v)| *v == candidate)
+                    .map(|(k, _)| k);
+                if let Some(qname) = candidate_qname {
+                    let type_module = qname.module_path();
+                    let method_module = format!("{}::{}", type_module, qualifier);
+                    let method_qname = QualifiedName::new(&method_module, name);
+                    if let Some(id) = symbol_index.get(&method_qname) {
+                        return Some(id.clone());
+                    }
+                }
+            }
         }
 
         // Try via imports: if qualifier is imported, use its module path
@@ -666,6 +1025,7 @@ impl RustExtractor {
         >,
         bare_index: &std::collections::HashMap<String, Vec<crate::a6s::types::SymbolId>>,
         imports: &[&crate::a6s::types::RawImport],
+        caller_file_path: &str,
     ) -> Option<crate::a6s::types::SymbolId> {
         use crate::a6s::types::QualifiedName;
 
@@ -678,6 +1038,15 @@ impl RustExtractor {
         let qname = QualifiedName::new(file_module, name);
         if let Some(id) = symbol_index.get(&qname) {
             return Some(id.clone());
+        }
+
+        // Also try parent module (file_module may include file stem)
+        // e.g., "a::handler" → try "a::render"
+        if let Some((parent_module, _)) = file_module.rsplit_once("::") {
+            let qname = QualifiedName::new(parent_module, name);
+            if let Some(id) = symbol_index.get(&qname) {
+                return Some(id.clone());
+            }
         }
 
         // 2. Import resolution
@@ -713,11 +1082,36 @@ impl RustExtractor {
             }
         }
 
-        // 3. Bare name fallback: only if exactly one candidate
+        // 3. Bare name fallback: only if exactly one candidate AND same crate
         if let Some(candidates) = bare_index.get(name)
             && candidates.len() == 1
         {
-            return Some(candidates[0].clone());
+            let candidate = &candidates[0];
+            // Gate by same-crate: compare before_src portions
+            let caller_crate = Self::extract_crate_path(caller_file_path);
+            let candidate_file_path = candidate.file_path().unwrap_or("");
+            let candidate_crate = Self::extract_crate_path(candidate_file_path);
+            if caller_crate == candidate_crate {
+                return Some(candidate.clone());
+            }
+        }
+
+        // 4. Multi-candidate bare name fallback: if all candidates are in the same crate
+        // as the caller, pick the first one (they're in the same crate, so any works)
+        if let Some(candidates) = bare_index.get(name)
+            && candidates.len() > 1
+        {
+            let caller_crate = Self::extract_crate_path(caller_file_path);
+            let same_crate_candidates: Vec<_> = candidates
+                .iter()
+                .filter(|c| {
+                    let cfp = c.file_path().unwrap_or("");
+                    Self::extract_crate_path(cfp) == caller_crate
+                })
+                .collect();
+            if same_crate_candidates.len() == 1 {
+                return Some(same_crate_candidates[0].clone());
+            }
         }
 
         None
@@ -804,6 +1198,38 @@ impl RustExtractor {
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string()
+    }
+
+    /// Extract crate name from a workspace file path.
+    /// "crates/foo/src/lib.rs" → Some("foo")
+    /// "crates/nu-agent-core/src/lib.rs" → Some("nu_agent_core") (hyphen → underscore)
+    /// "src/lib.rs" → None (single crate at root)
+    pub(crate) fn extract_crate_name(file_path: &str) -> Option<String> {
+        let idx = file_path.find("/src/")?;
+        let before_src = &file_path[..idx];
+        if before_src.is_empty() {
+            return None;
+        }
+        let crate_name = before_src.rsplit('/').next()?;
+        if crate_name.is_empty() {
+            None
+        } else {
+            Some(crate_name.replace('-', "_"))
+        }
+    }
+
+    /// Extract the crate path (before_src) from a file path.
+    /// "crates/foo/src/lib.rs" → Some("crates/foo")
+    /// "src/lib.rs" → None (single crate at root)
+    /// Used to gate bare-name fallback by same-crate.
+    fn extract_crate_path(file_path: &str) -> Option<String> {
+        let idx = file_path.find("/src/")?;
+        let before_src = &file_path[..idx];
+        if before_src.is_empty() {
+            None
+        } else {
+            Some(before_src.to_string())
+        }
     }
 
     /// Collect all attributes and map them to the line number of the item they annotate
@@ -1208,7 +1634,6 @@ impl RustExtractor {
             let name = Self::node_text(name_node, code).to_string();
             let start_line = def_node.start_position().row + 1;
             let end_line = def_node.end_position().row + 1;
-            let visibility = Self::get_visibility(&name, start_line, visibility_map);
 
             // Check for #[cfg(test)] attribute
             let entry_type = attributes.get(&start_line).and_then(|attrs| {
@@ -1219,18 +1644,60 @@ impl RustExtractor {
                 }
             });
 
-            parsed.symbols.push(crate::a6s::types::RawSymbol {
-                name,
-                kind: "module".to_string(),
-                file_path: file_path.to_string(),
-                start_line,
-                end_line,
-                signature: Some(Self::node_text(def_node, code).to_string()),
-                language: "rust".to_string(),
-                visibility,
-                entry_type,
-                module_path: None,
-            });
+            // Check if this is an inline module or a declaration
+            let mut cursor = def_node.walk();
+            let has_declaration_list = def_node
+                .children(&mut cursor)
+                .any(|child| child.kind() == "declaration_list");
+
+            if has_declaration_list {
+                // Inline module: mod foo { ... }
+                // Keep current behavior - emit a module symbol
+                let visibility = Self::get_visibility(&name, start_line, visibility_map);
+                parsed.symbols.push(crate::a6s::types::RawSymbol {
+                    name,
+                    kind: "module".to_string(),
+                    file_path: file_path.to_string(),
+                    start_line,
+                    end_line,
+                    signature: Some(Self::node_text(def_node, code).to_string()),
+                    language: "rust".to_string(),
+                    visibility,
+                    entry_type,
+                    module_path: None,
+                });
+            } else {
+                // Declaration: mod foo;
+                // Emit a DeclaresMod edge instead
+                use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
+
+                let implicit_module_name = {
+                    let file_stem = std::path::Path::new(file_path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    if file_stem == "lib" {
+                        match Self::extract_crate_name(file_path) {
+                            Some(crate_name) => crate_name,
+                            None => file_stem.to_string(),
+                        }
+                    } else if file_stem == "main" {
+                        file_stem.to_string()
+                    } else {
+                        Self::file_to_module_name(file_path)
+                    }
+                };
+                let from = SymbolRef::resolved(SymbolId::new(file_path, &implicit_module_name, 1));
+                let to = SymbolRef::unresolved(&name, file_path);
+
+                parsed.edges.push(RawEdge {
+                    from,
+                    to,
+                    kind: EdgeKind::DeclaresMod,
+                    line: Some(start_line),
+                    entry_type,
+                });
+            }
             return true;
         }
         false
@@ -1490,7 +1957,16 @@ impl RustExtractor {
             } else if child.kind() == "scoped_identifier" {
                 // Handle simple imports: use std::collections::HashMap;
                 let path = Self::node_text(child, code);
-                Self::create_import_entry(path, path, file_path, parsed, false);
+                // Split the last :: segment as the imported name
+                // use a::b::c; → module_path="a::b", imported_name="c"
+                // use foo;     → module_path="", imported_name="foo"
+                // use foo::*;  → handled by use_wildcard above
+                if let Some((module_path, imported_name)) = path.rsplit_once("::") {
+                    Self::create_import_entry(module_path, imported_name, file_path, parsed, false);
+                } else {
+                    // Single segment: use foo;
+                    Self::create_import_entry(path, path, file_path, parsed, false);
+                }
             } else if child.kind() == "identifier" {
                 // Handle single identifier imports: use HashMap;
                 let name = Self::node_text(child, code);
@@ -1538,7 +2014,34 @@ impl RustExtractor {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
-                "scoped_identifier" | "identifier" => {
+                "scoped_identifier" => {
+                    let text = Self::node_text(child, code);
+                    // Split the last :: segment to get the imported name
+                    // e.g., path::PathBuf → prefix="path", name="PathBuf"
+                    if let Some((prefix, name)) = text.rsplit_once("::") {
+                        let full_module_path = if base_path.is_empty() {
+                            prefix.to_string()
+                        } else {
+                            format!("{}::{}", base_path, prefix)
+                        };
+                        Self::create_import_entry(
+                            &full_module_path,
+                            name,
+                            file_path,
+                            parsed,
+                            false,
+                        );
+                    } else {
+                        // Single segment (shouldn't happen for scoped_identifier)
+                        let full_path = if base_path.is_empty() {
+                            text.to_string()
+                        } else {
+                            format!("{}::{}", base_path, text)
+                        };
+                        Self::create_import_entry(&full_path, text, file_path, parsed, false);
+                    }
+                }
+                "identifier" => {
                     let name = Self::node_text(child, code);
                     let full_path = if base_path.is_empty() {
                         name.to_string()
@@ -1673,12 +2176,20 @@ impl RustExtractor {
     fn extract_hasmember_edges(file_path: &str, parsed: &mut ParsedFile) {
         use crate::a6s::types::{EdgeKind, RawEdge, SymbolId, SymbolRef};
 
-        // Collect all modules with their line ranges
+        // Collect inline modules (mod foo { ... } blocks) with their line ranges.
+        // Skip the implicit file module — its edges to top-level symbols are
+        // created by resolve_file_modules Phase 5b with canonical SymbolIds.
         let modules: Vec<(usize, &str, usize, usize)> = parsed
             .symbols
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.kind == "module")
+            .filter(|(_, s)| {
+                s.kind == "module"
+                    && !s
+                        .signature
+                        .as_ref()
+                        .is_some_and(|sig| sig.contains("implicit_module: true"))
+            })
             .map(|(idx, s)| (idx, s.name.as_str(), s.start_line, s.end_line))
             .collect();
 
@@ -1721,6 +2232,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::HasMember,
                     line: Some(child.start_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1754,6 +2266,7 @@ impl RustExtractor {
                         to,
                         kind: EdgeKind::HasField,
                         line: Some(field.start_line),
+                        entry_type: None,
                     });
                     break; // Found the parent struct
                 }
@@ -1800,6 +2313,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::Implements,
                     line: Some(type_node.start_position().row + 1),
+                    entry_type: None,
                 });
             }
 
@@ -1835,6 +2349,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::HasMethod,
                     line: Some(method_line),
+                    entry_type: None,
                 });
             }
         }
@@ -1930,6 +2445,7 @@ impl RustExtractor {
                     to,
                     kind: EdgeKind::Calls,
                     line: Some(call_line),
+                    entry_type: None,
                 });
             }
         }
@@ -2008,6 +2524,7 @@ impl RustExtractor {
             to,
             kind: edge_kind,
             line: Some(line),
+            entry_type: None,
         });
     }
 

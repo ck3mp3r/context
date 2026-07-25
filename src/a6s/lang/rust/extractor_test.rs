@@ -10,6 +10,12 @@ fn extract(code: &str) -> crate::a6s::types::ParsedFile {
     RustExtractor.extract(code, "test.rs")
 }
 
+fn extract_with_resolve(code: &str) -> crate::a6s::types::ParsedFile {
+    let mut files = vec![RustExtractor.extract(code, "test.rs")];
+    RustExtractor.resolve_file_modules(&mut files);
+    files.into_iter().next().unwrap()
+}
+
 fn find_symbol<'a>(
     parsed: &'a crate::a6s::types::ParsedFile,
     name: &str,
@@ -474,7 +480,7 @@ mod my_module {
     fn inner_function() {}
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 2 HasMember edges:
     // 1. test (implicit file module) -> my_module
@@ -499,7 +505,7 @@ mod my_module {
     struct InnerStruct { x: i32 }
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 2 HasMember edges:
     // 1. test (implicit file module) -> my_module
@@ -527,7 +533,7 @@ mod my_module {
     enum MyEnum {}
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 5 HasMember edges:
     // 1. test (implicit file module) -> my_module
@@ -554,7 +560,7 @@ mod outer {
     }
 }
 "#;
-    let parsed = extract(code);
+    let parsed = extract_with_resolve(code);
 
     // Should have 4 edges now (with implicit file module):
     // 1. test (implicit file module) -> outer
@@ -570,6 +576,54 @@ mod outer {
         member_edges.len(),
         4,
         "Should have 4 HasMember edges (including implicit file module)"
+    );
+}
+
+#[test]
+fn test_phase5b_skips_symbols_inside_inline_modules() {
+    let code = r#"
+fn top_level_fn() {}
+
+mod my_module {
+    fn inner_fn() {}
+    struct InnerStruct { x: i32 }
+}
+"#;
+    let parsed = extract_with_resolve(code);
+
+    // HasMember edges expected:
+    // 1. test (file module) -> top_level_fn        [Phase 5b — top-level]
+    // 2. test (file module) -> my_module           [Phase 5b — top-level module]
+    // 3. my_module -> inner_fn                     [extract_hasmember_edges — inline]
+    // 4. my_module -> InnerStruct                  [extract_hasmember_edges — inline]
+    // Plus 1 HasField edge: InnerStruct -> x       [extract_hasfield_edges]
+    //
+    // my_module's inner symbols (inner_fn, InnerStruct) should NOT have edges
+    // from the file module (test) — they're inside an inline module.
+    let member_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::a6s::types::EdgeKind::HasMember))
+        .collect();
+    assert_eq!(
+        member_edges.len(),
+        4,
+        "Should have 4 HasMember edges (2 from file module, 2 from inline module)"
+    );
+
+    // Verify NO edge from file module (test) to inner_fn or InnerStruct
+    let file_module_to_inner = member_edges.iter().any(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str().contains(":test:")
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str().contains(":inner_fn:") || to_id.as_str().contains(":InnerStruct:"))
+        } else {
+            false
+        }
+    });
+    assert!(
+        !file_module_to_inner,
+        "File module should NOT have edges to inline-module symbols"
     );
 }
 
@@ -1069,6 +1123,63 @@ use self::inner::function;
     assert!(
         !parsed.imports.is_empty(),
         "Expected at least 1 RawImport entry"
+    );
+}
+
+#[test]
+fn test_scoped_identifier_import_parsed_as_named_import() {
+    // use a::b::c; should be parsed as named import (module_path="a::b", imported_name="c")
+    let code = r#"use nu_agent_core::policy::Verbosity;"#;
+    let parsed = extract(code);
+
+    assert_eq!(parsed.imports.len(), 1, "Should have exactly 1 import");
+    let import = &parsed.imports[0];
+    assert_eq!(
+        import.entry.module_path, "nu_agent_core::policy",
+        "module_path should be the path without the last segment"
+    );
+    assert_eq!(
+        import.entry.imported_names,
+        vec!["Verbosity".to_string()],
+        "imported_names should contain the last segment"
+    );
+    assert!(!import.entry.is_glob, "Should not be a glob import");
+}
+
+#[test]
+fn test_single_segment_import_parsed_as_module_import() {
+    // use foo; should be parsed as module import (module_path="foo", imported_names=[])
+    let code = r#"use foo;"#;
+    let parsed = extract(code);
+
+    assert_eq!(parsed.imports.len(), 1, "Should have exactly 1 import");
+    let import = &parsed.imports[0];
+    assert_eq!(
+        import.entry.module_path, "foo",
+        "module_path should be 'foo'"
+    );
+    assert!(
+        import.entry.imported_names.is_empty(),
+        "imported_names should be empty for single-segment import"
+    );
+}
+
+#[test]
+fn test_two_segment_import_parsed_as_named_import() {
+    // use foo::bar; should be parsed as named import (module_path="foo", imported_name="bar")
+    let code = r#"use std::io;"#;
+    let parsed = extract(code);
+
+    assert_eq!(parsed.imports.len(), 1, "Should have exactly 1 import");
+    let import = &parsed.imports[0];
+    assert_eq!(
+        import.entry.module_path, "std",
+        "module_path should be 'std'"
+    );
+    assert_eq!(
+        import.entry.imported_names,
+        vec!["io".to_string()],
+        "imported_names should contain 'io'"
     );
 }
 
@@ -1891,25 +2002,25 @@ fn fibonacci(n: u32) -> u32 {
 #[test]
 fn test_module_path_simple() {
     let path = derive_module_path("src/db/project.rs");
-    assert_eq!(path, Some("db".to_string())); // Parent module of project
+    assert_eq!(path, Some("db::project".to_string())); // Full module path
 }
 
 #[test]
 fn test_module_path_nested() {
     let path = derive_module_path("src/api/v1/tasks.rs");
-    assert_eq!(path, Some("api::v1".to_string())); // Parent module of tasks
+    assert_eq!(path, Some("api::v1::tasks".to_string())); // Full module path
 }
 
 #[test]
 fn test_module_path_mod_rs() {
     let path = derive_module_path("src/api/mod.rs");
-    assert_eq!(path, None); // api is top-level, no parent
+    assert_eq!(path, Some("api".to_string())); // api is the module path
 }
 
 #[test]
 fn test_module_path_nested_mod_rs() {
     let path = derive_module_path("src/db/sqlite/mod.rs");
-    assert_eq!(path, Some("db".to_string())); // Parent module of sqlite
+    assert_eq!(path, Some("db::sqlite".to_string())); // Full module path
 }
 
 #[test]
@@ -1934,13 +2045,13 @@ fn test_module_path_single_level() {
 fn test_module_path_without_src_prefix() {
     // Should handle paths without src/ prefix
     let path = derive_module_path("db/project.rs");
-    assert_eq!(path, Some("db".to_string())); // Parent module of project
+    assert_eq!(path, Some("db::project".to_string())); // Full module path
 }
 
 #[test]
 fn test_module_path_deep_nesting() {
     let path = derive_module_path("src/analysis/lang/rust/extractor.rs");
-    assert_eq!(path, Some("analysis::lang::rust".to_string())); // Parent module of extractor
+    assert_eq!(path, Some("analysis::lang::rust::extractor".to_string())); // Full module path
 }
 
 #[test]
@@ -1955,9 +2066,249 @@ fn test_module_path_root_only() {
     assert_eq!(path, None);
 }
 
+// ============================================================================
+// Workspace Crate Module Path Tests
+// ============================================================================
+
+#[test]
+fn test_module_path_workspace_crate_lib() {
+    // crates/foo/src/lib.rs → None (lib.rs is the crate root, no parent module)
+    let path = derive_module_path("crates/foo/src/lib.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_workspace_crate_main() {
+    // crates/bar/src/main.rs → crate name is "bar"
+    let path = derive_module_path("crates/bar/src/main.rs");
+    assert_eq!(path, Some("bar".to_string()));
+}
+
+#[test]
+fn test_module_path_single_crate_lib() {
+    // src/lib.rs → None (backward compatible, single crate at root)
+    let path = derive_module_path("src/lib.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_single_crate_main() {
+    // src/main.rs → None (backward compatible, single crate at root)
+    let path = derive_module_path("src/main.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_nested_workspace() {
+    // workspace/crates/baz/src/lib.rs → None (lib.rs is the crate root, no parent module)
+    let path = derive_module_path("workspace/crates/baz/src/lib.rs");
+    assert_eq!(path, None);
+}
+
+#[test]
+fn test_module_path_workspace_regular_file() {
+    // crates/foo/src/formatter.rs → Some("foo::formatter") (crate name prefix + file stem)
+    let path = derive_module_path("crates/foo/src/formatter.rs");
+    assert_eq!(path, Some("foo::formatter".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_nested_file() {
+    // crates/foo/src/platform/mod.rs → Some("foo::platform") (crate name prefix + directory)
+    let path = derive_module_path("crates/foo/src/platform/mod.rs");
+    assert_eq!(path, Some("foo::platform".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_crate_name_normalization() {
+    // crates/nu-agent-tty/src/formatter.rs → Some("nu_agent_tty::formatter") (hyphen → underscore + file stem)
+    let path = derive_module_path("crates/nu-agent-tty/src/formatter.rs");
+    assert_eq!(path, Some("nu_agent_tty::formatter".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_nested_with_hyphen() {
+    // crates/nu-agent-tui/src/platform/mod.rs → Some("nu_agent_tui::platform") (directory path)
+    let path = derive_module_path("crates/nu-agent-tui/src/platform/mod.rs");
+    assert_eq!(path, Some("nu_agent_tui::platform".to_string()));
+}
+
 // Helper function that uses the trait method
 fn derive_module_path(file_path: &str) -> Option<String> {
     RustExtractor.derive_module_path(file_path)
+}
+
+#[test]
+fn test_module_path_workspace_subdirectory_file() {
+    // crates/foo/src/api/tasks.rs → Some("foo::api::tasks") (crate + subdirectory + file stem)
+    let path = derive_module_path("crates/foo/src/api/tasks.rs");
+    assert_eq!(path, Some("foo::api::tasks".to_string()));
+}
+
+#[test]
+fn test_module_path_workspace_mod_rs() {
+    // crates/foo/src/api/mod.rs → Some("foo::api") (crate + directory name)
+    let path = derive_module_path("crates/foo/src/api/mod.rs");
+    assert_eq!(path, Some("foo::api".to_string()));
+}
+
+#[test]
+fn test_extract_crate_name_underscored() {
+    // crates/nu-agent-core/src/lib.rs → "nu_agent_core" (hyphen → underscore)
+    let name = RustExtractor::extract_crate_name("crates/nu-agent-core/src/lib.rs");
+    assert_eq!(name, Some("nu_agent_core".to_string()));
+    // crates/foo/src/lib.rs → "foo" (no hyphen, unchanged)
+    let name2 = RustExtractor::extract_crate_name("crates/foo/src/lib.rs");
+    assert_eq!(name2, Some("foo".to_string()));
+    // src/lib.rs → None (single crate)
+    let name3 = RustExtractor::extract_crate_name("src/lib.rs");
+    assert_eq!(name3, None);
+}
+
+#[test]
+fn test_scoped_use_list_nested_identifier() {
+    use crate::a6s::types::ImportEntry;
+    // use std::{path::PathBuf} should produce imported_names = ["PathBuf"], module_path = "std::path"
+    let code = "use std::{path::PathBuf};";
+    let parsed = RustExtractor.extract(code, "src/test.rs");
+    let import = parsed
+        .imports
+        .iter()
+        .find(|i| i.entry.imported_names.contains(&"PathBuf".to_string()));
+    assert!(
+        import.is_some(),
+        "Should find import for PathBuf, got: {:?}",
+        parsed.imports
+    );
+    let entry = &import.unwrap().entry;
+    assert_eq!(
+        entry.module_path, "std::path",
+        "module_path should be 'std::path', got: '{}'",
+        entry.module_path
+    );
+    assert_eq!(
+        entry.imported_names,
+        vec!["PathBuf".to_string()],
+        "imported_names should be ['PathBuf'], got: {:?}",
+        entry.imported_names
+    );
+    assert!(!entry.is_glob, "Should not be a glob import");
+}
+
+#[test]
+fn test_cross_crate_import_resolution() {
+    use crate::a6s::types::EdgeKind;
+    let extractor = RustExtractor;
+
+    // File 1: crates/nu-agent-core/src/policy.rs — defines Verbosity enum
+    let code1 = r#"
+pub enum Verbosity { Quiet, Normal, Verbose, VeryVerbose, Trace }
+"#;
+    let file1 = extractor.extract(code1, "crates/nu-agent-core/src/policy.rs");
+
+    // File 2: crates/nu-agent-tty/src/formatter.rs — imports Verbosity and uses it
+    let code2 = r#"
+use nu_agent_core::policy::Verbosity;
+pub fn format_tool_start(verbosity: Verbosity) -> String {
+    match verbosity {
+        Verbosity::Quiet => "quiet".to_string(),
+        _ => "loud".to_string(),
+    }
+}
+"#;
+    let file2 = extractor.extract(code2, "crates/nu-agent-tty/src/formatter.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, resolved_imports) = extractor.resolve_cross_file(&mut files);
+
+    // Check that the import resolved: Verbosity from nu-agent-core::policy
+    let verbosity_import = resolved_imports
+        .iter()
+        .find(|ri| ri.target_symbol_id.as_str().contains("Verbosity"));
+    assert!(
+        verbosity_import.is_some(),
+        "Import for Verbosity should resolve, got: {:?}",
+        resolved_imports
+    );
+    // Verify it resolved to the policy.rs file
+    let import = verbosity_import.unwrap();
+    assert!(
+        import.target_symbol_id.as_str().contains("policy.rs"),
+        "Verbosity should resolve to policy.rs, got: {}",
+        import.target_symbol_id
+    );
+
+    // Check that ParamType edge resolved (format_tool_start → Verbosity)
+    let param_type = resolved.iter().find(|e| e.kind == EdgeKind::ParamType);
+    assert!(
+        param_type.is_some(),
+        "ParamType edge for Verbosity should resolve, got: {:?}",
+        resolved
+    );
+    let pt = param_type.unwrap();
+    assert!(
+        pt.to.as_str().contains("Verbosity"),
+        "ParamType should resolve to Verbosity, got: {}",
+        pt.to
+    );
+    assert!(
+        pt.to.as_str().contains("policy.rs"),
+        "ParamType should resolve to policy.rs, got: {}",
+        pt.to
+    );
+}
+
+#[test]
+fn test_cross_crate_no_false_positive() {
+    // Verify that nu-agent-tty does NOT get edges to nu-agent-tui
+    let extractor = RustExtractor;
+
+    // File 1: crates/nu-agent-tty/src/formatter.rs
+    let code1 = r#"
+use nu_agent_core::policy::Verbosity;
+pub fn format_tool_start(verbosity: Verbosity) -> String {
+    match verbosity {
+        Verbosity::Quiet => "quiet".to_string(),
+        _ => "loud".to_string(),
+    }
+}
+"#;
+    let file1 = extractor.extract(code1, "crates/nu-agent-tty/src/formatter.rs");
+
+    // File 2: crates/nu-agent-tui/src/renderer.rs — defines a different Verbosity
+    let code2 = r#"
+pub enum Verbosity { Low, High }
+"#;
+    let file2 = extractor.extract(code2, "crates/nu-agent-tui/src/renderer.rs");
+
+    // File 3: crates/nu-agent-core/src/policy.rs — the real Verbosity
+    let code3 = r#"
+pub enum Verbosity { Quiet, Normal, Verbose, VeryVerbose, Trace }
+"#;
+    let file3 = extractor.extract(code3, "crates/nu-agent-core/src/policy.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, resolved_imports) = extractor.resolve_cross_file(&mut files);
+
+    // The import should resolve to nu-agent-core's Verbosity, not nu-agent-tui's
+    let verbosity_import = resolved_imports
+        .iter()
+        .find(|ri| ri.target_symbol_id.as_str().contains("Verbosity"));
+    assert!(
+        verbosity_import.is_some(),
+        "Import for Verbosity should resolve"
+    );
+    let import = verbosity_import.unwrap();
+    assert!(
+        import.target_symbol_id.as_str().contains("nu-agent-core"),
+        "Verbosity should resolve to nu-agent-core, got: {}",
+        import.target_symbol_id
+    );
+    assert!(
+        !import.target_symbol_id.as_str().contains("nu-agent-tui"),
+        "Verbosity should NOT resolve to nu-agent-tui, got: {}",
+        import.target_symbol_id
+    );
 }
 
 // ============================================================================
@@ -1972,15 +2323,24 @@ struct TestStruct {}
 "#;
     let parsed = RustExtractor.extract(code, "src/api/handlers.rs");
 
-    // Non-implicit symbols should have module_path set to "api" (their parent module)
-    // The implicit module "handlers" should also have module_path "api"
+    // Non-implicit symbols should have module_path set to "api::handlers" (full path)
+    // The implicit module "handlers" should have module_path "api" (parent path)
     for symbol in &parsed.symbols {
-        assert_eq!(
-            symbol.module_path.as_deref(),
-            Some("api"),
-            "Symbol {} should have module_path set to api (parent module)",
-            symbol.name
-        );
+        if symbol.signature.as_deref() == Some("implicit_module: true") {
+            assert_eq!(
+                symbol.module_path.as_deref(),
+                Some("api"),
+                "Implicit module '{}' should have module_path set to 'api' (parent path)",
+                symbol.name
+            );
+        } else {
+            assert_eq!(
+                symbol.module_path.as_deref(),
+                Some("api::handlers"),
+                "Symbol '{}' should have module_path set to 'api::handlers' (full path)",
+                symbol.name
+            );
+        }
     }
 }
 
@@ -2018,7 +2378,7 @@ fn helper() {}
         "Implicit module 'api' should have None module_path (it's top-level)"
     );
 
-    // Regular symbols should have module_path "api"
+    // Regular symbols should have module_path "api" (the full path for mod.rs)
     let func = parsed.symbols.iter().find(|s| s.name == "helper");
     assert!(func.is_some());
     assert_eq!(
@@ -2064,15 +2424,14 @@ fn test_implicit_file_module_created() {
 
 #[test]
 fn test_top_level_symbols_linked_to_file_module() {
-    let extractor = RustExtractor;
     let code = r#"
         fn top_level_function() {}
         struct TopStruct {}
     "#;
 
-    let parsed = extractor.extract(code, "src/example.rs");
+    let parsed = extract_with_resolve(code);
 
-    // Should have HasMember edges: example -> top_level_function, TopStruct
+    // Should have HasMember edges: test -> top_level_function, TopStruct
     let member_edges: Vec<_> = parsed
         .edges
         .iter()
@@ -2093,6 +2452,7 @@ fn test_top_level_symbols_linked_to_file_module() {
 #[test]
 fn test_deduplicates_module_symbols() {
     use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
 
     // Simulate two files:
     // 1. src/config/mod.rs with "mod defaults;" declaration
@@ -2114,62 +2474,76 @@ pub fn get_defaults() -> String {
 "#;
     let defaults_parsed = RustExtractor.extract(defaults_code, "src/config/defaults.rs");
 
-    // Count modules before resolution
-    let modules_before: Vec<_> = defaults_parsed
+    // Verify declaring file has NO module symbol for "defaults"
+    let decl_module_symbols: Vec<_> = mod_parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "module" && s.name == "defaults")
+        .collect();
+    assert_eq!(
+        decl_module_symbols.len(),
+        0,
+        "Declaring file should NOT have a module symbol for 'defaults' (it's now an edge)"
+    );
+
+    // Verify declaring file HAS a DeclaresMod edge
+    let declares_mod_edges: Vec<_> = mod_parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+    assert_eq!(
+        declares_mod_edges.len(),
+        1,
+        "Should have exactly one DeclaresMod edge"
+    );
+    // Verify the edge points to "defaults"
+    if let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &declares_mod_edges[0].to {
+        assert_eq!(name, "defaults", "Edge should point to 'defaults' module");
+    } else {
+        panic!("DeclaresMod edge 'to' should be Unresolved");
+    }
+
+    // Verify target file still has its implicit module symbol
+    let target_modules: Vec<_> = defaults_parsed
         .symbols
         .iter()
         .filter(|s| s.kind == "module")
         .collect();
-
-    // Should have 2 modules: one implicit from file, one explicit from declaration (in mod.rs)
-    // But the explicit one is in mod_parsed, not defaults_parsed
-    // defaults_parsed only has the implicit module
     assert_eq!(
-        modules_before.len(),
+        target_modules.len(),
         1,
-        "Should have 1 implicit module before resolution"
+        "Target file should have exactly one module symbol (implicit)"
     );
     assert!(
-        modules_before[0]
+        target_modules[0]
             .signature
             .as_ref()
             .unwrap()
             .contains("implicit_module: true"),
-        "Should be marked as implicit"
+        "Target module should still be marked as implicit"
     );
 
-    // Now call resolve_file_modules
+    // Verify NO resolved_from_explicit_declaration anywhere
     let mut files = vec![mod_parsed, defaults_parsed];
     RustExtractor.resolve_file_modules(&mut files);
 
-    // After resolution, the implicit module should be updated (not removed)
-    // because edges still reference it
-    let modules_after: Vec<_> = files[1]
-        .symbols
-        .iter()
-        .filter(|s| s.kind == "module")
-        .collect();
-
-    assert_eq!(
-        modules_after.len(),
-        1,
-        "Implicit module should be kept (not removed) to preserve edges"
-    );
-
-    // Verify it's marked as resolved
-    assert!(
-        modules_after[0]
-            .signature
-            .as_ref()
-            .unwrap()
-            .contains("resolved_from_explicit_declaration: true"),
-        "Module should be marked as resolved (not implicit anymore)"
-    );
+    for file in &files {
+        for sym in &file.symbols {
+            if let Some(sig) = &sym.signature {
+                assert!(
+                    !sig.contains("resolved_from_explicit_declaration"),
+                    "No symbol should have 'resolved_from_explicit_declaration' marker"
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn test_propagates_test_attribute_to_file_symbols() {
     use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
 
     // File 1: mod.rs with #[cfg(test)] mod test_module;
     let mod_rs_code = r#"
@@ -2180,13 +2554,22 @@ pub fn regular_function() {}
 "#;
     let mod_parsed = RustExtractor.extract(mod_rs_code, "src/config/mod.rs");
 
-    // Verify the module declaration is marked as test
-    let test_mod_decl = mod_parsed.symbols.iter().find(|s| s.name == "mod_test");
-    assert!(test_mod_decl.is_some(), "Should find mod_test declaration");
+    // Verify the DeclaresMod edge (not module symbol) is marked as test
+    let test_edge = mod_parsed
+        .edges
+        .iter()
+        .find(|e| {
+            e.kind == EdgeKind::DeclaresMod
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "mod_test")
+        });
+    assert!(
+        test_edge.is_some(),
+        "Should find DeclaresMod edge for mod_test"
+    );
     assert_eq!(
-        test_mod_decl.unwrap().entry_type,
+        test_edge.unwrap().entry_type,
         Some("test".to_string()),
-        "Module declaration should be marked as test"
+        "DeclaresMod edge should have entry_type='test'"
     );
 
     // File 2: mod_test.rs with test functions
@@ -2235,7 +2618,7 @@ fn helper_function() {
     assert_eq!(
         helper_after.unwrap().entry_type,
         Some("test".to_string()),
-        "helper_function should be marked as test after resolution"
+        "helper_function should be marked as test after resolution (propagated from DeclaresMod edge)"
     );
 }
 
@@ -2313,8 +2696,18 @@ pub fn manager_function() {}
     let manager_parsed = RustExtractor.extract(manager_code, "src/app/manager/mod.rs");
 
     // Call resolve_file_modules to create cross-file edges
-    let mut files = vec![app_parsed, manager_parsed];
+    let mut files = vec![app_parsed.clone(), manager_parsed];
     RustExtractor.resolve_file_modules(&mut files);
+
+    // Verify DeclaresMod edge exists in the declaring file (app/mod.rs)
+    let declares_mod_edge = app_parsed.edges.iter().find(|e| {
+        matches!(e.kind, crate::a6s::types::EdgeKind::DeclaresMod)
+            && matches!(&e.to, crate::a6s::types::SymbolRef::Unresolved { name, .. } if name == "manager")
+    });
+    assert!(
+        declares_mod_edge.is_some(),
+        "Should have DeclaresMod edge from app module to manager"
+    );
 
     // After resolution, find the cross-file edge
     let edges_after: Vec<_> = files[0]
@@ -2350,6 +2743,107 @@ pub fn manager_function() {}
     } else {
         panic!("Edge source should be resolved");
     }
+}
+
+#[test]
+fn test_inline_module_remains_as_symbol() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // Inline module: mod foo { fn bar() {} }
+    let code = r#"
+mod foo {
+    fn bar() {}
+}
+"#;
+    let parsed = RustExtractor.extract(code, "src/lib.rs");
+
+    // Should have a module symbol for "foo"
+    let foo_module = parsed
+        .symbols
+        .iter()
+        .find(|s| s.kind == "module" && s.name == "foo");
+    assert!(
+        foo_module.is_some(),
+        "Should have a module symbol for inline module 'foo'"
+    );
+
+    // Should NOT have a DeclaresMod edge
+    let declares_mod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+    assert_eq!(
+        declares_mod_edges.len(),
+        0,
+        "Inline modules should NOT create DeclaresMod edges"
+    );
+}
+
+#[test]
+fn test_multiple_mod_declarations_create_edges() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // lib.rs with multiple module declarations
+    let code = r#"
+mod a;
+mod b;
+mod c;
+
+pub fn lib_function() {}
+"#;
+    let parsed = RustExtractor.extract(code, "src/lib.rs");
+
+    // Should have zero module symbols for declarations
+    let decl_modules: Vec<_> = parsed
+        .symbols
+        .iter()
+        .filter(|s| s.kind == "module" && (s.name == "a" || s.name == "b" || s.name == "c"))
+        .collect();
+    assert_eq!(
+        decl_modules.len(),
+        0,
+        "Module declarations should NOT create module symbols"
+    );
+
+    // Should have exactly 3 DeclaresMod edges
+    let declares_mod_edges: Vec<_> = parsed
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::DeclaresMod)
+        .collect();
+    assert_eq!(
+        declares_mod_edges.len(),
+        3,
+        "Should have 3 DeclaresMod edges for mod a; mod b; mod c;"
+    );
+
+    // Verify each edge points to the correct module
+    let module_names: Vec<String> = declares_mod_edges
+        .iter()
+        .filter_map(|e| {
+            if let crate::a6s::types::SymbolRef::Unresolved { name, .. } = &e.to {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(
+        module_names.contains(&"a".to_string()),
+        "Should have edge to 'a'"
+    );
+    assert!(
+        module_names.contains(&"b".to_string()),
+        "Should have edge to 'b'"
+    );
+    assert!(
+        module_names.contains(&"c".to_string()),
+        "Should have edge to 'c'"
+    );
 }
 
 // ============================================================================
@@ -2619,17 +3113,17 @@ fn handler() { helper(); }
 "#;
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
     // Add a RawImport that maps to the symbol_index module_path
-    // src/db/utils.rs → derive_module_path → "db"
+    // src/db/utils.rs → derive_module_path → "db::utils"
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
-        entry: ImportEntry::named_import("db", vec!["helper".to_string()]),
+        entry: ImportEntry::named_import("db::utils", vec!["helper".to_string()]),
     });
 
-    // File 2: defines helper() in src/db/utils.rs (module_path = "db")
+    // File 2: defines helper() in src/db/utils.rs (module_path = "db::utils")
     let code2 = r#"fn helper() {}"#;
     let file2 = extractor.extract(code2, "src/db/utils.rs");
 
-    // File 3: ALSO defines helper() in src/core/helpers.rs (module_path = "core")
+    // File 3: ALSO defines helper() in src/core/helpers.rs (module_path = "core::helpers")
     let code3 = r#"fn helper() {}"#;
     let file3 = extractor.extract(code3, "src/core/helpers.rs");
 
@@ -2660,8 +3154,8 @@ use crate::db::utils::helper as db_helper;
 fn handler() { db_helper(); }
 "#;
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
-    // Aliased import: db_helper → helper in module "db"
-    let mut entry = ImportEntry::named_import("db", vec!["helper".to_string()]);
+    // Aliased import: db_helper → helper in module "db::utils"
+    let mut entry = ImportEntry::named_import("db::utils", vec!["helper".to_string()]);
     entry.alias = Some("db_helper".to_string());
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
@@ -2700,14 +3194,14 @@ fn handler() { helper(); }
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
-        entry: ImportEntry::glob_import("db"),
+        entry: ImportEntry::glob_import("db::utils"),
     });
 
-    // File 2: defines helper() in module "db"
+    // File 2: defines helper() in module "db::utils"
     let code2 = r#"fn helper() {}"#;
     let file2 = extractor.extract(code2, "src/db/utils.rs");
 
-    // File 3: ALSO defines helper() in module "core"
+    // File 3: ALSO defines helper() in module "core::helpers"
     let code3 = r#"fn helper() {}"#;
     let file3 = extractor.extract(code3, "src/core/helpers.rs");
 
@@ -2739,7 +3233,7 @@ fn handler() {}
     let mut file1 = extractor.extract(code1, "src/api/handler.rs");
     file1.imports.push(RawImport {
         file_path: "src/api/handler.rs".to_string(),
-        entry: ImportEntry::named_import("db", vec!["helper".to_string()]),
+        entry: ImportEntry::named_import("db::utils", vec!["helper".to_string()]),
     });
 
     // File 2: defines helper()
@@ -2774,17 +3268,13 @@ use crate::module_a::run;
 fn main() { run(); }
 "#;
     let mut file1 = extractor.extract(code1, "src/main.rs");
-    // src/module_a.rs → derive_module_path → None (top-level file, parent is empty)
-    // Actually for top-level files, module_path is None/empty string
-    // So QualifiedName is ("", "run") — but that would collide with other top-level files
-    // Let's use subdirectory files instead to have distinct module paths
+    // src/module_a/runner.rs → derive_module_path → "module_a::runner"
     file1.imports.push(RawImport {
         file_path: "src/main.rs".to_string(),
-        entry: ImportEntry::named_import("module_a", vec!["run".to_string()]),
+        entry: ImportEntry::named_import("module_a::runner", vec!["run".to_string()]),
     });
 
-    // File 2: defines run() in src/module_a/lib.rs → module "module_a"
-    // Actually, use a subdirectory to get a real module_path
+    // File 2: defines run() in src/module_a/runner.rs → module "module_a::runner"
     let code2 = r#"fn run() {}"#;
     let file2 = extractor.extract(code2, "src/module_a/runner.rs");
 
@@ -2812,6 +3302,76 @@ fn main() { run(); }
     assert!(
         calls.iter().any(|e| e.to.as_str().contains("module_a")),
         "Should resolve to module_a's run specifically, got: {:?}",
+        calls
+    );
+}
+
+// ============================================================================
+// Cross-crate resolution: same-named symbols in different workspace crates
+// ============================================================================
+
+#[test]
+fn test_resolve_cross_file_different_crates_same_name_no_resolve() {
+    let extractor = RustExtractor;
+
+    // File 1 in crates/a/src/lib.rs: calls render()
+    let code1 = r#"fn handler() { render(); }"#;
+    let file1 = extractor.extract(code1, "crates/a/src/handler.rs");
+
+    // File 2 in crates/a/src/lib.rs: defines render() (same crate)
+    let code2 = r#"fn render() {}"#;
+    let file2 = extractor.extract(code2, "crates/a/src/render.rs");
+
+    // File 3 in crates/b/src/lib.rs: ALSO defines render() (different crate)
+    let code3 = r#"fn render() {}"#;
+    let file3 = extractor.extract(code3, "crates/b/src/render.rs");
+
+    let mut files = [file1, file2, file3];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With same-crate gating, render() should resolve to crate a's render
+    // (same before_src "crates/a"), not crate b's
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains(":render:")),
+        "Should resolve render() to same-crate candidate, got: {:?}",
+        calls
+    );
+    // Verify it resolved to crate a's render, not crate b's
+    assert!(
+        calls.iter().any(|e| e.to.as_str().contains("crates/a")),
+        "Should resolve to crate a's render, got: {:?}",
+        calls
+    );
+}
+
+#[test]
+fn test_resolve_cross_file_different_crates_no_cross_crate_edge() {
+    let extractor = RustExtractor;
+
+    // File 1 in crates/a/src/lib.rs: calls render()
+    let code1 = r#"fn handler() { render(); }"#;
+    let file1 = extractor.extract(code1, "crates/a/src/handler.rs");
+
+    // File 2 in crates/b/src/lib.rs: defines render() (different crate, no same-crate match)
+    let code2 = r#"fn render() {}"#;
+    let file2 = extractor.extract(code2, "crates/b/src/render.rs");
+
+    let mut files = [file1, file2];
+    let (resolved, _) = extractor.resolve_cross_file(&mut files);
+
+    // With same-crate gating, render() should NOT resolve because
+    // caller is in crates/a and candidate is in crates/b
+    let calls: Vec<_> = resolved
+        .iter()
+        .filter(|e| e.kind == crate::a6s::types::EdgeKind::Calls)
+        .collect();
+    assert!(
+        calls.is_empty(),
+        "Should NOT resolve render() across different crates, got: {:?}",
         calls
     );
 }
@@ -3063,5 +3623,275 @@ fn make_foo() {
         "Without qualifier context, ambiguous bare name 'new' should NOT resolve. \
          This confirms the index has separate entries (no collision). Got: {:?}",
         calls
+    );
+}
+
+#[test]
+fn test_declares_mod_edges_resolved_by_resolve_file_modules() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::{EdgeKind, SymbolRef};
+
+    // File 1: lib.rs declares `mod config;`
+    let lib_code = r#"
+pub mod config;
+
+pub fn main_fn() {}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: config.rs (the target module file)
+    let config_code = r#"
+pub struct Config {
+    pub name: String,
+}
+"#;
+    let config_parsed = RustExtractor.extract(config_code, "src/config.rs");
+
+    // Before resolve_file_modules: DeclaresMod edge should be Unresolved
+    let declares_edge = lib_parsed
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::DeclaresMod)
+        .expect("Should have DeclaresMod edge");
+
+    assert!(
+        matches!(declares_edge.to, SymbolRef::Unresolved { ref name, .. } if name == "config"),
+        "Before resolve_file_modules, DeclaresMod edge should be Unresolved('config')"
+    );
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, config_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // After resolve_file_modules: DeclaresMod edge should be Resolved
+    let lib_file = &files[0];
+    let declares_edge = lib_file
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::DeclaresMod)
+        .expect("Should still have DeclaresMod edge after resolution");
+
+    match &declares_edge.to {
+        SymbolRef::Resolved(symbol_id) => {
+            assert_eq!(
+                symbol_id.file_path(),
+                Some("src/config.rs"),
+                "Resolved edge should point to target file"
+            );
+            // Verify the full string format: "symbol:src/config.rs:config:1"
+            let expected = "symbol:src/config.rs:config:1";
+            assert_eq!(
+                symbol_id.as_str(),
+                expected,
+                "Resolved edge should point to implicit module 'config' at line 1"
+            );
+        }
+        SymbolRef::Unresolved { .. } => {
+            panic!(
+                "After resolve_file_modules, DeclaresMod edge should be Resolved, not Unresolved"
+            );
+        }
+    }
+}
+
+// ============================================================================
+// Phase 6: Binary-to-Lib Linking Tests
+// ============================================================================
+
+#[test]
+fn test_resolve_file_modules_links_main_to_lib() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: src/lib.rs (crate root)
+    let lib_code = r#"
+pub fn greet() -> &'static str {
+    "hello"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: src/main.rs (binary entry point)
+    let main_code = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    let main_parsed = RustExtractor.extract(main_code, "src/main.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, main_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from lib to main
+    let lib_to_main = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:src/lib.rs:lib:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:src/main.rs:main:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        lib_to_main.is_some(),
+        "Should have HasMember edge from lib module to main module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_links_bin_to_lib() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: src/lib.rs (crate root)
+    let lib_code = r#"
+pub fn helper() -> &'static str {
+    "helper"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "src/lib.rs");
+
+    // File 2: src/bin/cli.rs (binary target in bin/ directory)
+    let cli_code = r#"
+fn main() {
+    println!("CLI tool");
+}
+"#;
+    let cli_parsed = RustExtractor.extract(cli_code, "src/bin/cli.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, cli_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from lib to cli
+    let lib_to_cli = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:src/lib.rs:lib:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:src/bin/cli.rs:cli:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        lib_to_cli.is_some(),
+        "Should have HasMember edge from lib module to cli binary module"
+    );
+}
+
+#[test]
+fn test_resolve_file_modules_binary_only_no_link() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // Only src/main.rs (no lib.rs)
+    let main_code = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    let main_parsed = RustExtractor.extract(main_code, "src/main.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![main_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // main function should have exactly ONE HasMember edge — from the file module (Phase 5b).
+    // It should NOT have a cross-file edge from a lib crate (no lib.rs exists).
+    let main_as_child: Vec<_> = has_member_edges
+        .iter()
+        .filter(|e| {
+            matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                if to_id.as_str() == "symbol:src/main.rs:main:2")
+        })
+        .collect();
+
+    assert_eq!(
+        main_as_child.len(),
+        1,
+        "main should have exactly 1 HasMember edge (from file module, not from lib crate)"
+    );
+
+    // Verify the edge source is the file module (src/main.rs), not a lib crate
+    if let crate::a6s::types::SymbolRef::Resolved(from_id) = &main_as_child[0].from {
+        assert!(
+            from_id.as_str().contains("src/main.rs"),
+            "Edge source should be the file module in src/main.rs, not a lib crate"
+        );
+    } else {
+        panic!("Edge source should be resolved");
+    }
+}
+
+#[test]
+fn test_resolve_file_modules_workspace_bin_linked() {
+    use crate::a6s::extract::LanguageExtractor;
+    use crate::a6s::types::EdgeKind;
+
+    // File 1: crates/foo/src/lib.rs (workspace crate root)
+    let lib_code = r#"
+pub fn helper() -> &'static str {
+    "helper"
+}
+"#;
+    let lib_parsed = RustExtractor.extract(lib_code, "crates/foo/src/lib.rs");
+
+    // File 2: crates/foo/src/bin/tool.rs (binary in workspace crate)
+    let tool_code = r#"
+fn main() {
+    println!("Tool");
+}
+"#;
+    let tool_parsed = RustExtractor.extract(tool_code, "crates/foo/src/bin/tool.rs");
+
+    // Call resolve_file_modules
+    let mut files = vec![lib_parsed, tool_parsed];
+    RustExtractor.resolve_file_modules(&mut files);
+
+    // Find all HasMember edges
+    let has_member_edges: Vec<_> = files
+        .iter()
+        .flat_map(|f| f.edges.iter())
+        .filter(|e| e.kind == EdgeKind::HasMember)
+        .collect();
+
+    // Find the edge from foo (crate name) to tool
+    let foo_to_tool = has_member_edges.iter().find(|e| {
+        if let crate::a6s::types::SymbolRef::Resolved(from_id) = &e.from {
+            from_id.as_str() == "symbol:crates/foo/src/lib.rs:foo:1"
+                && matches!(&e.to, crate::a6s::types::SymbolRef::Resolved(to_id)
+                    if to_id.as_str() == "symbol:crates/foo/src/bin/tool.rs:tool:1")
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        foo_to_tool.is_some(),
+        "Should have HasMember edge from foo crate to tool binary module"
     );
 }

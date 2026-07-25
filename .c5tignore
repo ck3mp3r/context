@@ -1,0 +1,2 @@
+# Exclude test fixture files from code analysis
+**/testdata/

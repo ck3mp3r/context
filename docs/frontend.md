@@ -247,7 +247,7 @@ This avoids pulling in server-side rendering deps for WASM builds.
 
 **Cause**: Trunk caches compiled WASM
 
-**Fix**: 
+**Fix**:
 ```sh
 cargo clean
 rm -rf target/ dist/

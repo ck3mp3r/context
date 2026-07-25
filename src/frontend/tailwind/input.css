@@ -184,6 +184,13 @@ body {
   margin-bottom: 2em;
 }
 
+/* Task detail dialog - override thaw's max-width: 600px */
+.task-detail-dialog-surface {
+  width: 66vw !important;
+  max-width: 66vw !important;
+  max-height: 85vh !important;
+}
+
 /* Thaw UI OverlayDrawer custom styling */
 .note-detail-drawer {
   width: 85vw !important;

@@ -83,7 +83,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             })?;
 
         sqlx::query(
-            "INSERT INTO task_list (id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at) 
+            "INSERT INTO task_list (id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
@@ -241,7 +241,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             (
                 format!(
-                    "SELECT DISTINCT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_refs, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at 
+                    "SELECT DISTINCT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_refs, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at
                      FROM task_list tl, json_each(tl.tags)
                      {} {} {}",
                     where_clause, order_clause, limit_clause
@@ -254,7 +254,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else if !conditions.is_empty() {
             (
                 format!(
-                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at 
+                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at
                      FROM task_list tl {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -263,7 +263,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at 
+                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at
                      FROM task_list {} {}",
                      order_clause, limit_clause
                 ),
@@ -543,8 +543,8 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
 
         sqlx::query(
             r#"
-            UPDATE task_list 
-            SET title = ?, description = ?, notes = ?, tags = ?, external_refs = ?, 
+            UPDATE task_list
+            SET title = ?, description = ?, notes = ?, tags = ?, external_refs = ?,
                 status = ?, project_id = ?, updated_at = ?, archived_at = ?
             WHERE id = ?
             "#,

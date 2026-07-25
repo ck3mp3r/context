@@ -5,6 +5,9 @@
 -- Returns: List of child symbols with their properties and child_count
 --
 -- Containment edge direction: parent->edge->child (parent is 'in', child is 'out')
+-- Examples:
+--   $root_symbol_id = "symbol:abc123" → children of a class/module
+--   Use for: exploring class members, module contents
 
 SELECT
     out.symbol_id AS symbol_id,

@@ -52,7 +52,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS skill_fts USING fts5(
 
 -- Populate from existing data (empty initially, but ready for future data)
 INSERT INTO skill_fts (id, name, description, content, tags)
-SELECT 
+SELECT
     id,
     name,
     description,

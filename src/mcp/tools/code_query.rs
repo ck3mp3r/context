@@ -169,7 +169,7 @@ impl CodeQueryTools {
     /// 2. Saved query (query_name only) - load from predefined or user-saved
     /// 3. Save and execute (both) - save to user directory then execute
     #[tool(
-        description = "Execute queries against a repository's code graph. EXPERIMENTAL: This feature is under active development and may change. Use query_name for pre-built queries (see code_list_queries), or query_definition for custom SurrealQL. The repo must be analyzed first (see code_analyze). Common starting queries: 'overview' for symbol counts, 'hub_symbols' for most-connected functions, 'entry_points' for main/test functions."
+        description = "Execute queries against a repository's code graph. EXPERIMENTAL: This feature is under active development and may change. Use query_name for pre-built discovery queries (see code_list_queries), or query_definition for custom SurrealQL. The repo must be analyzed first (see code_analyze). Discovery workflow: 1) 'overview' for counts, 2) 'hub_symbols' or 'entry_points' for key code, 3) 'search_by_pattern' for concepts, 4) 'callers'/'callees' for dependencies, 5) 'find_tests_for' for coverage. All queries include usage examples in their descriptions."
     )]
     pub async fn query_graph(
         &self,
@@ -264,7 +264,7 @@ impl CodeQueryTools {
     ///
     /// Returns both predefined queries (from src/a6s/queries/) and user-saved queries
     #[tool(
-        description = "List available pre-built queries for a repository's code graph. EXPERIMENTAL: This feature is under active development and may change. Each query includes description, parameters, and usage instructions. Use returned query names with code_query's query_name parameter. Start with 'overview' and 'hub_symbols' for orientation."
+        description = "List available pre-built discovery queries for a repository's code graph. EXPERIMENTAL: This feature is under active development and may change. Each query includes description, parameters, and concrete usage examples showing WHEN to use it. Queries are organized by discovery pattern: orientation (overview, hub_symbols, entry_points), search (search_by_pattern, symbol_search, explore_module), navigation (file_symbols, root_symbols, symbol_children), analysis (callers, callees, transitive_calls, data_flow), and testing (find_tests_for). Start with 'overview' to understand the codebase structure."
     )]
     pub async fn list_queries(
         &self,
