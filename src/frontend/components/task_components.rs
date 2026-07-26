@@ -1264,7 +1264,7 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                 match stats_result {
                     Some(Ok(stats)) => {
                         view! {
-                            <div class="flex flex-col" style="height: calc(100vh - 4rem)">
+                            <div class="flex flex-col h-full">
                                 // Description, tags, and external refs (if present)
                                 {(tl.description.is_some() || !tl.tags.is_empty() || !tl.external_refs.is_empty()).then(|| {
                                     view! {
@@ -1364,7 +1364,7 @@ pub fn TaskListDetailModal(
             position=DrawerPosition::Right
             class="task-list-detail-drawer"
         >
-            <DrawerBody>
+            <DrawerBody class="h-full overflow-hidden p-0">
                 {move || {
                     task_list.get().map(|tl| {
                         let task_list_signal = Signal::derive(move || tl.clone());

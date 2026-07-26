@@ -189,6 +189,31 @@ body {
   width: 66vw !important;
   max-width: 66vw !important;
   max-height: 85vh !important;
+  overflow: hidden !important;
+}
+
+/* Override Thaw's display:block with higher specificity (not !important, so CSSTransition can still hide via inline display:none) */
+.task-detail-dialog-surface.thaw-dialog-surface {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Body fills remaining space inside the surface (after 48px padding).
+   No max-height needed — the surface's max-height: 85vh constrains it via flex. */
+.task-detail-dialog-surface .thaw-dialog-body {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  max-height: none !important;
+}
+
+/* Content scrolls within the body */
+.task-detail-dialog-surface .thaw-dialog-content {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
 }
 
 /* Thaw UI OverlayDrawer custom styling */
@@ -239,6 +264,23 @@ body {
 .task-list-detail-drawer {
   width: 95vw !important;
   max-width: 95vw !important;
+}
+
+/* Force the entire drawer structure to be non-scrollable and use flexbox */
+.task-list-detail-drawer,
+.task-list-detail-drawer > *,
+.task-list-detail-drawer .thaw-overlay-drawer__content,
+.task-list-detail-drawer .thaw-drawer-body {
+  height: 100% !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.task-list-detail-drawer .thaw-drawer-body {
+  padding: 0 !important;
+  flex: 1 !important;
 }
 
 /* Theme-aware drawer styling */
