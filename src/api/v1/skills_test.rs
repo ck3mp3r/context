@@ -6,10 +6,8 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use std::sync::Arc;
 use tower::ServiceExt;
 
-use crate::a6s::store::surrealdb;
 use crate::api::notifier::ChangeNotifier;
 use crate::api::{AppState, routes};
 use crate::db::{Database, SqliteDatabase};
@@ -22,15 +20,12 @@ async fn test_app() -> axum::Router {
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let skills_dir = temp_dir.path().join("skills");
-    let analysis_db = Arc::new(surrealdb::init_db(None).await.unwrap());
 
     let state = AppState::new(
         db,
         crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
         ChangeNotifier::new(),
         skills_dir,
-        analysis_db,
-        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     routes::create_router(state, false)
 }

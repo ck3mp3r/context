@@ -36,11 +36,6 @@ pub enum UpdateMessage {
     SkillCreated { skill_id: String },
     SkillUpdated { skill_id: String },
     SkillDeleted { skill_id: String },
-
-    // Analysis
-    AnalysisStarted { repo_id: String },
-    AnalysisCompleted { repo_id: String },
-    AnalysisFailed { repo_id: String, error: String },
 }
 
 /// Pub/sub notifier for broadcasting database changes to all subscribers.

@@ -12,11 +12,11 @@ use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
     CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse, EnableSkillResponse,
-    ErrorResponse, GraphEdge, GraphNode, GraphResponse, GraphStats, ImportSkillRequest,
-    NoteResponse, PatchNoteRequest, PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest,
-    PatchTaskRequest, ProjectResponse, ReplaceSkillRequest, RepoResponse, SkillResponse,
-    TaskListResponse, TaskResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest, PatchProjectRequest,
+    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest,
+    RepoResponse, SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
+    UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest,
+    UpdateTaskRequest,
 };
 
 use crate::db::Database;
@@ -60,8 +60,6 @@ macro_rules! routes {
         super::v1::update_repo,
         super::v1::patch_repo,
         super::v1::delete_repo,
-        super::v1::analyze_repo,
-        super::v1::get_repo_graph,
         super::v1::list_task_lists,
         super::v1::get_task_list,
         super::v1::create_task_list,
@@ -129,19 +127,14 @@ macro_rules! routes {
             super::v1::ExportSyncRequest,
             super::v1::SyncResponse,
              ErrorResponse,
-             // --- Skills ---
-             SkillResponse,
-             CreateSkillRequest,
-             ImportSkillRequest,
-             ReplaceSkillRequest,
-             UpdateSkillRequest,
-             EnableSkillResponse,
-             DisableSkillResponse,
-             // --- Graph ---
-             GraphResponse,
-             GraphNode,
-             GraphEdge,
-             GraphStats,
+              // --- Skills ---
+              SkillResponse,
+              CreateSkillRequest,
+              ImportSkillRequest,
+              ReplaceSkillRequest,
+              UpdateSkillRequest,
+              EnableSkillResponse,
+              DisableSkillResponse,
         )
     ),
     tags(
@@ -171,8 +164,6 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         state.db_arc(),
         state.notifier().clone(),
         state.skills_dir().clone(),
-        state.analysis_db(),
-        state.tracker().clone(),
         ct,
     );
 
@@ -193,10 +184,7 @@ pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync
         // Repos
         get "/repos" => super::v1::list_repos,
         get "/repos/{id}" => super::v1::get_repo,
-        get "/repos/{id}/graph" => super::v1::get_repo_graph,
         post "/repos" => super::v1::create_repo,
-        post "/repos/{id}/analyze" => super::v1::analyze_repo,
-        get "/repos/{id}/analyze/status" => super::v1::analyze_status,
         put "/repos/{id}" => super::v1::update_repo,
         patch "/repos/{id}" => super::v1::patch_repo,
         delete "/repos/{id}" => super::v1::delete_repo,

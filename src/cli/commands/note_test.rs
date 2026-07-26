@@ -1,4 +1,3 @@
-use crate::a6s::store::surrealdb;
 use crate::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::PageParams;
@@ -6,7 +5,6 @@ use crate::cli::commands::note::*;
 use crate::db::{Database, SqliteDatabase};
 use crate::sync::MockGitOps;
 use serde_json::json;
-use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 
@@ -38,8 +36,6 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
         crate::sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
-        Arc::new(surrealdb::init_db(None).await.unwrap()),
-        crate::a6s::tracker::AnalysisTracker::new(crate::api::notifier::ChangeNotifier::new()),
     );
     let app = routes::create_router(state, false);
 

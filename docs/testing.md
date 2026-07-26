@@ -4,7 +4,7 @@ This document provides guidelines for writing tests in the c5t codebase. Follow 
 
 ## Project Structure
 
-This is a **single Rust crate** with feature flags (`backend`, `frontend`, `nanograph-tests`), **NOT** a Cargo workspace.
+This is a **single Rust crate** with feature flags (`backend`, `frontend`), **NOT** a Cargo workspace.
 
 ### Test File Organization
 
@@ -217,22 +217,6 @@ fn test_mock_git_init_success() {
 }
 ```
 
-### Manual Mock Macro
-
-For complex interfaces:
-
-```rust
-#[cfg(test)]
-mockall::mock! {
-    pub CliStub {}
-
-    impl NanographCli for CliStub {
-        fn get_analysis_path(&self, repo_id: &str) -> PathBuf;
-        fn describe(&self, db_path: &Path) -> Result<Output, std::io::Error>;
-    }
-}
-```
-
 ## Serial Tests
 
 Use `#[serial]` when tests modify shared state (environment variables):
@@ -259,7 +243,7 @@ fn test_config_env_var() {
 ```rust
 fn load_testdata(name: &str) -> String {
     let path = format!(
-        "{}/src/analysis/lang/rust/testdata/{}",
+        "{}/src/testdata/{}",
         env!("CARGO_MANIFEST_DIR"),
         name
     );
@@ -359,16 +343,6 @@ match result {
         );
     }
     _ => panic!("Expected DbError::Validation"),
-}
-```
-
-## Feature-Gated Tests
-
-```rust
-#[cfg(feature = "nanograph-tests")]
-#[test]
-fn test_requires_external_cli() {
-    // Only runs with `cargo test --features nanograph-tests`
 }
 ```
 
@@ -498,7 +472,7 @@ let path = "/Users/myname/project/testdata/file.rs";
 
 // GOOD - use CARGO_MANIFEST_DIR
 let path = format!(
-    "{}/src/analysis/testdata/file.rs",
+    "{}/src/testdata/file.rs",
     env!("CARGO_MANIFEST_DIR")
 );
 ```

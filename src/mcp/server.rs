@@ -13,16 +13,13 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 
-use crate::a6s::store::surrealdb;
-use crate::a6s::tracker::AnalysisTracker;
 use crate::api::notifier::ChangeNotifier;
 use crate::db::Database;
 use crate::sync::RealGit;
 
 use super::tools::{
-    CodeAnalysisTools, CodeQueryTools, NoteTools, ProjectTools, RepoTools, SkillTools, SyncTools,
-    TaskListTools, TaskTools, notes::*, projects::*, repos::*, skills::*, sync::*, task_lists::*,
-    tasks::*,
+    NoteTools, ProjectTools, RepoTools, SkillTools, SyncTools, TaskListTools, TaskTools, notes::*,
+    projects::*, repos::*, skills::*, sync::*, task_lists::*, tasks::*,
 };
 
 /// Main MCP server coordinator
@@ -44,7 +41,6 @@ use super::tools::{
 /// - TaskTools: Task operations
 /// - NoteTools: Note operations
 /// - SkillTools: Skill operations
-/// - CodeAnalysisTools: Code analysis operations
 pub struct McpServer<D: Database> {
     project_tools: ProjectTools<D>,
     repo_tools: RepoTools<D>,
@@ -53,8 +49,6 @@ pub struct McpServer<D: Database> {
     note_tools: NoteTools<D>,
     skill_tools: SkillTools<D>,
     sync_tools: SyncTools<D, RealGit>,
-    code_analysis_tools: CodeAnalysisTools<D>,
-    code_query_tools: CodeQueryTools,
     #[allow(dead_code)] // Used by #[tool_router] macro
     tool_router: ToolRouter<Self>,
 }
@@ -67,17 +61,10 @@ impl<D: Database + 'static> McpServer<D> {
     /// * `db` - Database instance (can be `Arc<D>` or `D`)
     /// * `notifier` - ChangeNotifier for broadcasting updates
     /// * `skills_dir` - Path to skills cache directory
-    /// * `analysis_db` - SurrealDB connection for code analysis
     ///
     /// # Returns
     /// A new McpServer instance with all tool handlers initialized
-    pub fn new(
-        db: impl Into<Arc<D>>,
-        notifier: ChangeNotifier,
-        skills_dir: PathBuf,
-        analysis_db: Arc<surrealdb::SurrealDbConnection>,
-        tracker: AnalysisTracker,
-    ) -> Self {
+    pub fn new(db: impl Into<Arc<D>>, notifier: ChangeNotifier, skills_dir: PathBuf) -> Self {
         let db = db.into();
 
         Self {
@@ -88,12 +75,6 @@ impl<D: Database + 'static> McpServer<D> {
             note_tools: NoteTools::new(Arc::clone(&db), notifier.clone()),
             skill_tools: SkillTools::new(Arc::clone(&db), notifier.clone(), skills_dir),
             sync_tools: SyncTools::with_real_git(Arc::clone(&db)),
-            code_analysis_tools: CodeAnalysisTools::new(
-                Arc::clone(&db),
-                Arc::clone(&analysis_db),
-                tracker.clone(),
-            ),
-            code_query_tools: CodeQueryTools::new(analysis_db, tracker),
             tool_router: Self::tool_router(),
         }
     }
@@ -375,54 +356,6 @@ impl<D: Database + 'static> McpServer<D> {
     #[tool(description = "Git-based sync: init, export, import, or status")]
     pub async fn sync(&self, params: Parameters<SyncParams>) -> Result<CallToolResult, McpError> {
         self.sync_tools.sync(params).await
-    }
-
-    // =========================================================================
-    // Code Analysis Tools
-    // =========================================================================
-
-    #[tool(
-        name = "code_analyze",
-        description = "Analyze a repository's code and extract symbols into the code graph"
-    )]
-    pub async fn code_analyze(
-        &self,
-        params: Parameters<super::tools::code_analysis::AnalyzeCodeParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.code_analysis_tools.analyze_code(params).await
-    }
-
-    #[tool(
-        name = "code_describe_schema",
-        description = "Get schema information for a repository's code graph (nodes, edges, properties)"
-    )]
-    pub async fn code_describe_schema(
-        &self,
-        params: Parameters<super::tools::code_query::DescribeSchemaParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.code_query_tools.describe_schema(params).await
-    }
-
-    #[tool(
-        name = "code_query",
-        description = "Execute custom queries (temporary or saved) against the code graph"
-    )]
-    pub async fn code_query(
-        &self,
-        params: Parameters<super::tools::code_query::QueryCodeGraphParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.code_query_tools.query_graph(params).await
-    }
-
-    #[tool(
-        name = "code_list_queries",
-        description = "List available queries with their parameters, descriptions, and usage instructions"
-    )]
-    pub async fn code_list_queries(
-        &self,
-        params: Parameters<super::tools::code_query::ListQueriesParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.code_query_tools.list_queries(params).await
     }
 }
 

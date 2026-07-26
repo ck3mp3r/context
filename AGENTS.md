@@ -15,7 +15,7 @@ This document provides guidelines for writing tests in the c5t codebase. Follow 
 
 ## Project Structure
 
-This is a **single Rust crate** with feature flags (`backend`, `frontend`, `nanograph-tests`), **NOT** a Cargo workspace.
+This is a **single Rust crate** with feature flags (`backend`, `frontend`), **NOT** a Cargo workspace.
 
 ### Test File Organization
 
@@ -228,22 +228,6 @@ fn test_mock_git_init_success() {
 }
 ```
 
-### Manual Mock Macro
-
-For complex interfaces:
-
-```rust
-#[cfg(test)]
-mockall::mock! {
-    pub CliStub {}
-
-    impl NanographCli for CliStub {
-        fn get_analysis_path(&self, repo_id: &str) -> PathBuf;
-        fn describe(&self, db_path: &Path) -> Result<Output, std::io::Error>;
-    }
-}
-```
-
 ## Serial Tests
 
 Use `#[serial]` when tests modify shared state (environment variables):
@@ -270,7 +254,7 @@ fn test_config_env_var() {
 ```rust
 fn load_testdata(name: &str) -> String {
     let path = format!(
-        "{}/src/analysis/lang/rust/testdata/{}",
+        "{}/src/testdata/{}",
         env!("CARGO_MANIFEST_DIR"),
         name
     );
@@ -370,16 +354,6 @@ match result {
         );
     }
     _ => panic!("Expected DbError::Validation"),
-}
-```
-
-## Feature-Gated Tests
-
-```rust
-#[cfg(feature = "nanograph-tests")]
-#[test]
-fn test_requires_external_cli() {
-    // Only runs with `cargo test --features nanograph-tests`
 }
 ```
 
@@ -509,7 +483,7 @@ let path = "/Users/myname/project/testdata/file.rs";
 
 // GOOD - use CARGO_MANIFEST_DIR
 let path = format!(
-    "{}/src/analysis/testdata/file.rs",
+    "{}/src/testdata/file.rs",
     env!("CARGO_MANIFEST_DIR")
 );
 ```
@@ -530,141 +504,3 @@ Before submitting tests, verify:
 - [ ] Using `env!("CARGO_MANIFEST_DIR")` for test data paths
 - [ ] Mocking external dependencies (git, CLI tools)
 - [ ] Cleaning up environment variables after tests
-
----
-
-## Nushell Test Detection Patterns
-
-The Nushell language analyzer includes test detection capabilities. This section documents the patterns and conventions used.
-
-### Test Function Detection
-
-Test functions are identified using these criteria:
-
-1. **Name Pattern** (case-insensitive):
-   - Starts with `"test "` (space separator, e.g., `"test fibonacci"`)
-   - Starts with `"test-"` (kebab-case, e.g., `"test-addition"`)
-   - Starts with `"test_"` (snake_case, e.g., `"test_subtraction"`)
-
-2. **No Parameters**: Test functions must have empty parameter lists `[]`
-
-3. **Export Mode** (Loose): Both `export def` and `def` are accepted
-
-Example test functions:
-```nu
-# Exported test with space separator
-export def "test basic math" [] {
-    assert equal (1 + 1) 2
-}
-
-# Private test with kebab-case
-def test-internal-helper [] {
-    assert equal (helper) 42
-}
-
-# Test with snake_case
-export def test_list_operations [] {
-    assert equal ([1 2 3] | length) 3
-}
-```
-
-### Test Metadata Extraction
-
-Test metadata is extracted from preceding comment lines:
-
-- `# ignore` - Mark test as ignored/skipped
-- `# unit` - Mark as unit test
-- `# integration` - Mark as integration test
-
-Metadata is case-insensitive and stored in the `signature` field as JSON-like string:
-
-```nu
-# ignore
-# unit
-export def "test broken feature" [] {
-    assert false
-}
-```
-
-Results in: `{"test_metadata":["ignored","unit"]}`
-
-### Test Runner Detection
-
-A `main` function is identified as a test runner if it contains:
-1. The keyword `"test"` in its body
-2. The phrase `"scope commands"` (used for test discovery)
-
-Example test runner:
-```nu
-def main [] {
-    let tests = (
-        scope commands
-            | where ($it.name | str starts-with "test ")
-    )
-    for test in $tests {
-        print $"Running ($test.name)..."
-        do $test.name
-    }
-}
-```
-
-Test runner mains are marked with `test_runner: true` in their signature field.
-
-### File Categorization
-
-Files are categorized based on path and content:
-
-1. **`test_file`**: Files in `tests/` directory or ending with `_test.nu` or `test.nu`
-2. **`contains_tests`**: Regular files that contain test functions but aren't dedicated test files
-3. **`None`**: Regular files without tests
-
-This categorization is stored in `ParsedFile.file_category`.
-
-### Test Entry Edges
-
-When a test runner main is detected, `TestEntry` edges are created:
-- **From**: Test runner `main` function
-- **To**: Each test function in the file
-- **Purpose**: Represents the test execution flow
-
-These edges enable:
-- Test dependency graphs
-- Test coverage analysis
-- Test execution order visualization
-
-### Testing the Test Detection
-
-When writing tests for the extractor:
-
-```rust
-#[test]
-fn test_detects_test_function() {
-    let extractor = NushellExtractor;
-    let code = r#"export def "test example" [] { assert true }"#;
-    let parsed = extractor.extract(code, "tests.nu");
-
-    // Check test detection
-    let test_sym = parsed.symbols.iter().find(|s| s.kind == "test");
-    assert!(test_sym.is_some());
-
-    // Check metadata
-    assert!(test_sym.unwrap().signature.is_some());
-}
-```
-
-### Edge Cases Handled
-
-1. Functions with `"testing"` prefix (not `"test"`) are NOT detected as tests
-2. Functions with parameters are NOT detected as tests (even if name matches)
-3. Private tests (non-exported) ARE detected in loose mode
-4. Metadata comments must immediately precede the function definition
-5. Test runner detection requires both "test" AND "scope commands" keywords
-
-### Test Fixtures
-
-Test fixtures are in `src/a6s/lang/nushell/testdata/`:
-- `tests.nu` - Basic test function examples
-- `tests_with_metadata.nu` - Tests with ignore/unit/integration metadata
-- `test_runner.nu` - Complete test runner with main function
-
-When adding new test patterns, add corresponding fixtures for regression testing.

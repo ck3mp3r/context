@@ -4,8 +4,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::notifier::ChangeNotifier;
-use crate::a6s::store::surrealdb;
-use crate::a6s::tracker::AnalysisTracker;
 use crate::db::Database;
 use crate::sync::{GitOps, SyncManager};
 
@@ -25,8 +23,6 @@ pub struct AppState<D: Database, G: GitOps + Send + Sync> {
     sync_manager: SyncManager<G>,
     notifier: ChangeNotifier,
     skills_dir: PathBuf,
-    analysis_db: Arc<surrealdb::SurrealDbConnection>,
-    tracker: AnalysisTracker,
 }
 
 impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
@@ -36,8 +32,6 @@ impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
             sync_manager: self.sync_manager.clone(),
             notifier: self.notifier.clone(),
             skills_dir: self.skills_dir.clone(),
-            analysis_db: Arc::clone(&self.analysis_db),
-            tracker: self.tracker.clone(),
         }
     }
 }
@@ -48,16 +42,12 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
         sync_manager: SyncManager<G>,
         notifier: ChangeNotifier,
         skills_dir: PathBuf,
-        analysis_db: Arc<surrealdb::SurrealDbConnection>,
-        tracker: AnalysisTracker,
     ) -> Self {
         Self {
             db: Arc::new(db),
             sync_manager,
             notifier,
             skills_dir,
-            analysis_db,
-            tracker,
         }
     }
 
@@ -79,13 +69,5 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
 
     pub fn skills_dir(&self) -> &PathBuf {
         &self.skills_dir
-    }
-
-    pub fn analysis_db(&self) -> Arc<surrealdb::SurrealDbConnection> {
-        Arc::clone(&self.analysis_db)
-    }
-
-    pub fn tracker(&self) -> &AnalysisTracker {
-        &self.tracker
     }
 }

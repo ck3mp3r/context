@@ -21,7 +21,6 @@ in
       pkgs.tailwindcss_4
       pkgs.act
       pkgs.prek
-      pkgs.tree-sitter
     ];
 
     shellHook = ''

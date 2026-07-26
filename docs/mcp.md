@@ -103,13 +103,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 ### Sync (1 tool)
 - `sync` - Git-based sync operations (init/export/import/status)
 
-### Code Analysis (4 tools)
-- `code_analyze` - Start code analysis or check status for a repository
-- `code_query` - Execute pre-built or custom SurrealQL queries on the code graph
-- `code_list_queries` - List available pre-built and user-saved queries
-- `code_describe_schema` - Get schema information for the code graph database
-
-**Total: 38 MCP tools**
+**Total: 34 MCP tools**
 
 ## Tag Conventions
 
