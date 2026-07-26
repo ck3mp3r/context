@@ -1,6 +1,7 @@
 {
   lib,
   rustPlatform,
+  fetchCrate,
   nodejs_latest,
   pkg-config,
   openssl,
@@ -8,14 +9,15 @@
   curl,
 }: let
   pname = "wasm-bindgen-cli";
-  version = "0.2.122";
-  src = rustPlatform.fetchCargoTarball {
+  version = "0.2.126";
+  src = fetchCrate {
     inherit pname version;
-    sha256 = "sha256-vO4RSxi/sMWxmsEs3GuljdMfIRSu75A+Q+c5wgYToRU=";
+    hash = "sha256-H6Is3fiZVxZCfOMWK5dWMSrtn50VGv0sfdnsT+cTtyk=";
   };
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    hash = "sha256-Inup6vvJSG5ghNyeDPyZbfZo4d0LsMG2OJfStoaeDBs=";
+    inherit (src) pname version;
+    hash = "sha256-VucqkXbCi4qtQzY/HrXiDnbSURsagPsdNVMn1Tw3UiY=";
   };
 in
   rustPlatform.buildRustPackage {

@@ -17,7 +17,7 @@ in
       pkgs.cargo-tarpaulin
       pkgs.cargo-llvm-cov
       pkgs.trunk
-      pkgs.wasm-bindgen-cli
+      (pkgs.callPackage ./wasm-bindgen-cli.nix {})
       pkgs.tailwindcss_4
       pkgs.act
       pkgs.prek

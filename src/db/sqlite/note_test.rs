@@ -2499,3 +2499,272 @@ async fn list_metadata_only_filters_by_project_id() {
         "non-existent project should return 0 notes"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_populates_project_ids() {
+    let db = setup_db().await;
+    let pool = db.pool();
+
+    // Create a project
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("projlst1")
+        .bind("Test Project")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project");
+
+    // Create two notes
+    let notes = db.notes();
+    notes
+        .create(&make_note("listp001", "Note A", "content a"))
+        .await
+        .expect("Create note A");
+    notes
+        .create(&make_note("listp002", "Note B", "content b"))
+        .await
+        .expect("Create note B");
+
+    // Link only Note A to the project
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("projlst1")
+        .bind("listp001")
+        .execute(pool)
+        .await
+        .expect("Link note A to project");
+
+    // List all notes
+    let result = notes.list(None).await.expect("list should succeed");
+    assert_eq!(result.total, 2, "should have 2 notes");
+
+    // Note A should have project_ids populated
+    let note_a = result.items.iter().find(|n| n.id == "listp001").unwrap();
+    assert_eq!(
+        note_a.project_ids,
+        vec!["projlst1".to_string()],
+        "Note A should have project_ids populated"
+    );
+
+    // Note B should have empty project_ids
+    let note_b = result.items.iter().find(|n| n.id == "listp002").unwrap();
+    assert!(
+        note_b.project_ids.is_empty(),
+        "Note B should have empty project_ids"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_populates_project_ids() {
+    let db = setup_db().await;
+    let pool = db.pool();
+
+    // Create a project
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("promet01")
+        .bind("Test Project")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project");
+
+    // Create two notes
+    let notes = db.notes();
+    notes
+        .create(&make_note("metap001", "Note A", "content a"))
+        .await
+        .expect("Create note A");
+    notes
+        .create(&make_note("metap002", "Note B", "content b"))
+        .await
+        .expect("Create note B");
+
+    // Link only Note A to the project
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("promet01")
+        .bind("metap001")
+        .execute(pool)
+        .await
+        .expect("Link note A to project");
+
+    // List metadata only
+    let result = notes
+        .list_metadata_only(None)
+        .await
+        .expect("list_metadata_only should succeed");
+    assert_eq!(result.total, 2, "should have 2 notes");
+
+    // Note A should have project_ids populated
+    let note_a = result.items.iter().find(|n| n.id == "metap001").unwrap();
+    assert_eq!(
+        note_a.project_ids,
+        vec!["promet01".to_string()],
+        "Note A should have project_ids populated"
+    );
+
+    // Note B should have empty project_ids
+    let note_b = result.items.iter().find(|n| n.id == "metap002").unwrap();
+    assert!(
+        note_b.project_ids.is_empty(),
+        "Note B should have empty project_ids"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_populates_project_ids() {
+    let db = setup_db().await;
+    let pool = db.pool();
+
+    // Create a project
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("prosrc01")
+        .bind("Test Project")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project");
+
+    // Create two notes with searchable content
+    let notes = db.notes();
+    notes
+        .create(&make_note(
+            "srcp0001",
+            "Rust Note",
+            "rust programming content",
+        ))
+        .await
+        .expect("Create note A");
+    notes
+        .create(&make_note(
+            "srcp0002",
+            "Python Note",
+            "python programming content",
+        ))
+        .await
+        .expect("Create note B");
+
+    // Link only Note A to the project
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("prosrc01")
+        .bind("srcp0001")
+        .execute(pool)
+        .await
+        .expect("Link note A to project");
+
+    // Search for "programming" - should find both notes
+    let result = notes
+        .search("programming", None)
+        .await
+        .expect("search should succeed");
+    assert_eq!(result.items.len(), 2, "should find 2 notes");
+
+    // Note A should have project_ids populated
+    let note_a = result.items.iter().find(|n| n.id == "srcp0001").unwrap();
+    assert_eq!(
+        note_a.project_ids,
+        vec!["prosrc01".to_string()],
+        "Note A should have project_ids populated"
+    );
+
+    // Note B should have empty project_ids
+    let note_b = result.items.iter().find(|n| n.id == "srcp0002").unwrap();
+    assert!(
+        note_b.project_ids.is_empty(),
+        "Note B should have empty project_ids"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_with_project_filter_populates_project_ids() {
+    let db = setup_db().await;
+    let pool = db.pool();
+
+    // Create two projects
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("proflt01")
+        .bind("Project One")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project 1");
+
+    sqlx::query("INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind("proflt02")
+        .bind("Project Two")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(pool)
+        .await
+        .expect("Insert project 2");
+
+    // Create two notes
+    let notes = db.notes();
+    notes
+        .create(&make_note("fltpa001", "Note A", "content a"))
+        .await
+        .expect("Create note A");
+    notes
+        .create(&make_note("fltpa002", "Note B", "content b"))
+        .await
+        .expect("Create note B");
+
+    // Link Note A to both projects, Note B to project 1 only
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("proflt01")
+        .bind("fltpa001")
+        .execute(pool)
+        .await
+        .expect("Link note A to project 1");
+
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("proflt02")
+        .bind("fltpa001")
+        .execute(pool)
+        .await
+        .expect("Link note A to project 2");
+
+    sqlx::query("INSERT INTO project_note (project_id, note_id) VALUES (?, ?)")
+        .bind("proflt01")
+        .bind("fltpa002")
+        .execute(pool)
+        .await
+        .expect("Link note B to project 1");
+
+    // Filter by project 1 -> should return both notes
+    let q = NoteQuery {
+        project_id: Some("proflt01".to_string()),
+        ..Default::default()
+    };
+    let result = notes
+        .list(Some(&q))
+        .await
+        .expect("list with project filter");
+    assert_eq!(result.total, 2, "project 1 should have 2 notes");
+
+    // Note A should have both project_ids populated
+    let note_a = result.items.iter().find(|n| n.id == "fltpa001").unwrap();
+    assert_eq!(
+        note_a.project_ids.len(),
+        2,
+        "Note A should have 2 project_ids"
+    );
+    assert!(
+        note_a.project_ids.contains(&"proflt01".to_string()),
+        "Note A should contain proflt01"
+    );
+    assert!(
+        note_a.project_ids.contains(&"proflt02".to_string()),
+        "Note A should contain proflt02"
+    );
+
+    // Note B should have project 1 only
+    let note_b = result.items.iter().find(|n| n.id == "fltpa002").unwrap();
+    assert_eq!(
+        note_b.project_ids,
+        vec!["proflt01".to_string()],
+        "Note B should have project 1 only"
+    );
+}

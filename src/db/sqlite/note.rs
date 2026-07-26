@@ -1,5 +1,7 @@
 //! SQLite NoteRepository implementation.
 
+use std::collections::HashMap;
+
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
@@ -467,9 +469,64 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 message: e.to_string(),
             })?;
 
+        let note_ids: Vec<String> = rows.iter().map(|row| row.get("id")).collect();
+
+        // Batch-load project_ids and repo_ids for all fetched notes
+        let (mut project_map, mut repo_map) = if note_ids.is_empty() {
+            (HashMap::new(), HashMap::new())
+        } else {
+            let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+
+            // Batch-load project_ids
+            let project_sql = format!(
+                "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
+                placeholders
+            );
+            let mut project_query = sqlx::query_as::<_, (String, String)>(&project_sql);
+            for id in &note_ids {
+                project_query = project_query.bind(id);
+            }
+            let project_rows: Vec<(String, String)> = project_query
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+            let mut project_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (note_id, project_id) in project_rows {
+                project_map.entry(note_id).or_default().push(project_id);
+            }
+
+            // Batch-load repo_ids
+            let repo_sql = format!(
+                "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
+                placeholders
+            );
+            let mut repo_query = sqlx::query_as::<_, (String, String)>(&repo_sql);
+            for id in &note_ids {
+                repo_query = repo_query.bind(id);
+            }
+            let repo_rows: Vec<(String, String)> =
+                repo_query
+                    .fetch_all(self.pool)
+                    .await
+                    .map_err(|e| DbError::Database {
+                        message: e.to_string(),
+                    })?;
+
+            let mut repo_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (note_id, repo_id) in repo_rows {
+                repo_map.entry(note_id).or_default().push(repo_id);
+            }
+
+            (project_map, repo_map)
+        };
+
         let items: Vec<Note> = rows
             .into_iter()
             .map(|row| {
+                let id: String = row.get("id");
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
@@ -477,14 +534,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
 
                 Note {
-                    id: row.get("id"),
+                    id: id.clone(),
                     title: row.get("title"),
                     content: row.get("content"),
                     tags,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
-                    repo_ids: vec![], // Empty by default - relationships managed separately
-                    project_ids: vec![], // Empty by default - relationships managed separately
+                    repo_ids: repo_map.remove(&id).unwrap_or_default(),
+                    project_ids: project_map.remove(&id).unwrap_or_default(),
                     subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
@@ -674,9 +731,64 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 message: e.to_string(),
             })?;
 
+        let note_ids: Vec<String> = rows.iter().map(|row| row.get("id")).collect();
+
+        // Batch-load project_ids and repo_ids for all fetched notes
+        let (mut project_map, mut repo_map) = if note_ids.is_empty() {
+            (HashMap::new(), HashMap::new())
+        } else {
+            let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+
+            // Batch-load project_ids
+            let project_sql = format!(
+                "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
+                placeholders
+            );
+            let mut project_query = sqlx::query_as::<_, (String, String)>(&project_sql);
+            for id in &note_ids {
+                project_query = project_query.bind(id);
+            }
+            let project_rows: Vec<(String, String)> = project_query
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+            let mut project_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (note_id, project_id) in project_rows {
+                project_map.entry(note_id).or_default().push(project_id);
+            }
+
+            // Batch-load repo_ids
+            let repo_sql = format!(
+                "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
+                placeholders
+            );
+            let mut repo_query = sqlx::query_as::<_, (String, String)>(&repo_sql);
+            for id in &note_ids {
+                repo_query = repo_query.bind(id);
+            }
+            let repo_rows: Vec<(String, String)> =
+                repo_query
+                    .fetch_all(self.pool)
+                    .await
+                    .map_err(|e| DbError::Database {
+                        message: e.to_string(),
+                    })?;
+
+            let mut repo_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (note_id, repo_id) in repo_rows {
+                repo_map.entry(note_id).or_default().push(repo_id);
+            }
+
+            (project_map, repo_map)
+        };
+
         let items: Vec<Note> = rows
             .into_iter()
             .map(|row| {
+                let id: String = row.get("id");
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
@@ -684,14 +796,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
 
                 Note {
-                    id: row.get("id"),
+                    id: id.clone(),
                     title: row.get("title"),
                     content: String::new(), // metadata_only doesn't include content
                     tags,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
-                    repo_ids: vec![], // Empty by default - relationships managed separately
-                    project_ids: vec![], // Empty by default - relationships managed separately
+                    repo_ids: repo_map.remove(&id).unwrap_or_default(),
+                    project_ids: project_map.remove(&id).unwrap_or_default(),
                     subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
@@ -999,9 +1111,64 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 message: e.to_string(),
             })?;
 
+        let note_ids: Vec<String> = rows.iter().map(|row| row.get("id")).collect();
+
+        // Batch-load project_ids and repo_ids for all fetched notes
+        let (mut project_map, mut repo_map) = if note_ids.is_empty() {
+            (HashMap::new(), HashMap::new())
+        } else {
+            let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+
+            // Batch-load project_ids
+            let project_sql = format!(
+                "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
+                placeholders
+            );
+            let mut project_query = sqlx::query_as::<_, (String, String)>(&project_sql);
+            for id in &note_ids {
+                project_query = project_query.bind(id);
+            }
+            let project_rows: Vec<(String, String)> = project_query
+                .fetch_all(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+            let mut project_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (note_id, project_id) in project_rows {
+                project_map.entry(note_id).or_default().push(project_id);
+            }
+
+            // Batch-load repo_ids
+            let repo_sql = format!(
+                "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
+                placeholders
+            );
+            let mut repo_query = sqlx::query_as::<_, (String, String)>(&repo_sql);
+            for id in &note_ids {
+                repo_query = repo_query.bind(id);
+            }
+            let repo_rows: Vec<(String, String)> =
+                repo_query
+                    .fetch_all(self.pool)
+                    .await
+                    .map_err(|e| DbError::Database {
+                        message: e.to_string(),
+                    })?;
+
+            let mut repo_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (note_id, repo_id) in repo_rows {
+                repo_map.entry(note_id).or_default().push(repo_id);
+            }
+
+            (project_map, repo_map)
+        };
+
         let items: Vec<Note> = rows
             .into_iter()
             .map(|row| {
+                let id: String = row.get("id");
                 let tags_json: String = row.get("tags");
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
@@ -1009,14 +1176,14 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
 
                 Note {
-                    id: row.get("id"),
+                    id: id.clone(),
                     title: row.get("title"),
                     content: row.get("content"),
                     tags,
                     parent_id: row.get("parent_id"),
                     idx: row.get("idx"),
-                    repo_ids: vec![], // Empty by default - relationships managed separately
-                    project_ids: vec![], // Empty by default - relationships managed separately
+                    repo_ids: repo_map.remove(&id).unwrap_or_default(),
+                    project_ids: project_map.remove(&id).unwrap_or_default(),
                     subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),

@@ -226,7 +226,7 @@ version = "0.1.7"
 optional = true
 
 [dependencies.wasm-bindgen]
-version = "0.2.115"
+version = "0.2.121"
 optional = true
 
 [dependencies.gloo-net]
