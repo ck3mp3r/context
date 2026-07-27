@@ -60,7 +60,7 @@ pub fn TaskListDetail() -> impl IntoView {
     });
 
     view! {
-        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+        <div class="flex flex-col h-[calc(100vh-8rem)]">
             // Breadcrumb navigation
             {move || {
                 match (project_data.get(), task_list_data.get()) {
@@ -82,7 +82,7 @@ pub fn TaskListDetail() -> impl IntoView {
                 }
             }}
 
-            <div class="container mx-auto px-6 py-6 flex-1">
+            <div class="container mx-auto px-6 py-6 flex-1 h-full overflow-hidden">
                 <Suspense fallback=move || {
                     view! { <p class="text-ctp-subtext0">"Loading task list..."</p> }
                 }>
