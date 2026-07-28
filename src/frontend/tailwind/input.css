@@ -602,3 +602,52 @@ body {
 .mermaid-wrapper > .mermaid-diagram {
   margin: 0;
 }
+
+/* Print helper classes */
+.print-only { display: none; }
+
+@media print {
+  .screen-only { display: none !important; }
+  .print-only { display: block !important; }
+}
+
+/* Print styles for notes */
+@media print {
+  /* Hide app shell navigation */
+  nav { display: none !important; }
+
+  /* Remove height constraints and overflow hiding */
+  .note-print-area {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Allow all content to flow naturally */
+  .overflow-y-auto, .overflow-hidden {
+    overflow: visible !important;
+  }
+
+  /* Ensure code blocks and mermaid diagrams aren't clipped */
+  .prose pre, .mermaid-diagram {
+    overflow: visible !important;
+  }
+
+  /* Preserve colors in print */
+  .prose, .prose * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Page breaks between notes in notestack print */
+  .note-print-page {
+    page-break-after: always;
+  }
+  .note-print-page:last-child {
+    page-break-after: auto;
+  }
+
+  @page {
+    margin: 1in;
+  }
+}

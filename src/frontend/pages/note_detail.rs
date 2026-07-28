@@ -120,6 +120,42 @@ pub fn NoteDetail() -> impl IntoView {
         });
     });
 
+    // Fetch all subnotes for printing (notestack layout)
+    let (print_notes, set_print_notes) = signal(Vec::<Note>::new());
+
+    Effect::new(move || {
+        let id = note_id();
+        if id.is_empty() {
+            return;
+        }
+
+        spawn_local(async move {
+            let mut all = vec![];
+            let mut offset = 0;
+            loop {
+                let result = QueryBuilder::<Note>::new()
+                    .limit(20)
+                    .offset(offset)
+                    .param("type", "subnote")
+                    .param("parent_id", &id)
+                    .fetch()
+                    .await;
+                match result {
+                    Ok(paginated) => {
+                        let count = paginated.items.len();
+                        all.extend(paginated.items);
+                        if count < 20 {
+                            break;
+                        }
+                        offset += 20;
+                    }
+                    Err(_) => break,
+                }
+            }
+            set_print_notes.set(all);
+        });
+    });
+
     // State for selected note in stack (for notes with subnotes)
     // Initialize with parent note ID
     let selected_note_id = RwSignal::new(String::new());
@@ -232,7 +268,11 @@ pub fn NoteDetail() -> impl IntoView {
                                 BreadcrumbItem::new(title)
                                     .with_id(id),
                             ];
-                            Some(view! { <Breadcrumb items=items/> })
+                            Some(view! {
+                                <div class="screen-only">
+                                    <Breadcrumb items=items/>
+                                </div>
+                            })
                         }
                         _ => None
                     }
@@ -263,7 +303,11 @@ pub fn NoteDetail() -> impl IntoView {
                             BreadcrumbItem::new(title)
                                 .with_id(id),
                         ];
-                        view! { <Breadcrumb items=items/> }
+                        view! {
+                            <div class="screen-only">
+                                <Breadcrumb items=items/>
+                            </div>
+                        }
                     })
                 }
             }}
@@ -289,7 +333,7 @@ pub fn NoteDetail() -> impl IntoView {
                                         let parent_note_for_sidebar = note.clone();
 
                                         view! {
-                                            <div class="flex gap-6 h-[calc(100vh-12rem)]">
+                                            <div class="flex gap-6 h-[calc(100vh-12rem)] screen-only">
                                                 // Left sidebar - note stack
                                                 <div class="border-r border-ctp-surface1 flex-shrink-0 flex flex-col overflow-hidden" style="width: 190px;">
                                                     <div class="overflow-y-auto flex-1 min-h-0">
@@ -309,7 +353,7 @@ pub fn NoteDetail() -> impl IntoView {
                                                                 match result {
                                                                     Ok(selected_note) => {
                                                                         view! {
-                                                                            <div class="flex flex-col h-full">
+                                                                            <div class="flex flex-col h-full note-print-area">
                                                                                 // Header: title, tags, metadata
                                                                                 <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
                                                                                     <div class="flex items-center gap-3 mb-4">
@@ -317,6 +361,23 @@ pub fn NoteDetail() -> impl IntoView {
                                                                                         <h2 class="text-2xl font-bold text-ctp-text">
                                                                                             {selected_note.title.clone()}
                                                                                         </h2>
+                                                                                        <div class="ml-auto">
+                                                                                            <button
+                                                                                                class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
+                                                                                                on:click=move |_| {
+                                                                                                    if let Some(window) = web_sys::window() {
+                                                                                                        let _ = window.print();
+                                                                                                    }
+                                                                                                }
+                                                                                            >
+                                                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                    <polyline points="6 9 6 2 18 2 18 9"/>
+                                                                                                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                                                                                                    <rect x="6" y="14" width="12" height="8"/>
+                                                                                                </svg>
+                                                                                                "Print"
+                                                                                            </button>
+                                                                                        </div>
                                                                                     </div>
                                                                                     <div class="flex justify-between items-start">
                                                                                         <div class="flex flex-wrap gap-2">
@@ -364,11 +425,42 @@ pub fn NoteDetail() -> impl IntoView {
                                                     }}
                                                 </div>
                                             </div>
+
+                                            // Print-only container with all subnotes
+                                            <div class="print-only">
+                                                {move || {
+                                                    let notes = print_notes.get();
+                                                    let parent = note.clone();
+                                                    let mut all_notes = vec![
+                                                        view! {
+                                                            <div class="note-print-page">
+                                                                <h1 class="text-2xl font-bold mb-4">{parent.title.clone()}</h1>
+                                                                <div class="prose max-w-none">
+                                                                    <MarkdownContent content=parent.content.clone() />
+                                                                </div>
+                                                            </div>
+                                                        }.into_any()
+                                                    ];
+                                                    for subnote in notes {
+                                                        all_notes.push(
+                                                            view! {
+                                                                <div class="note-print-page">
+                                                                    <h1 class="text-2xl font-bold mb-4">{subnote.title.clone()}</h1>
+                                                                    <div class="prose max-w-none">
+                                                                        <MarkdownContent content=subnote.content.clone() />
+                                                                    </div>
+                                                                </div>
+                                                            }.into_any()
+                                                        );
+                                                    }
+                                                    all_notes
+                                                }}
+                                            </div>
                                         }.into_any()
                                     } else {
                                         // Full-width layout for single notes
                                         view! {
-                                            <div class="flex flex-col h-[calc(100vh-12rem)]">
+                                            <div class="flex flex-col h-[calc(100vh-12rem)] note-print-area">
                                                 // Header: title, tags, metadata
                                                 <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
                                                     <div class="flex items-center gap-3 mb-4">
@@ -376,6 +468,23 @@ pub fn NoteDetail() -> impl IntoView {
                                                         <h2 class="text-2xl font-bold text-ctp-text">
                                                             {note.title.clone()}
                                                         </h2>
+                                                        <div class="ml-auto">
+                                                            <button
+                                                                class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
+                                                                on:click=move |_| {
+                                                                    if let Some(window) = web_sys::window() {
+                                                                        let _ = window.print();
+                                                                    }
+                                                                }
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                    <polyline points="6 9 6 2 18 2 18 9"/>
+                                                                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                                                                    <rect x="6" y="14" width="12" height="8"/>
+                                                                </svg>
+                                                                "Print"
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                     <div class="flex justify-between items-start">
                                                         <div class="flex flex-wrap gap-2">
