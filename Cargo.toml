@@ -57,6 +57,7 @@ frontend = [
     "dep:codee",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
+    "dep:js-sys",
     "dep:gloo-net",
     "dep:gloo-storage",
     "dep:web-sys",
@@ -230,6 +231,10 @@ optional = true
 
 [dependencies.wasm-bindgen]
 version = "0.2.121"
+optional = true
+
+[dependencies.js-sys]
+version = "0.3.92"
 optional = true
 
 [dependencies.gloo-net]

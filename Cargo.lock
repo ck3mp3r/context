@@ -581,6 +581,7 @@ dependencies = [
  "gloo-storage",
  "http-body-util",
  "ignore",
+ "js-sys",
  "leptos",
  "leptos-use",
  "leptos_meta",

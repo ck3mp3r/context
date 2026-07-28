@@ -613,6 +613,37 @@ body {
 
 /* Print styles for notes */
 @media print {
+  /* Force light mode (Catppuccin Latte) for print regardless of active theme */
+  :root {
+    color-scheme: light;
+    --ctp-base: #eff1f5 !important;
+    --ctp-mantle: #e6e9ef !important;
+    --ctp-crust: #dce0e8 !important;
+    --ctp-text: #4c4f69 !important;
+    --ctp-subtext1: #5c5f77 !important;
+    --ctp-subtext0: #6c6f85 !important;
+    --ctp-overlay0: #9ca0b0 !important;
+    --ctp-overlay1: #8c8fa1 !important;
+    --ctp-overlay2: #7c7f93 !important;
+    --ctp-surface0: #ccd0da !important;
+    --ctp-surface1: #bcc0cc !important;
+    --ctp-surface2: #acb0be !important;
+    --ctp-rosewater: #dc8a78 !important;
+    --ctp-flamingo: #dd7878 !important;
+    --ctp-pink: #ea76cb !important;
+    --ctp-mauve: #8839ef !important;
+    --ctp-red: #d20f39 !important;
+    --ctp-maroon: #e64553 !important;
+    --ctp-peach: #fe640b !important;
+    --ctp-yellow: #df8e1d !important;
+    --ctp-green: #40a02b !important;
+    --ctp-teal: #179299 !important;
+    --ctp-sky: #04a5e5 !important;
+    --ctp-sapphire: #209fb5 !important;
+    --ctp-blue: #1e66f5 !important;
+    --ctp-lavender: #7287fd !important;
+  }
+
   /* Hide app shell navigation */
   nav { display: none !important; }
 
@@ -633,6 +664,16 @@ body {
     overflow: visible !important;
   }
 
+  /* Neutralize flex/height constraints on ancestors so page breaks work */
+  .print-only,
+  .container,
+  .flex-1 {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
   /* Preserve colors in print */
   .prose, .prose * {
     print-color-adjust: exact;
@@ -640,11 +681,9 @@ body {
   }
 
   /* Page breaks between notes in notestack print */
-  .note-print-page {
-    page-break-after: always;
-  }
-  .note-print-page:last-child {
-    page-break-after: auto;
+  .note-print-page:not(:first-child) {
+    break-before: page;
+    page-break-before: always;
   }
 
   @page {

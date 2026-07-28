@@ -362,121 +362,117 @@ pub fn NoteDetail() -> impl IntoView {
                                                                                             {selected_note.title.clone()}
                                                                                         </h2>
                                                                                         <div class="ml-auto">
-                                                                                            <button
-                                                                                                class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
-                                                                                                on:click=move |_| {
-                                                                                                    if let Some(window) = web_sys::window() {
-                                                                                                        let _ = window.print();
-                                                                                                    }
-                                                                                                }
-                                                                                            >
-                                                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                                                                    <polyline points="6 9 6 2 18 2 18 9"/>
-                                                                                                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-                                                                                                    <rect x="6" y="14" width="12" height="8"/>
-                                                                                                </svg>
-                                                                                                "Print"
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <div class="flex justify-between items-start">
-                                                                                        <div class="flex flex-wrap gap-2">
-                                                                                            {(!selected_note.tags.is_empty())
-                                                                                                .then(|| {
-                                                                                                    selected_note.tags
-                                                                                                        .iter()
-                                                                                                        .map(|tag: &String| {
-                                                                                                            view! {
-                                                                                                                <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                                                                                    {tag.clone()}
-                                                                                                                </span>
-                                                                                                            }
-                                                                                                        })
-                                                                                                        .collect::<Vec<_>>()
-                                                                                                })}
-                                                                                        </div>
-                                                                                        <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
-                                                                                            <span>"Created: " {selected_note.created_at.clone()}</span>
-                                                                                            <span>"Updated: " {selected_note.updated_at.clone()}</span>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-
-                                                                                // Scrollable content
-                                                                                <div class="flex-1 overflow-y-auto min-h-0 pt-6">
-                                                                                    <div class="prose prose-invert max-w-none">
-                                                                                        <MarkdownContent content=selected_note.content.clone()/>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        }.into_any()
-                                                                    }
-                                                                    Err(err) => {
-                                                                        view! {
-                                                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                                                                <p class="text-ctp-red font-semibold">"Error loading note"</p>
-                                                                                <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
-                                                                            </div>
-                                                                        }.into_any()
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }}
-                                                </div>
-                                            </div>
-
-                                            // Print-only container with all subnotes
-                                            <div class="print-only">
-                                                {move || {
-                                                    let notes = print_notes.get();
-                                                    let parent = note.clone();
-                                                    let mut all_notes = vec![
-                                                        view! {
-                                                            <div class="note-print-page">
-                                                                <h1 class="text-2xl font-bold mb-4">{parent.title.clone()}</h1>
-                                                                <div class="prose max-w-none">
-                                                                    <MarkdownContent content=parent.content.clone() />
-                                                                </div>
-                                                            </div>
-                                                        }.into_any()
-                                                    ];
-                                                    for subnote in notes {
-                                                        all_notes.push(
-                                                            view! {
-                                                                <div class="note-print-page">
-                                                                    <h1 class="text-2xl font-bold mb-4">{subnote.title.clone()}</h1>
-                                                                    <div class="prose max-w-none">
-                                                                        <MarkdownContent content=subnote.content.clone() />
-                                                                    </div>
-                                                                </div>
-                                                            }.into_any()
-                                                        );
-                                                    }
-                                                    all_notes
-                                                }}
-                                            </div>
-                                        }.into_any()
-                                    } else {
-                                        // Full-width layout for single notes
-                                        view! {
-                                            <div class="flex flex-col h-[calc(100vh-12rem)] note-print-area">
-                                                // Header: title, tags, metadata
-                                                <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
-                                                    <div class="flex items-center gap-3 mb-4">
-                                                        <CopyableId id=note.id.clone()/>
-                                                        <h2 class="text-2xl font-bold text-ctp-text">
-                                                            {note.title.clone()}
-                                                        </h2>
-                                                        <div class="ml-auto">
                                                             <button
                                                                 class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
                                                                 on:click=move |_| {
-                                                                    if let Some(window) = web_sys::window() {
-                                                                        let _ = window.print();
-                                                                    }
+                                                                    let _ = js_sys::eval("window.printWithLightMermaid && window.printWithLightMermaid()");
                                                                 }
                                                             >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                    <polyline points="6 9 6 2 18 2 18 9"/>
+                                                                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                                                                    <rect x="6" y="14" width="12" height="8"/>
+                                                                </svg>
+                                                                "Print"
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="flex justify-between items-start">
+                                                        <div class="flex flex-wrap gap-2">
+                                                            {(!selected_note.tags.is_empty())
+                                                                .then(|| {
+                                                                    selected_note.tags
+                                                                        .iter()
+                                                                        .map(|tag: &String| {
+                                                                            view! {
+                                                                                <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                                                    {tag.clone()}
+                                                                                </span>
+                                                                            }
+                                                                        })
+                                                                        .collect::<Vec<_>>()
+                                                                })}
+                                                        </div>
+                                                        <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
+                                                            <span>"Created: " {selected_note.created_at.clone()}</span>
+                                                            <span>"Updated: " {selected_note.updated_at.clone()}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                // Scrollable content
+                                                <div class="flex-1 overflow-y-auto min-h-0 pt-6">
+                                                    <div class="prose prose-invert max-w-none">
+                                                        <MarkdownContent content=selected_note.content.clone()/>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    Err(err) => {
+                                        view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                <p class="text-ctp-red font-semibold">"Error loading note"</p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">{err.to_string()}</p>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                }
+                            }
+                        }
+                    }}
+                </div>
+            </div>
+
+            // Print-only container with all subnotes
+            <div class="print-only">
+                {move || {
+                    let notes = print_notes.get();
+                    let parent = note.clone();
+                    let mut all_notes = vec![
+                        view! {
+                            <div class="note-print-page">
+                                <h1 class="text-2xl font-bold mb-4">{parent.title.clone()}</h1>
+                                <div class="prose max-w-none">
+                                    <MarkdownContent content=parent.content.clone() />
+                                </div>
+                            </div>
+                        }.into_any()
+                    ];
+                    for subnote in notes {
+                        all_notes.push(
+                            view! {
+                                <div class="note-print-page">
+                                    <h1 class="text-2xl font-bold mb-4">{subnote.title.clone()}</h1>
+                                    <div class="prose max-w-none">
+                                        <MarkdownContent content=subnote.content.clone() />
+                                    </div>
+                                </div>
+                            }.into_any()
+                        );
+                    }
+                    all_notes
+                }}
+            </div>
+        }.into_any()
+    } else {
+        // Full-width layout for single notes
+        view! {
+            <div class="flex flex-col h-[calc(100vh-12rem)] note-print-area">
+                // Header: title, tags, metadata
+                <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
+                    <div class="flex items-center gap-3 mb-4">
+                        <CopyableId id=note.id.clone()/>
+                        <h2 class="text-2xl font-bold text-ctp-text">
+                            {note.title.clone()}
+                        </h2>
+                        <div class="ml-auto">
+                            <button
+                                class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
+                                on:click=move |_| {
+                                    let _ = js_sys::eval("window.printWithLightMermaid && window.printWithLightMermaid()");
+                                }
+                            >
                                                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                                     <polyline points="6 9 6 2 18 2 18 9"/>
                                                                     <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>

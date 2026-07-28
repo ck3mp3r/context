@@ -171,7 +171,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                 </Routes>
             </div>
 
-            <footer class="py-3 px-6 border-t border-ctp-surface1 bg-ctp-surface0">
+            <footer class="screen-only py-3 px-6 border-t border-ctp-surface1 bg-ctp-surface0">
                 <div class="container mx-auto text-center text-xs text-ctp-overlay0">
                     "© " {
                         let date = web_sys::js_sys::Date::new_0();

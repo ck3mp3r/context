@@ -13,13 +13,34 @@ const __MERMAID_DIAGRAMS__ = new Map();
 window.mermaid_init_for_theme = function(isLight) {
   if (!window.mermaid) return;
 
+  // When forcing light mode (for printing), use hardcoded Latte values
+  // instead of reading from getComputedStyle (which still has dark values
+  // because the @media print CSS hasn't taken effect yet)
+  if (isLight) {
+    window.mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      themeVariables: {
+        background: '#eff1f5',
+        primaryColor: '#bcc0cc',
+        primaryBorderColor: '#9ca0b0',
+        primaryTextColor: '#4c4f69',
+        lineColor: '#9ca0b0',
+        secondaryColor: '#e6e9ef',
+        tertiaryColor: '#dce0e8',
+        edgeLabelBackground: '#bcc0cc',
+        clusterBkg: '#bcc0cc',
+        clusterBorder: '#9ca0b0',
+      }
+    });
+    return;
+  }
+
+  // Dark mode — read from computed styles (normal behavior)
   const rootStyles = getComputedStyle(document.documentElement);
   const ctp = (name) => rootStyles.getPropertyValue('--ctp-' + name).trim() || '';
 
-  // Fallbacks if CSS vars not yet applied
-  const fallbacks = isLight
-    ? { surface0: '#eff1f5', surface1: '#bcc0cc', overlay0: '#9ca0b0', text: '#4c4f69', mantle: '#e6e9ef', crust: '#dce0e8' }
-    : { surface0: '#1e1e2e', surface1: '#45475a', overlay0: '#6c7086', text: '#cdd6f4', mantle: '#181825', crust: '#11111b' };
+  const fallbacks = { surface0: '#1e1e2e', surface1: '#45475a', overlay0: '#6c7086', text: '#cdd6f4', mantle: '#181825', crust: '#11111b' };
 
   window.mermaid.initialize({
     startOnLoad: false,
@@ -218,3 +239,52 @@ function _wrapCodeBlock(preEl, sourceText) {
   parent.replaceChild(wrapper, preEl);
   wrapper.appendChild(preEl);
 }
+
+/**
+ * Re-render all mermaid diagrams with light theme, then print, then restore.
+ * Called from the print button via eval — must be fully self-contained.
+ * NOT async — uses .then() chains so eval() doesn't need to await the Promise.
+ */
+window.printWithLightMermaid = function() {
+  if (!window.mermaid || __MERMAID_DIAGRAMS__.size === 0) {
+    // No mermaid diagrams — just print directly
+    window.print();
+    return;
+  }
+
+  // Save current theme
+  const wasLight = document.documentElement.getAttribute('data-theme') === 'latte';
+
+  // Initialize with light theme (Latte colors)
+  window.mermaid_init_for_theme(true);
+
+  // Re-render all diagrams with light colors, THEN print
+  var promises = [];
+  for (const [div, { source, id }] of __MERMAID_DIAGRAMS__) {
+    var p = window.mermaid.render(id + '-print', source).then(function(result) {
+      div.innerHTML = result.svg;
+    }).catch(function(e) {
+      console.error('Mermaid print re-render error:', e);
+    });
+    promises.push(p);
+  }
+
+  // Wait for ALL diagrams to re-render, THEN call window.print()
+  Promise.all(promises).then(function() {
+    // Small delay to let DOM update with new SVGs
+    requestAnimationFrame(function() {
+      window.print();
+      // Restore original theme after print dialog
+      var restorePromises = [];
+      window.mermaid_init_for_theme(wasLight);
+      for (const [div, { source, id }] of __MERMAID_DIAGRAMS__) {
+        var rp = window.mermaid.render(id + '-restore', source).then(function(result) {
+          div.innerHTML = result.svg;
+        }).catch(function(e) {
+          console.error('Mermaid restore error:', e);
+        });
+        restorePromises.push(rp);
+      }
+    });
+  });
+};
