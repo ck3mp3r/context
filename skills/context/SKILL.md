@@ -70,6 +70,17 @@ Allowed transitions:
 7. get_task_list_stats — check progress
 ```
 
+### Writing Tasks and Notes
+
+When creating tasks, task descriptions, or notes, load the `ste-writing` skill (`skill("ste-writing")`) for unambiguous writing rules. It provides:
+
+- STE-derived principles (one word = one meaning, active voice, short sentences)
+- Task spec anatomy (objective, scope, criteria, verification)
+- Banned words that make criteria untestable (`appropriate`, `should`, `etc.`)
+- Self-review checklist for clarity
+
+Apply it to task descriptions, acceptance criteria, PR descriptions, and session notes to reduce rework from misinterpretation.
+
 ## Session Notes (Multi-Session Work)
 
 For work spanning multiple sessions or surviving context compaction:
