@@ -330,7 +330,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         };
 
         // Get paginated results
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
@@ -345,7 +345,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let items: Vec<Task> = rows.iter().map(row_to_task).collect();
 
         // Get total count
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -469,7 +469,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             from_clause, where_clause
         );
 
-        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut count_query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -488,7 +488,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             from_clause, where_clause, order_clause, limit_clause
         );
 
-        let mut data_query = sqlx::query(&data_sql);
+        let mut data_query = sqlx::query(sqlx::AssertSqlSafe(data_sql.as_str()));
         for value in &bind_values {
             data_query = data_query.bind(value);
         }
@@ -706,7 +706,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         );
 
         // Fetch all tasks
-        let mut query = sqlx::query(&query_str);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(query_str.as_str()));
         for id in task_ids {
             query = query.bind(id);
         }
@@ -768,18 +768,19 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
 
         // Guard: cannot mark done/cancelled while subtasks are still in flight
         if matches!(target_status, TaskStatus::Done | TaskStatus::Cancelled) {
-            let in_flight_statuses = "('todo','in_progress','review')";
+            let in_flight_statuses = "'todo','in_progress','review'";
             for task in &tasks {
-                let blocking: Vec<String> = sqlx::query_scalar(&format!(
-                    "SELECT id FROM task WHERE parent_id = ? AND status IN {}",
+                let sql = format!(
+                    "SELECT id FROM task WHERE parent_id = ? AND status IN ({})",
                     in_flight_statuses
-                ))
-                .bind(&task.id)
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
+                );
+                let blocking: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
+                    .bind(&task.id)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(|e| DbError::Database {
+                        message: e.to_string(),
+                    })?;
 
                 if !blocking.is_empty() {
                     return Err(DbError::Validation {
@@ -809,7 +810,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             placeholders
         );
 
-        let mut update = sqlx::query(&update_query)
+        let mut update = sqlx::query(sqlx::AssertSqlSafe(update_query.as_str()))
             .bind(&target_status_str)
             .bind(&updated_at);
 
@@ -850,7 +851,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         // Fetch updated tasks
-        let mut fetch_query = sqlx::query(&query_str);
+        let mut fetch_query = sqlx::query(sqlx::AssertSqlSafe(query_str.as_str()));
         for id in task_ids {
             fetch_query = fetch_query.bind(id);
         }
