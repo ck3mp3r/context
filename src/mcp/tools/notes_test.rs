@@ -1200,3 +1200,225 @@ async fn test_list_notes_with_project_filter() {
         "non-existent project should return 0 notes"
     );
 }
+
+// =============================================================================
+// Helper functions for parent_id tests
+// =============================================================================
+
+async fn create_test_note(tools: &NoteTools<SqliteDatabase>, title: &str, content: &str) -> Note {
+    let params = CreateNoteParams {
+        title: title.to_string(),
+        content: content.to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+    let result = tools
+        .create_note(Parameters(params))
+        .await
+        .expect("create should succeed");
+    let text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    serde_json::from_str(text).unwrap()
+}
+
+async fn read_etag(tools: &NoteTools<SqliteDatabase>, note_id: &str) -> String {
+    let params = ReadNoteParams {
+        note_id: note_id.to_string(),
+        ranges: None,
+        format: None,
+    };
+    let result = tools
+        .read_note(Parameters(params))
+        .await
+        .expect("read should succeed");
+    let text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let json: serde_json::Value = serde_json::from_str(text).unwrap();
+    json["etag"].as_str().expect("etag should exist").to_string()
+}
+
+fn parse_json<T: serde::de::DeserializeOwned>(result: rmcp::model::CallToolResult) -> T {
+    let text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    serde_json::from_str(text).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_edit_note_set_parent_id() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create parent note
+    let parent = create_test_note(&tools, "Parent", "Parent content").await;
+
+    // Create child note (top-level)
+    let child = create_test_note(&tools, "Child", "Child content").await;
+    assert!(child.parent_id.is_none());
+
+    // Read child to get etag
+    let etag = read_etag(&tools, &child.id).await;
+
+    // Edit: set parent_id
+    let edit_params = EditNoteParams {
+        note_id: child.id.clone(),
+        etag,
+        title: None,
+        tags: None,
+        parent_id: Some(parent.id.clone()),
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+        patches: vec![],
+    };
+    let result = tools
+        .edit_note(Parameters(edit_params))
+        .await
+        .expect("edit should succeed");
+    let updated: Note = parse_json(result);
+    assert_eq!(
+        updated.parent_id,
+        Some(parent.id.clone()),
+        "parent_id should be set after edit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_edit_note_remove_parent_id_with_empty_string() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create parent and child
+    let parent = create_test_note(&tools, "Parent", "Parent content").await;
+    let child_params = CreateNoteParams {
+        title: "Child".to_string(),
+        content: "Child content".to_string(),
+        tags: None,
+        parent_id: Some(parent.id.clone()),
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+    let child_result = tools
+        .create_note(Parameters(child_params))
+        .await
+        .expect("create child should succeed");
+    let child: Note = parse_json(child_result);
+    assert_eq!(child.parent_id, Some(parent.id.clone()));
+
+    // Read to get etag
+    let etag = read_etag(&tools, &child.id).await;
+
+    // Edit: pass empty string to remove parent
+    let edit_params = EditNoteParams {
+        note_id: child.id.clone(),
+        etag,
+        title: None,
+        tags: None,
+        parent_id: Some(String::new()),
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+        patches: vec![],
+    };
+    let result = tools
+        .edit_note(Parameters(edit_params))
+        .await
+        .expect("edit should succeed");
+    let updated: Note = parse_json(result);
+    assert_eq!(
+        updated.parent_id, None,
+        "parent_id should be None after passing empty string"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_edit_note_null_parent_id_no_change() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create parent and child
+    let parent = create_test_note(&tools, "Parent", "Parent content").await;
+    let child_params = CreateNoteParams {
+        title: "Child".to_string(),
+        content: "Child content".to_string(),
+        tags: None,
+        parent_id: Some(parent.id.clone()),
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+    let child_result = tools
+        .create_note(Parameters(child_params))
+        .await
+        .expect("create child should succeed");
+    let child: Note = parse_json(child_result);
+    assert_eq!(child.parent_id, Some(parent.id.clone()));
+
+    // Read to get etag
+    let etag = read_etag(&tools, &child.id).await;
+
+    // Simulate LLM passing null by deserializing JSON with parent_id: null
+    let json = format!(
+        r#"{{"note_id":"{}","etag":"{}","parent_id":null,"patches":[]}}"#,
+        child.id, etag
+    );
+    let edit_params: EditNoteParams = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        edit_params.parent_id, None,
+        "null parent_id should deserialize to None (no change)"
+    );
+
+    let result = tools
+        .edit_note(Parameters(edit_params))
+        .await
+        .expect("edit should succeed");
+    let updated: Note = parse_json(result);
+    assert_eq!(
+        updated.parent_id,
+        Some(parent.id.clone()),
+        "parent_id should remain unchanged when null is passed"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_note_with_empty_string_parent_id() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    // Create note with empty string parent_id
+    let params = CreateNoteParams {
+        title: "Top-level".to_string(),
+        content: "Content".to_string(),
+        tags: None,
+        parent_id: Some(String::new()),
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+    let result = tools
+        .create_note(Parameters(params))
+        .await
+        .expect("create should succeed");
+    let note: Note = parse_json(result);
+    assert_eq!(
+        note.parent_id, None,
+        "empty string parent_id should create a top-level note"
+    );
+}

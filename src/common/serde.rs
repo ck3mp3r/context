@@ -81,3 +81,18 @@ where
     let result = double_option(de)?;
     Ok(result.map(|inner| inner.filter(|s: &String| !s.is_empty())))
 }
+
+/// Deserialize `Option<String>` where `null` becomes `None` (no change).
+///
+/// Unlike `double_option_string_or_empty`, this keeps the field as `Option<String>`:
+///
+/// - Missing field → `None` (no change)
+/// - Field is `null` → `None` (no change, safe default for LLMs that pass null)
+/// - Field is `""` → `Some("")` (remove/clear, checked in handler logic)
+/// - Field has value → `Some(value)` (set)
+pub fn deserialize_option_string<'de, D>(de: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(de)
+}

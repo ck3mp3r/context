@@ -166,7 +166,8 @@ pub struct CreateNoteParams {
         description = "Tags. Use parent:NOTE_ID (continuation), related:NOTE_ID (reference), session (persistent)."
     )]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Parent note ID (optional)")]
+    #[schemars(description = "Parent note ID to make this note a subnote. Omit this parameter for a top-level note.")]
+    #[serde(default, deserialize_with = "crate::common::serde::deserialize_option_string")]
     pub parent_id: Option<String>,
     #[schemars(description = "Manual ordering index (optional)")]
     pub idx: Option<i32>,
@@ -194,12 +195,11 @@ pub struct EditNoteParams {
     pub title: Option<String>,
     #[schemars(description = "Tags. Use parent:NOTE_ID, related:NOTE_ID. Replaces all existing.")]
     pub tags: Option<Vec<String>>,
-    #[schemars(description = "Parent note ID. Use empty string or null to remove.")]
-    #[serde(
-        default,
-        deserialize_with = "crate::common::serde::double_option_string_or_empty"
+    #[schemars(
+        description = "Parent note ID to make this note a subnote. Omit this parameter to leave unchanged. Pass empty string \"\" to remove an existing parent."
     )]
-    pub parent_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::common::serde::deserialize_option_string")]
+    pub parent_id: Option<String>,
     #[schemars(description = "Manual ordering index (optional)")]
     #[serde(default, deserialize_with = "crate::common::serde::double_option")]
     pub idx: Option<Option<i32>>,
@@ -297,7 +297,9 @@ impl<D: Database + 'static> NoteTools<D> {
             title: params.0.title.clone(),
             content: params.0.content.clone(),
             tags: params.0.tags.clone().unwrap_or_default(),
-            parent_id: params.0.parent_id.clone(),
+            parent_id: params.0.parent_id.as_ref().and_then(|s| {
+                if s.is_empty() { None } else { Some(s.clone()) }
+            }),
             idx: params.0.idx,
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
@@ -492,7 +494,11 @@ impl<D: Database + 'static> NoteTools<D> {
             note.tags = tags.clone();
         }
         if let Some(parent_id) = &params.0.parent_id {
-            note.parent_id = parent_id.clone();
+            if parent_id.is_empty() {
+                note.parent_id = None;
+            } else {
+                note.parent_id = Some(parent_id.clone());
+            }
         }
         if let Some(idx) = &params.0.idx {
             note.idx = *idx;
