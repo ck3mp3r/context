@@ -167,7 +167,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
 
     async fn get(&self, id: &str) -> DbResult<Skill> {
         let sql = format!("SELECT {} FROM skill WHERE id = ?", SKILL_COLS);
-        let row = sqlx::query(&sql)
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(id)
             .fetch_optional(self.pool)
             .await
@@ -268,7 +268,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         } else {
             format!("SELECT COUNT(*) FROM skill {}", where_clause)
         };
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
@@ -279,7 +279,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 message: e.to_string(),
             })?;
         let items: Vec<Skill> = rows.iter().map(row_to_skill).collect();
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -431,7 +431,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         }
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
         let sql = format!("SELECT {} FROM skill {}", SKILL_COLS, where_clause);
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }

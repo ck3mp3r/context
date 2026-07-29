@@ -457,7 +457,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         };
 
         // Get paginated results
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
@@ -482,7 +482,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
                 placeholders
             );
-            let mut project_query = sqlx::query_as::<_, (String, String)>(&project_sql);
+            let mut project_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
             for id in &note_ids {
                 project_query = project_query.bind(id);
             }
@@ -503,7 +503,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
                 placeholders
             );
-            let mut repo_query = sqlx::query_as::<_, (String, String)>(&repo_sql);
+            let mut repo_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
             for id in &note_ids {
                 repo_query = repo_query.bind(id);
             }
@@ -550,7 +550,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .collect();
 
         // Get total count
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -719,7 +719,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         };
 
         // Get paginated results
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
@@ -744,7 +744,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
                 placeholders
             );
-            let mut project_query = sqlx::query_as::<_, (String, String)>(&project_sql);
+            let mut project_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
             for id in &note_ids {
                 project_query = project_query.bind(id);
             }
@@ -765,7 +765,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
                 placeholders
             );
-            let mut repo_query = sqlx::query_as::<_, (String, String)>(&repo_sql);
+            let mut repo_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
             for id in &note_ids {
                 repo_query = repo_query.bind(id);
             }
@@ -812,7 +812,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .collect();
 
         // Get total count
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -1099,7 +1099,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         };
 
         // Get paginated results
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
@@ -1124,7 +1124,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
                 placeholders
             );
-            let mut project_query = sqlx::query_as::<_, (String, String)>(&project_sql);
+            let mut project_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
             for id in &note_ids {
                 project_query = project_query.bind(id);
             }
@@ -1145,7 +1145,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
                 placeholders
             );
-            let mut repo_query = sqlx::query_as::<_, (String, String)>(&repo_sql);
+            let mut repo_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
             for id in &note_ids {
                 repo_query = repo_query.bind(id);
             }
@@ -1192,7 +1192,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .collect();
 
         // Get total count
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }

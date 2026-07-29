@@ -246,7 +246,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
         };
 
         // Execute main query
-        let mut sql_query = sqlx::query(&sql);
+        let mut sql_query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             sql_query = sql_query.bind(value);
         }
@@ -275,7 +275,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             .collect();
 
         // Execute count query
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }

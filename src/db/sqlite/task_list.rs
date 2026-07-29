@@ -272,7 +272,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         };
 
         // Get paginated results
-        let mut query_builder = sqlx::query(&sql);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
@@ -315,7 +315,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             .collect();
 
         // Get total count
-        let mut count_query = sqlx::query_scalar(&count_sql);
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -416,7 +416,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             from_clause, where_clause
         );
 
-        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut count_query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);
         }
@@ -435,7 +435,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             from_clause, where_clause, order_clause, limit_clause
         );
 
-        let mut data_query = sqlx::query(&data_sql);
+        let mut data_query = sqlx::query(sqlx::AssertSqlSafe(data_sql.as_str()));
         for value in &bind_values {
             data_query = data_query.bind(value);
         }
