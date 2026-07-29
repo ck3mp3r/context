@@ -102,7 +102,6 @@ create_note(
 ## Notes
 
 - Hierarchical via `parent_id` — subnotes for detail, parent for summary
-- Tag conventions: `parent:NOTE_ID` (continuation), `related:NOTE_ID` (reference)
 - Use `include_content: false` when listing to avoid context bloat
 - **TOON format is default** — `read_note` returns line-numbered content for accurate patching (opt-out with `format="json"`)
 
