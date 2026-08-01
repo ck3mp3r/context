@@ -1,6 +1,7 @@
 //! Tests for SqliteRepoRepository.
 
-use crate::db::{Database, HasRepos, Repo, RepoQuery, RepoRepository, SqliteDatabase};
+use context_core::{Database, HasRepos, Repo, RepoQuery, RepoRepository};
+use crate::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -690,7 +691,7 @@ async fn create_repo_with_empty_remote_should_fail() {
     assert!(result.is_err(), "Create should fail with empty remote");
 
     match result {
-        Err(crate::db::DbError::Validation { message }) => {
+        Err(context_core::DbError::Validation { message }) => {
             assert!(
                 message.contains("remote") && message.contains("empty"),
                 "Error should mention empty remote, got: {}",

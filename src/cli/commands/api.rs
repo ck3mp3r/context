@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use miette::{IntoDiagnostic, Result};
 
 use crate::api::{self, Config};
-use crate::db::Database;
-use crate::db::sqlite::SqliteDatabase;
+use context_core::Database;
+use context_db::SqliteDatabase;
 use crate::sync::{get_db_path, set_base_path};
 
 /// Run the API server

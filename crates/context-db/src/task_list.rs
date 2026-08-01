@@ -395,9 +395,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
 
-            let order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-                crate::db::SortOrder::Asc => "ASC",
-                crate::db::SortOrder::Desc => "DESC",
+            let order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+                context_core::SortOrder::Asc => "ASC",
+                context_core::SortOrder::Desc => "DESC",
             };
 
             format!("ORDER BY tl.{} {}", sort_field, order)

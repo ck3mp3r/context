@@ -3,10 +3,10 @@ use context_core::{
     NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment,
     SkillRepository, TaskList, TaskListRepository, TaskListStatus,
 };
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use crate::sync::export::export_all;
 use crate::sync::import::import_all;
-use crate::sync::jsonl::write_jsonl;
+use context_core::write_jsonl;
 use base64::prelude::*;
 use tempfile::TempDir;
 

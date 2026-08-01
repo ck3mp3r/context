@@ -26,7 +26,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::db::{DbError, SkillAttachment};
+use context_core::{DbError, SkillAttachment};
 use crate::sync::get_data_dir;
 
 /// Minimal frontmatter structure for extracting skill name

@@ -11,7 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::{Database, DbError, PageSort, Skill, SkillQuery, SkillRepository, SortOrder};
+use context_core::{Database, DbError, PageSort, Skill, SkillQuery, SkillRepository, SortOrder};
 
 use super::ErrorResponse;
 
@@ -627,8 +627,8 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
         Ok(s) => s,
         Err(DbError::NotFound { .. }) => {
             // Try by name
-            let query = crate::db::SkillQuery {
-                page: crate::db::PageSort {
+            let query = context_core::SkillQuery {
+                page: context_core::PageSort {
                     limit: Some(1),
                     offset: None,
                     sort_by: None,
@@ -739,8 +739,8 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
         Ok(s) => s,
         Err(DbError::NotFound { .. }) => {
             // Try by name
-            let query = crate::db::SkillQuery {
-                page: crate::db::PageSort {
+            let query = context_core::SkillQuery {
+                page: context_core::PageSort {
                     limit: Some(1),
                     offset: None,
                     sort_by: None,

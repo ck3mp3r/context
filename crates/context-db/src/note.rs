@@ -423,9 +423,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-                crate::db::SortOrder::Asc => "ASC",
-                crate::db::SortOrder::Desc => "DESC",
+            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+                context_core::SortOrder::Asc => "ASC",
+                context_core::SortOrder::Desc => "DESC",
             };
 
             // Handle last_activity_at sort field
@@ -659,9 +659,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-                crate::db::SortOrder::Asc => "ASC",
-                crate::db::SortOrder::Desc => "DESC",
+            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+                context_core::SortOrder::Asc => "ASC",
+                context_core::SortOrder::Desc => "DESC",
             };
 
             // Handle last_activity_at sort field
@@ -1065,9 +1065,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-                crate::db::SortOrder::Asc => "ASC",
-                crate::db::SortOrder::Desc => "DESC",
+            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+                context_core::SortOrder::Asc => "ASC",
+                context_core::SortOrder::Desc => "DESC",
             };
 
             // Handle last_activity_at sort field

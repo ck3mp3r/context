@@ -1,9 +1,10 @@
 //! Critical integration tests for relationship handling.
 
-use crate::db::{
-    Database, HasTaskLists, SqliteDatabase, TaskList, TaskListQuery, TaskListRepository,
+use context_core::{
+    Database, HasTaskLists, TaskList, TaskListQuery, TaskListRepository,
     TaskListStatus,
 };
+use crate::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

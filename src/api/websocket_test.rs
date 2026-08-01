@@ -8,7 +8,8 @@ use tower::ServiceExt;
 
 use crate::api::notifier::ChangeNotifier;
 use crate::api::{AppState, routes};
-use crate::db::{Database, SqliteDatabase};
+use context_core::Database;
+use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
 #[tokio::test(flavor = "multi_thread")]

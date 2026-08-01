@@ -1,3 +1,10 @@
+[workspace]
+members = [
+    ".",
+    "crates/context-core",
+    "crates/context-db",
+]
+
 [[bin]]
 name = "c5t"
 path = "src/bin/cli.rs"
@@ -41,6 +48,7 @@ backend = [
 
 [dependencies]
 context-core = { path = "crates/context-core" }
+context-db = { path = "crates/context-db" }
 base64 = "0.23.0"
 ignore = "0.4"
 sanitize-filename = "0.6"

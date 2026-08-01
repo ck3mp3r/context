@@ -1,10 +1,11 @@
 //! Tests for TaskList MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{
-    Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, SqliteDatabase, Task,
+use context_core::{
+    Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task,
     TaskList, TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
 };
+use context_db::SqliteDatabase;
 use crate::mcp::tools::task_lists::{
     CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,
     ListTaskListsParams, TaskListTools, UpdateTaskListParams,

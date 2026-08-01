@@ -12,9 +12,6 @@ mod git_test;
 mod import;
 #[cfg(test)]
 mod import_test;
-mod jsonl;
-#[cfg(test)]
-mod jsonl_test;
 mod manager;
 #[cfg(test)]
 mod manager_test;
@@ -27,7 +24,8 @@ pub use export::{ExportError, export_all};
 pub use git::MockGitOps;
 pub use git::{GitError, GitOps, RealGit};
 pub use import::{ImportError, import_all};
-pub use jsonl::{JsonlError, read_jsonl, write_jsonl};
+// Re-export JSONL utilities from context-core (moved in Phase 3)
+pub use context_core::{JsonlError, read_jsonl, write_jsonl};
 pub use manager::{EntityCounts, GitStatus, InitResult, SyncError, SyncManager, SyncStatus};
 
 // Re-export summary types from context-core for backward compatibility

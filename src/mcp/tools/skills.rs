@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::HasSkills;
-use crate::db::SkillRepository;
+use context_core::HasSkills;
+use context_core::SkillRepository;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListSkillsParams {
@@ -88,14 +88,14 @@ impl<D: HasSkills + 'static> SkillTools<D> {
         &self,
         params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {
-        let db_query = crate::db::SkillQuery {
-            page: crate::db::PageSort {
+        let db_query = context_core::SkillQuery {
+            page: context_core::PageSort {
                 limit: params.0.limit,
                 offset: params.0.offset,
                 sort_by: params.0.sort.clone(),
                 sort_order: match params.0.order.as_deref() {
-                    Some("desc") => Some(crate::db::SortOrder::Desc),
-                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    Some("desc") => Some(context_core::SortOrder::Desc),
+                    Some("asc") => Some(context_core::SortOrder::Asc),
                     _ => None,
                 },
             },
@@ -147,7 +147,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
             .get(&params.0.skill_id)
             .await
             .map_err(|e| match e {
-                crate::db::DbError::NotFound { .. } => McpError::resource_not_found(
+                context_core::DbError::NotFound { .. } => McpError::resource_not_found(
                     "skill_not_found",
                     Some(serde_json::json!({"error": e.to_string()})),
                 ),
@@ -232,7 +232,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
             .get(&params.0.skill_id)
             .await
             .map_err(|e| match e {
-                crate::db::DbError::NotFound { .. } => McpError::resource_not_found(
+                context_core::DbError::NotFound { .. } => McpError::resource_not_found(
                     "skill_not_found",
                     Some(serde_json::json!({"error": e.to_string()})),
                 ),
@@ -259,6 +259,14 @@ impl<D: HasSkills + 'static> SkillTools<D> {
         self.db.skills().update(&skill).await.map_err(|e| {
             McpError::internal_error(
                 "database_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Invalidate cache after successful update
+        crate::skills::invalidate_cache(&skill.name).map_err(|e| {
+            McpError::internal_error(
+                "cache_error",
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;

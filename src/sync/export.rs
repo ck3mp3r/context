@@ -8,7 +8,7 @@ use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
 
-use super::jsonl::{JsonlError, write_jsonl};
+use context_core::{JsonlError, write_jsonl};
 
 /// Errors that can occur during export.
 #[derive(Error, Diagnostic, Debug)]

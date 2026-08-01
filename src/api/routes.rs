@@ -19,7 +19,7 @@ use super::v1::{
     UpdateTaskRequest,
 };
 
-use crate::db::Database;
+use context_core::Database;
 
 /// Build routes with generic database and git types.
 ///

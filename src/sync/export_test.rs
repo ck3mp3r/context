@@ -2,9 +2,9 @@ use context_core::{
     Database, ExportSummary, HasNotes, HasProjects, HasRepos, HasSkills, Note, NoteRepository,
     Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository,
 };
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use crate::sync::export::export_all;
-use crate::sync::jsonl::read_jsonl;
+use context_core::read_jsonl;
 use base64::prelude::*;
 use tempfile::TempDir;
 

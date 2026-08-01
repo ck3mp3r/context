@@ -228,8 +228,8 @@ pub async fn import_skill<D: HasSkills + HasProjects>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::SqliteDatabase;
     use context_core::Database;
+    use context_db::SqliteDatabase;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_local_path() {
@@ -384,7 +384,7 @@ description: Updated description
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_update_preserves_tags_and_project_ids_when_not_provided() {
         use context_core::generate_entity_id;
-        use crate::db::{Project, ProjectRepository};
+        use context_core::{Project, ProjectRepository};
 
         let db = SqliteDatabase::in_memory()
             .await
@@ -485,7 +485,7 @@ description: Updated content
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_update_replaces_tags_and_project_ids_when_provided() {
         use context_core::generate_entity_id;
-        use crate::db::{Project, ProjectRepository};
+        use context_core::{Project, ProjectRepository};
 
         let db = SqliteDatabase::in_memory()
             .await
@@ -594,7 +594,7 @@ description: Test replacement
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_update_adds_tags_and_project_ids_to_empty_skill() {
         use context_core::generate_entity_id;
-        use crate::db::{Project, ProjectRepository};
+        use context_core::{Project, ProjectRepository};
 
         let db = SqliteDatabase::in_memory()
             .await

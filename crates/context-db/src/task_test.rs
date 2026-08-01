@@ -1,9 +1,10 @@
 //! Tests for SqliteTaskRepository.
 
-use crate::db::{
-    Database, HasTaskLists, HasTasks, HasTransitionLogs, SqliteDatabase, Task, TaskList,
+use context_core::{
+    Database, HasTaskLists, HasTasks, HasTransitionLogs, Task, TaskList,
     TaskListRepository, TaskListStatus, TaskQuery, TaskRepository, TaskStatus,
 };
+use crate::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -904,11 +905,11 @@ async fn parent_tasks_sorted_by_activity_include_subtask_updates() {
     // Query parent tasks sorted by updated_at DESC
     // Expected order: parent1 (last_activity=12:00), parent2 (last_activity=11:00)
     let query = TaskQuery {
-        page: crate::db::PageSort {
+        page: context_core::PageSort {
             limit: Some(10),
             offset: Some(0),
             sort_by: Some("updated_at".to_string()),
-            sort_order: Some(crate::db::SortOrder::Desc),
+            sort_order: Some(context_core::SortOrder::Desc),
         },
         list_id: Some("sort0001".to_string()),
         parent_id: None,
@@ -1623,7 +1624,7 @@ async fn create_task_with_empty_title_should_fail() {
     assert!(result.is_err(), "Create should fail with empty title");
 
     match result {
-        Err(crate::db::DbError::Validation { message }) => {
+        Err(context_core::DbError::Validation { message }) => {
             assert!(
                 message.contains("title") && message.contains("empty"),
                 "Error should mention empty title, got: {}",

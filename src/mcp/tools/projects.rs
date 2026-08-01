@@ -4,7 +4,7 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{HasProjects, PageSort, Project, ProjectQuery, ProjectRepository};
+use context_core::{HasProjects, PageSort, Project, ProjectQuery, ProjectRepository};
 use crate::mcp::tools::{apply_limit, map_db_error};
 use rmcp::{
     ErrorData as McpError,
@@ -123,8 +123,8 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
                 offset: params.0.offset,
                 sort_by: params.0.sort.clone(),
                 sort_order: match params.0.order.as_deref() {
-                    Some("desc") => Some(crate::db::SortOrder::Desc),
-                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    Some("desc") => Some(context_core::SortOrder::Desc),
+                    Some("asc") => Some(context_core::SortOrder::Asc),
                     _ => None,
                 },
             },

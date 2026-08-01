@@ -14,7 +14,7 @@ use sha2::Digest;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{HasNotes, Note, NoteQuery, NoteRepository, PageSort};
+use context_core::{HasNotes, Note, NoteQuery, NoteRepository, PageSort};
 use crate::mcp::tools::map_db_error;
 
 // =============================================================================
@@ -252,8 +252,8 @@ impl<D: HasNotes + 'static> NoteTools<D> {
                 offset: params.0.offset,
                 sort_by: params.0.sort.clone(),
                 sort_order: match params.0.order.as_deref() {
-                    Some("desc") => Some(crate::db::SortOrder::Desc),
-                    Some("asc") => Some(crate::db::SortOrder::Asc),
+                    Some("desc") => Some(context_core::SortOrder::Desc),
+                    Some("asc") => Some(context_core::SortOrder::Asc),
                     _ => None,
                 },
             },

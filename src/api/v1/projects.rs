@@ -12,7 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
+use context_core::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
 
 // =============================================================================
 // DTOs (Data Transfer Objects)

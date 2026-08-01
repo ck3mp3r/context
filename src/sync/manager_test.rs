@@ -1,4 +1,5 @@
-use crate::db::{Database, HasSkills, SqliteDatabase};
+use context_core::{Database, HasSkills};
+use context_db::SqliteDatabase;
 use crate::sync::git::{GitError, MockGitOps};
 use crate::sync::manager::*;
 use mockall::predicate::*;
@@ -421,7 +422,7 @@ async fn test_entity_counts_includes_skills_field() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_status_returns_correct_skills_count_from_db() {
-    use crate::db::{Skill, SkillRepository};
+    use context_core::{Skill, SkillRepository};
 
     let temp_dir = TempDir::new().unwrap();
     std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
@@ -494,7 +495,7 @@ Test instructions
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_count_jsonl_entities_counts_skills_jsonl() {
-    use crate::db::Skill;
+    use context_core::Skill;
     use crate::sync::write_jsonl;
 
     let temp_dir = TempDir::new().unwrap();
@@ -502,11 +503,11 @@ async fn test_count_jsonl_entities_counts_skills_jsonl() {
     let db = setup_test_db().await;
 
     // Create empty JSONL files for other entities
-    write_jsonl::<crate::db::Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
-    write_jsonl::<crate::db::Project>(&temp_dir.path().join("projects.jsonl"), &[]).unwrap();
-    write_jsonl::<crate::db::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
-    write_jsonl::<crate::db::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
-    write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+    write_jsonl::<context_core::Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
+    write_jsonl::<context_core::Project>(&temp_dir.path().join("projects.jsonl"), &[]).unwrap();
+    write_jsonl::<context_core::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
+    write_jsonl::<context_core::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
+    write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
 
     // Create skills.jsonl with 3 test skills
     let skills = vec![

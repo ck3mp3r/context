@@ -8,9 +8,6 @@ pub mod cli;
 pub mod common;
 
 #[cfg(feature = "backend")]
-pub mod db;
-
-#[cfg(feature = "backend")]
 pub mod mcp;
 
 #[cfg(feature = "backend")]

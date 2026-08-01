@@ -10,7 +10,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::db::Database;
+use context_core::Database;
 
 use super::server::McpServer;
 
@@ -32,7 +32,7 @@ use super::server::McpServer;
 /// use axum::Router;
 /// use tokio_util::sync::CancellationToken;
 /// use tempfile::TempDir;
-/// use context::db::SqliteDatabase;
+/// use context_db::SqliteDatabase;
 /// use context::mcp::create_mcp_service;
 /// use context::api::notifier::ChangeNotifier;
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {

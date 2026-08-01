@@ -3,8 +3,7 @@
 use sqlx::SqlitePool;
 use std::path::Path;
 
-use context_core::{DbError, DbResult, ExportSummary, ImportSummary, Note, Project, Repo, Skill, SyncRepository, Task, TaskList};
-use crate::sync::read_jsonl;
+use context_core::{DbError, DbResult, ExportSummary, ImportSummary, Note, Project, Repo, Skill, SyncRepository, Task, TaskList, read_jsonl};
 
 /// SQLite-specific sync repository.
 pub struct SqliteSyncRepository<'a> {
@@ -416,15 +415,14 @@ async fn export_all_from_pool(
     pool: &SqlitePool,
     output_dir: &Path,
 ) -> Result<ExportSummary, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::db::sqlite::{
+    use crate::{
         SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSkillRepository,
         SqliteTaskListRepository, SqliteTaskRepository,
     };
     use context_core::{
         NoteRepository, ProjectRepository, RepoRepository, SkillRepository, TaskListRepository,
-        TaskRepository,
+        TaskRepository, write_jsonl,
     };
-    use crate::sync::write_jsonl;
 
     let mut summary = ExportSummary::default();
 

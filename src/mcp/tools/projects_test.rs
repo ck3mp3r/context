@@ -1,7 +1,8 @@
 //! Tests for Project MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, HasProjects, Project, ProjectRepository, SqliteDatabase};
+use context_core::{Database, HasProjects, Project, ProjectRepository};
+use context_db::SqliteDatabase;
 use crate::mcp::tools::projects::ProjectTools;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::json;

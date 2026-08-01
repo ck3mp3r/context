@@ -2,13 +2,12 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::db::sqlite::SqliteDatabase;
-    use crate::db::{
+    use crate::SqliteDatabase;
+    use context_core::{
         Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks,
         Project, ProjectRepository, Repo, RepoRepository, Skill, SkillRepository, SyncRepository,
-        TaskList, TaskListRepository, TaskListStatus,
+        TaskList, TaskListRepository, TaskListStatus, write_jsonl,
     };
-    use crate::sync::write_jsonl;
     use base64::prelude::*;
     use tempfile::TempDir;
 
@@ -49,9 +48,9 @@ mod tests {
         write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
 
         // Create empty files for other entities
-        write_jsonl::<crate::db::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
     }
 
     /// Helper to create JSONL with invalid FK reference.
@@ -68,9 +67,9 @@ mod tests {
 
         write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo]).unwrap();
         write_jsonl::<Project>(&temp_dir.path().join("projects.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
     }
 
     /// Helper to create JSONL with partial valid data and one invalid FK.
@@ -100,7 +99,7 @@ mod tests {
         };
 
         // Invalid task_list with bad project FK
-        let task_list = crate::db::TaskList {
+        let task_list = context_core::TaskList {
             id: "list0001".to_string(),
             title: "Test List".to_string(),
             description: None,
@@ -118,8 +117,8 @@ mod tests {
         write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
         write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo]).unwrap();
         write_jsonl(&temp_dir.path().join("lists.jsonl"), &[task_list]).unwrap();
-        write_jsonl::<crate::db::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -383,7 +382,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_export_preserves_all_relationships() {
-        use crate::db::{Note, NoteRepository, TaskList, TaskListRepository, TaskListStatus};
+        use context_core::{Note, NoteRepository, TaskList, TaskListRepository, TaskListStatus};
 
         let db1 = setup_test_db().await;
         let db2 = setup_test_db().await;
@@ -469,7 +468,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_export_import_preserves_task_updated_at() {
-        use crate::db::{TaskRepository, TaskStatus};
+        use context_core::{TaskRepository, TaskStatus};
 
         let db1 = setup_test_db().await;
         let db2 = setup_test_db().await;
@@ -549,7 +548,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_export_import_preserves_note_hierarchy() {
         // RED: This test will fail because parent_id and idx are not preserved during import
-        use crate::db::NoteRepository;
+        use context_core::NoteRepository;
 
         let db1 = setup_test_db().await;
         let db2 = setup_test_db().await;
@@ -571,7 +570,7 @@ mod tests {
         db1.projects().create(&project).await.unwrap();
 
         // Create parent note
-        let parent_note = crate::db::Note {
+        let parent_note = context_core::Note {
             id: "note0001".to_string(),
             title: "Parent Note".to_string(),
             content: "This is the parent".to_string(),
@@ -587,7 +586,7 @@ mod tests {
         db1.notes().create(&parent_note).await.unwrap();
 
         // Create child note with parent_id and idx
-        let child_note = crate::db::Note {
+        let child_note = context_core::Note {
             id: "note0002".to_string(),
             title: "Child Note".to_string(),
             content: "This is a child".to_string(),
@@ -603,7 +602,7 @@ mod tests {
         db1.notes().create(&child_note).await.unwrap();
 
         // Create another child with different idx
-        let child_note2 = crate::db::Note {
+        let child_note2 = context_core::Note {
             id: "note0003".to_string(),
             title: "Second Child".to_string(),
             content: "Another child".to_string(),
@@ -707,7 +706,7 @@ Do something useful with this skill.
         db1.skills().create(&skill).await.unwrap();
 
         // Create attachments for the skill
-        use crate::db::SkillAttachment;
+        use context_core::SkillAttachment;
         let attachment1 = SkillAttachment {
             id: "attach01".to_string(),
             skill_id: "skill001".to_string(),
@@ -918,8 +917,8 @@ Updated instructions for the skill.
         write_jsonl(&temp_dir.path().join("skills.jsonl"), &[skill_v2]).unwrap();
         write_jsonl::<Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
         write_jsonl::<TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
 
         // Import should update
         let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
@@ -966,7 +965,7 @@ Updated instructions for the skill.
     #[tokio::test(flavor = "multi_thread")]
     async fn test_export_includes_task_transitions() {
         // RED: Will fail because task_transition_log.jsonl not exported yet
-        use crate::db::{TaskRepository, TaskStatus};
+        use context_core::{TaskRepository, TaskStatus};
 
         let db = setup_test_db().await;
         let temp_dir = TempDir::new().unwrap();
@@ -1004,7 +1003,7 @@ Updated instructions for the skill.
         db.task_lists().create(&task_list).await.unwrap();
 
         // Create task (will log initial backlog state)
-        let task = crate::db::Task {
+        let task = context_core::Task {
             id: "task0001".to_string(),
             list_id: "list0001".to_string(),
             parent_id: None,
@@ -1040,8 +1039,8 @@ Updated instructions for the skill.
         );
 
         // Read and verify transitions
-        use crate::db::TransitionLog;
-        let transitions: Vec<TransitionLog> = crate::sync::read_jsonl(&transitions_file).unwrap();
+        use context_core::TransitionLog;
+        let transitions: Vec<TransitionLog> = context_core::read_jsonl(&transitions_file).unwrap();
 
         assert_eq!(
             transitions.len(),
@@ -1076,7 +1075,7 @@ Updated instructions for the skill.
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_restores_task_transitions() {
         // RED: Will fail because import doesn't restore transitions yet
-        use crate::db::{TaskRepository, TaskStatus};
+        use context_core::{TaskRepository, TaskStatus};
 
         let db1 = setup_test_db().await;
         let db2 = setup_test_db().await;
@@ -1114,7 +1113,7 @@ Updated instructions for the skill.
         db1.task_lists().create(&task_list).await.unwrap();
 
         // Create task with transitions
-        let task = crate::db::Task {
+        let task = context_core::Task {
             id: "task0001".to_string(),
             list_id: "list0001".to_string(),
             parent_id: None,
@@ -1172,7 +1171,7 @@ Updated instructions for the skill.
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_backwards_compatible_without_transitions() {
         // RED: Will fail if import requires task_transition_log.jsonl
-        use crate::db::{TaskRepository, TaskStatus};
+        use context_core::{TaskRepository, TaskStatus};
 
         let db = setup_test_db().await;
         let temp_dir = TempDir::new().unwrap();
@@ -1209,7 +1208,7 @@ Updated instructions for the skill.
         write_jsonl(&temp_dir.path().join("lists.jsonl"), &[task_list]).unwrap();
 
         // Create old-style task JSONL (without transitions file)
-        let task = crate::db::Task {
+        let task = context_core::Task {
             id: "task0001".to_string(),
             list_id: "list0001".to_string(),
             parent_id: None,
@@ -1226,7 +1225,7 @@ Updated instructions for the skill.
 
         // Write empty files for other entities
         write_jsonl::<Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
-        write_jsonl::<crate::db::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+        write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
 
         // NOTE: No task_transition_log.jsonl file - simulating old export
 

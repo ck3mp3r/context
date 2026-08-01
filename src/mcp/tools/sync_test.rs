@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 
-use crate::db::{Database, SqliteDatabase};
+use context_core::Database;
+use context_db::SqliteDatabase;
 use crate::mcp::tools::sync::{SyncParams, SyncTools};
 use crate::sync::{MockGitOps, SyncManager};
 

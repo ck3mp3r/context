@@ -1,6 +1,7 @@
 //! Tests for SQLite database connection and migrations.
 
-use crate::db::{Database, SqliteDatabase};
+use context_core::Database;
+use crate::SqliteDatabase;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn migrate_creates_all_tables() {

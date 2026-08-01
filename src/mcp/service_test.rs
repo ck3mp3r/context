@@ -9,7 +9,7 @@ use axum::{
 use tower::ServiceExt;
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
 /// Test that we can create a Streamable HTTP service

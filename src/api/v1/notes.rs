@@ -12,7 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::{Database, DbError, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
+use context_core::{Database, DbError, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
 
 use super::ErrorResponse;
 
@@ -226,7 +226,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
     State(state): State<AppState<D, G>>,
     Query(query): Query<ListNotesQuery>,
 ) -> Result<Json<PaginatedNotes>, (StatusCode, Json<ErrorResponse>)> {
-    let internal_error = |e: crate::db::DbError| {
+    let internal_error = |e: context_core::DbError| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -264,7 +264,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
     let result = if let Some(q) = &query.q {
         if q.is_empty() {
             // Empty search returns empty result
-            crate::db::ListResult {
+            context_core::ListResult {
                 items: vec![],
                 total: 0,
                 limit: query.limit,

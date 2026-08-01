@@ -1,7 +1,8 @@
 //! Tests for Repository MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, HasProjects, HasRepos, Repo, RepoRepository, SqliteDatabase};
+use context_core::{Database, HasProjects, HasRepos, Repo, RepoRepository};
+use context_db::SqliteDatabase;
 use crate::mcp::tools::repos::*;
 use rmcp::{
     handler::server::wrapper::Parameters,
@@ -116,7 +117,7 @@ async fn test_create_repo_with_project_ids() {
     let db = Arc::new(db);
 
     // Create a project first
-    use crate::db::{Project, ProjectRepository};
+    use context_core::{Project, ProjectRepository};
     let project = Project {
         id: "proj9999".to_string(),
         title: "Test Project".to_string(),
@@ -240,7 +241,7 @@ async fn test_update_repo_with_project_ids() {
     let db = Arc::new(db);
 
     // Create a project first
-    use crate::db::{Project, ProjectRepository};
+    use context_core::{Project, ProjectRepository};
     let project = Project {
         id: "proj1234".to_string(),
         title: "Test Project".to_string(),
@@ -303,7 +304,7 @@ async fn test_update_repo_transaction_safety() {
     let db = Arc::new(db);
 
     // Create two projects
-    use crate::db::{Project, ProjectRepository};
+    use context_core::{Project, ProjectRepository};
     let project1 = Project {
         id: "proj1111".to_string(),
         title: "Project 1".to_string(),

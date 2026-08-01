@@ -1,6 +1,7 @@
 //! Tests for SqliteProjectRepository.
 
-use crate::db::{Database, HasProjects, Project, ProjectQuery, ProjectRepository, SqliteDatabase};
+use context_core::{Database, HasProjects, Project, ProjectQuery, ProjectRepository};
+use crate::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -722,7 +723,7 @@ async fn list_projects_with_offset_without_limit() {
     // List with offset=1 but NO limit
     // SQL requires LIMIT when using OFFSET, so this should work
     let query = ProjectQuery {
-        page: crate::db::PageSort {
+        page: context_core::PageSort {
             limit: None,
             offset: Some(1),
             sort_by: None,
@@ -771,7 +772,7 @@ async fn create_project_with_empty_title_should_fail() {
     assert!(result.is_err(), "Create should fail with empty title");
 
     match result {
-        Err(crate::db::DbError::Validation { message }) => {
+        Err(context_core::DbError::Validation { message }) => {
             assert!(
                 message.contains("title") && message.contains("empty"),
                 "Error should mention empty title, got: {}",

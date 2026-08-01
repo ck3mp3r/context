@@ -8,7 +8,7 @@ use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
 
-use super::jsonl::{JsonlError, read_jsonl};
+use context_core::{JsonlError, read_jsonl};
 
 /// Errors that can occur during import.
 #[derive(Error, Diagnostic, Debug)]
@@ -169,6 +169,8 @@ pub async fn import_all<D: Database>(
                     db.skills().create(&skill).await?;
                 }
             }
+            // Invalidate cache after upsert
+            crate::skills::invalidate_cache(&skill.name)?;
             summary.skills += 1;
         }
         tracing::debug!(count = summary.skills, "Imported skills");

@@ -3,7 +3,7 @@
 //! Following TDD: These tests are written FIRST (RED), then we implement to make them pass (GREEN).
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
 /// Test that we can create an MCP server with a database
@@ -71,7 +71,7 @@ async fn test_server_info() {
 /// - Follows TDD: RED (this test will fail until tool is registered) → GREEN (register tool)
 #[tokio::test]
 async fn test_update_skill_tool_registered() {
-    use crate::db::{Database, HasSkills, Skill, SkillRepository};
+    use context_core::{Database, HasSkills, Skill, SkillRepository};
     use crate::mcp::tools::skills::UpdateSkillParams;
     use rmcp::handler::server::wrapper::Parameters;
 

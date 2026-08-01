@@ -12,7 +12,7 @@ use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use context_core::generate_entity_id;
 use context_core::{Database, HasTaskLists, TaskList, TaskListRepository};
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
 /// Create a test app with an in-memory database
@@ -307,7 +307,7 @@ async fn crud_operations() {
         notes: None,
         tags: vec!["test".to_string()],
         external_refs: vec![],
-        status: crate::db::TaskListStatus::Active,
+        status: context_core::TaskListStatus::Active,
         repo_ids: vec![],
         project_id: "test0000".to_string(),
         created_at: Some(old_timestamp.to_string()),

@@ -1,9 +1,10 @@
 //! Tests for SqliteTaskListRepository FTS5 search.
 
-use crate::db::{
-    Database, HasProjects, HasTaskLists, Project, ProjectRepository, SqliteDatabase, TaskList,
+use context_core::{
+    Database, HasProjects, HasTaskLists, Project, ProjectRepository, TaskList,
     TaskListQuery, TaskListRepository, TaskListStatus,
 };
+use crate::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

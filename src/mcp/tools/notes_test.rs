@@ -1,7 +1,8 @@
 //! Tests for Note MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, HasNotes, Note, NoteRepository, SqliteDatabase};
+use context_core::{Database, HasNotes, Note, NoteRepository};
+use context_db::SqliteDatabase;
 use crate::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, EditNoteParams, ListNotesParams, NoteTools, ReadNoteParams,
 };

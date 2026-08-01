@@ -11,7 +11,7 @@ use tower::ServiceExt;
 use crate::api::{AppState, routes};
 use context_core::generate_entity_id;
 use context_core::{Database, HasTasks, Task, TaskRepository};
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
 async fn test_app() -> axum::Router {
@@ -453,7 +453,7 @@ async fn crud_and_relationships() {
         parent_id: None,
         title: "Test Task".to_string(),
         description: None,
-        status: crate::db::TaskStatus::Backlog,
+        status: context_core::TaskStatus::Backlog,
         priority: None,
         tags: vec![],
         external_refs: vec![],

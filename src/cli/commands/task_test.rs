@@ -1,7 +1,8 @@
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::task::*;
 use crate::cli::commands::task_list::{CreateTaskListRequest, create_task_list};
-use crate::db::{Database, SqliteDatabase};
+use context_core::Database;
+use context_db::SqliteDatabase;
 use crate::sync::MockGitOps;
 use serde_json::json;
 use tempfile::TempDir;

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::api::state::AppState;
-use crate::db::Database;
+use context_core::Database;
 use crate::sync::GitOps;
 
 use super::ErrorResponse;

@@ -8,7 +8,7 @@
 //! - Tests can inject MockGitOps for isolated testing
 //! - Production code uses with_real_git() convenience constructor
 
-use crate::db::Database;
+use context_core::Database;
 use crate::mcp::tools::map_db_error;
 use crate::sync::{GitOps, RealGit, SyncError, SyncManager};
 use rmcp::{
@@ -120,7 +120,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
     /// ```ignore
     /// use std::sync::Arc;
     /// use tempfile::TempDir;
-    /// use context::db::SqliteDatabase;
+    /// use context_db::SqliteDatabase;
     /// use context::sync::{MockGitOps, SyncManager};
     /// use context::mcp::tools::SyncTools;
     ///
@@ -159,7 +159,7 @@ impl<D: Database + 'static> SyncTools<D, RealGit> {
     /// # Example (Production)
     /// ```no_run
     /// use std::sync::Arc;
-    /// use context::db::SqliteDatabase;
+    /// use context_db::SqliteDatabase;
     /// use context::mcp::tools::SyncTools;
     ///
     /// # async fn example() {

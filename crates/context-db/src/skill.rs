@@ -246,9 +246,9 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(crate::db::SortOrder::Asc) {
-                crate::db::SortOrder::Asc => "ASC",
-                crate::db::SortOrder::Desc => "DESC",
+            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+                context_core::SortOrder::Asc => "ASC",
+                context_core::SortOrder::Desc => "DESC",
             };
             format!(
                 "ORDER BY {}{} {}",
@@ -368,16 +368,10 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             message: e.to_string(),
         })?;
 
-        // Invalidate cache after successful update
-        crate::skills::invalidate_cache(&skill.name)?;
-
         Ok(())
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
-        // Fetch skill to get name for cache invalidation
-        let skill = self.get(id).await?;
-
         let result = sqlx::query("DELETE FROM skill WHERE id = ?")
             .bind(id)
             .execute(self.pool)
@@ -391,9 +385,6 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 id: id.to_string(),
             });
         }
-
-        // Invalidate cache after successful delete
-        crate::skills::invalidate_cache(&skill.name)?;
 
         Ok(())
     }

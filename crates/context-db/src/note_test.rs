@@ -1,6 +1,7 @@
 //! Tests for SqliteNoteRepository.
 
-use crate::db::{Database, HasNotes, Note, NoteQuery, NoteRepository, PageSort, SortOrder, SqliteDatabase};
+use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
+use crate::SqliteDatabase;
 
 fn generate_id() -> String {
     use context_core::generate_entity_id;
@@ -1902,9 +1903,9 @@ async fn test_parent_notes_explicit_sort_overrides_activity_sort() {
     // Query with explicit sort by title ASC
     let query = NoteQuery {
         note_type: Some("note".to_string()),
-        page: crate::db::PageSort {
+        page: context_core::PageSort {
             sort_by: Some("title".to_string()),
-            sort_order: Some(crate::db::SortOrder::Asc),
+            sort_order: Some(context_core::SortOrder::Asc),
             ..Default::default()
         },
         ..Default::default()

@@ -53,7 +53,7 @@ pub use sync::SyncTools;
 pub use task_lists::TaskListTools;
 pub use tasks::TaskTools;
 
-use crate::db::DbError;
+use context_core::DbError;
 use rmcp::ErrorData as McpError;
 
 /// Convert DbError to McpError with appropriate error codes and messages

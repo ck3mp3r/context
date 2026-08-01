@@ -416,6 +416,7 @@ dependencies = [
  "chrono",
  "clap",
  "context-core",
+ "context-db",
  "dashmap",
  "futures-util",
  "http-body-util",
@@ -458,8 +459,22 @@ dependencies = [
  "chrono",
  "miette",
  "serde",
+ "serde_json",
  "thiserror",
  "utoipa",
+]
+
+[[package]]
+name = "context-db"
+version = "0.7.8"
+dependencies = [
+ "base64 0.23.0",
+ "chrono",
+ "context-core",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

@@ -1,7 +1,8 @@
 //! Tests for Skill MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, HasProjects, HasSkills, Skill, SkillRepository, SqliteDatabase};
+use context_core::{Database, HasProjects, HasSkills, Skill, SkillRepository};
+use context_db::SqliteDatabase;
 use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools};
 use crate::sync::get_data_dir;
 use rmcp::handler::server::wrapper::Parameters;
@@ -1019,7 +1020,7 @@ async fn test_update_skill_project_ids_only() {
     );
 
     // Create a project first
-    use crate::db::{Project, ProjectRepository};
+    use context_core::{Project, ProjectRepository};
     let project = Project {
         id: String::new(),
         title: "Test Project".to_string(),
@@ -1103,7 +1104,7 @@ async fn test_update_skill_both_tags_and_project_ids() {
     );
 
     // Create a project
-    use crate::db::{Project, ProjectRepository};
+    use context_core::{Project, ProjectRepository};
     let project = Project {
         id: String::new(),
         title: "Test Project".to_string(),

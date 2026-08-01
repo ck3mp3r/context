@@ -12,7 +12,7 @@ use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use context_core::generate_entity_id;
 use context_core::{Database, HasNotes, Note, NoteRepository};
-use crate::db::SqliteDatabase;
+use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
 /// Create a test app with an in-memory database

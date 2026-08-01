@@ -13,7 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{
+use context_core::{
     HasTaskLists, HasTasks, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
     TaskListStatus, TaskRepository,
 };
