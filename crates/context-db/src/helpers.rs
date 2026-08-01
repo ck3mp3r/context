@@ -134,7 +134,7 @@ pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
     // Validate that the query has actual search terms, not just operators
     let has_search_terms = normalized
         .split_whitespace()
-        .any(|w| w != "AND" && w != "OR" && w != "NOT" && w != "");
+        .any(|w| w != "AND" && w != "OR" && w != "NOT" && !w.is_empty());
 
     // Apply query transformation
     let result = if has_boolean || has_phrase {
@@ -147,7 +147,7 @@ pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
         }
     } else {
         // Simple mode - strip parentheses and add prefix matching to each term
-        let stripped = normalized.replace('(', "").replace(')', "");
+        let stripped = normalized.replace(['(', ')'], "");
         stripped
             .split_whitespace()
             .filter(|s| !s.is_empty())

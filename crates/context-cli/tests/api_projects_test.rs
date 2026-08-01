@@ -3021,9 +3021,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or_not() 
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?q=(rust+AND+(backend+OR+frontend))+OR+(python+NOT+backend)",
-                )
+                .uri("/api/v1/projects?q=(rust+AND+(backend+OR+frontend))+OR+(python+NOT+backend)")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -3094,9 +3092,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_deep() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?q=((rust+AND+backend)+OR+(python+AND+backend))+NOT+frontend",
-                )
+                .uri("/api/v1/projects?q=((rust+AND+backend)+OR+(python+AND+backend))+NOT+frontend")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -3167,9 +3163,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_mixed() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?q=(rust+AND+(backend+OR+frontend))+OR+(python+AND+backend)",
-                )
+                .uri("/api/v1/projects?q=(rust+AND+(backend+OR+frontend))+OR+(python+AND+backend)")
                 .body(Body::empty())
                 .unwrap(),
         )
