@@ -10,8 +10,8 @@ use std::future::Future;
 use std::path::Path;
 
 use crate::{
-    DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
-    Note, Project, Repo, Task, TaskList, TaskStats, TaskStatus, TransitionLog,
+    DbResult, ListResult, Note, NoteQuery, Project, ProjectQuery, Repo, RepoQuery, Task, TaskList,
+    TaskListQuery, TaskQuery, TaskStats, TaskStatus, TransitionLog,
 };
 use crate::{ExportSummary, ImportSummary};
 
@@ -137,18 +137,14 @@ pub trait NoteRepository: Send + Sync {
 
 /// Repository for Skill operations.
 pub trait SkillRepository: Send + Sync {
-    fn create(
-        &self,
-        skill: &crate::Skill,
-    ) -> impl Future<Output = DbResult<crate::Skill>> + Send;
+    fn create(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<crate::Skill>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::Skill>> + Send;
     fn list(
         &self,
         query: Option<&crate::SkillQuery>,
     ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
-    fn update(&self, skill: &crate::Skill)
-    -> impl Future<Output = DbResult<()>> + Send;
+    fn update(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
         &self,
@@ -262,7 +258,16 @@ pub trait HasTransitionLogs: Send + Sync {
 /// All repository traits require `Send + Sync` and their async methods return
 /// `Send` futures, enabling compatibility with async web frameworks like Axum.
 pub trait Database:
-    Send + Sync + HasProjects + HasRepos + HasTaskLists + HasTasks + HasNotes + HasSync + HasSkills + HasTransitionLogs
+    Send
+    + Sync
+    + HasProjects
+    + HasRepos
+    + HasTaskLists
+    + HasTasks
+    + HasNotes
+    + HasSync
+    + HasSkills
+    + HasTransitionLogs
 {
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;

@@ -5,14 +5,14 @@
 
 mod common;
 
+use base64::prelude::*;
+use context_core::read_jsonl;
 use context_core::{
     Database, ExportSummary, HasNotes, HasProjects, HasRepos, HasSkills, Note, NoteRepository,
     Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository,
 };
 use context_db::SqliteDatabase;
 use context_sync::export_all;
-use context_core::read_jsonl;
-use base64::prelude::*;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> SqliteDatabase {

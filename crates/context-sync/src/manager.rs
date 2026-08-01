@@ -16,7 +16,7 @@ use crate::{
     git::{GitError, GitOps},
     import::ImportError,
 };
-use context_core::{ExportSummary, get_sync_dir, ImportSummary, read_jsonl};
+use context_core::{ExportSummary, ImportSummary, get_sync_dir, read_jsonl};
 
 /// Result of sync initialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

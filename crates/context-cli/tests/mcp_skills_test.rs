@@ -5,11 +5,13 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
+use context_core::get_data_dir;
 use context_core::{Database, HasSkills, Skill, SkillRepository};
 use context_db::SqliteDatabase;
-use context_server::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools, UpdateSkillParams};
-use context_core::get_data_dir;
+use context_server::api::notifier::ChangeNotifier;
+use context_server::mcp::tools::skills::{
+    GetSkillParams, ListSkillsParams, SkillTools, UpdateSkillParams,
+};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::ContentBlock;
 use std::sync::Arc;

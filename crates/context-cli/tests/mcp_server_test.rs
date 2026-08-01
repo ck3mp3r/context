@@ -5,8 +5,8 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use tempfile::TempDir;
 
 /// Test that we can create an MCP server with a database
@@ -24,7 +24,11 @@ async fn test_create_mcp_server() {
     // Act: Create MCP server with the database
     // This should compile and run without errors
     let _server: context_server::mcp::McpServer<SqliteDatabase> =
-        context_server::mcp::McpServer::new(db, ChangeNotifier::new(), temp_dir.path().join("skills"));
+        context_server::mcp::McpServer::new(
+            db,
+            ChangeNotifier::new(),
+            temp_dir.path().join("skills"),
+        );
 
     // Assert: If we got here, server was created successfully
     // More detailed assertions will come as we implement tools
@@ -51,7 +55,8 @@ async fn test_mcp_server_has_all_tools() {
     let _task_list_tools = TaskListTools::new(db.clone(), notifier.clone());
     let _task_tools = TaskTools::new(db.clone(), notifier.clone());
     let _note_tools = NoteTools::new(db.clone(), notifier.clone());
-    let _skill_tools = SkillTools::new(db.clone(), notifier.clone(), temp_dir.path().join("skills"));
+    let _skill_tools =
+        SkillTools::new(db.clone(), notifier.clone(), temp_dir.path().join("skills"));
 
     // Assert: All tool structs created successfully
 }

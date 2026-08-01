@@ -1,15 +1,15 @@
 [package]
 name = "context-db"
-version = "0.7.8"
-edition = "2024"
-license = "GPL-2.0"
-authors = ["Christian Kemper"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 context-core = { path = "../context-core" }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"] }
-chrono = "0.4.44"
-serde_json = "1.0.150"
+chrono.workspace = true
+serde_json.workspace = true
 tokio = { version = "1.52.3", features = ["full"] }
 
 [dev-dependencies]

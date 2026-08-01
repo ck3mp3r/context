@@ -3,9 +3,9 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
+use context_core::{DbError, DbResult, ListResult, SkillRepository};
 use context_core::{SKILL_DESCRIPTION_MAX, Skill, SkillAttachment, SkillQuery};
 use context_core::{current_timestamp, generate_entity_id};
-use context_core::{DbError, DbResult, ListResult, SkillRepository};
 
 /// SQLx-backed skill repository.
 pub struct SqliteSkillRepository<'a> {
@@ -246,7 +246,11 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+            let sort_order = match query
+                .page
+                .sort_order
+                .unwrap_or(context_core::SortOrder::Asc)
+            {
                 context_core::SortOrder::Asc => "ASC",
                 context_core::SortOrder::Desc => "DESC",
             };

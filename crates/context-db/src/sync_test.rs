@@ -3,12 +3,12 @@
 #[cfg(test)]
 mod tests {
     use crate::SqliteDatabase;
+    use base64::prelude::*;
     use context_core::{
         Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks,
         Project, ProjectRepository, Repo, RepoRepository, Skill, SkillRepository, SyncRepository,
         TaskList, TaskListRepository, TaskListStatus, write_jsonl,
     };
-    use base64::prelude::*;
     use tempfile::TempDir;
 
     async fn setup_test_db() -> SqliteDatabase {

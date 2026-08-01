@@ -5,12 +5,12 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
 use context_core::{
     Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task, TaskList,
     TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
 };
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::task_lists::{
     CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,
     ListTaskListsParams, TaskListTools, UpdateTaskListParams,

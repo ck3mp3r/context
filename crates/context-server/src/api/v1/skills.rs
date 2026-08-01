@@ -1,11 +1,11 @@
 //! Skill management handlers
 
-use context_sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use context_sync::GitOps;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -549,14 +549,15 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
     })?;
 
     // Auto-enable: Extract attachments to cache immediately after import
-    let skill_name = context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to parse skill name: {}", e),
-            }),
-        )
-    })?;
+    let skill_name =
+        context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to parse skill name: {}", e),
+                }),
+            )
+        })?;
 
     let attachments = db.skills().get_attachments(&skill.id).await.map_err(|e| {
         (
@@ -671,14 +672,15 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
     };
 
     // Parse skill name from content
-    let skill_name = context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to parse skill name: {}", e),
-            }),
-        )
-    })?;
+    let skill_name =
+        context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to parse skill name: {}", e),
+                }),
+            )
+        })?;
 
     // Get attachments
     let attachments = repo.get_attachments(&skill.id).await.map_err(|e| {
@@ -783,14 +785,15 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
     };
 
     // Parse skill name from content
-    let skill_name = context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to parse skill name: {}", e),
-            }),
-        )
-    })?;
+    let skill_name =
+        context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to parse skill name: {}", e),
+                }),
+            )
+        })?;
 
     // Invalidate cache
     context_skills::invalidate_cache(&skill_name).map_err(|e| {

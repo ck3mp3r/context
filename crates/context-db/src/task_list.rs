@@ -5,10 +5,10 @@ use std::str::FromStr;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
-use context_core::{current_timestamp, generate_entity_id};
 use context_core::{
     DbError, DbResult, ListResult, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
+use context_core::{current_timestamp, generate_entity_id};
 
 /// SQLx-backed task list repository.
 pub struct SqliteTaskListRepository<'a> {
@@ -395,7 +395,11 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
 
-            let order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+            let order = match query
+                .page
+                .sort_order
+                .unwrap_or(context_core::SortOrder::Asc)
+            {
                 context_core::SortOrder::Asc => "ASC",
                 context_core::SortOrder::Desc => "DESC",
             };

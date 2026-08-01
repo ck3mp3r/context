@@ -3,7 +3,10 @@
 use sqlx::SqlitePool;
 use std::path::Path;
 
-use context_core::{DbError, DbResult, ExportSummary, ImportSummary, Note, Project, Repo, Skill, SyncRepository, Task, TaskList, read_jsonl};
+use context_core::{
+    DbError, DbResult, ExportSummary, ImportSummary, Note, Project, Repo, Skill, SyncRepository,
+    Task, TaskList, read_jsonl,
+};
 
 /// SQLite-specific sync repository.
 pub struct SqliteSyncRepository<'a> {

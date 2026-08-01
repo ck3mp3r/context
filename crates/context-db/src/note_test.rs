@@ -1,7 +1,7 @@
 //! Tests for SqliteNoteRepository.
 
-use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
 use crate::SqliteDatabase;
+use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
 
 fn generate_id() -> String {
     use context_core::generate_entity_id;
@@ -857,7 +857,7 @@ async fn note_get_loads_repo_and_project_relationships() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn note_create_with_warn_size_content_succeeds_with_warning() {
-        use context_core::NOTE_WARN_SIZE;
+    use context_core::NOTE_WARN_SIZE;
 
     let db = setup_db().await;
     let notes = db.notes();
@@ -891,7 +891,7 @@ async fn note_create_with_warn_size_content_succeeds_with_warning() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn note_create_at_hard_max_succeeds() {
-        use context_core::NOTE_HARD_MAX;
+    use context_core::NOTE_HARD_MAX;
 
     let db = setup_db().await;
     let notes = db.notes();
@@ -918,7 +918,7 @@ async fn note_create_at_hard_max_succeeds() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn note_create_over_hard_max_fails() {
-        use context_core::NOTE_HARD_MAX;
+    use context_core::NOTE_HARD_MAX;
 
     let db = setup_db().await;
     let notes = db.notes();
@@ -952,7 +952,7 @@ async fn note_create_over_hard_max_fails() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn note_update_over_hard_max_fails() {
-        use context_core::NOTE_HARD_MAX;
+    use context_core::NOTE_HARD_MAX;
 
     let db = setup_db().await;
     let notes = db.notes();

@@ -1,9 +1,9 @@
-use context_server::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::PageParams;
 use crate::cli::commands::project::*;
 use context_core::Database;
 use context_db::SqliteDatabase;
+use context_server::api::{AppState, routes};
 use context_sync::MockGitOps;
 use serde_json::json;
 use tempfile::TempDir;

@@ -1,9 +1,9 @@
 [package]
 name = "context-server"
-version = "0.7.8"
-edition = "2024"
-license = "GPL-2.0"
-authors = ["Christian Kemper"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [features]
 embed-frontend = ["dep:rust-embed", "dep:mime_guess"]
@@ -14,7 +14,7 @@ context-sync = { path = "../context-sync" }
 context-skills = { path = "../context-skills" }
 axum = { version = "0.8.9", features = ["ws"] }
 tower-http = { version = "0.7.0", features = ["trace", "fs"] }
-utoipa = { version = "5.5.0", features = ["axum_extras"] }
+utoipa.workspace = true
 utoipa-axum = "0.2.0"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 rmcp = { version = "2.2.0", features = ["server", "transport-streamable-http-server"] }
@@ -24,10 +24,10 @@ futures-util = "0.3.32"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 dashmap = "6"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-miette = { version = "7.6.0", features = ["fancy"] }
-thiserror = "2.0.18"
+serde.workspace = true
+serde_json.workspace = true
+miette.workspace = true
+thiserror.workspace = true
 mime_guess = { version = "2.0.5", optional = true }
 rust-embed = { version = "8.11.0", features = ["axum", "compression", "include-exclude"], optional = true }
 sha2 = "0.11.0"

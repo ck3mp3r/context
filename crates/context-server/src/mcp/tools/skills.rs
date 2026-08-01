@@ -175,8 +175,8 @@ impl<D: HasSkills + 'static> SkillTools<D> {
                 })?;
 
             // Parse skill name from content for cache directory
-            let skill_name =
-                context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+            let skill_name = context_skills::parse_skill_name_from_content(&skill.content)
+                .map_err(|e| {
                     McpError::internal_error(
                         "parse_error",
                         Some(serde_json::json!({"error": e.to_string()})),

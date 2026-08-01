@@ -5,9 +5,9 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
 use context_core::{Database, HasProjects, Project, ProjectRepository};
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::projects::ProjectTools;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::json;
@@ -410,7 +410,11 @@ async fn test_list_projects_sorting() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
-    for (id, title) in [("proj0001", "Charlie"), ("proj0002", "Alpha"), ("proj0003", "Bravo")] {
+    for (id, title) in [
+        ("proj0001", "Charlie"),
+        ("proj0002", "Alpha"),
+        ("proj0003", "Bravo"),
+    ] {
         let project = Project {
             id: id.to_string(),
             title: title.to_string(),

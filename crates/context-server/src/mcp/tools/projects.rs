@@ -4,8 +4,8 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use context_core::{HasProjects, PageSort, Project, ProjectQuery, ProjectRepository};
 use crate::mcp::tools::{apply_limit, map_db_error};
+use context_core::{HasProjects, PageSort, Project, ProjectQuery, ProjectRepository};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},

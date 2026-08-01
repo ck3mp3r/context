@@ -8,8 +8,8 @@
 //! - Tests can inject MockGitOps for isolated testing
 //! - Production code uses with_real_git() convenience constructor
 
-use context_core::Database;
 use crate::mcp::tools::map_db_error;
+use context_core::Database;
 use context_sync::{GitOps, RealGit, SyncError, SyncManager};
 use rmcp::{
     ErrorData as McpError,

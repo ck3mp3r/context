@@ -1,10 +1,10 @@
 //! Tests for SqliteTaskRepository.
 
-use context_core::{
-    Database, HasTaskLists, HasTasks, HasTransitionLogs, Task, TaskList,
-    TaskListRepository, TaskListStatus, TaskQuery, TaskRepository, TaskStatus,
-};
 use crate::SqliteDatabase;
+use context_core::{
+    Database, HasTaskLists, HasTasks, HasTransitionLogs, Task, TaskList, TaskListRepository,
+    TaskListStatus, TaskQuery, TaskRepository, TaskStatus,
+};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

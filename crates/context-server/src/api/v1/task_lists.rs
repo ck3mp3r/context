@@ -1,11 +1,11 @@
 //! TaskList management handlers.
 
-use context_sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use context_sync::GitOps;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};

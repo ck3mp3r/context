@@ -1,3 +1,3 @@
 pub mod api;
-pub mod mcp;
 mod common;
+pub mod mcp;

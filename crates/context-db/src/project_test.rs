@@ -1,7 +1,7 @@
 //! Tests for SqliteProjectRepository.
 
-use context_core::{Database, HasProjects, Project, ProjectQuery, ProjectRepository};
 use crate::SqliteDatabase;
+use context_core::{Database, HasProjects, Project, ProjectQuery, ProjectRepository};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

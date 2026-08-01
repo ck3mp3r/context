@@ -5,9 +5,9 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
 use context_core::{Database, HasNotes, Note, NoteRepository};
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{
     CreateNoteParams, DeleteNoteParams, EditNoteParams, LineRange, ListNotesParams, NoteTools,
     ReadNoteParams,
@@ -631,7 +631,11 @@ async fn test_list_notes_sorting() {
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
-    for (id, title) in [("note001", "Charlie"), ("note002", "Alpha"), ("note003", "Bravo")] {
+    for (id, title) in [
+        ("note001", "Charlie"),
+        ("note002", "Alpha"),
+        ("note003", "Bravo"),
+    ] {
         let note = Note {
             id: id.to_string(),
             title: title.to_string(),
@@ -782,9 +786,7 @@ async fn test_read_note_with_ranges() {
     let params = ReadNoteParams {
         note_id: "note0001".to_string(),
         format: Some("toon".to_string()),
-        ranges: Some(vec![
-            LineRange { start: 2, end: 3 },
-        ]),
+        ranges: Some(vec![LineRange { start: 2, end: 3 }]),
     };
 
     let result = tools.read_note(Parameters(params)).await;

@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
+use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
 use context_core::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use context_core::{current_timestamp, generate_entity_id};
-use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
 
 /// SQLx-backed note repository.
 pub struct SqliteNoteRepository<'a> {
@@ -423,7 +423,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+            let sort_order = match query
+                .page
+                .sort_order
+                .unwrap_or(context_core::SortOrder::Asc)
+            {
                 context_core::SortOrder::Asc => "ASC",
                 context_core::SortOrder::Desc => "DESC",
             };
@@ -482,7 +486,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
                 placeholders
             );
-            let mut project_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
+            let mut project_query =
+                sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
             for id in &note_ids {
                 project_query = project_query.bind(id);
             }
@@ -503,7 +508,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
                 placeholders
             );
-            let mut repo_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
+            let mut repo_query =
+                sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
             for id in &note_ids {
                 repo_query = repo_query.bind(id);
             }
@@ -659,7 +665,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+            let sort_order = match query
+                .page
+                .sort_order
+                .unwrap_or(context_core::SortOrder::Asc)
+            {
                 context_core::SortOrder::Asc => "ASC",
                 context_core::SortOrder::Desc => "DESC",
             };
@@ -744,7 +754,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
                 placeholders
             );
-            let mut project_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
+            let mut project_query =
+                sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
             for id in &note_ids {
                 project_query = project_query.bind(id);
             }
@@ -765,7 +776,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
                 placeholders
             );
-            let mut repo_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
+            let mut repo_query =
+                sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
             for id in &note_ids {
                 repo_query = repo_query.bind(id);
             }
@@ -1065,7 +1077,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 .as_deref()
                 .filter(|f| allowed_fields.contains(f))
                 .unwrap_or("created_at");
-            let sort_order = match query.page.sort_order.unwrap_or(context_core::SortOrder::Asc) {
+            let sort_order = match query
+                .page
+                .sort_order
+                .unwrap_or(context_core::SortOrder::Asc)
+            {
                 context_core::SortOrder::Asc => "ASC",
                 context_core::SortOrder::Desc => "DESC",
             };
@@ -1124,7 +1140,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, project_id FROM project_note WHERE note_id IN ({})",
                 placeholders
             );
-            let mut project_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
+            let mut project_query =
+                sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(project_sql.as_str()));
             for id in &note_ids {
                 project_query = project_query.bind(id);
             }
@@ -1145,7 +1162,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "SELECT note_id, repo_id FROM note_repo WHERE note_id IN ({})",
                 placeholders
             );
-            let mut repo_query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
+            let mut repo_query =
+                sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(repo_sql.as_str()));
             for id in &note_ids {
                 repo_query = repo_query.bind(id);
             }

@@ -5,9 +5,9 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
 use context_core::{Database, HasProjects, HasRepos, Repo, RepoRepository};
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::repos::*;
 use rmcp::{
     handler::server::wrapper::Parameters,

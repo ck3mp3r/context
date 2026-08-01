@@ -1,4 +1,5 @@
 [workspace]
+resolver = "3"
 members = [
     "crates/context-cli",
     "crates/context-core",
@@ -7,6 +8,20 @@ members = [
     "crates/context-skills",
     "crates/context-sync",
 ]
+
+[workspace.package]
+version = "0.7.8"
+edition = "2024"
+license = "GPL-2.0"
+authors = ["Christian Kemper"]
+
+[workspace.dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+miette = { version = "7.6.0", features = ["fancy"] }
+chrono = "0.4.44"
+utoipa = { version = "5.5.0", features = ["axum_extras"] }
 
 [profile.release]
 opt-level = "z"

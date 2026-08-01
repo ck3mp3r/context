@@ -5,12 +5,12 @@
 
 mod common;
 
-use context_server::api::notifier::ChangeNotifier;
 use context_core::{
     Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task, TaskList,
     TaskListRepository, TaskRepository, TaskStatus,
 };
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::tasks::{
     CreateTaskParams, DeleteTaskParams, GetTaskParams, ListTasksParams, TaskTools,
     TransitionTaskParams, UpdateTaskParams,
@@ -733,7 +733,11 @@ async fn test_list_tasks_sorting() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
-    for (id, title) in [("task001", "Charlie"), ("task002", "Alpha"), ("task003", "Bravo")] {
+    for (id, title) in [
+        ("task001", "Charlie"),
+        ("task002", "Alpha"),
+        ("task003", "Bravo"),
+    ] {
         let task = Task {
             id: id.to_string(),
             list_id: list_id.clone(),

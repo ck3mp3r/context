@@ -37,13 +37,17 @@ jobs:
 
           # Create placeholder dist/ folder for rust-embed compile-time check
           # The real frontend build happens later in the build job
-          mkdir dist
-          echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save dist/index.html
+          mkdir -p crates/context-server/dist
+          echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save crates/context-server/dist/index.html
 
-          let current_version = (open Cargo.toml).package.version
+          let current_version = (open Cargo.toml).workspace.package.version
           let latest_tag = (get-latest-tag)
           let version = (semver-calculate $latest_tag $current_version | create-release-branch)
-          update-cargo-version $version | commit-files $"Prepare release ($version)"
+          # Update workspace package version
+          let cargo = (open Cargo.toml | upsert workspace.package.version $version)
+          $cargo | to toml | save --force Cargo.toml
+          ^cargo check
+          ["Cargo.toml" "Cargo.lock"] | commit-files $"Prepare release ($version)"
           $"version=($version)" | save --append $env.GITHUB_OUTPUT
 
   build:

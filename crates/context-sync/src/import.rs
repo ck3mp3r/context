@@ -1,8 +1,9 @@
 //! Import JSONL files into database.
 
 use context_core::{
-    Database, ImportSummary, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    Skill, SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
+    Database, ImportSummary, Note, NoteRepository, Project, ProjectRepository, Repo,
+    RepoRepository, Skill, SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository,
+    TaskRepository,
 };
 use context_skills::invalidate_cache;
 use miette::Diagnostic;
@@ -274,5 +275,3 @@ pub async fn import_all<D: Database>(
     tracing::info!(total = summary.total(), "Import all complete");
     Ok(summary)
 }
-
-

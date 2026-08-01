@@ -5,7 +5,9 @@
 
 mod common;
 
-use context_core::{Database, HasProjects, HasSkills, Project, ProjectRepository, generate_entity_id};
+use context_core::{
+    Database, HasProjects, HasSkills, Project, ProjectRepository, generate_entity_id,
+};
 use context_db::SqliteDatabase;
 use context_skills::import_skill;
 
@@ -102,8 +104,7 @@ async fn test_import_duplicate_with_update_succeeds() {
     let db = setup_db().await;
 
     // Create a temporary skill directory with unique ID to avoid conflicts
-    let temp_dir =
-        std::env::temp_dir().join(format!("test-skill-update-{}", generate_entity_id()));
+    let temp_dir = std::env::temp_dir().join(format!("test-skill-update-{}", generate_entity_id()));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Create SKILL.md
@@ -370,8 +371,7 @@ async fn test_import_update_adds_tags_and_project_ids_to_empty_skill() {
         .await
         .expect("Project creation should succeed");
 
-    let temp_dir =
-        std::env::temp_dir().join(format!("test-skill-add-{}", generate_entity_id()));
+    let temp_dir = std::env::temp_dir().join(format!("test-skill-add-{}", generate_entity_id()));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let skill_md = temp_dir.join("SKILL.md");

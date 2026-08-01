@@ -1,8 +1,8 @@
 use super::*;
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use context_core::SkillAttachment;
 use context_core::generate_entity_id;
 use context_core::set_base_path;
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use std::fs;
 use std::sync::Once;
 

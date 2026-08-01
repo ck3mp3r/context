@@ -8,7 +8,7 @@
 # Cross-compilation from Darwin is deferred to CI
 pkgs.dockerTools.buildLayeredImage {
   name = "context";
-  tag = cargoToml.package.version;
+  tag = cargoToml.workspace.package.version;
 
   # Closure contents - no base image, just what we need
   contents = [

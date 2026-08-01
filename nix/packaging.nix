@@ -37,7 +37,7 @@
     })
     .buildRustPackage {
       pname = "context-frontend";
-      inherit (cargoToml.package) version;
+      version = cargoToml.workspace.package.version;
       src = ../.;
       inherit cargoLock;
 
@@ -81,10 +81,11 @@
     nixpkgs = inputs.nixpkgs;
     src = srcWithFrontend;
     packageName = "context";
+    workspaceMember = "context-cli";
     archiveAndHash = false;
     nativeBuildInputs = [];
     extraArgs = {
-      buildFeatures = ["embed-frontend"];
+      buildFeatures = ["context-server/embed-frontend"];
     };
   };
 
@@ -102,10 +103,11 @@
     nixpkgs = inputs.nixpkgs;
     src = srcWithFrontend;
     packageName = "archive";
+    workspaceMember = "context-cli";
     archiveAndHash = true;
     nativeBuildInputs = [];
     extraArgs = {
-      buildFeatures = ["embed-frontend"];
+      buildFeatures = ["context-server/embed-frontend"];
     };
   };
 

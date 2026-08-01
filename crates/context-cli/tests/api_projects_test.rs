@@ -13,10 +13,10 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use context_server::api::{AppState, routes};
 use context_core::generate_entity_id;
 use context_core::{Database, HasProjects, Project, ProjectRepository};
 use context_db::SqliteDatabase;
+use context_server::api::{AppState, routes};
 use context_sync::{MockGitOps, SyncManager};
 use tempfile::TempDir;
 
@@ -569,8 +569,7 @@ async fn test_list_projects_sorting() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Charlie"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Charlie"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -583,8 +582,7 @@ async fn test_list_projects_sorting() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Alpha"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Alpha"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -597,8 +595,7 @@ async fn test_list_projects_sorting() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Bravo"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Bravo"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -660,8 +657,7 @@ async fn test_list_projects_search() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -674,8 +670,7 @@ async fn test_list_projects_search() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "React Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "React Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -711,8 +706,7 @@ async fn test_create_project_duplicate_title() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Unique Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Unique Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -728,8 +722,7 @@ async fn test_create_project_duplicate_title() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Unique Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Unique Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -768,8 +761,7 @@ async fn test_update_nonexistent_project() {
                 .uri("/api/v1/projects/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Nope"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Nope"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -790,8 +782,7 @@ async fn test_patch_nonexistent_project() {
                 .uri("/api/v1/projects/nonexist")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Nope"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Nope"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -813,8 +804,7 @@ async fn test_create_project_with_long_title() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": long_title}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": long_title})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -893,8 +883,7 @@ async fn test_create_project_without_optional_fields() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Minimal Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Minimal Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1069,8 +1058,7 @@ async fn test_list_projects_nonexistent_tag() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Test"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Test"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1108,10 +1096,7 @@ async fn test_list_projects_invalid_sort_field() {
         .await
         .unwrap();
     // Should handle gracefully - either return error or default sort
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::BAD_REQUEST
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1129,10 +1114,7 @@ async fn test_list_projects_invalid_order() {
         .await
         .unwrap();
     // Should handle gracefully
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::BAD_REQUEST
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1150,10 +1132,7 @@ async fn test_list_projects_negative_limit() {
         .await
         .unwrap();
     // Should handle gracefully
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::BAD_REQUEST
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1171,10 +1150,7 @@ async fn test_list_projects_negative_offset() {
         .await
         .unwrap();
     // Should handle gracefully
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::BAD_REQUEST
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1269,8 +1245,7 @@ async fn test_list_projects_with_repo_ids_filter() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Unlinked Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Unlinked Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1371,8 +1346,7 @@ async fn test_list_projects_with_task_list_ids_filter() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Task List Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Task List Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1437,8 +1411,7 @@ async fn test_list_projects_with_task_ids_filter() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Task Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Task Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1482,8 +1455,7 @@ async fn test_list_projects_with_task_ids_filter() {
                 .uri(&format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Test Task"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Test Task"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1524,8 +1496,7 @@ async fn test_list_projects_with_skill_ids_filter() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Skill Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Skill Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1651,8 +1622,7 @@ async fn test_list_projects_with_combined_filters() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Other Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Other Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1749,8 +1719,7 @@ async fn test_list_projects_with_query_and_sort() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Zebra Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Zebra Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1764,8 +1733,7 @@ async fn test_list_projects_with_query_and_sort() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Alpha Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Alpha Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1848,8 +1816,7 @@ async fn test_list_projects_with_query_no_results() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1923,8 +1890,7 @@ async fn test_list_projects_with_query_case_insensitive() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1959,8 +1925,7 @@ async fn test_list_projects_with_query_partial_match() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -1995,8 +1960,7 @@ async fn test_list_projects_with_query_fts_boolean() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2010,8 +1974,7 @@ async fn test_list_projects_with_query_fts_boolean() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2047,8 +2010,7 @@ async fn test_list_projects_with_query_fts_phrase() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "My Rust Backend Project"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "My Rust Backend Project"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2083,8 +2045,7 @@ async fn test_list_projects_with_query_fts_prefix() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2119,8 +2080,7 @@ async fn test_list_projects_with_query_fts_exclude() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2134,8 +2094,7 @@ async fn test_list_projects_with_query_fts_exclude() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2171,8 +2130,7 @@ async fn test_list_projects_with_query_fts_complex() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2186,8 +2144,7 @@ async fn test_list_projects_with_query_fts_complex() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2201,8 +2158,7 @@ async fn test_list_projects_with_query_fts_complex() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2354,8 +2310,7 @@ async fn test_list_projects_with_query_fts_boolean_operators() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2369,8 +2324,7 @@ async fn test_list_projects_with_query_fts_boolean_operators() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2405,8 +2359,7 @@ async fn test_list_projects_with_query_fts_boolean_and_or() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2420,8 +2373,7 @@ async fn test_list_projects_with_query_fts_boolean_and_or() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2435,8 +2387,7 @@ async fn test_list_projects_with_query_fts_boolean_and_or() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2479,8 +2430,7 @@ async fn test_list_projects_with_query_fts_boolean_not() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2494,8 +2444,7 @@ async fn test_list_projects_with_query_fts_boolean_not() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2531,8 +2480,7 @@ async fn test_list_projects_with_query_fts_boolean_combined() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2546,8 +2494,7 @@ async fn test_list_projects_with_query_fts_boolean_combined() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2561,8 +2508,7 @@ async fn test_list_projects_with_query_fts_boolean_combined() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2574,9 +2520,7 @@ async fn test_list_projects_with_query_fts_boolean_combined() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?query=(rust+OR+python)+AND+backend+NOT+frontend",
-                )
+                .uri("/api/v1/projects?query=(rust+OR+python)+AND+backend+NOT+frontend")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2607,8 +2551,7 @@ async fn test_list_projects_with_query_fts_boolean_nested() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2622,8 +2565,7 @@ async fn test_list_projects_with_query_fts_boolean_nested() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2637,8 +2579,7 @@ async fn test_list_projects_with_query_fts_boolean_nested() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2650,9 +2591,7 @@ async fn test_list_projects_with_query_fts_boolean_nested() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?query=(rust+AND+(backend+OR+frontend))+OR+python",
-                )
+                .uri("/api/v1/projects?query=(rust+AND+(backend+OR+frontend))+OR+python")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2693,8 +2632,7 @@ async fn test_list_projects_with_query_fts_boolean_mixed_case() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2708,8 +2646,7 @@ async fn test_list_projects_with_query_fts_boolean_mixed_case() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2744,8 +2681,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_as_word() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust and Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust and Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2780,8 +2716,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_escape() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2816,8 +2751,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_phrase() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust and Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust and Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2852,8 +2786,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_not_phrase() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2867,8 +2800,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_not_phrase() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2904,8 +2836,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_and_or_not() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2919,8 +2850,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_and_or_not() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2934,8 +2864,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_and_or_not() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2947,9 +2876,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_and_or_not() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?query=(rust+OR+python)+AND+backend+NOT+frontend",
-                )
+                .uri("/api/v1/projects?query=(rust+OR+python)+AND+backend+NOT+frontend")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2980,8 +2907,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -2995,8 +2921,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3010,8 +2935,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3023,9 +2947,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(
-                    "/api/v1/projects?query=(rust+AND+(backend+OR+frontend))+OR+python",
-                )
+                .uri("/api/v1/projects?query=(rust+AND+(backend+OR+frontend))+OR+python")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -3048,8 +2970,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or_not() 
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3063,8 +2984,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or_not() 
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3078,8 +2998,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_and_or_not() 
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3124,8 +3043,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_deep() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3139,8 +3057,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_deep() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3154,8 +3071,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_deep() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3200,8 +3116,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_mixed() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3215,8 +3130,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_mixed() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3230,8 +3144,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_mixed() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3268,8 +3181,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_all() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3283,8 +3195,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_all() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3298,8 +3209,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_all() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3344,8 +3254,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_all_three() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Backend API"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Backend API"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3359,8 +3268,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_all_three() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Rust Frontend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Rust Frontend"})).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -3374,8 +3282,7 @@ async fn test_list_projects_with_query_fts_boolean_operator_nested_all_three() {
                 .uri("/api/v1/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&json!({"title": "Python Backend"}))
-                        .unwrap(),
+                    serde_json::to_vec(&json!({"title": "Python Backend"})).unwrap(),
                 ))
                 .unwrap(),
         )

@@ -224,5 +224,3 @@ pub async fn import_skill<D: HasSkills + HasProjects>(
 
     result
 }
-
-

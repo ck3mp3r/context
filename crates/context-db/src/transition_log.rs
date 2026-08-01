@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use context_core::{current_timestamp, generate_entity_id};
 use context_core::{DbError, DbResult, TaskStatus, TransitionLog};
+use context_core::{current_timestamp, generate_entity_id};
 
 /// SQLx-backed transition log repository.
 pub struct SqliteTransitionLogRepository<'a> {

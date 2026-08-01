@@ -8,8 +8,8 @@ use super::{
     SqliteTaskListRepository, SqliteTaskRepository, SqliteTransitionLogRepository,
 };
 use context_core::{
-    Database, DbError, DbResult, HasNotes, HasProjects, HasRepos, HasSkills, HasSync,
-    HasTaskLists, HasTasks, HasTransitionLogs,
+    Database, DbError, DbResult, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists,
+    HasTasks, HasTransitionLogs,
 };
 
 /// SQLite database implementation using SQLx.

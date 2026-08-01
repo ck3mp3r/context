@@ -1,18 +1,20 @@
 //! Project management handlers.
 
-use context_sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use context_sync::GitOps;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use context_core::{Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder};
+use context_core::{
+    Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder,
+};
 
 // =============================================================================
 // DTOs (Data Transfer Objects)
