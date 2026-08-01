@@ -4,7 +4,7 @@ use crate::cli::commands::PageParams;
 use crate::cli::commands::skill::*;
 use context_core::Database;
 use context_db::SqliteDatabase;
-use crate::sync::MockGitOps;
+use context_sync::MockGitOps;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -34,7 +34,7 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
 
     let state = AppState::new(
         db,
-        crate::sync::SyncManager::new(MockGitOps::new()),
+        context_sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
     );
@@ -75,7 +75,7 @@ async fn spawn_test_server_with_temp_dir() -> (String, String, tokio::task::Join
 
     let state = AppState::new(
         db,
-        crate::sync::SyncManager::new(MockGitOps::new()),
+        context_sync::SyncManager::new(MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
     );

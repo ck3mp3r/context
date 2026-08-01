@@ -1,4 +1,4 @@
-use crate::sync::git::*;
+use crate::git::*;
 use mockall::predicate::*;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;

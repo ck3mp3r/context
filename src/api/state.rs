@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::notifier::ChangeNotifier;
 use context_core::Database;
-use crate::sync::{GitOps, SyncManager};
+use context_sync::{GitOps, SyncManager};
 
 /// Shared application state.
 ///

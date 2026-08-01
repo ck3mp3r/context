@@ -16,16 +16,11 @@ mod manager;
 #[cfg(test)]
 mod manager_test;
 
-// Path functions moved to context-core crate
-pub use context_core::{clear_base_path, get_data_dir, get_db_path, get_sync_dir, set_base_path};
-
 pub use export::{ExportError, export_all};
-#[cfg(test)]
+#[cfg(feature = "testing")]
 pub use git::MockGitOps;
 pub use git::{GitError, GitOps, RealGit};
 pub use import::{ImportError, import_all};
-// Re-export JSONL utilities from context-core (moved in Phase 3)
-pub use context_core::{JsonlError, read_jsonl, write_jsonl};
 pub use manager::{EntityCounts, GitStatus, InitResult, SyncError, SyncManager, SyncStatus};
 
 // Re-export summary types from context-core for backward compatibility

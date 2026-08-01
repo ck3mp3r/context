@@ -20,7 +20,7 @@ async fn test_app() -> axum::Router {
     let temp_dir = TempDir::new().unwrap();
     let state = AppState::new(
         db,
-        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        context_sync::SyncManager::new(context_sync::MockGitOps::new()),
         crate::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
     );
@@ -35,7 +35,7 @@ async fn test_app_with_notifier() -> (axum::Router, crate::api::notifier::Change
     let notifier = crate::api::notifier::ChangeNotifier::new();
     let state = AppState::new(
         db,
-        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        context_sync::SyncManager::new(context_sync::MockGitOps::new()),
         notifier.clone(),
         temp_dir.path().join("skills"),
     );

@@ -18,7 +18,7 @@ async fn test_websocket_route_exists() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
-    let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
+    let sync_manager = context_sync::SyncManager::new(context_sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
 
     let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));
@@ -51,7 +51,7 @@ async fn test_websocket_rejects_non_upgrade_requests() {
     let db = SqliteDatabase::in_memory().await.unwrap();
     db.migrate().unwrap();
     let temp_dir = TempDir::new().unwrap();
-    let sync_manager = crate::sync::SyncManager::new(crate::sync::MockGitOps::new());
+    let sync_manager = context_sync::SyncManager::new(context_sync::MockGitOps::new());
     let notifier = ChangeNotifier::new();
 
     let state = AppState::new(db, sync_manager, notifier, temp_dir.path().join("skills"));

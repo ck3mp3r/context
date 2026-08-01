@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use context_core::Database;
 use context_db::SqliteDatabase;
 use crate::mcp::tools::sync::{SyncParams, SyncTools};
-use crate::sync::{MockGitOps, SyncManager};
+use context_sync::{MockGitOps, SyncManager};
 
 use rmcp::{handler::server::wrapper::Parameters, model::ContentBlock};
 

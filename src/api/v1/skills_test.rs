@@ -24,7 +24,7 @@ async fn test_app() -> axum::Router {
 
     let state = AppState::new(
         db,
-        crate::sync::SyncManager::new(crate::sync::MockGitOps::new()),
+        context_sync::SyncManager::new(context_sync::MockGitOps::new()),
         ChangeNotifier::new(),
         skills_dir,
     );

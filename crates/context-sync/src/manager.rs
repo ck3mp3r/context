@@ -11,13 +11,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 
-use super::{
+use crate::{
     export::ExportError,
     git::{GitError, GitOps},
     import::ImportError,
-    read_jsonl,
 };
-use context_core::{ExportSummary, get_sync_dir, ImportSummary};
+use context_core::{ExportSummary, get_sync_dir, ImportSummary, read_jsonl};
 
 /// Result of sync initialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

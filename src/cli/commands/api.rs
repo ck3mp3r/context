@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, Result};
 use crate::api::{self, Config};
 use context_core::Database;
 use context_db::SqliteDatabase;
-use crate::sync::{get_db_path, set_base_path};
+use context_core::{get_db_path, set_base_path};
 
 /// Run the API server
 pub async fn run(
@@ -64,7 +64,7 @@ pub async fn run(
                 Some(dir) => dir,
                 None => match std::env::var("C5T_SKILLS_DIR") {
                     Ok(dir) => PathBuf::from(dir),
-                    Err(_) => crate::sync::get_data_dir().join("skills"),
+                    Err(_) => context_core::get_data_dir().join("skills"),
                 },
             },
         },

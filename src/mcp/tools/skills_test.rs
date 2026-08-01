@@ -4,7 +4,7 @@ use crate::api::notifier::ChangeNotifier;
 use context_core::{Database, HasProjects, HasSkills, Skill, SkillRepository};
 use context_db::SqliteDatabase;
 use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools};
-use crate::sync::get_data_dir;
+use context_core::get_data_dir;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::ContentBlock;
 use std::sync::Arc;
@@ -507,7 +507,7 @@ Learn web programming.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_skill_with_cache_extraction() {
     use context_core::generate_entity_id;
-    use crate::sync::set_base_path;
+    use context_core::set_base_path;
     use base64::Engine as _;
 
     // Set temp base path for this test - unique per test invocation
@@ -610,7 +610,7 @@ Test instructions for skill with attachments.
     let _ = std::fs::remove_dir_all(&temp_base);
 
     // Clear the global base path for other tests
-    crate::sync::clear_base_path();
+    context_core::clear_base_path();
 }
 
 #[tokio::test(flavor = "multi_thread")]

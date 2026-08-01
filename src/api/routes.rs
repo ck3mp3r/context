@@ -150,7 +150,7 @@ macro_rules! routes {
 pub struct ApiDoc;
 
 /// Create the API router with OpenAPI documentation and MCP server
-pub fn create_router<D: Database + 'static, G: crate::sync::GitOps + Send + Sync + 'static>(
+pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Sync + 'static>(
     state: AppState<D, G>,
     enable_docs: bool,
 ) -> Router {

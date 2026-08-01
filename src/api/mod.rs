@@ -129,7 +129,7 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     init_tracing(config.verbosity);
 
     // Create sync manager (uses RealGit for production)
-    let sync_manager = crate::sync::SyncManager::new(crate::sync::RealGit::new());
+    let sync_manager = context_sync::SyncManager::new(context_sync::RealGit::new());
 
     // Create change notifier for WebSocket pub/sub
     let notifier = notifier::ChangeNotifier::new();

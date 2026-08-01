@@ -4,12 +4,11 @@
 //! to enable easy mocking in tests.
 
 use miette::Diagnostic;
+#[cfg(feature = "testing")]
+use mockall::automock;
 use std::path::Path;
 use std::process::{Command, Output};
 use thiserror::Error;
-
-#[cfg(test)]
-use mockall::automock;
 
 /// Errors that can occur during git operations.
 #[derive(Error, Diagnostic, Debug)]
@@ -28,7 +27,7 @@ pub enum GitError {
 }
 
 /// Trait for git operations. Can be mocked in tests.
-#[cfg_attr(test, automock)]
+#[cfg_attr(feature = "testing", automock)]
 pub trait GitOps {
     /// Initialize a git repository at the given path.
     fn init(&self, path: &Path) -> Result<Output, GitError>;

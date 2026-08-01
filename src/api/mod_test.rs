@@ -1,5 +1,5 @@
 use super::Config;
-use crate::sync::get_data_dir;
+use context_core::get_data_dir;
 use serial_test::serial;
 use std::env;
 use std::path::PathBuf;

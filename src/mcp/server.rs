@@ -15,7 +15,7 @@ use rmcp::{
 
 use crate::api::notifier::ChangeNotifier;
 use context_core::Database;
-use crate::sync::RealGit;
+use context_sync::RealGit;
 
 use super::tools::{
     NoteTools, ProjectTools, RepoTools, SkillTools, SyncTools, TaskListTools, TaskTools, notes::*,

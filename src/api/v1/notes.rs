@@ -1,6 +1,6 @@
 //! Note management handlers.
 
-use crate::sync::GitOps;
+use context_sync::GitOps;
 use axum::{
     Json,
     extract::{Path, Query, State},

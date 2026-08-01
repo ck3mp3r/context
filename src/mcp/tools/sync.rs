@@ -10,7 +10,7 @@
 
 use context_core::Database;
 use crate::mcp::tools::map_db_error;
-use crate::sync::{GitOps, RealGit, SyncError, SyncManager};
+use context_sync::{GitOps, RealGit, SyncError, SyncManager};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -121,7 +121,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
     /// use std::sync::Arc;
     /// use tempfile::TempDir;
     /// use context_db::SqliteDatabase;
-    /// use context::sync::{MockGitOps, SyncManager};
+    /// use context_sync::{MockGitOps, SyncManager};
     /// use context::mcp::tools::SyncTools;
     ///
     /// # async fn example() {
@@ -214,7 +214,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
                 serde_json::json!({
                     "status": "success",
                     "message": "Sync initialized successfully",
-                    "sync_dir": crate::sync::get_sync_dir().display().to_string(),
+                    "sync_dir": context_core::get_sync_dir().display().to_string(),
                 })
             }
 

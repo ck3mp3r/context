@@ -44,6 +44,13 @@ pub enum ImportError {
 ///
 /// # Returns
 /// A summary of imported entities (counts per type)
+///
+/// # Note
+/// This is the canonical generic implementation using the `Database` trait.
+/// Currently unused — `context-db/src/sync.rs` has its own SQLite-specific
+/// `import_all_with_transaction` that bypasses this. In a future refactor,
+/// `context-db` should delegate to this function instead.
+#[allow(dead_code)]
 pub async fn import_all<D: Database>(
     db: &D,
     input_dir: &Path,
@@ -169,8 +176,6 @@ pub async fn import_all<D: Database>(
                     db.skills().create(&skill).await?;
                 }
             }
-            // Invalidate cache after upsert
-            crate::skills::invalidate_cache(&skill.name)?;
             summary.skills += 1;
         }
         tracing::debug!(count = summary.skills, "Imported skills");
@@ -194,9 +199,6 @@ pub async fn import_all<D: Database>(
 
         // Process each skill's attachments
         for (skill_id, skill_attachments) in attachments_by_skill {
-            // Get skill for cache invalidation (need skill name)
-            let skill = db.skills().get(&skill_id).await?;
-
             // Get existing attachments for this skill
             let existing_attachments = db.skills().get_attachments(&skill_id).await?;
 
@@ -217,9 +219,6 @@ pub async fn import_all<D: Database>(
                             "Updating attachment (content changed)"
                         );
                         db.skills().update_attachment(attachment).await?;
-
-                        // Invalidate cache since content changed
-                        crate::skills::invalidate_cache(&skill.name)?;
                     }
                     Some(_) => {
                         // Content unchanged - skip
@@ -237,9 +236,6 @@ pub async fn import_all<D: Database>(
                             "Creating new attachment"
                         );
                         db.skills().create_attachment(attachment).await?;
-
-                        // Invalidate cache to include new attachment
-                        crate::skills::invalidate_cache(&skill.name)?;
                     }
                 }
             }
@@ -259,9 +255,6 @@ pub async fn import_all<D: Database>(
                         "Deleting attachment (not in import)"
                     );
                     db.skills().delete_attachment(&existing_att.id).await?;
-
-                    // Invalidate cache to remove deleted attachment
-                    crate::skills::invalidate_cache(&skill.name)?;
                 }
             }
 

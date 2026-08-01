@@ -128,7 +128,7 @@ fn test_verbosity_levels() {
 #[test]
 fn test_get_db_path_with_custom_home() {
     // Test get_db_path with custom home directory
-    use crate::sync::{get_db_path, set_base_path};
+    use context_core::{get_db_path, set_base_path};
     use std::path::PathBuf;
 
     let custom_home = PathBuf::from("/custom/home");
@@ -142,7 +142,7 @@ fn test_get_db_path_with_custom_home() {
 #[test]
 fn test_get_db_path_without_home() {
     // Test get_db_path with default home directory
-    use crate::sync::get_db_path;
+    use context_core::get_db_path;
 
     let db_path = get_db_path();
 

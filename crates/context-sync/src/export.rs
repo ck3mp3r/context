@@ -39,6 +39,13 @@ pub enum ExportError {
 ///
 /// # Returns
 /// A summary of exported entities (counts per type)
+///
+/// # Note
+/// This is the canonical generic implementation using the `Database` trait.
+/// Currently unused — `context-db/src/sync.rs` has its own SQLite-specific
+/// `export_all_from_pool` that bypasses this. In a future refactor,
+/// `context-db` should delegate to this function instead.
+#[allow(dead_code)]
 pub async fn export_all<D: Database>(
     db: &D,
     output_dir: &Path,

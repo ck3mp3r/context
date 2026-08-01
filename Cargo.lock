@@ -417,6 +417,7 @@ dependencies = [
  "clap",
  "context-core",
  "context-db",
+ "context-sync",
  "dashmap",
  "futures-util",
  "http-body-util",
@@ -475,6 +476,20 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "context-sync"
+version = "0.7.8"
+dependencies = [
+ "chrono",
+ "context-core",
+ "miette",
+ "mockall",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
