@@ -1,0 +1,684 @@
+//! Task management handlers.
+
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+    http::StatusCode,
+};
+use context_sync::GitOps;
+use serde::{Deserialize, Serialize};
+use tracing::instrument;
+use utoipa::{IntoParams, ToSchema};
+
+use crate::api::AppState;
+use crate::api::notifier::UpdateMessage;
+use context_core::{
+    Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
+    TransitionLog,
+};
+
+use super::ErrorResponse;
+
+// =============================================================================
+// Validation Helpers
+// =============================================================================
+
+/// Validates that priority is within the valid range (1-5).
+fn validate_priority(priority: Option<i32>) -> Result<(), String> {
+    if let Some(p) = priority
+        && !(1..=5).contains(&p)
+    {
+        return Err("Priority must be between 1 and 5".to_string());
+    }
+    Ok(())
+}
+
+// =============================================================================
+// DTOs
+// =============================================================================
+
+#[derive(Serialize, ToSchema)]
+pub struct TaskResponse {
+    #[schema(example = "a1b2c3d4")]
+    pub id: String,
+    pub list_id: String,
+    pub parent_id: Option<String>,
+    #[schema(example = "Complete the feature")]
+    pub title: String,
+    pub description: Option<String>,
+    #[schema(example = "in_progress")]
+    pub status: String,
+    pub priority: Option<i32>,
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    pub tags: Vec<String>,
+    #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
+    pub external_refs: Vec<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+impl From<Task> for TaskResponse {
+    fn from(t: Task) -> Self {
+        Self {
+            id: t.id,
+            list_id: t.list_id,
+            parent_id: t.parent_id,
+            title: t.title,
+            description: t.description,
+            status: match t.status {
+                TaskStatus::Backlog => "backlog",
+                TaskStatus::Todo => "todo",
+                TaskStatus::InProgress => "in_progress",
+                TaskStatus::Review => "review",
+                TaskStatus::Done => "done",
+                TaskStatus::Cancelled => "cancelled",
+            }
+            .to_string(),
+            priority: t.priority,
+            tags: t.tags,
+            external_refs: t.external_refs,
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TransitionResponse {
+    #[schema(example = "a1b2c3d4")]
+    pub id: String,
+    pub task_id: String,
+    #[schema(example = "in_progress")]
+    pub status: String,
+    pub transitioned_at: String,
+}
+
+impl From<TransitionLog> for TransitionResponse {
+    fn from(t: TransitionLog) -> Self {
+        Self {
+            id: t.id,
+            task_id: t.task_id,
+            status: match t.status {
+                TaskStatus::Backlog => "backlog",
+                TaskStatus::Todo => "todo",
+                TaskStatus::InProgress => "in_progress",
+                TaskStatus::Review => "review",
+                TaskStatus::Done => "done",
+                TaskStatus::Cancelled => "cancelled",
+            }
+            .to_string(),
+            transitioned_at: t.transitioned_at,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TransitionsListResponse {
+    pub items: Vec<TransitionResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TransitionsQueryParams {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateTaskRequest {
+    #[schema(example = "Complete the feature")]
+    pub title: String,
+    pub description: Option<String>,
+    pub parent_id: Option<String>,
+    /// Priority: 1 (highest) to 5 (lowest). Defaults to 5 (P5) if not provided.
+    #[schema(example = 2)]
+    pub priority: Option<i32>,
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// External references (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
+    #[schema(example = json!(["owner/repo#123", "PROJ-456"]))]
+    #[serde(default)]
+    pub external_refs: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateTaskRequest {
+    #[schema(example = "Updated title")]
+    pub title: String,
+    pub description: Option<String>,
+    #[schema(example = "done")]
+    pub status: Option<String>,
+    pub priority: Option<i32>,
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// External references (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
+    #[schema(example = json!(["owner/repo#456", "PROJ-789"]))]
+    #[serde(default)]
+    pub external_refs: Vec<String>,
+}
+
+/// Patch task request DTO (partial update)
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct PatchTaskRequest {
+    /// Task title
+    #[schema(example = "Updated title")]
+    pub title: Option<String>,
+    /// Task description
+    pub description: Option<String>,
+    /// Task status
+    #[schema(example = "done")]
+    pub status: Option<String>,
+    /// Priority level
+    pub priority: Option<i32>,
+    /// Parent task ID (for subtasks). Use Some(None) or empty string to remove parent.
+    #[serde(
+        default,
+        deserialize_with = "crate::common::serde::double_option_string_or_empty"
+    )]
+    pub parent_id: Option<Option<String>>,
+    /// Tags for categorization
+    #[schema(example = json!(["urgent", "bug-fix"]))]
+    pub tags: Option<Vec<String>>,
+    /// Move task to different list
+    #[schema(example = "abc123de")]
+    pub list_id: Option<String>,
+    /// External references (e.g., 'owner/repo#123' for GitHub, 'PROJ-123' for Jira)
+    #[schema(example = json!(["owner/repo#789", "PROJ-999"]))]
+    pub external_refs: Option<Vec<String>>,
+}
+
+impl PatchTaskRequest {
+    fn merge_into(self, target: &mut Task) {
+        if let Some(title) = self.title {
+            target.title = title;
+        }
+        if let Some(description) = self.description {
+            target.description = Some(description);
+        }
+        if let Some(status_str) = self.status
+            && let Ok(status) = status_str.parse()
+        {
+            target.status = status;
+        }
+        if let Some(priority) = self.priority {
+            target.priority = Some(priority);
+        }
+        if let Some(parent_id) = self.parent_id {
+            target.parent_id = parent_id;
+        }
+        if let Some(tags) = self.tags {
+            target.tags = tags;
+        }
+        if let Some(list_id) = self.list_id {
+            target.list_id = list_id;
+        }
+        if let Some(external_refs) = self.external_refs {
+            target.external_refs = external_refs;
+        }
+        // Clear updated_at to force new timestamp generation
+        target.updated_at = None;
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListTasksQuery {
+    /// FTS5 search query (optional)
+    #[param(example = "rust backend")]
+    pub q: Option<String>,
+    /// Filter by status (backlog, todo, in_progress, review, done, cancelled)
+    #[param(example = "in_progress")]
+    pub status: Option<String>,
+    /// Filter by parent task ID (for subtasks)
+    #[param(example = "a1b2c3d4")]
+    pub parent_id: Option<String>,
+    /// Maximum number of items to return
+    #[param(example = 20)]
+    pub limit: Option<usize>,
+    /// Number of items to skip
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+    /// Field to sort by (content, status, priority, created_at)
+    #[param(example = "created_at")]
+    pub sort: Option<String>,
+    /// Sort order (asc, desc)
+    #[param(example = "desc")]
+    pub order: Option<String>,
+    /// Filter by task type: "task" (top-level only) or "subtask" (only subtasks)
+    /// Omit to return both tasks and subtasks (default)
+    #[param(example = "task")]
+    #[serde(rename = "type")]
+    pub task_type: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedTasks {
+    pub items: Vec<TaskResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+// =============================================================================
+// Handlers
+// =============================================================================
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/task-lists/{list_id}/tasks",
+    tag = "tasks",
+    params(
+        ("list_id" = String, Path, description = "TaskList ID"),
+        ListTasksQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated list of tasks", body = PaginatedTasks),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(list_id): Path<String>,
+    Query(query): Query<ListTasksQuery>,
+) -> Result<Json<PaginatedTasks>, (StatusCode, Json<ErrorResponse>)> {
+    // Build database query
+    let db_query = TaskQuery {
+        page: PageSort {
+            limit: query.limit,
+            offset: query.offset,
+            sort_by: query.sort.clone(),
+            sort_order: match query.order.as_deref() {
+                Some("desc") => Some(SortOrder::Desc),
+                Some("asc") => Some(SortOrder::Asc),
+                _ => None,
+            },
+        },
+        list_id: Some(list_id),
+        parent_id: query.parent_id.clone(),
+        status: query.status.clone(),
+        tags: None,
+        task_type: query.task_type.clone(),
+    };
+
+    // Use search if query provided, otherwise list
+    let result = if let Some(ref search_query) = query.q {
+        if !search_query.trim().is_empty() {
+            state
+                .db()
+                .tasks()
+                .search(search_query, Some(&db_query))
+                .await
+        } else {
+            state.db().tasks().list(Some(&db_query)).await
+        }
+    } else {
+        state.db().tasks().list(Some(&db_query)).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let items: Vec<TaskResponse> = result.items.into_iter().map(TaskResponse::from).collect();
+
+    Ok(Json(PaginatedTasks {
+        items,
+        total: result.total,
+        limit: result.limit.unwrap_or(50),
+        offset: result.offset,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{id}",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    responses(
+        (status = 200, description = "Task found", body = TaskResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn get_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let task = state.db().tasks().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    Ok(Json(TaskResponse::from(task)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/task-lists/{list_id}/tasks",
+    tag = "tasks",
+    params(("list_id" = String, Path, description = "TaskList ID")),
+    request_body = CreateTaskRequest,
+    responses(
+        (status = 201, description = "Task created", body = TaskResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(list_id): Path<String>,
+    Json(req): Json<CreateTaskRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
+    // Validate priority before applying default
+    validate_priority(req.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    let task = Task {
+        id: String::new(), // Repository will generate this
+        list_id: list_id.clone(),
+        parent_id: req.parent_id,
+        title: req.title,
+        description: req.description,
+        status: TaskStatus::Backlog,
+        priority: req.priority.or(Some(5)), // Default to P5 (lowest priority)
+        tags: req.tags,
+        external_refs: req.external_refs,
+        created_at: None, // Repository will generate this
+        updated_at: None, // Repository will generate this
+    };
+
+    let created_task = state.db().tasks().create(&task).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Broadcast TaskCreated notification
+    state.notifier().notify(UpdateMessage::TaskCreated {
+        task_id: created_task.id.clone(),
+    });
+
+    Ok((StatusCode::CREATED, Json(TaskResponse::from(created_task))))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/tasks/{id}",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    request_body = UpdateTaskRequest,
+    responses(
+        (status = 200, description = "Task updated", body = TaskResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateTaskRequest>,
+) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Validate priority if provided
+    validate_priority(req.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    let mut task = state.db().tasks().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    task.title = req.title;
+    task.description = req.description;
+    task.priority = req.priority;
+    task.tags = req.tags;
+    task.external_refs = req.external_refs;
+    task.updated_at = None;
+
+    if let Some(status_str) = req.status {
+        let new_status = parse_status(&status_str);
+        task.status = new_status;
+    }
+
+    state.db().tasks().update(&task).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Broadcast TaskUpdated notification
+    state.notifier().notify(UpdateMessage::TaskUpdated {
+        task_id: id.clone(),
+    });
+
+    Ok(Json(TaskResponse::from(task)))
+}
+
+/// Partially update a task
+///
+/// Updates only the fields provided in the request (PATCH semantics).
+#[utoipa::path(
+    patch,
+    path = "/api/v1/tasks/{id}",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    request_body = PatchTaskRequest,
+    responses(
+        (status = 200, description = "Task updated", body = TaskResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+    Json(req): Json<PatchTaskRequest>,
+) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Validate priority if provided
+    validate_priority(req.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    // Fetch existing task
+    let mut task = state.db().tasks().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Merge PATCH changes
+    req.merge_into(&mut task);
+
+    // Save (repository will log transition if status changed)
+    state.db().tasks().update(&task).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Re-fetch updated task
+    let updated = state.db().tasks().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Broadcast TaskUpdated notification
+    state.notifier().notify(UpdateMessage::TaskUpdated {
+        task_id: id.clone(),
+    });
+
+    Ok(Json(TaskResponse::from(updated)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/tasks/{id}",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    responses(
+        (status = 204, description = "Task deleted"),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    state.db().tasks().delete(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Broadcast TaskDeleted notification
+    state.notifier().notify(UpdateMessage::TaskDeleted {
+        task_id: id.clone(),
+    });
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Get task transitions
+///
+/// Returns the list of all state transitions for a task, ordered by newest first.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{id}/transitions",
+    tag = "tasks",
+    params(
+        ("id" = String, Path, description = "Task ID"),
+        TransitionsQueryParams
+    ),
+    responses(
+        (status = 200, description = "Task transitions", body = TransitionsListResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn get_task_transitions<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+    Query(params): Query<TransitionsQueryParams>,
+) -> Result<Json<TransitionsListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Verify task exists
+    let _ = state.db().tasks().get(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Get transitions
+    let result = state
+        .db()
+        .tasks()
+        .get_transitions(&id, params.limit, params.offset)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    Ok(Json(TransitionsListResponse {
+        items: result
+            .items
+            .into_iter()
+            .map(TransitionResponse::from)
+            .collect(),
+        total: result.total,
+        limit: result.limit.unwrap_or(20),
+        offset: result.offset,
+    }))
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+fn parse_status(s: &str) -> TaskStatus {
+    match s {
+        "todo" => TaskStatus::Todo,
+        "in_progress" => TaskStatus::InProgress,
+        "review" => TaskStatus::Review,
+        "done" => TaskStatus::Done,
+        "cancelled" => TaskStatus::Cancelled,
+        _ => TaskStatus::Backlog,
+    }
+}

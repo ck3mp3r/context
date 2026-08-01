@@ -1,0 +1,2341 @@
+//! Tests for SqliteTaskRepository.
+
+use crate::SqliteDatabase;
+use context_core::{
+    Database, HasTaskLists, HasTasks, HasTransitionLogs, Task, TaskList, TaskListRepository,
+    TaskListStatus, TaskQuery, TaskRepository, TaskStatus,
+};
+
+async fn setup_db() -> SqliteDatabase {
+    let db = SqliteDatabase::in_memory()
+        .await
+        .expect("Failed to create in-memory database");
+    db.migrate().expect("Migration should succeed");
+
+    // Create a test project with known ID for tests
+    sqlx::query("INSERT OR IGNORE INTO project (id, title, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("test0000")
+        .bind("Test Project")
+        .bind("Default project for tests")
+        .bind("[]")
+        .bind("2025-01-01 00:00:00")
+        .bind("2025-01-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .expect("Create test project should succeed");
+
+    db
+}
+
+fn make_task_list(id: &str, title: &str) -> TaskList {
+    TaskList {
+        id: id.to_string(),
+        title: title.to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: "test0000".to_string(), // Test project (created by setup_db)
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        archived_at: None,
+    }
+}
+
+fn make_task(id: &str, list_id: &str, title: &str) -> Task {
+    Task {
+        id: id.to_string(),
+        list_id: list_id.to_string(),
+        parent_id: None,
+        title: title.to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_timestamps_are_optional() {
+    let db = setup_db().await;
+    let list = db
+        .task_lists()
+        .create(&make_task_list("list0001", "Test List"))
+        .await
+        .expect("Create list");
+
+    // Test 1: Provided timestamps are respected
+    let task_with_timestamps = Task {
+        id: String::new(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Task with timestamps".to_string(),
+        description: None,
+        status: TaskStatus::Todo,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-15 10:00:00".to_string()),
+        updated_at: Some("2025-01-15 11:00:00".to_string()),
+    };
+
+    let created_with_ts = db
+        .tasks()
+        .create(&task_with_timestamps)
+        .await
+        .expect("Create task");
+    assert_eq!(
+        created_with_ts.created_at,
+        Some("2025-01-15 10:00:00".to_string())
+    );
+    assert_eq!(
+        created_with_ts.updated_at,
+        Some("2025-01-15 11:00:00".to_string())
+    );
+
+    // Test 2: None timestamps are auto-generated
+    let task_without_timestamps = Task {
+        id: String::new(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Task without timestamps".to_string(),
+        description: None,
+        status: TaskStatus::Todo,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+
+    let created_without_ts = db
+        .tasks()
+        .create(&task_without_timestamps)
+        .await
+        .expect("Create task");
+    assert!(created_without_ts.created_at.is_some());
+    assert!(created_without_ts.updated_at.is_some());
+    assert!(!created_without_ts.created_at.as_ref().unwrap().is_empty());
+    assert!(!created_without_ts.updated_at.as_ref().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_create_and_get() {
+    let db = setup_db().await;
+
+    // Create a task list first (required FK)
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("tasklst1", "Tasks For Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    let tasks = db.tasks();
+
+    let task = Task {
+        id: "task0001".to_string(),
+        list_id: "tasklst1".to_string(),
+        parent_id: None,
+        title: "Complete the implementation".to_string(),
+        description: None,
+        status: TaskStatus::InProgress,
+        priority: Some(2),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-02 09:00:00".to_string()),
+    };
+
+    tasks.create(&task).await.expect("Create should succeed");
+
+    let retrieved = tasks.get("task0001").await.expect("Get should succeed");
+    assert_eq!(retrieved.id, task.id);
+    assert_eq!(retrieved.list_id, task.list_id);
+    assert_eq!(retrieved.title, task.title);
+    assert_eq!(retrieved.status, TaskStatus::InProgress);
+    assert_eq!(retrieved.priority, Some(2));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_get_nonexistent_returns_not_found() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    let result = tasks.get("nonexist").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_by_list_id() {
+    let db = setup_db().await;
+
+    // Create task lists
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listbyl1", "List One"))
+        .await
+        .expect("Create should succeed");
+    task_lists
+        .create(&make_task_list("listbyl2", "List Two"))
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    // Add tasks to both lists
+    tasks
+        .create(&make_task("taskby01", "listbyl1", "Task in list one"))
+        .await
+        .unwrap();
+    tasks
+        .create(&make_task("taskby02", "listbyl1", "Another in list one"))
+        .await
+        .unwrap();
+    tasks
+        .create(&make_task("taskby03", "listbyl2", "Task in list two"))
+        .await
+        .unwrap();
+
+    // Query by list using list_id filter
+    let query = TaskQuery {
+        list_id: Some("listbyl1".to_string()),
+        ..Default::default()
+    };
+    let result = tasks
+        .list(Some(&query))
+        .await
+        .expect("Query should succeed");
+    assert_eq!(result.items.len(), 2);
+    assert_eq!(result.total, 2);
+
+    let query = TaskQuery {
+        list_id: Some("listbyl2".to_string()),
+        ..Default::default()
+    };
+    let result = tasks
+        .list(Some(&query))
+        .await
+        .expect("Query should succeed");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.total, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_by_parent_id() {
+    let db = setup_db().await;
+
+    // Create task list
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listpar1", "Parent Test"))
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    // Create parent task
+    tasks
+        .create(&make_task("taskpar1", "listpar1", "Parent Task"))
+        .await
+        .unwrap();
+
+    // Create subtasks
+    let mut subtask1 = make_task("subtask1", "listpar1", "Subtask 1");
+    subtask1.parent_id = Some("taskpar1".to_string());
+    tasks.create(&subtask1).await.unwrap();
+
+    let mut subtask2 = make_task("subtask2", "listpar1", "Subtask 2");
+    subtask2.parent_id = Some("taskpar1".to_string());
+    tasks.create(&subtask2).await.unwrap();
+
+    // Create another root task with no subtasks
+    tasks
+        .create(&make_task("taskpar2", "listpar1", "Another Root"))
+        .await
+        .unwrap();
+
+    // Query subtasks using parent_id filter
+    let query = TaskQuery {
+        list_id: Some("listpar1".to_string()),
+        parent_id: Some("taskpar1".to_string()),
+        ..Default::default()
+    };
+    let subtasks = tasks
+        .list(Some(&query))
+        .await
+        .expect("Query should succeed");
+    assert_eq!(subtasks.items.len(), 2);
+    assert_eq!(subtasks.total, 2);
+
+    // Query with different parent - should find none
+    let query = TaskQuery {
+        list_id: Some("listpar1".to_string()),
+        parent_id: Some("taskpar2".to_string()),
+        ..Default::default()
+    };
+    let no_subtasks = tasks
+        .list(Some(&query))
+        .await
+        .expect("Query should succeed");
+    assert!(no_subtasks.items.is_empty());
+    assert_eq!(no_subtasks.total, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listupd2", "Update Test"))
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    let mut task = make_task("taskupd1", "listupd2", "Original");
+    tasks.create(&task).await.expect("Create should succeed");
+
+    task.title = "Updated content".to_string();
+    task.status = TaskStatus::Done;
+    task.priority = Some(1);
+    tasks.update(&task).await.expect("Update should succeed");
+
+    let retrieved = tasks.get("taskupd1").await.expect("Get should succeed");
+    assert_eq!(retrieved.title, "Updated content");
+    assert_eq!(retrieved.status, TaskStatus::Done);
+    assert_eq!(retrieved.priority, Some(1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_delete() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listdel2", "Delete Test"))
+        .await
+        .expect("Create should succeed");
+
+    let tasks = db.tasks();
+
+    let task = make_task("taskdel1", "listdel2", "To Delete");
+    tasks.create(&task).await.expect("Create should succeed");
+
+    tasks
+        .delete("taskdel1")
+        .await
+        .expect("Delete should succeed");
+
+    let result = tasks.get("taskdel1").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_create_with_tags() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listwtag", "Tags Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    let tasks = db.tasks();
+
+    let task = Task {
+        id: "taskwtag".to_string(),
+        list_id: "listwtag".to_string(),
+        parent_id: None,
+        title: "Task with tags".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
+        tags: vec!["rust".to_string(), "backend".to_string()],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    };
+
+    tasks.create(&task).await.expect("Create should succeed");
+
+    let retrieved = tasks.get("taskwtag").await.expect("Get should succeed");
+    assert_eq!(
+        retrieved.tags,
+        vec!["rust".to_string(), "backend".to_string()]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_with_tag_filter() {
+    let db = setup_db().await;
+
+    let task_lists = db.task_lists();
+    task_lists
+        .create(&make_task_list("listfilt", "Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    let tasks = db.tasks();
+
+    // Create tasks with different tags
+    let mut task1 = make_task("taskfil1", "listfilt", "Rust task");
+    task1.tags = vec!["rust".to_string(), "backend".to_string()];
+    tasks.create(&task1).await.unwrap();
+
+    let mut task2 = make_task("taskfil2", "listfilt", "Python task");
+    task2.tags = vec!["python".to_string(), "backend".to_string()];
+    tasks.create(&task2).await.unwrap();
+
+    let mut task3 = make_task("taskfil3", "listfilt", "Frontend task");
+    task3.tags = vec!["typescript".to_string(), "frontend".to_string()];
+    tasks.create(&task3).await.unwrap();
+
+    // Filter by "rust" tag - should find 1
+    let query = TaskQuery {
+        list_id: Some("listfilt".to_string()),
+        tags: Some(vec!["rust".to_string()]),
+        ..Default::default()
+    };
+    let results = tasks.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(results.items.len(), 1);
+    assert_eq!(results.total, 1); // DB-level filtering verified by total
+    assert_eq!(results.items[0].title, "Rust task");
+
+    // Filter by "backend" tag - should find 2
+    let query = TaskQuery {
+        list_id: Some("listfilt".to_string()),
+        tags: Some(vec!["backend".to_string()]),
+        ..Default::default()
+    };
+    let results = tasks.list(Some(&query)).await.expect("List should succeed");
+    assert_eq!(results.items.len(), 2);
+    assert_eq!(results.total, 2);
+
+    // Filter by nonexistent tag
+    let query = TaskQuery {
+        list_id: Some("listfilt".to_string()),
+        tags: Some(vec!["nonexistent".to_string()]),
+        ..Default::default()
+    };
+    let results = tasks.list(Some(&query)).await.expect("List should succeed");
+    assert!(results.items.is_empty());
+    assert_eq!(results.total, 0);
+}
+
+// =============================================================================
+// Task statistics tests
+// =============================================================================
+
+// =============================================================================
+// Task statistics tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_stats_for_list_returns_counts_by_status() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Create task list
+    task_lists
+        .create(&make_task_list("statlist", "Stats Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create tasks with different statuses
+    let mut task1 = make_task("stat0001", "statlist", "Backlog task");
+    task1.status = TaskStatus::Backlog;
+    tasks.create(&task1).await.unwrap();
+
+    let mut task2 = make_task("stat0002", "statlist", "Todo task");
+    task2.status = TaskStatus::Todo;
+    tasks.create(&task2).await.unwrap();
+
+    let mut task3 = make_task("stat0003", "statlist", "Another todo");
+    task3.status = TaskStatus::Todo;
+    tasks.create(&task3).await.unwrap();
+
+    let mut task4 = make_task("stat0004", "statlist", "In progress");
+    task4.status = TaskStatus::InProgress;
+    tasks.create(&task4).await.unwrap();
+
+    let mut task5 = make_task("stat0005", "statlist", "Done task");
+    task5.status = TaskStatus::Done;
+    tasks.create(&task5).await.unwrap();
+
+    let mut task6 = make_task("stat0006", "statlist", "Another done");
+    task6.status = TaskStatus::Done;
+    tasks.create(&task6).await.unwrap();
+
+    let mut task7 = make_task("stat0007", "statlist", "Another done 2");
+    task7.status = TaskStatus::Done;
+    tasks.create(&task7).await.unwrap();
+
+    // Get stats
+    let stats = tasks
+        .get_stats_for_list("statlist")
+        .await
+        .expect("Get stats should succeed");
+
+    assert_eq!(stats.list_id, "statlist");
+    assert_eq!(stats.total, 7);
+    assert_eq!(stats.backlog, 1);
+    assert_eq!(stats.todo, 2);
+    assert_eq!(stats.in_progress, 1);
+    assert_eq!(stats.review, 0);
+    assert_eq!(stats.done, 3);
+    assert_eq!(stats.cancelled, 0);
+}
+
+// ============================================================================
+// task_type Filter Tests
+// ============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_task_returns_only_parents() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0001", "Type Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 2 parents + 3 subtasks, all done
+    let mut parent1 = make_task("partyp01", "type0001", "Parent 1");
+    parent1.status = TaskStatus::Done;
+    tasks.create(&parent1).await.expect("Create parent1");
+
+    let mut parent2 = make_task("partyp02", "type0001", "Parent 2");
+    parent2.status = TaskStatus::Done;
+    tasks.create(&parent2).await.expect("Create parent2");
+
+    let mut subtask1 = make_task("subtyp01", "type0001", "Subtask 1");
+    subtask1.parent_id = Some("partyp01".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    let mut subtask2 = make_task("subtyp02", "type0001", "Subtask 2");
+    subtask2.parent_id = Some("partyp01".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks.create(&subtask2).await.expect("Create subtask2");
+
+    let mut subtask3 = make_task("subtyp03", "type0001", "Subtask 3");
+    subtask3.parent_id = Some("partyp02".to_string());
+    subtask3.status = TaskStatus::Done;
+    tasks.create(&subtask3).await.expect("Create subtask3");
+
+    // Query with type=task
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0001".to_string()),
+        parent_id: None,
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: Some("task".to_string()),
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: Only 2 parents returned, no subtasks
+    assert_eq!(result.total, 2, "Should return only 2 parent tasks");
+    assert_eq!(result.items.len(), 2, "Should have 2 items");
+
+    let ids: Vec<&str> = result.items.iter().map(|t| t.id.as_str()).collect();
+    assert!(ids.contains(&"partyp01"), "Should include partyp01");
+    assert!(ids.contains(&"partyp02"), "Should include partyp02");
+    assert!(!ids.contains(&"subtyp01"), "Should NOT include subtyp01");
+    assert!(!ids.contains(&"subtyp02"), "Should NOT include subtyp02");
+    assert!(!ids.contains(&"subtyp03"), "Should NOT include subtyp03");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_subtask_returns_only_subtasks() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0002", "Subtask Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 1 parent + 2 subtasks
+    let mut parent = make_task("partyp03", "type0002", "Parent");
+    parent.status = TaskStatus::Done;
+    tasks.create(&parent).await.expect("Create parent");
+
+    let mut subtask1 = make_task("subtyp04", "type0002", "Subtask 1");
+    subtask1.parent_id = Some("partyp03".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    let mut subtask2 = make_task("subtyp05", "type0002", "Subtask 2");
+    subtask2.parent_id = Some("partyp03".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks.create(&subtask2).await.expect("Create subtask2");
+
+    // Query with type=subtask
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0002".to_string()),
+        parent_id: None,
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: Some("subtask".to_string()),
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: Only 2 subtasks returned, no parent
+    assert_eq!(result.total, 2, "Should return only 2 subtasks");
+    assert_eq!(result.items.len(), 2, "Should have 2 items");
+
+    let ids: Vec<&str> = result.items.iter().map(|t| t.id.as_str()).collect();
+    assert!(ids.contains(&"subtyp04"), "Should include subtyp04");
+    assert!(ids.contains(&"subtyp05"), "Should include subtyp05");
+    assert!(!ids.contains(&"partyp03"), "Should NOT include partyp03");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_omitted_returns_all() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0003", "Omitted Type Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 1 parent + 1 subtask
+    let mut parent = make_task("partyp04", "type0003", "Parent");
+    parent.status = TaskStatus::Done;
+    tasks.create(&parent).await.expect("Create parent");
+
+    let mut subtask = make_task("subtyp06", "type0003", "Subtask");
+    subtask.parent_id = Some("partyp04".to_string());
+    subtask.status = TaskStatus::Done;
+    tasks.create(&subtask).await.expect("Create subtask");
+
+    // Query with type omitted (None)
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0003".to_string()),
+        parent_id: None,
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: None,
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: All tasks returned (backward compatibility)
+    assert_eq!(
+        result.total, 2,
+        "Should return all 2 tasks (backward compat)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_type_works_with_parent_id_filter() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("type0004", "Combined Filter Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent with subtasks
+    let mut parent = make_task("partyp05", "type0004", "Parent");
+    parent.status = TaskStatus::Done;
+    tasks.create(&parent).await.expect("Create parent");
+
+    let mut subtask1 = make_task("subtyp07", "type0004", "Subtask 1");
+    subtask1.parent_id = Some("partyp05".to_string());
+    subtask1.status = TaskStatus::Done;
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    let mut subtask2 = make_task("subtyp08", "type0004", "Subtask 2");
+    subtask2.parent_id = Some("partyp05".to_string());
+    subtask2.status = TaskStatus::Done;
+    tasks.create(&subtask2).await.expect("Create subtask2");
+
+    // Query: parent_id=partyp05 AND type=subtask
+    // This is valid! We want subtasks of specific parent
+    let query = TaskQuery {
+        page: Default::default(),
+        list_id: Some("type0004".to_string()),
+        parent_id: Some("partyp05".to_string()),
+        status: Some("done".to_string()),
+        tags: None,
+        task_type: Some("subtask".to_string()),
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    // Assert: Both filters applied (parent_id AND type=subtask)
+    assert_eq!(
+        result.total, 2,
+        "Should return 2 subtasks of specific parent"
+    );
+}
+
+// =============================================================================
+// updated_at cascade tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_create_with_github_external_ref() {
+    let db = setup_db().await;
+    let list = db
+        .task_lists()
+        .create(&make_task_list("list0001", "Test List"))
+        .await
+        .expect("Create list");
+
+    let mut task = make_task("task0001", &list.id, "Task with GitHub issue");
+    task.external_refs = vec!["ck3mp3r/context#42".to_string()];
+
+    let created = db.tasks().create(&task).await.expect("Create task");
+
+    assert_eq!(
+        created.external_refs,
+        vec!["ck3mp3r/context#42".to_string()]
+    );
+
+    // Verify it's persisted
+    let fetched = db.tasks().get(&created.id).await.expect("Get task");
+    assert_eq!(
+        fetched.external_refs,
+        vec!["ck3mp3r/context#42".to_string()]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_create_with_jira_external_ref() {
+    let db = setup_db().await;
+    let list = db
+        .task_lists()
+        .create(&make_task_list("list0001", "Test List"))
+        .await
+        .expect("Create list");
+
+    let mut task = make_task("task0001", &list.id, "Task with Jira ticket");
+    task.external_refs = vec!["BACKEND-456".to_string()];
+
+    let created = db.tasks().create(&task).await.expect("Create task");
+
+    assert_eq!(created.external_refs, vec!["BACKEND-456".to_string()]);
+
+    // Verify it's persisted
+    let fetched = db.tasks().get(&created.id).await.expect("Get task");
+    assert_eq!(fetched.external_refs, vec!["BACKEND-456".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_update_external_ref() {
+    let db = setup_db().await;
+    let list = db
+        .task_lists()
+        .create(&make_task_list("list0001", "Test List"))
+        .await
+        .expect("Create list");
+
+    // Create task without external_refs
+    let task = make_task("task0001", &list.id, "Task");
+    let created = db.tasks().create(&task).await.expect("Create task");
+    assert_eq!(created.external_refs, Vec::<String>::new());
+
+    // Update to add external_refs
+    let mut updated_task = created.clone();
+    updated_task.external_refs = vec!["ck3mp3r/context#123".to_string()];
+    db.tasks().update(&updated_task).await.expect("Update task");
+    let fetched = db.tasks().get(&updated_task.id).await.expect("Get task");
+    assert_eq!(
+        fetched.external_refs,
+        vec!["ck3mp3r/context#123".to_string()]
+    );
+
+    // Update to change external_refs
+    updated_task.external_refs = vec!["PROJ-789".to_string()];
+    db.tasks().update(&updated_task).await.expect("Update task");
+    let fetched2 = db.tasks().get(&updated_task.id).await.expect("Get task");
+    assert_eq!(fetched2.external_refs, vec!["PROJ-789".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_remove_external_ref() {
+    let db = setup_db().await;
+    let list = db
+        .task_lists()
+        .create(&make_task_list("list0001", "Test List"))
+        .await
+        .expect("Create list");
+
+    // Create task with external_refs
+    let mut task = make_task("task0001", &list.id, "Task");
+    task.external_refs = vec!["ck3mp3r/context#42".to_string()];
+    let created = db.tasks().create(&task).await.expect("Create task");
+    assert_eq!(
+        created.external_refs,
+        vec!["ck3mp3r/context#42".to_string()]
+    );
+
+    // Remove external_refs by setting to empty vec
+    let mut updated_task = created.clone();
+    updated_task.external_refs = vec![];
+    db.tasks().update(&updated_task).await.expect("Update task");
+
+    // Verify it's persisted
+    let fetched = db.tasks().get(&updated_task.id).await.expect("Get task");
+    assert_eq!(fetched.external_refs, Vec::<String>::new());
+}
+
+// ============================================================================
+// Activity-Based Sorting Tests
+// ============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn subtask_update_does_not_update_parent_timestamp() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("activity", "Activity Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent task at T0
+    let mut parent = make_task("", "activity", "Parent task");
+    parent.status = TaskStatus::InProgress;
+    parent.created_at = Some("2026-01-01 10:00:00".to_string());
+    parent.updated_at = Some("2026-01-01 10:00:00".to_string());
+    let created_parent = tasks
+        .create(&parent)
+        .await
+        .expect("Create parent should succeed");
+
+    // Capture parent's timestamp
+    let parent_timestamp_before = created_parent.updated_at.clone();
+
+    // Sleep to ensure timestamp difference
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Create subtask at T1
+    let mut subtask = make_task("", "activity", "Subtask");
+    subtask.parent_id = Some(created_parent.id.clone());
+    subtask.status = TaskStatus::InProgress;
+    subtask.created_at = Some("2026-01-01 11:00:00".to_string());
+    subtask.updated_at = Some("2026-01-01 11:00:00".to_string());
+    let mut created_subtask = tasks
+        .create(&subtask)
+        .await
+        .expect("Create subtask should succeed");
+
+    // Sleep again
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Update subtask at T2
+    created_subtask.title = "Updated subtask".to_string();
+    created_subtask.updated_at = Some("2026-01-01 12:00:00".to_string());
+    tasks
+        .update(&created_subtask)
+        .await
+        .expect("Update subtask should succeed");
+
+    // Verify: Parent timestamp should NOT have changed
+    let parent_after = tasks
+        .get(&created_parent.id)
+        .await
+        .expect("Get parent should succeed");
+
+    assert_eq!(
+        parent_after.updated_at, parent_timestamp_before,
+        "Parent's updated_at should NOT change when subtask is updated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn parent_tasks_sorted_by_activity_include_subtask_updates() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("sort0001", "Activity Sort Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create parent1 at T0
+    let mut parent1 = make_task("", "sort0001", "Parent 1");
+    parent1.created_at = Some("2026-01-01 10:00:00".to_string());
+    parent1.updated_at = Some("2026-01-01 10:00:00".to_string());
+    let parent1 = tasks.create(&parent1).await.expect("Create parent1");
+
+    // Create parent2 at T1 (more recent than parent1)
+    let mut parent2 = make_task("", "sort0001", "Parent 2");
+    parent2.created_at = Some("2026-01-01 11:00:00".to_string());
+    parent2.updated_at = Some("2026-01-01 11:00:00".to_string());
+    let parent2 = tasks.create(&parent2).await.expect("Create parent2");
+
+    // Create subtask of parent1 at T2 (most recent activity)
+    let mut subtask1 = make_task("", "sort0001", "Subtask of Parent 1");
+    subtask1.parent_id = Some(parent1.id.clone());
+    subtask1.created_at = Some("2026-01-01 12:00:00".to_string());
+    subtask1.updated_at = Some("2026-01-01 12:00:00".to_string());
+    tasks.create(&subtask1).await.expect("Create subtask1");
+
+    // Query parent tasks sorted by updated_at DESC
+    // Expected order: parent1 (last_activity=12:00), parent2 (last_activity=11:00)
+    let query = TaskQuery {
+        page: context_core::PageSort {
+            limit: Some(10),
+            offset: Some(0),
+            sort_by: Some("updated_at".to_string()),
+            sort_order: Some(context_core::SortOrder::Desc),
+        },
+        list_id: Some("sort0001".to_string()),
+        parent_id: None,
+        status: None,
+        tags: None,
+        task_type: Some("task".to_string()), // Parent tasks only
+    };
+
+    let result = tasks.list(Some(&query)).await.expect("List should succeed");
+
+    assert_eq!(result.total, 2, "Should have 2 parent tasks");
+    assert_eq!(result.items.len(), 2, "Should return 2 parent tasks");
+
+    // Assert order: parent1 should come FIRST because subtask activity is more recent
+    assert_eq!(
+        result.items[0].id, parent1.id,
+        "Parent 1 should be first (has most recent subtask activity at 12:00)"
+    );
+    assert_eq!(
+        result.items[1].id, parent2.id,
+        "Parent 2 should be second (last activity at 11:00)"
+    );
+}
+
+// =============================================================================
+// FTS5 Search Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_title() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    // Create task list
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create tasks
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Implement Rust Backend API".to_string(),
+        description: Some("Build REST endpoints".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Python Data Pipeline".to_string(),
+        description: Some("ETL processing".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by title
+    let result = repo
+        .search("rust", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Implement Rust Backend API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_description() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Feature Alpha".to_string(),
+        description: Some("Machine learning research implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Feature Beta".to_string(),
+        description: Some("Frontend web components".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by description
+    let result = repo
+        .search("machine learning", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Feature Alpha");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_tags() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Frontend Task".to_string(),
+        description: None,
+        tags: vec!["react".to_string(), "typescript".to_string()],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Backend Task".to_string(),
+        description: None,
+        tags: vec!["rust".to_string(), "api".to_string()],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by tag
+    let result = repo
+        .search("typescript", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Frontend Task");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_finds_task_by_external_refs() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Fix GitHub Issue".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec!["owner/repo#123".to_string(), "owner/repo#456".to_string()],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Resolve Jira Ticket".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec!["PROJ-789".to_string()],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search by external ref
+    let result = repo
+        .search("owner/repo#123", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Fix GitHub Issue");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_boolean_operators() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust Web API".to_string(),
+        description: Some("Backend service implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust CLI Tool".to_string(),
+        description: Some("Command line utility".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0003".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Python API".to_string(),
+        description: Some("Backend service implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:02".to_string()),
+        updated_at: Some("2025-01-01 00:00:02".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search with AND operator
+    let result = repo
+        .search("rust AND backend", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Rust Web API");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_phrase_query() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Backend Service".to_string(),
+        description: Some("RESTful API implementation".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "API Documentation".to_string(),
+        description: Some("Implementation guide for API".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search with exact phrase
+    let result = repo
+        .search("\"API implementation\"", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Backend Service");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_combines_with_status_filter() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create tasks with different statuses
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust Feature".to_string(),
+        description: Some("Active work".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::InProgress,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    repo.create(&Task {
+        id: "task0002".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Rust Documentation".to_string(),
+        description: Some("Completed work".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Done,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:01".to_string()),
+        updated_at: Some("2025-01-01 00:00:01".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Search with status filter
+    let query = TaskQuery {
+        status: Some("in_progress".to_string()),
+        ..Default::default()
+    };
+    let result = repo
+        .search("rust", Some(&query))
+        .await
+        .expect("Search should succeed");
+
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].title, "Rust Feature");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fts5_search_handles_special_characters() {
+    let db = setup_db().await;
+    let repo = db.tasks();
+
+    let list = make_task_list("list0001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    repo.create(&Task {
+        id: "task0001".to_string(),
+        list_id: list.id.clone(),
+        parent_id: None,
+        title: "Test Task".to_string(),
+        description: Some("Test data".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskStatus::Todo,
+        priority: Some(1),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+    })
+    .await
+    .unwrap();
+
+    // Should sanitize special chars and return results
+    let result = repo
+        .search("test@#$%", Some(&TaskQuery::default()))
+        .await
+        .expect("Search should succeed with sanitization");
+
+    // Should match "test" after sanitization
+    assert_eq!(result.items.len(), 1);
+}
+
+// =============================================================================
+// Bulk Task Transition Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_tasks_success() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup: Create task list
+    task_lists
+        .create(&make_task_list("bulklist", "Bulk Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create 3 tasks all with status backlog
+    let mut task1 = make_task("bulktsk1", "bulklist", "Task 1");
+    task1.status = TaskStatus::Backlog;
+    tasks
+        .create(&task1)
+        .await
+        .expect("Create task1 should succeed");
+
+    let mut task2 = make_task("bulktsk2", "bulklist", "Task 2");
+    task2.status = TaskStatus::Backlog;
+    tasks
+        .create(&task2)
+        .await
+        .expect("Create task2 should succeed");
+
+    let mut task3 = make_task("bulktsk3", "bulklist", "Task 3");
+    task3.status = TaskStatus::Backlog;
+    tasks
+        .create(&task3)
+        .await
+        .expect("Create task3 should succeed");
+
+    // Transition all 3 tasks from backlog to in_progress
+    let task_ids = vec![
+        "bulktsk1".to_string(),
+        "bulktsk2".to_string(),
+        "bulktsk3".to_string(),
+    ];
+    let updated_tasks = tasks
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
+        .await
+        .expect("Bulk transition should succeed");
+
+    // Verify all tasks were updated
+    assert_eq!(updated_tasks.len(), 3);
+    for task in updated_tasks {
+        assert_eq!(task.status, TaskStatus::InProgress);
+    }
+
+    // Verify via get
+    let task1_after = tasks
+        .get("bulktsk1")
+        .await
+        .expect("Get task1 should succeed");
+    let task2_after = tasks
+        .get("bulktsk2")
+        .await
+        .expect("Get task2 should succeed");
+    let task3_after = tasks
+        .get("bulktsk3")
+        .await
+        .expect("Get task3 should succeed");
+
+    assert_eq!(task1_after.status, TaskStatus::InProgress);
+    assert_eq!(task2_after.status, TaskStatus::InProgress);
+    assert_eq!(task3_after.status, TaskStatus::InProgress);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_tasks_mixed_status_fails() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("mixlist1", "Mixed Status Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create tasks with different statuses
+    let mut task1 = make_task("mixtsk01", "mixlist1", "Task 1");
+    task1.status = TaskStatus::Backlog;
+    tasks
+        .create(&task1)
+        .await
+        .expect("Create task1 should succeed");
+
+    let mut task2 = make_task("mixtsk02", "mixlist1", "Task 2");
+    task2.status = TaskStatus::Todo;
+    tasks
+        .create(&task2)
+        .await
+        .expect("Create task2 should succeed");
+
+    // Try to transition tasks with different statuses
+    let task_ids = vec!["mixtsk01".to_string(), "mixtsk02".to_string()];
+    let result = tasks
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Should fail when tasks have different statuses"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("same current status") || err_msg.contains("mixed status"),
+        "Error should mention status mismatch"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_tasks_invalid_transition_fails() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("invlist1", "Invalid Transition Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create tasks with backlog status
+    let mut task1 = make_task("invtsk01", "invlist1", "Task 1");
+    task1.status = TaskStatus::Backlog;
+    tasks
+        .create(&task1)
+        .await
+        .expect("Create task1 should succeed");
+
+    let mut task2 = make_task("invtsk02", "invlist1", "Task 2");
+    task2.status = TaskStatus::Backlog;
+    tasks
+        .create(&task2)
+        .await
+        .expect("Create task2 should succeed");
+
+    // Try invalid transition: backlog -> review (not allowed)
+    let task_ids = vec!["invtsk01".to_string(), "invtsk02".to_string()];
+    let result = tasks.transition_tasks(&task_ids, TaskStatus::Review).await;
+
+    assert!(result.is_err(), "Should fail for invalid transition");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("invalid_transition") || err_msg.contains("not allowed"),
+        "Error should mention invalid transition"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_tasks_not_found_fails() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("notflist", "Not Found Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create only one task
+    let mut task1 = make_task("notftsk1", "notflist", "Task 1");
+    task1.status = TaskStatus::Backlog;
+    tasks
+        .create(&task1)
+        .await
+        .expect("Create task1 should succeed");
+
+    // Try to transition with one non-existent task ID
+    let task_ids = vec!["notftsk1".to_string(), "nonexist".to_string()];
+    let result = tasks.transition_tasks(&task_ids, TaskStatus::Todo).await;
+
+    assert!(result.is_err(), "Should fail when task not found");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("not found") || err_msg.contains("NotFound"),
+        "Error should mention task not found"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_tasks_transaction_rollback() {
+    let db = setup_db().await;
+    let task_lists = db.task_lists();
+    let tasks = db.tasks();
+
+    // Setup
+    task_lists
+        .create(&make_task_list("rolllist", "Rollback Test"))
+        .await
+        .expect("Create task list should succeed");
+
+    // Create tasks
+    let mut task1 = make_task("rolltsk1", "rolllist", "Task 1");
+    task1.status = TaskStatus::Backlog;
+    tasks
+        .create(&task1)
+        .await
+        .expect("Create task1 should succeed");
+
+    let mut task2 = make_task("rolltsk2", "rolllist", "Task 2");
+    task2.status = TaskStatus::Backlog;
+    tasks
+        .create(&task2)
+        .await
+        .expect("Create task2 should succeed");
+
+    // Try bulk transition with one non-existent task - should rollback
+    let task_ids = vec![
+        "rolltsk1".to_string(),
+        "rolltsk2".to_string(),
+        "nonexist".to_string(),
+    ];
+    let result = tasks.transition_tasks(&task_ids, TaskStatus::Todo).await;
+
+    assert!(result.is_err(), "Should fail due to non-existent task");
+
+    // Verify no tasks were updated (transaction rolled back)
+    let task1_after = tasks
+        .get("rolltsk1")
+        .await
+        .expect("Get task1 should succeed");
+    let task2_after = tasks
+        .get("rolltsk2")
+        .await
+        .expect("Get task2 should succeed");
+
+    assert_eq!(
+        task1_after.status,
+        TaskStatus::Backlog,
+        "Task1 should remain backlog"
+    );
+    assert_eq!(
+        task2_after.status,
+        TaskStatus::Backlog,
+        "Task2 should remain backlog"
+    );
+}
+
+// =============================================================================
+// Validation Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_empty_title_should_fail() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    // First create a task list
+    let list = make_task_list("lst00001", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = Task {
+        id: "tsk00001".to_string(),
+        list_id: "lst00001".to_string(),
+        parent_id: None,
+        title: "".to_string(), // Empty title
+        description: Some("Valid description".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+
+    let result = tasks.create(&task).await;
+    assert!(result.is_err(), "Create should fail with empty title");
+
+    match result {
+        Err(context_core::DbError::Validation { message }) => {
+            assert!(
+                message.contains("title") && message.contains("empty"),
+                "Error should mention empty title, got: {}",
+                message
+            );
+        }
+        _ => panic!("Expected DbError::Validation"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_invalid_priority_should_fail() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    // First create a task list
+    let list = make_task_list("lst00002", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Test priority too low
+    let task = Task {
+        id: "tsk00002".to_string(),
+        list_id: "lst00002".to_string(),
+        parent_id: None,
+        title: "Valid Title".to_string(),
+        description: Some("Valid description".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(0), // Invalid - too low
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+
+    let result = tasks.create(&task).await;
+    assert!(result.is_err(), "Create should fail with priority 0");
+
+    // Test priority too high
+    let task2 = Task {
+        priority: Some(6), // Invalid - too high
+        ..task
+    };
+
+    let result2 = tasks.create(&task2).await;
+    assert!(result2.is_err(), "Create should fail with priority 6");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_with_empty_title_should_fail() {
+    let db = setup_db().await;
+    let tasks = db.tasks();
+
+    // First create a task list
+    let list = make_task_list("lst00003", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create a valid task
+    let task = Task {
+        id: "tsk00003".to_string(),
+        list_id: "lst00003".to_string(),
+        parent_id: None,
+        title: "Valid Title".to_string(),
+        description: Some("Valid description".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    tasks.create(&task).await.unwrap();
+
+    // Try to update with empty title
+    let mut updated = task.clone();
+    updated.title = "".to_string();
+
+    let result = tasks.update(&updated).await;
+    assert!(result.is_err(), "Update should fail with empty title");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_creation_logs_initial_backlog_transition() {
+    let db = setup_db().await;
+
+    // Create task list
+    let list = make_task_list("lst00004", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (always starts as backlog)
+    let task = make_task("tsk00004", "lst00004", "Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Verify transition log was created
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Should have exactly one transition log entry"
+    );
+    assert_eq!(transitions[0].task_id, created.id);
+    assert_eq!(
+        transitions[0].status,
+        TaskStatus::Backlog,
+        "Initial transition should be backlog"
+    );
+    assert!(
+        !transitions[0].transitioned_at.is_empty(),
+        "Should have timestamp"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_transition_logs_state_change() {
+    let db = setup_db().await;
+
+    // Create task list
+    let list = make_task_list("lst00005", "Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (starts as backlog)
+    let task = make_task("tsk00005", "lst00005", "Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Should have 1 transition (initial backlog)
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 1);
+
+    // Transition to todo
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
+        .await
+        .unwrap();
+
+    // Should have 2 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        2,
+        "Should have 2 transitions after todo transition"
+    );
+
+    // Transition to in_progress
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Should have 3 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 3, "Should have 3 transitions");
+
+    // Transition to done
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
+        .await
+        .unwrap();
+
+    // Should have 4 transitions - complete history
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        4,
+        "Should have complete transition history"
+    );
+
+    // Verify all expected statuses are present (order may vary due to same timestamps)
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(
+        statuses.contains(&TaskStatus::Backlog),
+        "Should have Backlog transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Todo),
+        "Should have Todo transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::InProgress),
+        "Should have InProgress transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Done),
+        "Should have Done transition"
+    );
+}
+
+// =============================================================================
+// Integration Tests - Complete Workflows
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_complete_workflow_through_all_valid_states() {
+    // Integration test: Create task and transition through all valid statuses
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstwork1", "Workflow Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task (backlog)
+    let task = make_task("tskwork1", "lstwork1", "Complete Workflow Task");
+    let created = db.tasks().create(&task).await.unwrap();
+    assert_eq!(created.status, TaskStatus::Backlog);
+
+    // Transition: backlog → todo
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Todo);
+
+    // Transition: todo → in_progress
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+
+    // Transition: in_progress → review
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Review)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Review);
+
+    // Transition: review → done
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
+        .await
+        .unwrap();
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+
+    // Verify complete history - should have 5 transitions
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        5,
+        "Should have 5 transitions: backlog → todo → in_progress → review → done"
+    );
+
+    // Verify all statuses are present
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Review));
+    assert!(statuses.contains(&TaskStatus::Done));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_bulk_transition_logs_all_task_transitions() {
+    // Integration test: Bulk transition multiple tasks, verify all get transition logs
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstbulk1", "Bulk Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create 5 tasks
+    let mut task_ids = Vec::new();
+    for i in 1..=5 {
+        let task = make_task(
+            &format!("tskbulk{}", i),
+            "lstbulk1",
+            &format!("Bulk Task {}", i),
+        );
+        let created = db.tasks().create(&task).await.unwrap();
+        task_ids.push(created.id);
+    }
+
+    // All tasks should have 1 transition (initial backlog)
+    for task_id in &task_ids {
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(transitions.len(), 1, "Initial transition logged");
+    }
+
+    // Bulk transition: backlog → todo
+    db.tasks()
+        .transition_tasks(&task_ids, TaskStatus::Todo)
+        .await
+        .unwrap();
+
+    // Verify all tasks transitioned
+    for task_id in &task_ids {
+        let task = db.tasks().get(task_id).await.unwrap();
+        assert_eq!(task.status, TaskStatus::Todo);
+
+        // Verify transition logged
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(transitions.len(), 2, "Should have 2 transitions");
+        let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+        assert!(statuses.contains(&TaskStatus::Backlog));
+        assert!(statuses.contains(&TaskStatus::Todo));
+    }
+
+    // Bulk transition: todo → in_progress
+    db.tasks()
+        .transition_tasks(&task_ids, TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Verify all tasks have 3 transitions
+    for task_id in &task_ids {
+        let task = db.tasks().get(task_id).await.unwrap();
+        assert_eq!(task.status, TaskStatus::InProgress);
+
+        let transitions = db.transition_logs().list_by_task_id(task_id).await.unwrap();
+        assert_eq!(
+            transitions.len(),
+            3,
+            "Should have 3 transitions after bulk in_progress"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_delete_cascades_to_transitions() {
+    // Integration test: Deleting a task should cascade delete its transitions
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstdel01", "Delete Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    // Create task and transition it
+    let task = make_task("tskdel01", "lstdel01", "Task To Delete");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Verify transitions exist
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        3,
+        "Should have 3 transitions before delete"
+    );
+
+    // Delete task
+    db.tasks().delete(&created.id).await.unwrap();
+
+    // Verify task is gone
+    let result = db.tasks().get(&created.id).await;
+    assert!(result.is_err(), "Task should be deleted");
+
+    // Verify transitions are cascade deleted
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        0,
+        "Transitions should be cascade deleted with task"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_rapid_transitions_all_logged() {
+    // Edge case: Rapid transitions in quick succession should all be logged
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstrapi1", "Rapid Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskrapi1", "lstrapi1", "Rapid Transition Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Perform rapid transitions
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Review)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
+        .await
+        .unwrap();
+
+    // Verify all transitions logged despite rapid execution
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        5,
+        "All rapid transitions should be logged"
+    );
+
+    // Verify completeness - all expected statuses present
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Review));
+    assert!(statuses.contains(&TaskStatus::Done));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transition_rollback_on_failure() {
+    // Edge case: If transition fails, no transition log should be created
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstroll1", "Rollback Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskroll1", "lstroll1", "Rollback Test Task");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Verify initial state
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 1, "Should have initial transition");
+
+    // Attempt invalid transition: backlog → done (should fail)
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
+        .await;
+    assert!(result.is_err(), "Invalid transition should fail validation");
+
+    // Verify no new transition was logged (transaction rolled back)
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Failed transition should not create log entry"
+    );
+
+    // Verify task status unchanged
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::Backlog,
+        "Task status should be unchanged after failed transition"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancelled_workflow_preserves_history() {
+    // Integration test: Task cancelled mid-workflow preserves full history
+    let db = setup_db().await;
+
+    // Setup
+    let list = make_task_list("lstcanc1", "Cancelled Test List");
+    db.task_lists().create(&list).await.unwrap();
+
+    let task = make_task("tskcanc1", "lstcanc1", "Task To Cancel");
+    let created = db.tasks().create(&task).await.unwrap();
+
+    // Progress through some states
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Todo)
+        .await
+        .unwrap();
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::InProgress)
+        .await
+        .unwrap();
+
+    // Cancel mid-workflow
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Cancelled)
+        .await
+        .unwrap();
+
+    // Verify complete history preserved
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        4,
+        "Should have complete history including cancellation"
+    );
+
+    let statuses: Vec<TaskStatus> = transitions.iter().map(|t| t.status.clone()).collect();
+    assert!(statuses.contains(&TaskStatus::Backlog));
+    assert!(statuses.contains(&TaskStatus::Todo));
+    assert!(statuses.contains(&TaskStatus::InProgress));
+    assert!(statuses.contains(&TaskStatus::Cancelled));
+
+    // Verify final state
+    let task = db.tasks().get(&created.id).await.unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
+}
+
+// =============================================================================
+// Guardrail Tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_same_status_is_noop() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist1", "Guardrail List"))
+        .await
+        .unwrap();
+
+    let task = make_task("grdtsk01", "grdlist1", "Task");
+    db.tasks().create(&task).await.unwrap();
+
+    // Transitioning to the same status (backlog → backlog) should succeed silently
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&task.id), TaskStatus::Backlog)
+        .await;
+    assert!(result.is_ok(), "Same-status transition should be a no-op");
+
+    // Status should still be backlog
+    let fetched = db.tasks().get(&task.id).await.unwrap();
+    assert_eq!(fetched.status, TaskStatus::Backlog);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_done_blocked_by_in_flight_subtasks() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist2", "Guardrail List 2"))
+        .await
+        .unwrap();
+
+    // Create parent task in in_progress
+    let mut parent = make_task("grdpar01", "grdlist2", "Parent");
+    parent.status = TaskStatus::InProgress;
+    db.tasks().create(&parent).await.unwrap();
+
+    // Create subtask still in_progress
+    let mut subtask = make_task("grdsub01", "grdlist2", "Subtask");
+    subtask.parent_id = Some("grdpar01".to_string());
+    subtask.status = TaskStatus::InProgress;
+    db.tasks().create(&subtask).await.unwrap();
+
+    // Trying to mark parent done should be blocked
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Done)
+        .await;
+    assert!(result.is_err(), "Should be blocked by in-flight subtask");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("in flight") || err.contains("subtask"),
+        "Error should mention subtasks: {err}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_cancelled_blocked_by_in_flight_subtasks() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist3", "Guardrail List 3"))
+        .await
+        .unwrap();
+
+    let mut parent = make_task("grdpar02", "grdlist3", "Parent");
+    parent.status = TaskStatus::InProgress;
+    db.tasks().create(&parent).await.unwrap();
+
+    let mut subtask = make_task("grdsub02", "grdlist3", "Subtask");
+    subtask.parent_id = Some("grdpar02".to_string());
+    subtask.status = TaskStatus::Todo;
+    db.tasks().create(&subtask).await.unwrap();
+
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Cancelled)
+        .await;
+    assert!(result.is_err(), "Should be blocked by in-flight subtask");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_done_allowed_when_subtasks_completed() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist4", "Guardrail List 4"))
+        .await
+        .unwrap();
+
+    let mut parent = make_task("grdpar03", "grdlist4", "Parent");
+    parent.status = TaskStatus::InProgress;
+    db.tasks().create(&parent).await.unwrap();
+
+    // Subtask is already done
+    let mut subtask = make_task("grdsub03", "grdlist4", "Subtask");
+    subtask.parent_id = Some("grdpar03".to_string());
+    subtask.status = TaskStatus::Done;
+    db.tasks().create(&subtask).await.unwrap();
+
+    // Parent should now be transitionable to done
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Done)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Should allow done when all subtasks complete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_rejects_grandparent_nesting() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist5", "Guardrail List 5"))
+        .await
+        .unwrap();
+
+    // Level 0: top-level task
+    let parent = make_task("grdpar04", "grdlist5", "Parent");
+    db.tasks().create(&parent).await.unwrap();
+
+    // Level 1: subtask (ok)
+    let mut subtask = make_task("grdsub04", "grdlist5", "Subtask");
+    subtask.parent_id = Some("grdpar04".to_string());
+    db.tasks().create(&subtask).await.unwrap();
+
+    // Level 2: sub-subtask (must be rejected)
+    let mut subsubtask = make_task("grdss001", "grdlist5", "Sub-subtask");
+    subsubtask.parent_id = Some("grdsub04".to_string());
+    let result = db.tasks().create(&subsubtask).await;
+    assert!(result.is_err(), "Sub-subtasks must be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("level") || err.contains("subtask") || err.contains("Nesting"),
+        "Error should mention depth limit: {err}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_rejects_grandparent_nesting() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist6", "Guardrail List 6"))
+        .await
+        .unwrap();
+
+    let parent = make_task("grdpar05", "grdlist6", "Parent");
+    db.tasks().create(&parent).await.unwrap();
+
+    let mut subtask = make_task("grdsub05", "grdlist6", "Subtask");
+    subtask.parent_id = Some("grdpar05".to_string());
+    db.tasks().create(&subtask).await.unwrap();
+
+    // A separate top-level task we'll try to re-parent under the subtask
+    let mut reparented = make_task("grdflat1", "grdlist6", "Flat Task");
+    db.tasks().create(&reparented).await.unwrap();
+
+    reparented.parent_id = Some("grdsub05".to_string());
+    let result = db.tasks().update(&reparented).await;
+    assert!(
+        result.is_err(),
+        "Re-parenting under a subtask must be rejected"
+    );
+}

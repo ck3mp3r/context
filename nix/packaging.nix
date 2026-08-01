@@ -37,7 +37,7 @@
     })
     .buildRustPackage {
       pname = "context-frontend";
-      inherit (cargoToml.package) version;
+      version = cargoToml.workspace.package.version;
       src = ../.;
       inherit cargoLock;
 
@@ -54,7 +54,7 @@
       '';
 
       installPhase = ''
-        cp -r dist $out
+        cp -r crates/context-server/dist $out
       '';
 
       doCheck = false;
@@ -64,7 +64,7 @@
   srcWithFrontend = pkgs.runCommand "context-src-with-frontend" {} ''
     cp -r ${../.} $out
     chmod -R +w $out
-    cp -r ${frontendAssets} $out/dist
+    cp -r ${frontendAssets} $out/crates/context-server/dist
   '';
 
   # Build regular packages (no archives)
@@ -81,10 +81,11 @@
     nixpkgs = inputs.nixpkgs;
     src = srcWithFrontend;
     packageName = "context";
+    workspaceMember = "context-cli";
     archiveAndHash = false;
     nativeBuildInputs = [];
     extraArgs = {
-      buildFeatures = ["embed-frontend"];
+      buildFeatures = ["context-server/embed-frontend"];
     };
   };
 
@@ -102,10 +103,11 @@
     nixpkgs = inputs.nixpkgs;
     src = srcWithFrontend;
     packageName = "archive";
+    workspaceMember = "context-cli";
     archiveAndHash = true;
     nativeBuildInputs = [];
     extraArgs = {
-      buildFeatures = ["embed-frontend"];
+      buildFeatures = ["context-server/embed-frontend"];
     };
   };
 

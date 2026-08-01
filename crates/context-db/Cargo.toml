@@ -1,0 +1,17 @@
+[package]
+name = "context-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+context-core = { path = "../context-core" }
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"] }
+chrono.workspace = true
+serde_json.workspace = true
+tokio = { version = "1.52.3", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+base64 = "0.23.0"

@@ -1,0 +1,308 @@
+//! Project tool implementations
+//!
+//! Handles all MCP tools for project management operations.
+//! Follows Single Responsibility Principle (SRP).
+
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
+use crate::mcp::tools::{apply_limit, map_db_error};
+use context_core::{HasProjects, PageSort, Project, ProjectQuery, ProjectRepository};
+use rmcp::{
+    ErrorData as McpError,
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::*,
+    schemars,
+    schemars::JsonSchema,
+    tool, tool_router,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::sync::Arc;
+
+// Parameter types for tools
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListProjectsParams {
+    #[schemars(
+        description = "FTS5 search query (optional). If provided, performs full-text search. Examples: 'rust backend' (simple), 'rust AND backend' (Boolean), '\"exact phrase\"' (phrase match), 'term*' (prefix), 'NOT deprecated' (exclude)"
+    )]
+    pub query: Option<String>,
+    #[schemars(
+        description = "Maximum number of projects to return (default: 10, max: 20). IMPORTANT: Keep this small to prevent context overflow."
+    )]
+    pub limit: Option<usize>,
+    #[schemars(description = "Number of items to skip")]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Field to sort by (title, created_at, updated_at). Default: created_at"
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Sort order (asc, desc). Default: asc")]
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetProjectParams {
+    #[schemars(description = "Project ID (8-character hex)")]
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CreateProjectParams {
+    #[schemars(description = "Project title")]
+    pub title: String,
+    #[schemars(description = "Optional description")]
+    pub description: Option<String>,
+    #[schemars(description = "Tags for categorization")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(description = "External references (e.g., ['owner/repo#123', 'PROJ-456'])")]
+    pub external_refs: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct UpdateProjectParams {
+    #[schemars(description = "Project ID")]
+    pub id: String,
+    #[schemars(description = "New title")]
+    pub title: Option<String>,
+    #[schemars(description = "New description")]
+    pub description: Option<String>,
+    #[schemars(description = "New tags")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(description = "External references (e.g., ['owner/repo#123', 'PROJ-456'])")]
+    pub external_refs: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DeleteProjectParams {
+    #[schemars(description = "Project ID to delete")]
+    pub id: String,
+}
+
+/// Project management tools
+///
+/// Generic over `D: Database` for zero-cost abstraction.
+///
+/// # SOLID Principles
+/// - **Single Responsibility**: Only handles project operations
+/// - **Dependency Inversion**: Depends on Database trait
+#[derive(Clone)]
+pub struct ProjectTools<D: HasProjects> {
+    db: Arc<D>,
+    notifier: ChangeNotifier,
+    tool_router: ToolRouter<Self>,
+}
+
+#[tool_router]
+impl<D: HasProjects + 'static> ProjectTools<D> {
+    /// Create new ProjectTools with database
+    pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
+        Self {
+            db,
+            notifier,
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Get the tool router for this handler
+    pub fn router(&self) -> &ToolRouter<Self> {
+        &self.tool_router
+    }
+
+    /// List projects with pagination and sorting (default: 10, max: 20)
+    #[tool(
+        description = "List projects with pagination and sorting. Sort by title, created_at, or updated_at. Default limit: 10, max: 20 to prevent context overflow."
+    )]
+    pub async fn list_projects(
+        &self,
+        params: Parameters<ListProjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = apply_limit(params.0.limit);
+
+        let query = ProjectQuery {
+            page: PageSort {
+                limit: Some(limit),
+                offset: params.0.offset,
+                sort_by: params.0.sort.clone(),
+                sort_order: match params.0.order.as_deref() {
+                    Some("desc") => Some(context_core::SortOrder::Desc),
+                    Some("asc") => Some(context_core::SortOrder::Asc),
+                    _ => None,
+                },
+            },
+            tags: None,
+            repo_id: None,
+            skill_id: None,
+        };
+
+        // Perform search or list based on query presence
+        let result = if let Some(q) = &params.0.query {
+            self.db.projects().search(q, Some(&query)).await
+        } else {
+            self.db.projects().list(Some(&query)).await
+        }
+        .map_err(map_db_error)?;
+
+        let response = json!({
+            "items": result.items,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+        });
+
+        let content = serde_json::to_string_pretty(&response).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
+    }
+
+    /// Get a project by ID
+    #[tool(description = "Get a project by ID")]
+    pub async fn get_project(
+        &self,
+        params: Parameters<GetProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let project = self
+            .db
+            .projects()
+            .get(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        let content = serde_json::to_string_pretty(&project).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
+    }
+
+    /// Create a new project
+    #[tool(description = "Create a new project")]
+    pub async fn create_project(
+        &self,
+        params: Parameters<CreateProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let project = Project {
+            id: String::new(), // Repository generates this
+            title: params.0.title,
+            description: params.0.description,
+            tags: params.0.tags.unwrap_or_default(),
+            external_refs: params.0.external_refs.unwrap_or_default(),
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: None, // Repository generates this
+            updated_at: None, // Repository generates this
+        };
+
+        let created = self
+            .db
+            .projects()
+            .create(&project)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::ProjectCreated {
+            project_id: created.id.clone(),
+        });
+
+        let content = serde_json::to_string_pretty(&created).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
+    }
+
+    /// Update a project
+    #[tool(description = "Update a project")]
+    pub async fn update_project(
+        &self,
+        params: Parameters<UpdateProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Get existing project
+        let mut project = self
+            .db
+            .projects()
+            .get(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        // Update fields if provided
+        if let Some(t) = params.0.title {
+            project.title = t;
+        }
+        if let Some(d) = params.0.description {
+            project.description = Some(d);
+        }
+        if let Some(tags) = params.0.tags {
+            project.tags = tags;
+        }
+        if let Some(external_refs) = params.0.external_refs {
+            project.external_refs = external_refs;
+        }
+
+        // Clear updated_at to ensure proper timestamp refresh
+        project.updated_at = None;
+
+        self.db
+            .projects()
+            .update(&project)
+            .await
+            .map_err(map_db_error)?;
+
+        // Get the updated project to return it
+        let updated = self
+            .db
+            .projects()
+            .get(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::ProjectUpdated {
+            project_id: params.0.id.clone(),
+        });
+
+        let content = serde_json::to_string_pretty(&updated).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
+    }
+
+    /// Delete a project
+    #[tool(description = "Delete a project")]
+    pub async fn delete_project(
+        &self,
+        params: Parameters<DeleteProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .projects()
+            .delete(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::ProjectDeleted {
+            project_id: params.0.id.clone(),
+        });
+
+        let content = serde_json::json!({
+            "success": true,
+            "message": format!("Project {} deleted successfully", params.0.id)
+        });
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            serde_json::to_string_pretty(&content).unwrap(),
+        )]))
+    }
+}

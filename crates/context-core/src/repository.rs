@@ -1,0 +1,274 @@
+//! Repository traits for data access abstraction.
+//!
+//! These traits define the contract for data access, allowing different
+//! storage backends to be swapped without changing business logic.
+//!
+//! All async methods return `Send` futures to ensure compatibility with
+//! async runtimes like Tokio and web frameworks like Axum.
+
+use std::future::Future;
+use std::path::Path;
+
+use crate::{
+    DbResult, ListResult, Note, NoteQuery, Project, ProjectQuery, Repo, RepoQuery, Task, TaskList,
+    TaskListQuery, TaskQuery, TaskStats, TaskStatus, TransitionLog,
+};
+use crate::{ExportSummary, ImportSummary};
+
+/// Repository for Project operations.
+pub trait ProjectRepository: Send + Sync {
+    fn create(&self, project: &Project) -> impl Future<Output = DbResult<Project>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<Project>> + Send;
+    fn list(
+        &self,
+        query: Option<&ProjectQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        query: &str,
+        project_query: Option<&ProjectQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
+}
+
+/// Repository for Repo operations.
+pub trait RepoRepository: Send + Sync {
+    fn create(&self, repo: &Repo) -> impl Future<Output = DbResult<Repo>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<Repo>> + Send;
+    fn list(
+        &self,
+        query: Option<&RepoQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Repo>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn update(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+}
+
+/// Repository for TaskList operations.
+pub trait TaskListRepository: Send + Sync {
+    fn create(&self, task_list: &TaskList) -> impl Future<Output = DbResult<TaskList>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<TaskList>> + Send;
+    fn list(
+        &self,
+        query: Option<&TaskListQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&TaskListQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
+    fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+}
+
+/// Repository for Task operations.
+pub trait TaskRepository: Send + Sync {
+    fn create(&self, task: &Task) -> impl Future<Output = DbResult<Task>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<Task>> + Send;
+    fn list(
+        &self,
+        query: Option<&TaskQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&TaskQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn get_stats_for_list(&self, list_id: &str)
+    -> impl Future<Output = DbResult<TaskStats>> + Send;
+    fn transition_tasks(
+        &self,
+        task_ids: &[String],
+        target_status: TaskStatus,
+    ) -> impl Future<Output = DbResult<Vec<Task>>> + Send;
+    fn get_transitions(
+        &self,
+        task_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> impl Future<Output = DbResult<ListResult<TransitionLog>>> + Send;
+}
+
+/// Repository for Note operations.
+pub trait NoteRepository: Send + Sync {
+    fn create(&self, note: &Note) -> impl Future<Output = DbResult<Note>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<Note>> + Send;
+    fn get_metadata_only(&self, id: &str) -> impl Future<Output = DbResult<Note>> + Send;
+    fn list(
+        &self,
+        query: Option<&NoteQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn list_metadata_only(
+        &self,
+        query: Option<&NoteQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+    fn update(&self, note: &Note) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&NoteQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
+    /// Get specific line ranges from a note.
+    /// Ranges are tuples of (start_line, end_line) where lines are 1-indexed.
+    /// Ranges will be sorted and validated for overlap before processing.
+    fn get_line_ranges(
+        &self,
+        id: &str,
+        ranges: &[(usize, usize)],
+    ) -> impl Future<Output = DbResult<Vec<String>>> + Send;
+    /// Apply patches to specific line ranges in a note.
+    /// Patches are tuples of ((start_line, end_line), replacement_content).
+    /// Patches will be sorted, validated for overlap, and applied in reverse order
+    /// to maintain accurate line numbers.
+    fn apply_line_patches(
+        &self,
+        id: &str,
+        patches: &[((usize, usize), String)],
+    ) -> impl Future<Output = DbResult<()>> + Send;
+}
+
+/// Repository for Skill operations.
+pub trait SkillRepository: Send + Sync {
+    fn create(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<crate::Skill>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::Skill>> + Send;
+    fn list(
+        &self,
+        query: Option<&crate::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
+    fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn update(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn search(
+        &self,
+        search_term: &str,
+        query: Option<&crate::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
+    fn get_attachments(
+        &self,
+        skill_id: &str,
+    ) -> impl Future<Output = DbResult<Vec<crate::SkillAttachment>>> + Send;
+    fn count_attachments(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn create_attachment(
+        &self,
+        attachment: &crate::SkillAttachment,
+    ) -> impl Future<Output = DbResult<crate::SkillAttachment>> + Send;
+    fn update_attachment(
+        &self,
+        attachment: &crate::SkillAttachment,
+    ) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete_attachment(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    fn delete_attachments_for_skill(
+        &self,
+        skill_id: &str,
+    ) -> impl Future<Output = DbResult<()>> + Send;
+}
+
+/// Repository for sync operations (import/export).
+pub trait SyncRepository: Send + Sync {
+    fn import_all(&self, input_dir: &Path) -> impl Future<Output = DbResult<ImportSummary>> + Send;
+
+    fn export_all(&self, output_dir: &Path)
+    -> impl Future<Output = DbResult<ExportSummary>> + Send;
+}
+
+// =============================================================================
+// Has* accessor traits (ISP: consumers depend only on what they use)
+// =============================================================================
+
+/// Accessor trait for ProjectRepository.
+pub trait HasProjects: Send + Sync {
+    type Projects<'a>: ProjectRepository
+    where
+        Self: 'a;
+    fn projects(&self) -> Self::Projects<'_>;
+}
+
+/// Accessor trait for RepoRepository.
+pub trait HasRepos: Send + Sync {
+    type Repos<'a>: RepoRepository
+    where
+        Self: 'a;
+    fn repos(&self) -> Self::Repos<'_>;
+}
+
+/// Accessor trait for TaskListRepository.
+pub trait HasTaskLists: Send + Sync {
+    type TaskLists<'a>: TaskListRepository
+    where
+        Self: 'a;
+    fn task_lists(&self) -> Self::TaskLists<'_>;
+}
+
+/// Accessor trait for TaskRepository.
+pub trait HasTasks: Send + Sync {
+    type Tasks<'a>: TaskRepository
+    where
+        Self: 'a;
+    fn tasks(&self) -> Self::Tasks<'_>;
+}
+
+/// Accessor trait for NoteRepository.
+pub trait HasNotes: Send + Sync {
+    type Notes<'a>: NoteRepository
+    where
+        Self: 'a;
+    fn notes(&self) -> Self::Notes<'_>;
+}
+
+/// Accessor trait for SyncRepository.
+pub trait HasSync: Send + Sync {
+    type Sync<'a>: SyncRepository
+    where
+        Self: 'a;
+    fn sync(&self) -> Self::Sync<'_>;
+}
+
+/// Accessor trait for SkillRepository.
+pub trait HasSkills: Send + Sync {
+    type Skills<'a>: SkillRepository
+    where
+        Self: 'a;
+    fn skills(&self) -> Self::Skills<'_>;
+}
+
+/// Accessor trait for TransitionLogRepository.
+pub trait HasTransitionLogs: Send + Sync {
+    type TransitionLogs<'a>
+    where
+        Self: 'a;
+    fn transition_logs(&self) -> Self::TransitionLogs<'_>;
+}
+
+/// Combined database interface.
+///
+/// Super-trait of all `Has*` accessor traits. Consumers should depend on
+/// the specific `Has*` traits they need rather than this full interface.
+///
+/// Uses associated types to provide access to repositories without dynamic dispatch.
+/// Each implementation defines its own concrete repository types.
+///
+/// All repository traits require `Send + Sync` and their async methods return
+/// `Send` futures, enabling compatibility with async web frameworks like Axum.
+pub trait Database:
+    Send
+    + Sync
+    + HasProjects
+    + HasRepos
+    + HasTaskLists
+    + HasTasks
+    + HasNotes
+    + HasSync
+    + HasSkills
+    + HasTransitionLogs
+{
+    /// Run pending migrations.
+    fn migrate(&self) -> DbResult<()>;
+}

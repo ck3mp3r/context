@@ -24,7 +24,7 @@ The c5t frontend is a **single-page application (SPA)** built with Leptos and Th
 ## Project Structure
 
 ```
-src/frontend/
+crates/context-frontend/src/
 ├── main.rs              # WASM entry point (wasm_bindgen)
 ├── app.rs               # Root component + routing
 ├── api/                 # HTTP client for backend API
@@ -42,10 +42,11 @@ src/frontend/
 │   ├── project_detail.rs
 │   ├── notes.rs         # Note list/search
 │   └── repos.rs
-└── assets/
-    ├── index.html       # HTML template
-    ├── input.css        # Tailwind CSS input
-    ├── style.css        # Generated CSS (gitignored)
+├── public/
+│   ├── index.html       # HTML template
+│   ├── input.css        # Tailwind CSS input
+│   └── style.css        # Generated CSS (gitignored)
+└── tailwind/
     └── tailwind.config.js
 ```
 
@@ -59,7 +60,7 @@ Run **two processes** for hot reloading:
    ```sh
    trunk serve
    ```
-   - Watches `src/frontend/**` for changes
+   - Watches `crates/context-frontend/src/**` for changes
    - Auto-rebuilds WASM on file save
    - Live reloads browser
    - Proxies `/dev/api/*` → `http://localhost:3737/api/*`
@@ -124,7 +125,7 @@ cargo build --release   # rust-embed finds dist/, embeds assets
 
 ### rust-embed Configuration
 
-`src/api/static_assets.rs`:
+`crates/context-server/src/api/static_assets.rs`:
 ```rust
 #[derive(RustEmbed)]
 #[folder = "dist/"]
@@ -182,7 +183,7 @@ let projects = fetch("/api/v1/projects").await?;
 
 ## Client-Side Routing
 
-Leptos Router configuration (`src/frontend/app.rs`):
+Leptos Router configuration (`crates/context-frontend/src/app.rs`):
 
 ```rust
 <Router>
@@ -205,8 +206,8 @@ The backend's SPA fallback ensures these routes work:
 
 ```toml
 [build]
-target = "src/frontend/assets/index.html"
-dist = "dist"
+target = "crates/context-frontend/src/public/index.html"
+dist = "crates/context-server/dist"
 public_url = "/"
 filehash = true           # Hash assets for cache busting
 minify = "on_release"     # Minify JS/CSS in release
@@ -239,7 +240,7 @@ This avoids pulling in server-side rendering deps for WASM builds.
 
 **Workaround**: Access via `localhost` or `127.0.0.1` instead of `0.0.0.0`
 
-**Location**: `src/frontend/components/ui_components.rs:13-50`
+**Location**: `crates/context-frontend/src/components/ui_components.rs:13-50`
 
 ### Trunk Cache Stale Builds
 
@@ -262,7 +263,7 @@ Currently minimal - future work to add:
 - Integration tests (playwright/selenium)
 
 ### Backend Static Asset Tests
-See `src/api/static_assets.rs`:
+See `crates/context-server/src/api/static_assets.rs`:
 - Root serves `index.html`
 - API routes return 404 (handled elsewhere)
 - SPA fallback works for unknown routes

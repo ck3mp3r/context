@@ -11,7 +11,7 @@ on:
       - "Cargo.toml"
       - "flake.lock"
       - "flake.nix"
-      - "src/**"
+      - "crates/**"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,4 +27,4 @@ jobs:
       - name: Build and test
         env:
           NIX_CONFIG: "access-tokens = github.com=${{ github.token }}"
-        run: nix develop .#ci --command cargo test --no-default-features --features backend
+        run: nix develop .#ci --command cargo test --workspace
