@@ -2,7 +2,7 @@
 //!
 //! Coordinates git operations, export, import, and status checking.
 
-use crate::db::{
+use context_core::{
     Database, NoteRepository, ProjectRepository, RepoRepository, SkillRepository, SyncRepository,
     TaskListRepository, TaskRepository,
 };
@@ -12,12 +12,12 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
-    export::{ExportError, ExportSummary},
+    export::ExportError,
     git::{GitError, GitOps},
-    import::{ImportError, ImportSummary},
-    paths::get_sync_dir,
+    import::ImportError,
     read_jsonl,
 };
+use context_core::{ExportSummary, get_sync_dir, ImportSummary};
 
 /// Result of sync initialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +45,7 @@ pub enum SyncError {
 
     #[error("Database error: {0}")]
     #[diagnostic(code(c5t::sync::database))]
-    Database(#[from] crate::db::DbError),
+    Database(#[from] context_core::DbError),
 
     #[error("Sync not initialized - run init first")]
     #[diagnostic(code(c5t::sync::not_initialized))]
@@ -392,7 +392,7 @@ impl<G: GitOps> SyncManager<G> {
 
     /// Count entities in JSONL files.
     async fn count_jsonl_entities(&self) -> Option<EntityCounts> {
-        use crate::db::{Note, Project, Repo, Skill, SkillAttachment, Task, TaskList};
+        use context_core::{Note, Project, Repo, Skill, SkillAttachment, Task, TaskList};
 
         let repos: Vec<Repo> = read_jsonl(&self.sync_dir.join("repos.jsonl")).unwrap_or_default();
         let projects: Vec<Project> =

@@ -1,7 +1,7 @@
 //! Export database entities to JSONL files.
 
-use crate::db::{
-    Database, NoteRepository, ProjectRepository, RepoRepository, SkillRepository,
+use context_core::{
+    Database, ExportSummary, NoteRepository, ProjectRepository, RepoRepository, SkillRepository,
     TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
@@ -15,7 +15,7 @@ use super::jsonl::{JsonlError, write_jsonl};
 pub enum ExportError {
     #[error("Database error: {0}")]
     #[diagnostic(code(c5t::sync::export::database))]
-    Database(#[from] crate::db::DbError),
+    Database(#[from] context_core::DbError),
 
     #[error("JSONL error: {0}")]
     #[diagnostic(code(c5t::sync::export::jsonl))]
@@ -136,28 +136,4 @@ pub async fn export_all<D: Database>(
     Ok(summary)
 }
 
-/// Summary of exported entities.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ExportSummary {
-    pub repos: usize,
-    pub projects: usize,
-    pub task_lists: usize,
-    pub tasks: usize,
-    pub transitions: usize,
-    pub notes: usize,
-    pub skills: usize,
-    pub attachments: usize,
-}
 
-impl ExportSummary {
-    pub fn total(&self) -> usize {
-        self.repos
-            + self.projects
-            + self.task_lists
-            + self.tasks
-            + self.transitions
-            + self.notes
-            + self.skills
-            + self.attachments
-    }
-}

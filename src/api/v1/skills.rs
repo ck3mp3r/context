@@ -335,7 +335,7 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
     let db = state.db();
     let repo = db.skills();
     let skill = Skill {
-        id: crate::db::utils::generate_entity_id(),
+        id: context_core::generate_entity_id(),
         name: req.name,
         description: req.description,
         content: req.content,

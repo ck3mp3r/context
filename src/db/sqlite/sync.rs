@@ -3,8 +3,8 @@
 use sqlx::SqlitePool;
 use std::path::Path;
 
-use crate::db::{DbError, DbResult, Note, Project, Repo, Skill, SyncRepository, Task, TaskList};
-use crate::sync::{ExportSummary, ImportSummary, read_jsonl};
+use context_core::{DbError, DbResult, ExportSummary, ImportSummary, Note, Project, Repo, Skill, SyncRepository, Task, TaskList};
+use crate::sync::read_jsonl;
 
 /// SQLite-specific sync repository.
 pub struct SqliteSyncRepository<'a> {
@@ -242,7 +242,7 @@ async fn import_all_with_transaction(
     // ========== Import Task Transitions ==========
     let transitions_file = input_dir.join("task_transition_log.jsonl");
     if transitions_file.exists() {
-        use crate::db::TransitionLog;
+        use context_core::TransitionLog;
         let transitions: Vec<TransitionLog> = read_jsonl(&transitions_file)?;
         for transition in transitions {
             // Upsert transition
@@ -374,7 +374,7 @@ async fn import_all_with_transaction(
     // ========== Import Skill Attachments ==========
     let attachments_file = input_dir.join("skills_attachments.jsonl");
     if attachments_file.exists() {
-        use crate::db::SkillAttachment;
+        use context_core::SkillAttachment;
         let attachments: Vec<SkillAttachment> = read_jsonl(&attachments_file)?;
         for attachment in attachments {
             // Upsert attachment
@@ -420,7 +420,7 @@ async fn export_all_from_pool(
         SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSkillRepository,
         SqliteTaskListRepository, SqliteTaskRepository,
     };
-    use crate::db::{
+    use context_core::{
         NoteRepository, ProjectRepository, RepoRepository, SkillRepository, TaskListRepository,
         TaskRepository,
     };

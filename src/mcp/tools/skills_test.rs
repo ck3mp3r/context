@@ -505,7 +505,7 @@ Learn web programming.
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_skill_with_cache_extraction() {
-    use crate::db::utils::generate_entity_id;
+    use context_core::generate_entity_id;
     use crate::sync::set_base_path;
     use base64::Engine as _;
 

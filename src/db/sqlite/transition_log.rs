@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, TaskStatus, TransitionLog};
+use context_core::{current_timestamp, generate_entity_id};
+use context_core::{DbError, DbResult, TaskStatus, TransitionLog};
 
 /// SQLx-backed transition log repository.
 pub struct SqliteTransitionLogRepository<'a> {

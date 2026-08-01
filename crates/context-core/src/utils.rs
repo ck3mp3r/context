@@ -1,6 +1,6 @@
 //! Database utility functions.
 
-use sqlx::types::chrono::Utc;
+use chrono::Utc;
 
 /// Generate an 8-character hex ID for database entities
 pub fn generate_entity_id() -> String {

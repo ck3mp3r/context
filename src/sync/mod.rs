@@ -18,15 +18,17 @@ mod jsonl_test;
 mod manager;
 #[cfg(test)]
 mod manager_test;
-mod paths;
-#[cfg(test)]
-mod paths_test;
 
-pub use export::{ExportError, ExportSummary, export_all};
+// Path functions moved to context-core crate
+pub use context_core::{clear_base_path, get_data_dir, get_db_path, get_sync_dir, set_base_path};
+
+pub use export::{ExportError, export_all};
 #[cfg(test)]
 pub use git::MockGitOps;
 pub use git::{GitError, GitOps, RealGit};
-pub use import::{ImportError, ImportSummary, import_all};
+pub use import::{ImportError, import_all};
 pub use jsonl::{JsonlError, read_jsonl, write_jsonl};
 pub use manager::{EntityCounts, GitStatus, InitResult, SyncError, SyncManager, SyncStatus};
-pub use paths::{clear_base_path, get_data_dir, get_db_path, get_sync_dir, set_base_path};
+
+// Re-export summary types from context-core for backward compatibility
+pub use context_core::{ExportSummary, ImportSummary};

@@ -1,9 +1,10 @@
-use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
-    SkillAttachment, SkillRepository, SqliteDatabase, TaskList, TaskListRepository, TaskListStatus,
+use context_core::{
+    Database, ImportSummary, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
+    Skill, SkillAttachment, SkillRepository, TaskList, TaskListRepository, TaskListStatus,
 };
+use crate::db::SqliteDatabase;
 use crate::sync::export::export_all;
-use crate::sync::import::*;
+use crate::sync::import::import_all;
 use crate::sync::jsonl::write_jsonl;
 use base64::prelude::*;
 use tempfile::TempDir;

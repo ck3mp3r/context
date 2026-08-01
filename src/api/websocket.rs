@@ -10,7 +10,7 @@ use axum::{
 use tracing::{debug, error, info};
 
 use super::state::AppState;
-use crate::db::Database;
+use context_core::Database;
 use crate::sync::GitOps;
 
 /// WebSocket upgrade handler.

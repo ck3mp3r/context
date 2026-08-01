@@ -1,7 +1,7 @@
 //! Tests for SqliteSkillRepository.
 
-use crate::db::repository::Database;
-use crate::db::{Skill, SkillQuery, SkillRepository, SqliteDatabase};
+use context_core::{Database, Skill, SkillQuery, SkillRepository};
+use crate::db::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

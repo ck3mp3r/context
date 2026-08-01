@@ -3,9 +3,9 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
-use crate::db::models::{SKILL_DESCRIPTION_MAX, Skill, SkillAttachment, SkillQuery};
-use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, SkillRepository};
+use context_core::{SKILL_DESCRIPTION_MAX, Skill, SkillAttachment, SkillQuery};
+use context_core::{current_timestamp, generate_entity_id};
+use context_core::{DbError, DbResult, ListResult, SkillRepository};
 
 /// SQLx-backed skill repository.
 pub struct SqliteSkillRepository<'a> {

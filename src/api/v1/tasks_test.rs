@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use crate::api::{AppState, routes};
-use crate::db::utils::generate_entity_id;
-use crate::db::{Database, SqliteDatabase, Task, TaskRepository};
+use context_core::generate_entity_id;
+use context_core::{Database, Task, TaskRepository};
+use crate::db::SqliteDatabase;
 use tempfile::TempDir;
 
 async fn test_app() -> axum::Router {

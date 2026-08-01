@@ -8,7 +8,7 @@
 //! 5. Insert into database
 //! 6. Cleanup temp files
 
-use crate::db::{Database, Skill, SkillAttachment, SkillRepository};
+use context_core::{Database, Skill, SkillAttachment, SkillRepository};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -277,7 +277,7 @@ This is a test skill for import testing.
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_duplicate_without_update_fails() {
-        use crate::db::utils::generate_entity_id;
+        use context_core::generate_entity_id;
 
         let db = SqliteDatabase::in_memory()
             .await
@@ -324,7 +324,7 @@ description: A test skill
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_duplicate_with_update_succeeds() {
-        use crate::db::utils::generate_entity_id;
+        use context_core::generate_entity_id;
 
         let db = SqliteDatabase::in_memory()
             .await
@@ -382,7 +382,7 @@ description: Updated description
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_update_preserves_tags_and_project_ids_when_not_provided() {
-        use crate::db::utils::generate_entity_id;
+        use context_core::generate_entity_id;
         use crate::db::{Project, ProjectRepository};
 
         let db = SqliteDatabase::in_memory()
@@ -483,7 +483,7 @@ description: Updated content
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_update_replaces_tags_and_project_ids_when_provided() {
-        use crate::db::utils::generate_entity_id;
+        use context_core::generate_entity_id;
         use crate::db::{Project, ProjectRepository};
 
         let db = SqliteDatabase::in_memory()
@@ -592,7 +592,7 @@ description: Test replacement
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_update_adds_tags_and_project_ids_to_empty_skill() {
-        use crate::db::utils::generate_entity_id;
+        use context_core::generate_entity_id;
         use crate::db::{Project, ProjectRepository};
 
         let db = SqliteDatabase::in_memory()

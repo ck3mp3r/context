@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::notifier::ChangeNotifier;
-use crate::db::Database;
+use context_core::Database;
 use crate::sync::{GitOps, SyncManager};
 
 /// Shared application state.

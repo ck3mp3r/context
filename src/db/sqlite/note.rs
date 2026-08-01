@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
-use crate::db::models::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
-use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
+use context_core::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
+use context_core::{current_timestamp, generate_entity_id};
+use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
 
 /// SQLx-backed note repository.
 pub struct SqliteNoteRepository<'a> {

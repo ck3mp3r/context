@@ -9,11 +9,11 @@
 use std::future::Future;
 use std::path::Path;
 
-use crate::db::{
+use crate::{
     DbResult, ListResult, NoteQuery, ProjectQuery, RepoQuery, TaskListQuery, TaskQuery,
-    models::{Note, Project, Repo, Task, TaskList, TaskStats, TaskStatus, TransitionLog},
+    Note, Project, Repo, Task, TaskList, TaskStats, TaskStatus, TransitionLog,
 };
-use crate::sync::{ExportSummary, ImportSummary};
+use crate::{ExportSummary, ImportSummary};
 
 /// Repository for Project operations.
 pub trait ProjectRepository: Send + Sync {
@@ -139,34 +139,34 @@ pub trait NoteRepository: Send + Sync {
 pub trait SkillRepository: Send + Sync {
     fn create(
         &self,
-        skill: &crate::db::models::Skill,
-    ) -> impl Future<Output = DbResult<crate::db::models::Skill>> + Send;
-    fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::db::models::Skill>> + Send;
+        skill: &crate::Skill,
+    ) -> impl Future<Output = DbResult<crate::Skill>> + Send;
+    fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::Skill>> + Send;
     fn list(
         &self,
-        query: Option<&crate::db::models::SkillQuery>,
-    ) -> impl Future<Output = DbResult<ListResult<crate::db::models::Skill>>> + Send;
+        query: Option<&crate::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
-    fn update(&self, skill: &crate::db::models::Skill)
+    fn update(&self, skill: &crate::Skill)
     -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
         &self,
         search_term: &str,
-        query: Option<&crate::db::models::SkillQuery>,
-    ) -> impl Future<Output = DbResult<ListResult<crate::db::models::Skill>>> + Send;
+        query: Option<&crate::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
     fn get_attachments(
         &self,
         skill_id: &str,
-    ) -> impl Future<Output = DbResult<Vec<crate::db::models::SkillAttachment>>> + Send;
+    ) -> impl Future<Output = DbResult<Vec<crate::SkillAttachment>>> + Send;
     fn count_attachments(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn create_attachment(
         &self,
-        attachment: &crate::db::models::SkillAttachment,
-    ) -> impl Future<Output = DbResult<crate::db::models::SkillAttachment>> + Send;
+        attachment: &crate::SkillAttachment,
+    ) -> impl Future<Output = DbResult<crate::SkillAttachment>> + Send;
     fn update_attachment(
         &self,
-        attachment: &crate::db::models::SkillAttachment,
+        attachment: &crate::SkillAttachment,
     ) -> impl Future<Output = DbResult<()>> + Send;
     fn delete_attachment(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn delete_attachments_for_skill(

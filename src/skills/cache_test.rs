@@ -1,6 +1,6 @@
 use super::*;
-use crate::db::SkillAttachment;
-use crate::db::utils::generate_entity_id;
+use context_core::SkillAttachment;
+use context_core::generate_entity_id;
 use crate::sync::set_base_path;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use std::fs;

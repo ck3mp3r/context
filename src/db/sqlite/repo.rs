@@ -3,8 +3,8 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::build_limit_offset_clause;
-use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
+use context_core::{current_timestamp, generate_entity_id};
+use context_core::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
 
 /// SQLx-backed repo repository.
 pub struct SqliteRepoRepository<'a> {

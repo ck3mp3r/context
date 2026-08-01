@@ -3,8 +3,8 @@
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, build_order_clause};
-use crate::db::utils::{current_timestamp, generate_entity_id};
-use crate::db::{
+use context_core::{current_timestamp, generate_entity_id};
+use context_core::{
     DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository, SortOrder,
 };
 

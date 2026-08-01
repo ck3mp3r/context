@@ -415,6 +415,7 @@ dependencies = [
  "base64 0.23.0",
  "chrono",
  "clap",
+ "context-core",
  "dashmap",
  "futures-util",
  "http-body-util",
@@ -448,6 +449,17 @@ dependencies = [
  "utoipa-axum",
  "utoipa-scalar",
  "webpki-root-certs",
+]
+
+[[package]]
+name = "context-core"
+version = "0.7.8"
+dependencies = [
+ "chrono",
+ "miette",
+ "serde",
+ "thiserror",
+ "utoipa",
 ]
 
 [[package]]

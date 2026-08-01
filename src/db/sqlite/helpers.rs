@@ -1,6 +1,6 @@
 //! Shared helper functions for SQLite repositories.
 
-use crate::db::{PageSort, SortOrder};
+use context_core::{PageSort, SortOrder};
 
 /// Validate and map a sort field to the actual column name.
 /// Returns None for invalid fields (falls back to default).

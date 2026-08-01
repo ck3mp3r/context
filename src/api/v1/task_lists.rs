@@ -12,8 +12,8 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use crate::db::utils::current_timestamp;
-use crate::db::{
+use context_core::current_timestamp;
+use context_core::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
     TaskListStatus, TaskRepository, TaskStats,
 };

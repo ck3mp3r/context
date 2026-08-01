@@ -10,8 +10,9 @@ use tower::ServiceExt;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
-use crate::db::utils::generate_entity_id;
-use crate::db::{Database, SqliteDatabase, TaskList, TaskListRepository};
+use context_core::generate_entity_id;
+use context_core::{Database, TaskList, TaskListRepository};
+use crate::db::SqliteDatabase;
 use tempfile::TempDir;
 
 /// Create a test app with an in-memory database

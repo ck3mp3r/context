@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use crate::api::{AppState, routes};
-use crate::db::utils::generate_entity_id;
-use crate::db::{Database, Project, ProjectRepository, SqliteDatabase};
+use context_core::generate_entity_id;
+use context_core::{Database, Project, ProjectRepository};
+use crate::db::SqliteDatabase;
 use tempfile::TempDir;
 
 /// Create a test app with an in-memory database

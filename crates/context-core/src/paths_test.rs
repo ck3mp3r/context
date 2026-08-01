@@ -1,4 +1,4 @@
-use crate::sync::paths::*;
+use crate::*;
 
 #[test]
 fn test_get_data_dir_contains_c5t_test() {

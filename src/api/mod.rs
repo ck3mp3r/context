@@ -31,8 +31,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub use state::AppState;
 
-use crate::db::Database;
-use crate::sync::get_data_dir;
+use context_core::Database;
+use context_core::get_data_dir;
 
 #[cfg(debug_assertions)]
 const DEFAULT_API_PORT: u16 = 3738;

@@ -1,8 +1,8 @@
 //! Import JSONL files into database.
 
-use crate::db::{
-    Database, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
-    SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
+use context_core::{
+    Database, ImportSummary, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
+    Skill, SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
 use std::path::Path;
@@ -15,7 +15,7 @@ use super::jsonl::{JsonlError, read_jsonl};
 pub enum ImportError {
     #[error("Database error: {0}")]
     #[diagnostic(code(c5t::sync::import::database))]
-    Database(#[from] crate::db::DbError),
+    Database(#[from] context_core::DbError),
 
     #[error("JSONL error: {0}")]
     #[diagnostic(code(c5t::sync::import::jsonl))]
@@ -272,28 +272,4 @@ pub async fn import_all<D: Database>(
     Ok(summary)
 }
 
-/// Summary of imported entities.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ImportSummary {
-    pub repos: usize,
-    pub projects: usize,
-    pub task_lists: usize,
-    pub tasks: usize,
-    pub transitions: usize,
-    pub notes: usize,
-    pub skills: usize,
-    pub attachments: usize,
-}
 
-impl ImportSummary {
-    pub fn total(&self) -> usize {
-        self.repos
-            + self.projects
-            + self.task_lists
-            + self.tasks
-            + self.transitions
-            + self.notes
-            + self.skills
-            + self.attachments
-    }
-}

@@ -7,7 +7,7 @@ use super::{
     SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSyncRepository,
     SqliteTaskListRepository, SqliteTaskRepository, SqliteTransitionLogRepository,
 };
-use crate::db::{Database, DbError, DbResult};
+use context_core::{Database, DbError, DbResult};
 
 /// SQLite database implementation using SQLx.
 ///
