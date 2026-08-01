@@ -8,6 +8,9 @@ members = [
     "crates/context-skills",
     "crates/context-sync",
 ]
+exclude = [
+    "crates/context-frontend",
+]
 
 [workspace.package]
 version = "0.7.8"
