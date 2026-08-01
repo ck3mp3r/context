@@ -7,9 +7,7 @@ mod common;
 
 use base64::Engine;
 use context_core::get_data_dir;
-use context_core::{
-    HasProjects, HasSkills, Project, ProjectRepository, Skill, SkillRepository,
-};
+use context_core::{HasProjects, HasSkills, Project, ProjectRepository, Skill, SkillRepository};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::skills::{
