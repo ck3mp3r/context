@@ -417,6 +417,7 @@ dependencies = [
  "clap",
  "context-core",
  "context-db",
+ "context-skills",
  "context-sync",
  "dashmap",
  "futures-util",
@@ -476,6 +477,21 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "context-skills"
+version = "0.7.8"
+dependencies = [
+ "base64 0.23.0",
+ "context-core",
+ "ignore",
+ "sanitize-filename",
+ "serde",
+ "serde_yaml",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

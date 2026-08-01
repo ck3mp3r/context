@@ -176,14 +176,14 @@ impl<D: HasSkills + 'static> SkillTools<D> {
 
             // Parse skill name from content for cache directory
             let skill_name =
-                crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+                context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
                     McpError::internal_error(
                         "parse_error",
                         Some(serde_json::json!({"error": e.to_string()})),
                     )
                 })?;
 
-            let cache_dir = crate::skills::extract_attachments(
+            let cache_dir = context_skills::extract_attachments(
                 &self.skills_dir,
                 &skill_name,
                 &skill.content,
@@ -264,7 +264,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
         })?;
 
         // Invalidate cache after successful update
-        crate::skills::invalidate_cache(&skill.name).map_err(|e| {
+        context_skills::invalidate_cache(&skill.name).map_err(|e| {
             McpError::internal_error(
                 "cache_error",
                 Some(serde_json::json!({"error": e.to_string()})),

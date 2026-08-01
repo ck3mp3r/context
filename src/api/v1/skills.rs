@@ -530,7 +530,7 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
     let db = state.db();
 
     // Call the import function from skills module
-    let skill = crate::skills::import_skill(
+    let skill = context_skills::import_skill(
         db,
         &req.source,
         req.path.as_deref(),
@@ -549,7 +549,7 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
     })?;
 
     // Auto-enable: Extract attachments to cache immediately after import
-    let skill_name = crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+    let skill_name = context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -568,7 +568,7 @@ pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
     })?;
 
     // Extract to cache (ignore errors - cache is best-effort)
-    let _ = crate::skills::extract_attachments(
+    let _ = context_skills::extract_attachments(
         state.skills_dir(),
         &skill_name,
         &skill.content,
@@ -671,7 +671,7 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
     };
 
     // Parse skill name from content
-    let skill_name = crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+    let skill_name = context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -691,7 +691,7 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
     })?;
 
     // Extract to cache
-    let cache_path = crate::skills::extract_attachments(
+    let cache_path = context_skills::extract_attachments(
         state.skills_dir(),
         &skill_name,
         &skill.content,
@@ -783,7 +783,7 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
     };
 
     // Parse skill name from content
-    let skill_name = crate::skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+    let skill_name = context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -793,7 +793,7 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
     })?;
 
     // Invalidate cache
-    crate::skills::invalidate_cache(&skill_name).map_err(|e| {
+    context_skills::invalidate_cache(&skill_name).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
