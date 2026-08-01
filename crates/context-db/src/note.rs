@@ -101,6 +101,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         // Validate content size
         validate_note_size(&note.content)?;
 
+        // Validate title is not empty
+        if note.title.trim().is_empty() {
+            return Err(DbError::Validation {
+                message: "Note title must not be empty".to_string(),
+            });
+        }
+
         // Use provided ID if not empty, otherwise generate one
         let id = if note.id.is_empty() {
             generate_entity_id()
@@ -857,6 +864,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     async fn update(&self, note: &Note) -> DbResult<()> {
         // Validate content size
         validate_note_size(&note.content)?;
+
+        // Validate title is not empty
+        if note.title.trim().is_empty() {
+            return Err(DbError::Validation {
+                message: "Note title must not be empty".to_string(),
+            });
+        }
 
         // Use transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {

@@ -77,13 +77,17 @@ pub fn build_limit_offset_clause(page: &PageSort) -> String {
 /// Returns Some(sanitized_query) or None if query is empty after sanitization.
 pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
     // Strip FTS5-dangerous special characters
-    // Keep: alphanumeric, underscore, quotes, whitespace, non-ASCII (for unicode)
+    // Keep: alphanumeric, underscore, quotes, whitespace, non-ASCII (for unicode),
+    //       and FTS5 boolean operators: (, ), *
     let cleaned = search_term
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric()
                 || c == '_'
                 || c == '"'
+                || c == '('
+                || c == ')'
+                || c == '*'
                 || c.is_whitespace()
                 || (c as u32) > 127
             {
@@ -103,25 +107,57 @@ pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
     };
 
     // Return None for empty/whitespace-only queries
-    if cleaned.trim().is_empty() {
+    // Also return None if the only remaining content is FTS5 operators without search terms
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() || trimmed == "*" || trimmed == "(" || trimmed == ")" {
         return None;
     }
 
+    // Normalize boolean operators to uppercase for consistent detection
+    let normalized = cleaned
+        .split_whitespace()
+        .map(|word| {
+            let upper = word.to_uppercase();
+            match upper.as_str() {
+                "AND" | "OR" | "NOT" => upper,
+                _ => word.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
     // Detect advanced search features
     let has_boolean =
-        cleaned.contains(" AND ") || cleaned.contains(" OR ") || cleaned.contains(" NOT ");
-    let has_phrase = cleaned.contains('"');
+        normalized.contains(" AND ") || normalized.contains(" OR ") || normalized.contains(" NOT ");
+    let has_phrase = normalized.contains('"');
+
+    // Validate that the query has actual search terms, not just operators
+    let has_search_terms = normalized
+        .split_whitespace()
+        .any(|w| w != "AND" && w != "OR" && w != "NOT" && w != "");
 
     // Apply query transformation
     let result = if has_boolean || has_phrase {
-        // Advanced mode - preserve query as-is
-        cleaned
+        if has_search_terms {
+            // Advanced mode - preserve query as-is
+            normalized
+        } else {
+            // Only operators without search terms - return empty results
+            return None;
+        }
     } else {
-        // Simple mode - add prefix matching to each term
-        cleaned
+        // Simple mode - strip parentheses and add prefix matching to each term
+        let stripped = normalized.replace('(', "").replace(')', "");
+        stripped
             .split_whitespace()
             .filter(|s| !s.is_empty())
-            .map(|term| format!("{}*", term))
+            .map(|term| {
+                if term.ends_with('*') {
+                    term.to_string()
+                } else {
+                    format!("{}*", term)
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };

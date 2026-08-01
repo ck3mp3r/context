@@ -122,7 +122,8 @@ pub struct PatchProjectRequest {
     pub title: Option<String>,
     /// Optional description
     #[schema(example = "Updated description")]
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "crate::common::serde::double_option")]
+    pub description: Option<Option<String>>,
     /// Tags for categorization
     #[schema(example = json!(["rust", "backend"]))]
     pub tags: Option<Vec<String>>,
@@ -137,7 +138,7 @@ impl PatchProjectRequest {
             target.title = title;
         }
         if let Some(description) = self.description {
-            target.description = Some(description);
+            target.description = description;
         }
         if let Some(tags) = self.tags {
             target.tags = tags;
@@ -178,6 +179,12 @@ pub struct ListProjectsQuery {
     /// Filter by tags (comma-separated)
     #[param(example = "rust,backend")]
     pub tags: Option<String>,
+    /// Filter by repo ID
+    #[param(example = "repo0001")]
+    pub repo_id: Option<String>,
+    /// Filter by skill ID
+    #[param(example = "skill0001")]
+    pub skill_id: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -214,7 +221,7 @@ pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
     let tags = query
         .tags
         .as_ref()
-        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+        .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
 
     // Build database query
     let db_query = ProjectQuery {
@@ -229,6 +236,8 @@ pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
             },
         },
         tags,
+        repo_id: query.repo_id.clone(),
+        skill_id: query.skill_id.clone(),
     };
 
     // Use search if query provided, otherwise list
@@ -340,13 +349,19 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
         updated_at: None, // Repository will generate this
     };
 
-    let created_project = state.db().projects().create(&project).await.map_err(|e| {
-        (
+    let created_project = state.db().projects().create(&project).await.map_err(|e| match e {
+        DbError::Validation { .. } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+        _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: e.to_string(),
             }),
-        )
+        ),
     })?;
 
     // Broadcast notification

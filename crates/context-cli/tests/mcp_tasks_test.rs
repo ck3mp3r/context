@@ -734,9 +734,9 @@ async fn test_list_tasks_sorting() {
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
     for (id, title) in [
-        ("task001", "Charlie"),
-        ("task002", "Alpha"),
-        ("task003", "Bravo"),
+        ("task0001", "Charlie"),
+        ("task0002", "Alpha"),
+        ("task0003", "Bravo"),
     ] {
         let task = Task {
             id: id.to_string(),

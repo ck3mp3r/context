@@ -63,6 +63,10 @@ pub struct ProjectQuery {
     pub page: PageSort,
     /// Filter by tags (OR logic - matches if ANY tag matches).
     pub tags: Option<Vec<String>>,
+    /// Filter by repo ID (projects linked to this repo).
+    pub repo_id: Option<String>,
+    /// Filter by skill ID (projects linked to this skill).
+    pub skill_id: Option<String>,
 }
 
 /// Query for Repos - pagination + tags/project filters.

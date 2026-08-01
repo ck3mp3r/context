@@ -13,6 +13,15 @@ use tokio::net::TcpListener;
 // Integration Tests - TDD for Skills CLI
 // =============================================================================
 
+/// Resolve fixture path relative to workspace root
+fn fixture_path(name: &str) -> String {
+    format!(
+        "{}/../../tests/fixtures/skills/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    )
+}
+
 /// Spawn a test HTTP server with in-memory database
 async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
     let db = SqliteDatabase::in_memory()
@@ -103,7 +112,7 @@ async fn test_skill_crud_operations() {
     // IMPORT: Skill from fixture
     let import_result = import_skill(
         &api_client,
-        "tests/fixtures/skills/rust",
+        &fixture_path("rust"),
         None,
         Some(vec![project_id.clone()]),
         None,
@@ -185,7 +194,7 @@ async fn test_list_skills_with_filters() {
     // Import multiple skills with tags
     import_skill(
         &api_client,
-        "tests/fixtures/skills/rust",
+        &fixture_path("rust"),
         None,
         Some(vec![project_id.clone()]),
         Some(vec!["rust".to_string()]),
@@ -196,7 +205,7 @@ async fn test_list_skills_with_filters() {
 
     import_skill(
         &api_client,
-        "tests/fixtures/skills/python",
+        &fixture_path("python"),
         None,
         None,
         Some(vec!["python".to_string()]),
@@ -207,7 +216,7 @@ async fn test_list_skills_with_filters() {
 
     import_skill(
         &api_client,
-        "tests/fixtures/skills/go",
+        &fixture_path("go"),
         None,
         Some(vec![project_id.clone()]),
         Some(vec!["go".to_string()]),
@@ -280,16 +289,9 @@ async fn test_list_skills_pagination_and_sorting() {
     // Create skills with different names
     // Import skills with different names for pagination/sorting tests
     for name in ["alpha", "beta", "gamma", "delta"] {
-        import_skill(
-            &api_client,
-            &format!("tests/fixtures/skills/{}", name),
-            None,
-            None,
-            None,
-            false,
-        )
-        .await
-        .unwrap_or_else(|_| panic!("Failed to import {} skill", name));
+        import_skill(&api_client, &fixture_path(&name), None, None, None, false)
+            .await
+            .unwrap_or_else(|_| panic!("Failed to import {} skill", name));
     }
 
     // Test limit
@@ -365,7 +367,7 @@ async fn test_skill_table_output() {
     // Import a skill
     import_skill(
         &api_client,
-        "tests/fixtures/skills/docker",
+        &fixture_path("docker"),
         None,
         None,
         None,
@@ -404,7 +406,7 @@ async fn test_update_skill_metadata() {
     // Import a skill without tags or projects
     let import_result = import_skill(
         &api_client,
-        "tests/fixtures/skills/docker",
+        &fixture_path("docker"),
         None,
         None,
         None,
@@ -480,20 +482,13 @@ async fn test_list_skills_with_query_search() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Import skills with different content
-    import_skill(
-        &api_client,
-        "tests/fixtures/skills/rust",
-        None,
-        None,
-        None,
-        false,
-    )
-    .await
-    .expect("Failed to import rust skill");
+    import_skill(&api_client, &fixture_path("rust"), None, None, None, false)
+        .await
+        .expect("Failed to import rust skill");
 
     import_skill(
         &api_client,
-        "tests/fixtures/skills/python",
+        &fixture_path("python"),
         None,
         None,
         None,
@@ -504,7 +499,7 @@ async fn test_list_skills_with_query_search() {
 
     import_skill(
         &api_client,
-        "tests/fixtures/skills/docker",
+        &fixture_path("docker"),
         None,
         None,
         None,
@@ -588,16 +583,9 @@ async fn test_enable_skill_by_id() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Import a skill
-    let import_result = import_skill(
-        &api_client,
-        "tests/fixtures/skills/rust",
-        None,
-        None,
-        None,
-        false,
-    )
-    .await
-    .expect("Failed to import skill");
+    let import_result = import_skill(&api_client, &fixture_path("rust"), None, None, None, false)
+        .await
+        .expect("Failed to import skill");
 
     // Extract skill ID
     let skill_id = import_result
@@ -624,7 +612,7 @@ async fn test_enable_skill_by_name() {
     // Import a skill
     import_skill(
         &api_client,
-        "tests/fixtures/skills/docker",
+        &fixture_path("docker"),
         None,
         None,
         None,
@@ -659,7 +647,7 @@ async fn test_disable_skill_by_id() {
     // Import a skill
     let import_result = import_skill(
         &api_client,
-        "tests/fixtures/skills/python",
+        &fixture_path("python"),
         None,
         None,
         None,
@@ -691,16 +679,9 @@ async fn test_disable_skill_by_name() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Import a skill
-    import_skill(
-        &api_client,
-        "tests/fixtures/skills/rust",
-        None,
-        None,
-        None,
-        false,
-    )
-    .await
-    .expect("Failed to import skill");
+    import_skill(&api_client, &fixture_path("rust"), None, None, None, false)
+        .await
+        .expect("Failed to import skill");
 
     // Disable by name
     let result = disable_skill(&api_client, "rust")
@@ -732,16 +713,9 @@ async fn test_import_auto_enables_skill() {
     let api_client = ApiClient::new(Some(url.clone()));
 
     // Import a skill - should auto-enable and create cache
-    let import_result = import_skill(
-        &api_client,
-        "tests/fixtures/skills/rust",
-        None,
-        None,
-        None,
-        false,
-    )
-    .await
-    .expect("Failed to import skill");
+    let import_result = import_skill(&api_client, &fixture_path("rust"), None, None, None, false)
+        .await
+        .expect("Failed to import skill");
 
     assert!(
         import_result.contains("rust"),

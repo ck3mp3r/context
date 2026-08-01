@@ -5,7 +5,9 @@
 
 mod common;
 
-use context_core::{Database, HasNotes, Note, NoteRepository};
+use context_core::{
+    Database, HasNotes, HasProjects, Note, NoteRepository, Project, ProjectRepository,
+};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{
@@ -470,6 +472,21 @@ async fn test_list_notes_with_project_id_filter() {
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
+    // Create the project first to satisfy FK constraint
+    let project = Project {
+        id: "proj0001".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: None,
+        updated_at: None,
+    };
+    db.projects().create(&project).await.unwrap();
+
     let note = Note {
         id: "note0001".to_string(),
         title: "Project Note".to_string(),
@@ -632,9 +649,9 @@ async fn test_list_notes_sorting() {
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
 
     for (id, title) in [
-        ("note001", "Charlie"),
-        ("note002", "Alpha"),
-        ("note003", "Bravo"),
+        ("note0001", "Charlie"),
+        ("note0002", "Alpha"),
+        ("note0003", "Bravo"),
     ] {
         let note = Note {
             id: id.to_string(),

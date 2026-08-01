@@ -129,6 +129,8 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
                 },
             },
             tags: None,
+            repo_id: None,
+            skill_id: None,
         };
 
         // Perform search or list based on query presence

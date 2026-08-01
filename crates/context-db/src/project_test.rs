@@ -730,6 +730,8 @@ async fn list_projects_with_offset_without_limit() {
             sort_order: None,
         },
         tags: None,
+        repo_id: None,
+        skill_id: None,
     };
 
     let result = repo

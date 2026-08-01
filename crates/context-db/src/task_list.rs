@@ -17,6 +17,12 @@ pub struct SqliteTaskListRepository<'a> {
 
 impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     async fn create(&self, task_list: &TaskList) -> DbResult<TaskList> {
+        if task_list.title.trim().is_empty() {
+            return Err(DbError::Validation {
+                message: "Task list title must not be empty".to_string(),
+            });
+        }
+
         // Use provided ID if not empty, otherwise generate one
         let id = if task_list.id.is_empty() {
             generate_entity_id()
@@ -501,6 +507,12 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     }
 
     async fn update(&self, task_list: &TaskList) -> DbResult<()> {
+        if task_list.title.trim().is_empty() {
+            return Err(DbError::Validation {
+                message: "Task list title must not be empty".to_string(),
+            });
+        }
+
         // Fetch current to detect status transitions
         let current = self.get(&task_list.id).await?;
 

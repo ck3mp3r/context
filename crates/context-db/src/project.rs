@@ -163,15 +163,32 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let allowed_fields = ["title", "created_at", "updated_at"];
 
-        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
-        let limit_clause = build_limit_offset_clause(&query.page);
-
         // Build conditions and bind values
         let mut conditions: Vec<String> = vec![];
         let mut bind_values: Vec<String> = vec![];
 
-        // Tag filtering requires json_each join
+        // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let needs_repo_join = query.repo_id.is_some();
+        let needs_skill_join = query.skill_id.is_some();
+        let needs_join = needs_json_each || needs_repo_join || needs_skill_join;
+
+        // Build FROM clause with necessary JOINs
+        let mut from_clause = "FROM project p".to_string();
+
+        if needs_json_each {
+            from_clause.push_str(", json_each(p.tags)");
+        }
+        if needs_repo_join {
+            from_clause.push_str("\nINNER JOIN project_repo pr ON p.id = pr.project_id");
+            conditions.push("pr.repo_id = ?".to_string());
+            bind_values.push(query.repo_id.as_ref().unwrap().clone());
+        }
+        if needs_skill_join {
+            from_clause.push_str("\nINNER JOIN project_skill ps ON p.id = ps.project_id");
+            conditions.push("ps.skill_id = ?".to_string());
+            bind_values.push(query.skill_id.as_ref().unwrap().clone());
+        }
 
         if let Some(tags) = &query.tags
             && !tags.is_empty()
@@ -187,17 +204,36 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             format!("WHERE {}", conditions.join(" AND "))
         };
 
-        // Build SQL based on whether we need json_each
-        let (sql, count_sql) = if needs_json_each {
+        // Build ORDER BY with proper prefix when JOINs are present
+        let order_clause = if needs_join {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+            let order = match query.page.sort_order.unwrap_or(SortOrder::Asc) {
+                SortOrder::Asc => "ASC",
+                SortOrder::Desc => "DESC",
+            };
+            format!("ORDER BY p.{} {}", sort_field, order)
+        } else {
+            build_order_clause(&query.page, &allowed_fields, "created_at")
+        };
+
+        let limit_clause = build_limit_offset_clause(&query.page);
+
+        // Build SQL based on whether we need JOINs
+        let (sql, count_sql) = if needs_join {
             (
                 format!(
                     "SELECT DISTINCT p.id, p.title, p.description, p.tags, p.external_refs, p.created_at, p.updated_at \
-                     FROM project p, json_each(p.tags) {} {} {}",
-                    where_clause, order_clause, limit_clause
+                     {} {} {} {}",
+                    from_clause, where_clause, order_clause, limit_clause
                 ),
                 format!(
-                    "SELECT COUNT(DISTINCT p.id) FROM project p, json_each(p.tags) {}",
-                    where_clause
+                    "SELECT COUNT(DISTINCT p.id) {} {}",
+                    from_clause, where_clause
                 ),
             )
         } else {
