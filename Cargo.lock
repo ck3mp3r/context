@@ -500,6 +500,7 @@ version = "0.7.8"
 dependencies = [
  "chrono",
  "context-core",
+ "context-skills",
  "miette",
  "mockall",
  "serde_json",

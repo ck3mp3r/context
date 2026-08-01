@@ -4,6 +4,7 @@ use context_core::{
     Database, ImportSummary, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
     Skill, SkillAttachment, SkillRepository, Task, TaskList, TaskListRepository, TaskRepository,
 };
+use context_skills::invalidate_cache;
 use miette::Diagnostic;
 use std::path::Path;
 use thiserror::Error;
@@ -199,6 +200,10 @@ pub async fn import_all<D: Database>(
 
         // Process each skill's attachments
         for (skill_id, skill_attachments) in attachments_by_skill {
+            // Get the skill name for cache invalidation
+            let skill = db.skills().get(&skill_id).await?;
+            let skill_name = skill.name.clone();
+
             // Get existing attachments for this skill
             let existing_attachments = db.skills().get_attachments(&skill_id).await?;
 
@@ -219,6 +224,7 @@ pub async fn import_all<D: Database>(
                             "Updating attachment (content changed)"
                         );
                         db.skills().update_attachment(attachment).await?;
+                        invalidate_cache(&skill_name)?;
                     }
                     Some(_) => {
                         // Content unchanged - skip
@@ -236,6 +242,7 @@ pub async fn import_all<D: Database>(
                             "Creating new attachment"
                         );
                         db.skills().create_attachment(attachment).await?;
+                        invalidate_cache(&skill_name)?;
                     }
                 }
             }
@@ -255,6 +262,7 @@ pub async fn import_all<D: Database>(
                         "Deleting attachment (not in import)"
                     );
                     db.skills().delete_attachment(&existing_att.id).await?;
+                    invalidate_cache(&skill_name)?;
                 }
             }
 
