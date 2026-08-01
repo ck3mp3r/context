@@ -33,8 +33,8 @@ use super::server::McpServer;
 /// use tokio_util::sync::CancellationToken;
 /// use tempfile::TempDir;
 /// use context_db::SqliteDatabase;
-/// use context::mcp::create_mcp_service;
-/// use context::api::notifier::ChangeNotifier;
+/// use context_server::mcp::create_mcp_service;
+/// use context_server::api::notifier::ChangeNotifier;
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let db = SqliteDatabase::in_memory().await?;
 ///

@@ -17,7 +17,7 @@
 // - Integration tests (all other CLI command tests use the API server)
 // =============================================================================
 
-use crate::api::Config;
+use context_server::api::Config;
 use std::net::IpAddr;
 
 #[test]

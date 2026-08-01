@@ -417,6 +417,7 @@ dependencies = [
  "clap",
  "context-core",
  "context-db",
+ "context-server",
  "context-skills",
  "context-sync",
  "dashmap",
@@ -477,6 +478,35 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "context-server"
+version = "0.7.8"
+dependencies = [
+ "axum",
+ "context-core",
+ "context-skills",
+ "context-sync",
+ "dashmap",
+ "futures-util",
+ "miette",
+ "mime_guess",
+ "rmcp",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2 0.11.0",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tower-http 0.7.0",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-axum",
+ "utoipa-scalar",
 ]
 
 [[package]]

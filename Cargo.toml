@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/context-core",
     "crates/context-db",
+    "crates/context-server",
     "crates/context-sync",
 ]
 
@@ -51,6 +52,7 @@ backend = [
 context-core = { path = "crates/context-core" }
 context-db = { path = "crates/context-db" }
 context-skills = { path = "crates/context-skills" }
+context-server = { path = "crates/context-server" }
 context-sync = { path = "crates/context-sync" }
 base64 = "0.23.0"
 ignore = "0.4"

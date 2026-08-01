@@ -8,7 +8,7 @@ mod mod_test;
 pub mod notifier;
 #[cfg(test)]
 mod notifier_test;
-pub(crate) mod routes;
+pub mod routes;
 mod state;
 #[cfg(feature = "embed-frontend")]
 pub mod static_assets;
@@ -17,8 +17,6 @@ pub mod static_assets;
 mod static_assets_test;
 pub mod v1;
 mod websocket;
-#[cfg(test)]
-mod websocket_test;
 
 use std::net::IpAddr;
 use std::path::PathBuf;

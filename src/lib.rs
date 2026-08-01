@@ -1,14 +1,5 @@
 #[cfg(feature = "backend")]
-pub mod api;
-
-#[cfg(feature = "backend")]
 pub mod cli;
-
-#[cfg(feature = "backend")]
-pub mod common;
-
-#[cfg(feature = "backend")]
-pub mod mcp;
 
 #[cfg(feature = "backend")]
 pub fn init() {

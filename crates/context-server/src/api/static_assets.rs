@@ -8,14 +8,14 @@ use axum::{
     http::{StatusCode, Uri, header},
     response::Response,
 };
-use rust_embed::RustEmbed;
+use rust_embed::Embed;
 
 /// Embedded frontend assets (WASM, JS, CSS, HTML, etc.)
 ///
 /// Folder points to Trunk's output directory.
 /// In debug: reads from dist/ at runtime (Trunk dev server preferred)
 /// In release: embedded at compile time with compression
-#[derive(RustEmbed)]
+#[derive(Embed)]
 #[folder = "dist/"]
 #[include = "*.html"]
 #[include = "*.js"]

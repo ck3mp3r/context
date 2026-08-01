@@ -82,13 +82,13 @@ async fn spawn_test_server() -> (String, String, tokio::task::JoinHandle<()>) {
     .await
     .expect("Failed to create test project");
 
-    let state = crate::api::AppState::new(
+    let state = context_server::api::AppState::new(
         db,
         context_sync::SyncManager::new(MockGitOps::new()),
-        crate::api::notifier::ChangeNotifier::new(),
+        context_server::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
     );
-    let app = crate::api::routes::create_router(state, false);
+    let app = context_server::api::routes::create_router(state, false);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let url = format!("http://{}", addr);

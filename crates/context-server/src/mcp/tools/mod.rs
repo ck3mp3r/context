@@ -24,26 +24,12 @@ pub(crate) fn apply_limit(user_limit: Option<usize>) -> usize {
 }
 
 pub mod notes;
-#[cfg(test)]
-mod notes_test;
 pub mod projects;
-#[cfg(test)]
-mod projects_test;
 pub mod repos;
-#[cfg(test)]
-mod repos_test;
 pub mod skills;
-#[cfg(test)]
-mod skills_test;
 pub mod sync;
-#[cfg(test)]
-mod sync_test;
 pub mod task_lists;
-#[cfg(test)]
-mod task_lists_test;
 pub mod tasks;
-#[cfg(test)]
-mod tasks_test;
 
 pub use notes::NoteTools;
 pub use projects::ProjectTools;

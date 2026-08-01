@@ -1,4 +1,4 @@
-use crate::api::{AppState, routes};
+use context_server::api::{AppState, routes};
 use crate::cli::api_client::ApiClient;
 use crate::cli::commands::PageParams;
 use crate::cli::commands::repo::*;
@@ -22,7 +22,7 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
     let state = AppState::new(
         db,
         context_sync::SyncManager::new(MockGitOps::new()),
-        crate::api::notifier::ChangeNotifier::new(),
+        context_server::api::notifier::ChangeNotifier::new(),
         temp_dir.path().join("skills"),
     );
     let app = routes::create_router(state, false);

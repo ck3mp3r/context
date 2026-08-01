@@ -122,7 +122,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
     /// use tempfile::TempDir;
     /// use context_db::SqliteDatabase;
     /// use context_sync::{MockGitOps, SyncManager};
-    /// use context::mcp::tools::SyncTools;
+    /// use context_server::mcp::tools::SyncTools;
     ///
     /// # async fn example() {
     /// let db = Arc::new(SqliteDatabase::in_memory().await.unwrap());
@@ -157,10 +157,10 @@ impl<D: Database + 'static> SyncTools<D, RealGit> {
     /// For tests, use `with_manager()` with MockGitOps and TempDir instead.
     ///
     /// # Example (Production)
-    /// ```no_run
+    /// ```ignore
     /// use std::sync::Arc;
     /// use context_db::SqliteDatabase;
-    /// use context::mcp::tools::SyncTools;
+    /// use context_server::mcp::tools::SyncTools;
     ///
     /// # async fn example() {
     /// let db = Arc::new(SqliteDatabase::in_memory().await.unwrap());

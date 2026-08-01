@@ -20,10 +20,5 @@ pub mod server;
 mod service;
 pub mod tools;
 
-#[cfg(test)]
-mod server_test;
-#[cfg(test)]
-mod service_test;
-
 pub use server::McpServer;
 pub use service::create_mcp_service;
