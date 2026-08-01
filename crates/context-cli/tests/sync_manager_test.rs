@@ -6,9 +6,9 @@
 mod common;
 
 use context_core::write_jsonl;
-use context_core::{Database, HasSkills, Skill, SkillRepository};
+use context_core::{HasSkills, Skill, SkillRepository};
 use context_db::SqliteDatabase;
-use context_sync::{EntityCounts, SyncError, SyncManager};
+use context_sync::{SyncError, SyncManager};
 use context_sync::{GitError, MockGitOps};
 use mockall::predicate::*;
 use std::os::unix::process::ExitStatusExt;

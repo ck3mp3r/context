@@ -13,9 +13,7 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use context_core::generate_entity_id;
-use context_core::{Database, HasProjects, Project, ProjectRepository};
-use context_db::SqliteDatabase;
+
 use context_server::api::{AppState, routes};
 use context_sync::{MockGitOps, SyncManager};
 use tempfile::TempDir;
@@ -31,20 +29,6 @@ async fn test_app() -> axum::Router {
         temp_dir.path().join("skills"),
     );
     routes::create_router(state, false)
-}
-
-/// Helper to create test app with access to notifier for broadcast testing
-async fn test_app_with_notifier() -> (axum::Router, context_server::api::notifier::ChangeNotifier) {
-    let db = common::setup_db().await;
-    let notifier = context_server::api::notifier::ChangeNotifier::new();
-    let temp_dir = TempDir::new().unwrap();
-    let state = AppState::new(
-        db,
-        SyncManager::new(MockGitOps::new()),
-        notifier.clone(),
-        temp_dir.path().join("skills"),
-    );
-    (routes::create_router(state, false), notifier)
 }
 
 /// Helper to parse JSON response body
@@ -156,7 +140,7 @@ async fn list_and_relationships_comprehensive() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects/{}", project_a_id))
+                .uri(format!("/api/v1/projects/{}", project_a_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -186,7 +170,7 @@ async fn list_and_relationships_comprehensive() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/v1/projects/{}", project_a_id))
+                .uri(format!("/api/v1/projects/{}", project_a_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -210,7 +194,7 @@ async fn list_and_relationships_comprehensive() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(&format!("/api/v1/projects/{}", project_a_id))
+                .uri(format!("/api/v1/projects/{}", project_a_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -233,7 +217,7 @@ async fn list_and_relationships_comprehensive() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/api/v1/projects/{}", project_a_id))
+                .uri(format!("/api/v1/projects/{}", project_a_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -246,7 +230,7 @@ async fn list_and_relationships_comprehensive() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects/{}", project_a_id))
+                .uri(format!("/api/v1/projects/{}", project_a_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -401,7 +385,7 @@ async fn test_create_project_with_repo_ids() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -447,7 +431,7 @@ async fn test_update_project_preserves_unchanged_fields() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -502,7 +486,7 @@ async fn test_patch_project_clears_field_with_null() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(&format!("/api/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1006,7 +990,7 @@ async fn test_update_project_clears_all_fields() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/v1/projects/{}", project_id))
+                .uri(format!("/api/v1/projects/{}", project_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
@@ -1278,7 +1262,7 @@ async fn test_list_projects_with_repo_ids_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects?repo_id={}", repo_id))
+                .uri(format!("/api/v1/projects?repo_id={}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1344,7 +1328,7 @@ async fn test_list_projects_with_note_ids_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects?note_id={}", note_id))
+                .uri(format!("/api/v1/projects?note_id={}", note_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1409,7 +1393,7 @@ async fn test_list_projects_with_task_list_ids_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects?task_list_id={}", list_id))
+                .uri(format!("/api/v1/projects?task_list_id={}", list_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1475,7 +1459,7 @@ async fn test_list_projects_with_task_ids_filter() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/v1/task-lists/{}/tasks", list_id))
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({"title": "Test Task"})).unwrap(),
@@ -1494,7 +1478,7 @@ async fn test_list_projects_with_task_ids_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects?task_id={}", task_id))
+                .uri(format!("/api/v1/projects?task_id={}", task_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1561,7 +1545,7 @@ async fn test_list_projects_with_skill_ids_filter() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects?skill_id={}", skill_id))
+                .uri(format!("/api/v1/projects?skill_id={}", skill_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1645,7 +1629,7 @@ async fn test_list_projects_with_combined_filters() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!(
+                .uri(format!(
                     "/api/v1/projects?tags=backend&repo_id={}",
                     repo_id
                 ))
@@ -2264,7 +2248,7 @@ async fn test_list_projects_with_query_fts_very_long() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/api/v1/projects?q={}", long_query))
+                .uri(format!("/api/v1/projects?q={}", long_query))
                 .body(Body::empty())
                 .unwrap(),
         )

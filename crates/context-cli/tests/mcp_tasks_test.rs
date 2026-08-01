@@ -6,7 +6,7 @@
 mod common;
 
 use context_core::{
-    Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task, TaskList,
+    HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task, TaskList,
     TaskListRepository, TaskRepository, TaskStatus,
 };
 use context_db::SqliteDatabase;

@@ -5,7 +5,7 @@
 
 mod common;
 
-use context_core::{Database, HasProjects, HasRepos, Repo, RepoRepository};
+use context_core::{HasRepos, Repo, RepoRepository};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::repos::*;

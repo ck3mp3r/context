@@ -289,7 +289,7 @@ async fn test_list_skills_pagination_and_sorting() {
     // Create skills with different names
     // Import skills with different names for pagination/sorting tests
     for name in ["alpha", "beta", "gamma", "delta"] {
-        import_skill(&api_client, &fixture_path(&name), None, None, None, false)
+        import_skill(&api_client, &fixture_path(name), None, None, None, false)
             .await
             .unwrap_or_else(|_| panic!("Failed to import {} skill", name));
     }

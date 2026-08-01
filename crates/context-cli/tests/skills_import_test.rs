@@ -6,7 +6,7 @@
 mod common;
 
 use context_core::{
-    Database, HasProjects, HasSkills, Project, ProjectRepository, generate_entity_id,
+    generate_entity_id, HasProjects, Project, ProjectRepository,
 };
 use context_db::SqliteDatabase;
 use context_skills::import_skill;

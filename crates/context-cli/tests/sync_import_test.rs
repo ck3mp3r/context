@@ -8,9 +8,9 @@ mod common;
 use base64::prelude::*;
 use context_core::write_jsonl;
 use context_core::{
-    Database, HasNotes, HasProjects, HasRepos, HasSkills, HasTaskLists, ImportSummary, Note,
-    NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment,
-    SkillRepository, TaskList, TaskListRepository, TaskListStatus,
+    HasNotes, HasProjects, HasRepos, HasSkills, HasTaskLists, Note, NoteRepository, Project,
+    ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository, TaskList,
+    TaskListRepository, TaskListStatus,
 };
 use context_db::SqliteDatabase;
 use context_sync::{export_all, import_all};
