@@ -71,7 +71,7 @@ async fn test_server_info() {
 /// - Follows TDD: RED (this test will fail until tool is registered) → GREEN (register tool)
 #[tokio::test]
 async fn test_update_skill_tool_registered() {
-    use crate::db::{Database, Skill, SkillRepository};
+    use crate::db::{Database, HasSkills, Skill, SkillRepository};
     use crate::mcp::tools::skills::UpdateSkillParams;
     use rmcp::handler::server::wrapper::Parameters;
 

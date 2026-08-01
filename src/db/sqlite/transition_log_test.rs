@@ -1,6 +1,6 @@
 //! Tests for TransitionLog repository.
 
-use crate::db::{Database, SqliteDatabase, TaskStatus, TransitionLog};
+use crate::db::{Database, HasTransitionLogs, SqliteDatabase, TaskStatus, TransitionLog};
 
 /// Helper to create test fixtures (project, task_list, task).
 async fn setup_test_task(db: &SqliteDatabase, task_id: &str, status: &str) {

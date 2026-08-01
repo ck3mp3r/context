@@ -4,7 +4,7 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{Database, PageSort, Repo, RepoQuery, RepoRepository};
+use crate::db::{HasRepos, PageSort, Repo, RepoQuery, RepoRepository};
 use crate::mcp::tools::{apply_limit, map_db_error};
 use rmcp::{
     ErrorData as McpError,
@@ -85,14 +85,14 @@ pub struct DeleteRepoParams {
 /// - **Single Responsibility**: Only handles repository operations
 /// - **Dependency Inversion**: Depends on Database trait
 #[derive(Clone)]
-pub struct RepoTools<D: Database> {
+pub struct RepoTools<D: HasRepos> {
     db: Arc<D>,
     notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
-impl<D: Database + 'static> RepoTools<D> {
+impl<D: HasRepos + 'static> RepoTools<D> {
     /// Create new RepoTools with database
     pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {

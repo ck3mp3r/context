@@ -1,6 +1,6 @@
 //! Tests for SqliteProjectRepository.
 
-use crate::db::{Database, Project, ProjectQuery, ProjectRepository, SqliteDatabase};
+use crate::db::{Database, HasProjects, Project, ProjectQuery, ProjectRepository, SqliteDatabase};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

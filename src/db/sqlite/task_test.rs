@@ -1,8 +1,8 @@
 //! Tests for SqliteTaskRepository.
 
 use crate::db::{
-    Database, SqliteDatabase, Task, TaskList, TaskListRepository, TaskListStatus, TaskQuery,
-    TaskRepository, TaskStatus,
+    Database, HasTaskLists, HasTasks, HasTransitionLogs, SqliteDatabase, Task, TaskList,
+    TaskListRepository, TaskListStatus, TaskQuery, TaskRepository, TaskStatus,
 };
 
 async fn setup_db() -> SqliteDatabase {

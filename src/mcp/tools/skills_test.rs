@@ -1,7 +1,7 @@
 //! Tests for Skill MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, Skill, SkillRepository, SqliteDatabase};
+use crate::db::{Database, HasProjects, HasSkills, Skill, SkillRepository, SqliteDatabase};
 use crate::mcp::tools::skills::{GetSkillParams, ListSkillsParams, SkillTools};
 use crate::sync::get_data_dir;
 use rmcp::handler::server::wrapper::Parameters;

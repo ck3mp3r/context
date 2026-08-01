@@ -1,6 +1,6 @@
 //! Tests for SqliteSkillRepository.
 
-use context_core::{Database, Skill, SkillQuery, SkillRepository};
+use context_core::{Database, HasSkills, Skill, SkillQuery, SkillRepository};
 use crate::db::SqliteDatabase;
 
 async fn setup_db() -> SqliteDatabase {

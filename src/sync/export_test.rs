@@ -1,6 +1,6 @@
 use context_core::{
-    Database, ExportSummary, Note, NoteRepository, Project, ProjectRepository, Repo, RepoRepository,
-    Skill, SkillAttachment, SkillRepository,
+    Database, ExportSummary, HasNotes, HasProjects, HasRepos, HasSkills, Note, NoteRepository,
+    Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository,
 };
 use crate::db::SqliteDatabase;
 use crate::sync::export::export_all;

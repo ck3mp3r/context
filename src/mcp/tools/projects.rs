@@ -4,7 +4,7 @@
 //! Follows Single Responsibility Principle (SRP).
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{Database, PageSort, Project, ProjectQuery, ProjectRepository};
+use crate::db::{HasProjects, PageSort, Project, ProjectQuery, ProjectRepository};
 use crate::mcp::tools::{apply_limit, map_db_error};
 use rmcp::{
     ErrorData as McpError,
@@ -85,14 +85,14 @@ pub struct DeleteProjectParams {
 /// - **Single Responsibility**: Only handles project operations
 /// - **Dependency Inversion**: Depends on Database trait
 #[derive(Clone)]
-pub struct ProjectTools<D: Database> {
+pub struct ProjectTools<D: HasProjects> {
     db: Arc<D>,
     notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
-impl<D: Database + 'static> ProjectTools<D> {
+impl<D: HasProjects + 'static> ProjectTools<D> {
     /// Create new ProjectTools with database
     pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {

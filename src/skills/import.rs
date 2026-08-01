@@ -8,7 +8,7 @@
 //! 5. Insert into database
 //! 6. Cleanup temp files
 
-use context_core::{Database, Skill, SkillAttachment, SkillRepository};
+use context_core::{HasProjects, HasSkills, Skill, SkillAttachment, SkillRepository};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -77,7 +77,7 @@ pub enum ImportError {
 ///     true
 /// ).await?;
 /// ```
-pub async fn import_skill<D: Database>(
+pub async fn import_skill<D: HasSkills + HasProjects>(
     db: &D,
     source: &str,
     subpath: Option<&str>,
@@ -229,6 +229,7 @@ pub async fn import_skill<D: Database>(
 mod tests {
     use super::*;
     use crate::db::SqliteDatabase;
+    use context_core::Database;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_import_local_path() {

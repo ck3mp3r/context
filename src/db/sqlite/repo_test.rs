@@ -1,6 +1,6 @@
 //! Tests for SqliteRepoRepository.
 
-use crate::db::{Database, Repo, RepoQuery, RepoRepository, SqliteDatabase};
+use crate::db::{Database, HasRepos, Repo, RepoQuery, RepoRepository, SqliteDatabase};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()

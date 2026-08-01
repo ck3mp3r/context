@@ -11,7 +11,7 @@ use tower::ServiceExt;
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::api::{AppState, routes};
 use context_core::generate_entity_id;
-use context_core::{Database, TaskList, TaskListRepository};
+use context_core::{Database, HasTaskLists, TaskList, TaskListRepository};
 use crate::db::SqliteDatabase;
 use tempfile::TempDir;
 

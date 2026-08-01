@@ -2,8 +2,8 @@
 
 use crate::api::notifier::ChangeNotifier;
 use crate::db::{
-    Database, Project, ProjectRepository, SqliteDatabase, Task, TaskList, TaskListRepository,
-    TaskListStatus, TaskRepository, TaskStatus,
+    Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, SqliteDatabase, Task,
+    TaskList, TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
 };
 use crate::mcp::tools::task_lists::{
     CreateTaskListParams, DeleteTaskListParams, GetTaskListParams, GetTaskListStatsParams,

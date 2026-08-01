@@ -1,6 +1,6 @@
 //! Tests for SqliteNoteRepository.
 
-use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort, SortOrder, SqliteDatabase};
+use crate::db::{Database, HasNotes, Note, NoteQuery, NoteRepository, PageSort, SortOrder, SqliteDatabase};
 
 fn generate_id() -> String {
     use context_core::generate_entity_id;

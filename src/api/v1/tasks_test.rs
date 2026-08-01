@@ -10,7 +10,7 @@ use tower::ServiceExt;
 
 use crate::api::{AppState, routes};
 use context_core::generate_entity_id;
-use context_core::{Database, Task, TaskRepository};
+use context_core::{Database, HasTasks, Task, TaskRepository};
 use crate::db::SqliteDatabase;
 use tempfile::TempDir;
 

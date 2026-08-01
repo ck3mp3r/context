@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::db::{
-    Database, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
-    TaskRepository,
+    HasTaskLists, HasTasks, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
+    TaskListStatus, TaskRepository,
 };
 use crate::mcp::tools::{apply_limit, map_db_error};
 
@@ -122,14 +122,14 @@ pub struct GetTaskListStatsParams {
 // =============================================================================
 
 #[derive(Clone)]
-pub struct TaskListTools<D: Database> {
+pub struct TaskListTools<D: HasTaskLists + HasTasks> {
     db: Arc<D>,
     notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
-impl<D: Database + 'static> TaskListTools<D> {
+impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,

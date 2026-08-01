@@ -14,7 +14,7 @@ use sha2::Digest;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{Database, Note, NoteQuery, NoteRepository, PageSort};
+use crate::db::{HasNotes, Note, NoteQuery, NoteRepository, PageSort};
 use crate::mcp::tools::map_db_error;
 
 // =============================================================================
@@ -214,14 +214,14 @@ pub struct EditNoteParams {
 }
 
 #[derive(Clone)]
-pub struct NoteTools<D: Database> {
+pub struct NoteTools<D: HasNotes> {
     db: Arc<D>,
     notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
-impl<D: Database + 'static> NoteTools<D> {
+impl<D: HasNotes + 'static> NoteTools<D> {
     pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,

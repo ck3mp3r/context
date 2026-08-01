@@ -183,71 +183,87 @@ pub trait SyncRepository: Send + Sync {
     -> impl Future<Output = DbResult<ExportSummary>> + Send;
 }
 
+// =============================================================================
+// Has* accessor traits (ISP: consumers depend only on what they use)
+// =============================================================================
+
+/// Accessor trait for ProjectRepository.
+pub trait HasProjects: Send + Sync {
+    type Projects<'a>: ProjectRepository
+    where
+        Self: 'a;
+    fn projects(&self) -> Self::Projects<'_>;
+}
+
+/// Accessor trait for RepoRepository.
+pub trait HasRepos: Send + Sync {
+    type Repos<'a>: RepoRepository
+    where
+        Self: 'a;
+    fn repos(&self) -> Self::Repos<'_>;
+}
+
+/// Accessor trait for TaskListRepository.
+pub trait HasTaskLists: Send + Sync {
+    type TaskLists<'a>: TaskListRepository
+    where
+        Self: 'a;
+    fn task_lists(&self) -> Self::TaskLists<'_>;
+}
+
+/// Accessor trait for TaskRepository.
+pub trait HasTasks: Send + Sync {
+    type Tasks<'a>: TaskRepository
+    where
+        Self: 'a;
+    fn tasks(&self) -> Self::Tasks<'_>;
+}
+
+/// Accessor trait for NoteRepository.
+pub trait HasNotes: Send + Sync {
+    type Notes<'a>: NoteRepository
+    where
+        Self: 'a;
+    fn notes(&self) -> Self::Notes<'_>;
+}
+
+/// Accessor trait for SyncRepository.
+pub trait HasSync: Send + Sync {
+    type Sync<'a>: SyncRepository
+    where
+        Self: 'a;
+    fn sync(&self) -> Self::Sync<'_>;
+}
+
+/// Accessor trait for SkillRepository.
+pub trait HasSkills: Send + Sync {
+    type Skills<'a>: SkillRepository
+    where
+        Self: 'a;
+    fn skills(&self) -> Self::Skills<'_>;
+}
+
+/// Accessor trait for TransitionLogRepository.
+pub trait HasTransitionLogs: Send + Sync {
+    type TransitionLogs<'a>
+    where
+        Self: 'a;
+    fn transition_logs(&self) -> Self::TransitionLogs<'_>;
+}
+
 /// Combined database interface.
+///
+/// Super-trait of all `Has*` accessor traits. Consumers should depend on
+/// the specific `Has*` traits they need rather than this full interface.
 ///
 /// Uses associated types to provide access to repositories without dynamic dispatch.
 /// Each implementation defines its own concrete repository types.
 ///
 /// All repository traits require `Send + Sync` and their async methods return
 /// `Send` futures, enabling compatibility with async web frameworks like Axum.
-pub trait Database: Send + Sync {
-    /// The project repository type.
-    type Projects<'a>: ProjectRepository
-    where
-        Self: 'a;
-    /// The repo repository type.
-    type Repos<'a>: RepoRepository
-    where
-        Self: 'a;
-    /// The task list repository type.
-    type TaskLists<'a>: TaskListRepository
-    where
-        Self: 'a;
-    /// The task repository type.
-    type Tasks<'a>: TaskRepository
-    where
-        Self: 'a;
-    /// The note repository type.
-    type Notes<'a>: NoteRepository
-    where
-        Self: 'a;
-    /// The sync repository type.
-    type Sync<'a>: SyncRepository
-    where
-        Self: 'a;
-    /// The skill repository type.
-    type Skills<'a>: SkillRepository
-    where
-        Self: 'a;
-    /// The transition log repository type (concrete impl, no trait needed).
-    type TransitionLogs<'a>
-    where
-        Self: 'a;
-
+pub trait Database:
+    Send + Sync + HasProjects + HasRepos + HasTaskLists + HasTasks + HasNotes + HasSync + HasSkills + HasTransitionLogs
+{
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
-
-    /// Get the project repository.
-    fn projects(&self) -> Self::Projects<'_>;
-
-    /// Get the repo repository.
-    fn repos(&self) -> Self::Repos<'_>;
-
-    /// Get the task list repository.
-    fn task_lists(&self) -> Self::TaskLists<'_>;
-
-    /// Get the task repository.
-    fn tasks(&self) -> Self::Tasks<'_>;
-
-    /// Get the note repository.
-    fn notes(&self) -> Self::Notes<'_>;
-
-    /// Get the sync repository.
-    fn sync(&self) -> Self::Sync<'_>;
-
-    /// Get the transition log repository.
-    fn transition_logs(&self) -> Self::TransitionLogs<'_>;
-
-    /// Get the skill repository.
-    fn skills(&self) -> Self::Skills<'_>;
 }

@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::api::notifier::ChangeNotifier;
+use crate::db::HasSkills;
 use crate::db::SkillRepository;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -55,7 +56,7 @@ pub struct UpdateSkillParams {
 }
 
 #[derive(Clone)]
-pub struct SkillTools<D: crate::db::Database> {
+pub struct SkillTools<D: HasSkills> {
     db: Arc<D>,
     #[allow(dead_code)] // Will be used for change notifications
     notifier: ChangeNotifier,
@@ -64,7 +65,7 @@ pub struct SkillTools<D: crate::db::Database> {
 }
 
 #[tool_router]
-impl<D: crate::db::Database + 'static> SkillTools<D> {
+impl<D: HasSkills + 'static> SkillTools<D> {
     pub fn new(db: Arc<D>, notifier: ChangeNotifier, skills_dir: PathBuf) -> Self {
         Self {
             db,

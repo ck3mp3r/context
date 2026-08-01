@@ -4,8 +4,9 @@
 mod tests {
     use crate::db::sqlite::SqliteDatabase;
     use crate::db::{
-        Database, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillRepository,
-        SyncRepository, TaskList, TaskListRepository, TaskListStatus,
+        Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks,
+        Project, ProjectRepository, Repo, RepoRepository, Skill, SkillRepository, SyncRepository,
+        TaskList, TaskListRepository, TaskListStatus,
     };
     use crate::sync::write_jsonl;
     use base64::prelude::*;

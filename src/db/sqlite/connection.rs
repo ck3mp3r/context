@@ -7,7 +7,10 @@ use super::{
     SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSyncRepository,
     SqliteTaskListRepository, SqliteTaskRepository, SqliteTransitionLogRepository,
 };
-use context_core::{Database, DbError, DbResult};
+use context_core::{
+    Database, DbError, DbResult, HasNotes, HasProjects, HasRepos, HasSkills, HasSync,
+    HasTaskLists, HasTasks, HasTransitionLogs,
+};
 
 /// SQLite database implementation using SQLx.
 ///
@@ -78,52 +81,67 @@ impl SqliteDatabase {
     }
 }
 
-impl Database for SqliteDatabase {
+impl HasProjects for SqliteDatabase {
     type Projects<'a> = SqliteProjectRepository<'a>;
-    type Repos<'a> = SqliteRepoRepository<'a>;
-    type TaskLists<'a> = SqliteTaskListRepository<'a>;
-    type Tasks<'a> = SqliteTaskRepository<'a>;
-    type Notes<'a> = SqliteNoteRepository<'a>;
-    type Sync<'a> = SqliteSyncRepository<'a>;
-    type Skills<'a> = super::SqliteSkillRepository<'a>;
-    type TransitionLogs<'a> = SqliteTransitionLogRepository<'a>;
+    fn projects(&self) -> Self::Projects<'_> {
+        SqliteProjectRepository { pool: &self.pool }
+    }
+}
 
+impl HasRepos for SqliteDatabase {
+    type Repos<'a> = SqliteRepoRepository<'a>;
+    fn repos(&self) -> Self::Repos<'_> {
+        SqliteRepoRepository { pool: &self.pool }
+    }
+}
+
+impl HasTaskLists for SqliteDatabase {
+    type TaskLists<'a> = SqliteTaskListRepository<'a>;
+    fn task_lists(&self) -> Self::TaskLists<'_> {
+        SqliteTaskListRepository { pool: &self.pool }
+    }
+}
+
+impl HasTasks for SqliteDatabase {
+    type Tasks<'a> = SqliteTaskRepository<'a>;
+    fn tasks(&self) -> Self::Tasks<'_> {
+        SqliteTaskRepository { pool: &self.pool }
+    }
+}
+
+impl HasNotes for SqliteDatabase {
+    type Notes<'a> = SqliteNoteRepository<'a>;
+    fn notes(&self) -> Self::Notes<'_> {
+        SqliteNoteRepository { pool: &self.pool }
+    }
+}
+
+impl HasSync for SqliteDatabase {
+    type Sync<'a> = SqliteSyncRepository<'a>;
+    fn sync(&self) -> Self::Sync<'_> {
+        SqliteSyncRepository { pool: &self.pool }
+    }
+}
+
+impl HasSkills for SqliteDatabase {
+    type Skills<'a> = super::SqliteSkillRepository<'a>;
+    fn skills(&self) -> Self::Skills<'_> {
+        super::SqliteSkillRepository { pool: &self.pool }
+    }
+}
+
+impl HasTransitionLogs for SqliteDatabase {
+    type TransitionLogs<'a> = SqliteTransitionLogRepository<'a>;
+    fn transition_logs(&self) -> Self::TransitionLogs<'_> {
+        SqliteTransitionLogRepository { pool: &self.pool }
+    }
+}
+
+impl Database for SqliteDatabase {
     fn migrate(&self) -> DbResult<()> {
         // Use tokio::task::block_in_place for sync interface compatibility
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async { self.migrate_async().await })
         })
-    }
-
-    fn projects(&self) -> Self::Projects<'_> {
-        SqliteProjectRepository { pool: &self.pool }
-    }
-
-    fn repos(&self) -> Self::Repos<'_> {
-        SqliteRepoRepository { pool: &self.pool }
-    }
-
-    fn task_lists(&self) -> Self::TaskLists<'_> {
-        SqliteTaskListRepository { pool: &self.pool }
-    }
-
-    fn tasks(&self) -> Self::Tasks<'_> {
-        SqliteTaskRepository { pool: &self.pool }
-    }
-
-    fn notes(&self) -> Self::Notes<'_> {
-        SqliteNoteRepository { pool: &self.pool }
-    }
-
-    fn sync(&self) -> Self::Sync<'_> {
-        SqliteSyncRepository { pool: &self.pool }
-    }
-
-    fn skills(&self) -> Self::Skills<'_> {
-        super::SqliteSkillRepository { pool: &self.pool }
-    }
-
-    fn transition_logs(&self) -> Self::TransitionLogs<'_> {
-        SqliteTransitionLogRepository { pool: &self.pool }
     }
 }

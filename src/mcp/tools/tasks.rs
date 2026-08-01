@@ -13,7 +13,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
-use crate::db::{Database, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus};
+use crate::db::{HasTasks, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus};
 use crate::mcp::tools::{apply_limit, map_db_error};
 
 // =============================================================================
@@ -154,14 +154,14 @@ pub struct DeleteTaskParams {
 // =============================================================================
 
 #[derive(Clone)]
-pub struct TaskTools<D: Database> {
+pub struct TaskTools<D: HasTasks> {
     db: Arc<D>,
     notifier: ChangeNotifier,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
-impl<D: Database + 'static> TaskTools<D> {
+impl<D: HasTasks + 'static> TaskTools<D> {
     pub fn new(db: Arc<D>, notifier: ChangeNotifier) -> Self {
         Self {
             db,

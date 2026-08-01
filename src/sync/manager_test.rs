@@ -1,4 +1,4 @@
-use crate::db::{Database, SqliteDatabase};
+use crate::db::{Database, HasSkills, SqliteDatabase};
 use crate::sync::git::{GitError, MockGitOps};
 use crate::sync::manager::*;
 use mockall::predicate::*;

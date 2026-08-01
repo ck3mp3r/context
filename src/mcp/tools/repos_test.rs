@@ -1,7 +1,7 @@
 //! Tests for Repository MCP tools
 
 use crate::api::notifier::ChangeNotifier;
-use crate::db::{Database, Repo, RepoRepository, SqliteDatabase};
+use crate::db::{Database, HasProjects, HasRepos, Repo, RepoRepository, SqliteDatabase};
 use crate::mcp::tools::repos::*;
 use rmcp::{
     handler::server::wrapper::Parameters,
