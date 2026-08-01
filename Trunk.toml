@@ -12,7 +12,7 @@ offline = true
 
 [watch]
 watch = ["crates/context-frontend/src"]
-ignore = ["target", "dist"]
+ignore = ["target", "crates/context-server/dist"]
 
 [serve]
 addresses = ["127.0.0.1"]
