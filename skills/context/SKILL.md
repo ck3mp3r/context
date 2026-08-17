@@ -293,6 +293,24 @@ Before transitioning a task to `todo`, verify it passes this checklist. Each ite
 - [ ] Criteria are consistent with each other (no contradictions)
 - [ ] Criteria are feasible with the stated files and patterns
 
+#### Task Set Refinement
+
+The quality checklist above validates each task in isolation. Before transitioning any task to `todo`, run a refinement pass over the full task set — the parent task and all its subtasks, or all tasks in a task list. This pass checks the tasks as a whole, not individually. Issues found here are invisible when checking tasks one by one.
+
+Refinement checks:
+
+1. **Cross-task file conflicts.** Two or more tasks modify the same file:line with conflicting changes. If task A adds a validation check at `src/api/v1/tasks.rs:42` and task B replaces the handler at `src/api/v1/tasks.rs:42`, one overwrites the other. Resolve by merging into one task or splitting the line ranges so they do not overlap.
+
+2. **Scope coverage.** The union of all subtask scopes equals the parent task scope. No subtask covers work outside the parent scope. No part of the parent scope is left unassigned. If the parent says "add task CRUD" and subtasks cover create, read, update but not delete, the set is incomplete — add a subtask or narrow the parent scope.
+
+3. **Dependency consistency.** If task B depends on task A: B's CONTEXT references A's task ID, B's priority is lower than A's (A = 1, B = 2), and A's output is described in B's CONTEXT (what A produces that B consumes). If no dependency exists, the tasks are independent and can run in any order or in parallel.
+
+4. **Edge case coverage.** The task set covers failure modes, boundary conditions, and concurrent access scenarios for the parent scope. If the parent scope involves an API endpoint, the set includes tasks or criteria for: empty input, invalid input, maximum input size, concurrent requests, and the error response for each. If an edge case is out of scope, the parent task SCOPE lists it as EXCLUDED.
+
+5. **Criterion consistency across tasks.** No two tasks have criteria that contradict each other. If task A says "THE API SHALL return HTTP 201" and task B says "THE API SHALL return HTTP 200" for the same endpoint and condition, one is wrong. Resolve before transitioning.
+
+Run refinement after all tasks in the set pass the individual quality checklist. If refinement finds issues, fix the affected tasks and re-run the individual checklist on them, then re-run refinement. Transition tasks to `todo` only when both passes are clean.
+
 ## Session Notes (Multi-Session Work)
 
 For work spanning multiple sessions or surviving context compaction:
