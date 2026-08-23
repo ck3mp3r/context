@@ -17,7 +17,7 @@ tower-http = { version = "0.7.0", features = ["trace", "fs"] }
 utoipa.workspace = true
 utoipa-axum = "0.2.0"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
-rmcp = { version = "2.2.0", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "3.1.4", features = ["server", "transport-streamable-http-server"] }
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
 futures-util = "0.3.32"

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -50,7 +50,7 @@ pub fn create_mcp_service<D: Database + 'static>(
     notifier: crate::api::notifier::ChangeNotifier,
     skills_dir: std::path::PathBuf,
     cancellation_token: CancellationToken,
-) -> StreamableHttpService<McpServer<D>, LocalSessionManager> {
+) -> StreamableHttpService<McpServer<D>, NeverSessionManager> {
     let db = db.into();
 
     // Service factory: creates new McpServer instance per session
@@ -68,13 +68,15 @@ pub fn create_mcp_service<D: Database + 'static>(
         .with_allowed_hosts(["localhost", "127.0.0.1", "::1", "0.0.0.0"])
         .with_sse_keep_alive(None)
         .with_sse_retry(None)
-        .with_stateful_mode(true)
+        .with_legacy_session_mode(false)
         .with_cancellation_token(cancellation_token);
 
-    // Create service with local session manager
+    // Stateless mode: NeverSessionManager rejects all session operations.
+    // Combined with legacy_session_mode(false), only stateless POST requests
+    // are served (no GET/DELETE session lifecycle endpoints).
     StreamableHttpService::new(
         service_factory,
-        LocalSessionManager::default().into(),
+        NeverSessionManager::default().into(),
         config,
     )
 }
