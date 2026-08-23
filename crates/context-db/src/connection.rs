@@ -1,7 +1,9 @@
 //! SQLite database connection and migration management.
 
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{SqlitePool, migrate::MigrateDatabase};
 use std::path::Path;
+use std::str::FromStr;
 
 use super::{
     SqliteNoteRepository, SqliteProjectRepository, SqliteRepoRepository, SqliteSyncRepository,
@@ -38,7 +40,14 @@ impl SqliteDatabase {
                 })?;
         }
 
-        let pool = SqlitePool::connect(&database_url)
+        let options = SqliteConnectOptions::from_str(&database_url)
+            .map_err(|e| DbError::Connection {
+                message: e.to_string(),
+            })?
+            .foreign_keys(true);
+
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
             .await
             .map_err(|e| DbError::Connection {
                 message: e.to_string(),
@@ -49,12 +58,18 @@ impl SqliteDatabase {
 
     /// Create an in-memory database (useful for testing).
     pub async fn in_memory() -> DbResult<Self> {
-        let pool =
-            SqlitePool::connect("sqlite::memory:")
-                .await
-                .map_err(|e| DbError::Connection {
-                    message: e.to_string(),
-                })?;
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .map_err(|e| DbError::Connection {
+                message: e.to_string(),
+            })?
+            .foreign_keys(true);
+
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .map_err(|e| DbError::Connection {
+                message: e.to_string(),
+            })?;
         Ok(Self { pool })
     }
 

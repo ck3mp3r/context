@@ -5,9 +5,7 @@
 
 mod common;
 
-use context_core::{
-    HasNotes, HasProjects, Note, NoteRepository, Project, ProjectRepository,
-};
+use context_core::{HasNotes, HasProjects, Note, NoteRepository, Project, ProjectRepository};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{
