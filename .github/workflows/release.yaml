@@ -37,7 +37,7 @@ jobs:
 
           # Create placeholder dist/ folder for rust-embed compile-time check
           # The real frontend build happens later in the build job
-          mkdir -p crates/context-server/dist
+          mkdir crates/context-server/dist
           echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save crates/context-server/dist/index.html
 
           let current_version = (open Cargo.toml).workspace.package.version
