@@ -13,7 +13,6 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-
 use context_server::api::{AppState, routes};
 use context_sync::{MockGitOps, SyncManager};
 use tempfile::TempDir;
@@ -1629,10 +1628,7 @@ async fn test_list_projects_with_combined_filters() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!(
-                    "/api/v1/projects?tags=backend&repo_id={}",
-                    repo_id
-                ))
+                .uri(format!("/api/v1/projects?tags=backend&repo_id={}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
