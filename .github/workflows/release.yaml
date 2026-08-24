@@ -31,8 +31,6 @@ jobs:
 
       - name: Setup CI Tools
         uses: ck3mp3r/actions/ci-tools@main
-        with:
-          nu-mods-ref: feature/port-nu-tools-to-ci
 
       - name: Prepare release
         id: prep
@@ -167,8 +165,6 @@ jobs:
 
       - name: Setup CI Tools
         uses: ck3mp3r/actions/ci-tools@main
-        with:
-          nu-mods-ref: feature/port-nu-tools-to-ci
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v8
