@@ -409,7 +409,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "context-cli"
-version = "0.7.8"
+version = "0.7.8-b118f3a"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "context-core"
-version = "0.7.8"
+version = "0.7.8-b118f3a"
 dependencies = [
  "chrono",
  "miette",
@@ -456,7 +456,7 @@ dependencies = [
 
 [[package]]
 name = "context-db"
-version = "0.7.8"
+version = "0.7.8-b118f3a"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "context-server"
-version = "0.7.8"
+version = "0.7.8-b118f3a"
 dependencies = [
  "axum",
  "context-core",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "context-skills"
-version = "0.7.8"
+version = "0.7.8-b118f3a"
 dependencies = [
  "base64 0.23.1",
  "context-core",
@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "context-sync"
-version = "0.7.8"
+version = "0.7.8-b118f3a"
 dependencies = [
  "chrono",
  "context-core",
