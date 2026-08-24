@@ -25,15 +25,18 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
-      - name: Setup Nu Tools
-        uses: ck3mp3r/actions/nu-tools@main
+      - name: Setup CI Tools
+        uses: ck3mp3r/actions/ci-tools@main
+        with:
+          nu-mods-ref: feature/port-nu-tools-to-ci
 
       - name: Prepare release
         id: prep
         shell: nu {0}
         run: |
-          use nu-tools *
-          setup-git-user
+          use ci *
+
+          "github-actions[bot]@users.noreply.github.com" | ci scm config
 
           # Create placeholder dist/ folder for rust-embed compile-time check
           # The real frontend build happens later in the build job
@@ -41,13 +44,13 @@ jobs:
           echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save crates/context-server/dist/index.html
 
           let current_version = (open Cargo.toml).workspace.package.version
-          let latest_tag = (get-latest-tag)
-          let version = (semver-calculate $latest_tag $current_version | create-release-branch)
-          # Update workspace package version
-          let cargo = (open Cargo.toml | upsert workspace.package.version $version)
-          $cargo | to toml | save --force Cargo.toml
-          ^cargo check
-          ["Cargo.toml" "Cargo.lock"] | commit-files $"Prepare release ($version)"
+          let latest_tag = (ci scm latest-tag)
+          let version = (ci scm semver $latest_tag $current_version)
+          # Create release branch and push it
+          $version | ci scm branch --release --version $version --from main --push
+          # Update workspace package version and refresh Cargo.lock
+          let files = (ci cargo update-version $version)
+          $files | ci scm commit -m $"Prepare release ($version)" --push
           $"version=($version)" | save --append $env.GITHUB_OUTPUT
 
   build:
@@ -134,8 +137,10 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.token.outputs.token }}
 
-      - name: Setup Nu Tools
-        uses: ck3mp3r/actions/nu-tools@main
+      - name: Setup CI Tools
+        uses: ck3mp3r/actions/ci-tools@main
+        with:
+          nu-mods-ref: feature/port-nu-tools-to-ci
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v8
@@ -145,13 +150,15 @@ jobs:
       - name: Finalize release
         shell: nu {0}
         run: |
-          use nu-tools *
-          setup-git-user
+          use ci *
+
+          "github-actions[bot]@users.noreply.github.com" | ci scm config
 
           let version = "${{ needs.prep-release.outputs.version }}"
 
           # Generate platform data and commit
-          generate-platform-data-for $version "context" "./artifacts" | commit-files $"Add platform data for release ($version)"
+          let data_files = (ci artifacts platform-data-for $version "context" "./artifacts")
+          $data_files | ci scm commit -m $"Add platform data for release ($version)" --push
 
           # Prepare architecture data with hashes
           let architectures = [
@@ -174,17 +181,17 @@ jobs:
           ]
 
           # Update Homebrew formula
-          open Formula/context.rb | update-homebrew-formula $version "context" $architectures | save --force Formula/context.rb
+          open Formula/context.rb | ci homebrew update-formula $version "context" $architectures | save --force Formula/context.rb
 
           # Commit the formula update
-          ["Formula/context.rb"] | commit-files $"Update Homebrew formula for ($version)"
+          ["Formula/context.rb"] | ci scm commit -m $"Update Homebrew formula for ($version)" --push
 
-          # Merge and cleanup
-          merge-and-cleanup $version
+          # Merge release branch to main and clean up (idempotent on re-run)
+          ci scm merge $"release/($version)" -m $"Release ($version)" --push --delete-remote
 
           # Create release and upload artifacts using gh CLI
-          create-github-release $version
-          glob "./artifacts/**/*.*" | upload-release-artifacts $version
+          ci github release create $version
+          glob "./artifacts/**/*.*" | ci github release upload $version
 
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
