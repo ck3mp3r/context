@@ -71,6 +71,7 @@ jobs:
 
   build:
     needs: prep-release
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
