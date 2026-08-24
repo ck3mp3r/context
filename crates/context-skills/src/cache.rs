@@ -24,7 +24,7 @@ use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::Deserialize;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use context_core::get_data_dir;
 use context_core::{DbError, SkillAttachment};
@@ -33,6 +33,58 @@ use context_core::{DbError, SkillAttachment};
 #[derive(Debug, Deserialize)]
 struct MinimalFrontmatter {
     name: String,
+}
+
+/// SOLID-compliant skill cache manager.
+///
+/// Owns a single skills base directory, injected via constructor (DIP), and
+/// encapsulates all cache operations (extract, invalidate, dir) for it (SRP).
+/// Consumers never reach into the global data dir directly.
+#[derive(Clone, Debug)]
+pub struct SkillCache {
+    base_dir: PathBuf,
+}
+
+impl SkillCache {
+    /// Create a cache manager rooted at `base_dir` (the skills root).
+    pub fn new(base_dir: PathBuf) -> Self {
+        Self { base_dir }
+    }
+
+    /// The skills root directory for this cache.
+    pub fn base_dir(&self) -> &Path {
+        &self.base_dir
+    }
+
+    /// Directory for a single skill's cached attachments.
+    pub fn dir(&self, skill_name: &str) -> PathBuf {
+        self.base_dir.join(skill_name)
+    }
+
+    /// Extract skill attachments into the cache.
+    pub fn extract(
+        &self,
+        skill_name: &str,
+        skill_content: &str,
+        attachments: &[SkillAttachment],
+    ) -> Result<PathBuf, DbError> {
+        extract_attachments(&self.base_dir, skill_name, skill_content, attachments)
+    }
+
+    /// Invalidate (remove) a skill's cache directory.
+    pub fn invalidate(&self, skill_name: &str) -> Result<(), DbError> {
+        let cache_dir = self.dir(skill_name);
+        if cache_dir.exists() {
+            fs::remove_dir_all(&cache_dir).map_err(|e| DbError::Database {
+                message: format!(
+                    "Failed to remove cache directory {}: {}",
+                    cache_dir.display(),
+                    e
+                ),
+            })?;
+        }
+        Ok(())
+    }
 }
 
 /// Get the base cache directory for skills.
@@ -157,22 +209,12 @@ pub fn extract_attachments(
 /// - Skill is deleted
 /// - Attachments are modified
 ///
+/// Uses the default global skills cache dir.
+///
 /// # Arguments
 /// * `skill_name` - Skill name to invalidate cache for
 pub fn invalidate_cache(skill_name: &str) -> Result<(), DbError> {
-    let cache_dir = get_skill_cache_dir(skill_name);
-
-    if cache_dir.exists() {
-        fs::remove_dir_all(&cache_dir).map_err(|e| DbError::Database {
-            message: format!(
-                "Failed to remove cache directory {}: {}",
-                cache_dir.display(),
-                e
-            ),
-        })?;
-    }
-
-    Ok(())
+    SkillCache::new(get_skills_cache_dir()).invalidate(skill_name)
 }
 
 /// Clear all skill caches.
