@@ -13,7 +13,7 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::api::notifier::ChangeNotifier;
+use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use context_core::HasSkills;
 use context_core::SkillRepository;
 
@@ -58,9 +58,8 @@ pub struct UpdateSkillParams {
 #[derive(Clone)]
 pub struct SkillTools<D: HasSkills> {
     db: Arc<D>,
-    #[allow(dead_code)] // Will be used for change notifications
     notifier: ChangeNotifier,
-    skills_dir: PathBuf,
+    cache: context_skills::SkillCache,
     tool_router: ToolRouter<Self>,
 }
 
@@ -70,7 +69,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
         Self {
             db,
             notifier,
-            skills_dir,
+            cache: context_skills::SkillCache::new(skills_dir),
             tool_router: Self::tool_router(),
         }
     }
@@ -183,18 +182,15 @@ impl<D: HasSkills + 'static> SkillTools<D> {
                     )
                 })?;
 
-            let cache_dir = context_skills::extract_attachments(
-                &self.skills_dir,
-                &skill_name,
-                &skill.content,
-                &attachments,
-            )
-            .map_err(|e| {
-                McpError::internal_error(
-                    "cache_error",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
+            let cache_dir = self
+                .cache
+                .extract(&skill_name, &skill.content, &attachments)
+                .map_err(|e| {
+                    McpError::internal_error(
+                        "cache_error",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?;
 
             Some(cache_dir.to_string_lossy().to_string())
         } else {
@@ -264,12 +260,17 @@ impl<D: HasSkills + 'static> SkillTools<D> {
         })?;
 
         // Invalidate cache after successful update
-        context_skills::invalidate_cache(&skill.name).map_err(|e| {
+        self.cache.invalidate(&skill.name).map_err(|e| {
             McpError::internal_error(
                 "cache_error",
                 Some(serde_json::json!({"error": e.to_string()})),
             )
         })?;
+
+        // Broadcast update notification
+        self.notifier.notify(UpdateMessage::SkillUpdated {
+            skill_id: params.0.skill_id.clone(),
+        });
 
         // Return updated skill
         let updated_skill = self

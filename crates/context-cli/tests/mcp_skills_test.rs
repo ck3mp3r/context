@@ -603,8 +603,12 @@ async fn test_update_skill_invalidates_cache() {
     db.skills().create_attachment(&attachment).await.unwrap();
 
     let db = Arc::new(db);
-    let skills_dir = get_data_dir().join("skills");
-    let tools = SkillTools::new(db.clone(), ChangeNotifier::new(), skills_dir.clone());
+    let skills_dir = tempfile::tempdir().unwrap();
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        skills_dir.path().to_path_buf(),
+    );
 
     // First, call get_skill to populate the cache
     let get_params = GetSkillParams {
@@ -639,6 +643,6 @@ async fn test_update_skill_invalidates_cache() {
         "Cache should be invalidated after update"
     );
 
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&skills_dir);
+    // Cleanup - TempDir removes itself on drop
+    let _ = skills_dir;
 }

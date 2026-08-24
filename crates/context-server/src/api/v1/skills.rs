@@ -796,14 +796,16 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
         })?;
 
     // Invalidate cache
-    context_skills::invalidate_cache(&skill_name).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to invalidate cache: {}", e),
-            }),
-        )
-    })?;
+    context_skills::SkillCache::new(state.skills_dir().clone())
+        .invalidate(&skill_name)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to invalidate cache: {}", e),
+                }),
+            )
+        })?;
 
     Ok(Json(DisableSkillResponse {
         skill_id: skill.id,

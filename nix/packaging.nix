@@ -39,7 +39,12 @@
       pname = "context-frontend";
       version = cargoToml.workspace.package.version;
       src = ../.;
-      inherit cargoLock;
+      # context-frontend is excluded from the workspace and has its own
+      # Cargo.lock (root lock omits its deps like codee/leptos).
+      cargoRoot = "crates/context-frontend";
+      cargoLock = {
+        lockFile = ../crates/context-frontend/Cargo.lock;
+      };
 
       nativeBuildInputs = [
         pkgs.trunk
