@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.prep.outputs.version }}
+      base_version: ${{ steps.prep.outputs.base_version }}
       prerelease: ${{ steps.prep.outputs.prerelease }}
       suffix: ${{ steps.prep.outputs.suffix }}
       branch: ${{ steps.prep.outputs.branch }}
@@ -54,17 +55,25 @@ jobs:
 
           let current_version = (open Cargo.toml).workspace.package.version
           let latest_tag = (ci scm latest-tag)
-          let version = (ci scm semver $latest_tag $current_version)
+          # Pre-releases keep the current version (no semver bump) and append the
+          # suffix; full releases bump the patch from the latest tag.
+          let base_version = if $prerelease == "true" {
+            $current_version
+          } else {
+            (ci scm semver $latest_tag $current_version)
+          }
+          let version = if $prerelease == "true" { $"($base_version)-($suffix)" } else { $base_version }
 
           # Release branch name: release/<version> for full, release/<version>-<sha> for pre-release
-          let branch = if $prerelease == "true" { $"release/($version)-($suffix)" } else { $"release/($version)" }
+          let branch = $"release/($version)"
 
           # Create and push the release branch (from the run branch)
-          $version | ci scm branch --release --version ($branch | str replace "release/" "") --from "${{ github.ref_name }}" --push
+          $version | ci scm branch --release --version $version --from "${{ github.ref_name }}" --push
           # Update workspace package version and refresh Cargo.lock
           let files = (ci cargo update-version $version)
           $files | ci scm commit -m $"Prepare release ($version)" --push
           $"version=($version)" | save --append $env.GITHUB_OUTPUT
+          $"base_version=($base_version)" | save --append $env.GITHUB_OUTPUT
           $"prerelease=($prerelease)" | save --append $env.GITHUB_OUTPUT
           $"suffix=($suffix)" | save --append $env.GITHUB_OUTPUT
           $"branch=($branch)" | save --append $env.GITHUB_OUTPUT
@@ -171,10 +180,12 @@ jobs:
           "github-actions[bot]@users.noreply.github.com" | ci scm config
 
           let version = "${{ needs.prep-release.outputs.version }}"
+          let base_version = "${{ needs.prep-release.outputs.base_version }}"
           let prerelease = "${{ needs.prep-release.outputs.prerelease }}"
           let suffix = "${{ needs.prep-release.outputs.suffix }}"
           let branch = "${{ needs.prep-release.outputs.branch }}"
-          let release_tag = if $prerelease == "true" { $"v($version)-($suffix)" } else { $"v($version)" }
+          # version already carries the suffix for pre-releases
+          let release_tag = $"v($version)"
 
           # Generate platform data and commit (finalize already checked out the release branch)
           let data_files = (ci artifacts platform-data $version "./artifacts" "context" --tag $release_tag)
@@ -213,7 +224,7 @@ jobs:
 
           # Create release and upload artifacts using gh CLI
           if $prerelease == "true" {
-            ci github release create $version --prerelease --suffix $suffix --target $branch
+            ci github release create $base_version --prerelease --suffix $suffix --target $branch
           } else {
             ci github release create $version
           }
