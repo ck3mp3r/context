@@ -221,8 +221,8 @@ jobs:
           ["Formula/context.rb"] | ci scm commit -m $"Update Homebrew formula for ($version)" --push
 
           if $prerelease != "true" {
-            # Merge release branch to main and clean up (idempotent on re-run)
-            ci scm merge $branch -m $"Release ($version)" --push --delete-remote
+            # Merge release branch to main (idempotent on re-run)
+            ci scm merge $branch -m $"Release ($version)" --push
           }
 
           # Create release and upload artifacts using gh CLI
@@ -232,6 +232,11 @@ jobs:
             ci github release create $version
           }
           glob "./artifacts/**/*.*" | ci github release upload $release_tag
+
+          # Clean up the release branch (remote + local) after the release is
+          # created (the pre-release tag targets this branch, so it must still
+          # exist when the release is created).
+          ci scm cleanup $branch --remote --local
 
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
