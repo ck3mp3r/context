@@ -72,11 +72,14 @@ jobs:
           # Update workspace package version and refresh Cargo.lock
           let files = (ci cargo update-version $version)
           $files | ci scm commit -m $"Prepare release ($version)" --push
-          $"version=($version)\n" | save --append $env.GITHUB_OUTPUT
-          $"base_version=($base_version)\n" | save --append $env.GITHUB_OUTPUT
-          $"prerelease=($prerelease)\n" | save --append $env.GITHUB_OUTPUT
-          $"suffix=($suffix)\n" | save --append $env.GITHUB_OUTPUT
-          $"branch=($branch)\n" | save --append $env.GITHUB_OUTPUT
+          # save --append over a list writes each line with a trailing newline
+          [
+            $"version=($version)"
+            $"base_version=($base_version)"
+            $"prerelease=($prerelease)"
+            $"suffix=($suffix)"
+            $"branch=($branch)"
+          ] | save --append $env.GITHUB_OUTPUT
 
   build:
     needs: prep-release
