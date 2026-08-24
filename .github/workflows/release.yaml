@@ -13,13 +13,13 @@ permissions:
   pull-requests: read
   id-token: write
 
-jobs:
   prep-release:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.prep.outputs.version }}
       prerelease: ${{ steps.prep.outputs.prerelease }}
       suffix: ${{ steps.prep.outputs.suffix }}
+      branch: ${{ steps.prep.outputs.branch }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -46,26 +46,30 @@ jobs:
           echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save crates/context-server/dist/index.html
 
           # A release run from a non-main branch is always a pre-release.
-          # Use that branch as the release base (and as the tag suffix).
-          let base_branch = "${{ github.ref_name }}"
-          let prerelease = if $base_branch == "main" { "false" } else { "true" }
-          let suffix = if $base_branch == "main" { "" } else { $base_branch }
+          # Use the short SHA as the suffix so it never collides with the real
+          # release line and is distinguishable from other pre-releases.
+          let prerelease = if "${{ github.ref_name }}" == "main" { "false" } else { "true" }
+          let suffix = if $prerelease == "true" { (git rev-parse --short HEAD | str trim) } else { "" }
 
           let current_version = (open Cargo.toml).workspace.package.version
           let latest_tag = (ci scm latest-tag)
           let version = (ci scm semver $latest_tag $current_version)
-          # Create release branch (from the run branch) and push it
-          $version | ci scm branch --release --version $version --from $base_branch --push
+
+          # Release branch name: release/<version> for full, release/<version>-<sha> for pre-release
+          let branch = if $prerelease == "true" { $"release/($version)-($suffix)" } else { $"release/($version)" }
+
+          # Create and push the release branch (from the run branch)
+          $version | ci scm branch --release --version ($branch | str replace "release/" "") --from "${{ github.ref_name }}" --push
           # Update workspace package version and refresh Cargo.lock
           let files = (ci cargo update-version $version)
           $files | ci scm commit -m $"Prepare release ($version)" --push
           $"version=($version)" | save --append $env.GITHUB_OUTPUT
           $"prerelease=($prerelease)" | save --append $env.GITHUB_OUTPUT
           $"suffix=($suffix)" | save --append $env.GITHUB_OUTPUT
+          $"branch=($branch)" | save --append $env.GITHUB_OUTPUT
 
   build:
     needs: prep-release
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
@@ -85,7 +89,7 @@ jobs:
       - name: Checkout release branch
         uses: actions/checkout@v7
         with:
-          ref: release/${{ needs.prep-release.outputs.version }}
+          ref: ${{ needs.prep-release.outputs.branch }}
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
@@ -143,7 +147,7 @@ jobs:
       - name: Checkout release branch
         uses: actions/checkout@v7
         with:
-          ref: release/${{ needs.prep-release.outputs.version }}
+          ref: ${{ needs.prep-release.outputs.branch }}
           fetch-depth: 0
           token: ${{ steps.token.outputs.token }}
 
@@ -167,9 +171,11 @@ jobs:
           let version = "${{ needs.prep-release.outputs.version }}"
           let prerelease = "${{ needs.prep-release.outputs.prerelease }}"
           let suffix = "${{ needs.prep-release.outputs.suffix }}"
+          let branch = "${{ needs.prep-release.outputs.branch }}"
+          let release_tag = if $prerelease == "true" { $"v($version)-($suffix)" } else { $"v($version)" }
 
-          # Generate platform data and commit
-          let data_files = (ci artifacts platform-data-for $version "context" "./artifacts")
+          # Generate platform data and commit (finalize already checked out the release branch)
+          let data_files = (ci artifacts platform-data $version "./artifacts" "context" --tag $release_tag)
           $data_files | ci scm commit -m $"Add platform data for release ($version)" --push
 
           # Prepare architecture data with hashes
@@ -198,22 +204,14 @@ jobs:
           # Commit the formula update
           ["Formula/context.rb"] | ci scm commit -m $"Update Homebrew formula for ($version)" --push
 
-          # Determine release tag. Pre-releases get a suffixed tag and skip
-          # merging to main (they target the source branch instead).
-          let release_tag = if $prerelease == "true" {
-            $"v($version)-($suffix)"
-          } else {
-            $"v($version)"
-          }
-
           if $prerelease != "true" {
             # Merge release branch to main and clean up (idempotent on re-run)
-            ci scm merge $"release/($version)" -m $"Release ($version)" --push --delete-remote
+            ci scm merge $branch -m $"Release ($version)" --push --delete-remote
           }
 
           # Create release and upload artifacts using gh CLI
           if $prerelease == "true" {
-            ci github release create $version --prerelease --suffix $suffix --target $"release/($version)"
+            ci github release create $version --prerelease --suffix $suffix --target $branch
           } else {
             ci github release create $version
           }
