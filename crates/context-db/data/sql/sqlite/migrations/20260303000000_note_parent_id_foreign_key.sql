@@ -32,6 +32,12 @@ CREATE TABLE note_new (
     FOREIGN KEY (parent_id) REFERENCES note(id) ON DELETE CASCADE
 );
 
+-- Null out orphaned parent_id values before applying FK constraint.
+-- Parent notes were deleted while FKs were unenforced, leaving children
+-- pointing to non-existent IDs. With foreign_keys(true) enabled, the
+-- INSERT below would fail on these rows.
+UPDATE note SET parent_id = NULL WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM note);
+
 -- Copy existing data.
 INSERT INTO note_new (id, title, content, tags, parent_id, idx, created_at, updated_at)
 SELECT id, title, content, tags, parent_id, idx, created_at, updated_at FROM note;
