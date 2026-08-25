@@ -325,6 +325,16 @@ async fn import_all_with_transaction(
 
             summary.notes += 1;
         }
+
+        // Null out orphaned parent_id values before commit. The export may
+        // contain notes whose parent was deleted but the parent_id was never
+        // nulled. With foreign_keys(true) and defer_foreign_keys, these would
+        // fail at commit. One query, no per-note lookups.
+        sqlx::query(
+            "UPDATE note SET parent_id = NULL WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM note)",
+        )
+        .execute(&mut **tx)
+        .await?;
     }
 
     // ========== Import Skills ==========
