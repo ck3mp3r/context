@@ -1,26 +1,62 @@
 [package]
 name = "context-frontend"
-version = "0.7.8"
+version = "0.7.9"
 edition = "2024"
 license = "GPL-2.0"
 authors = ["Christian Kemper"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = [
+    "cdylib",
+    "rlib",
+]
 
 [dependencies]
-serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-leptos = { version = "0.8.20", features = ["csr"] }
 leptos_router = "0.8.15"
 leptos_meta = "0.8.6"
-leptos-use = { version = "0.19.0", features = ["use_websocket"] }
-thaw = { version = "0.5.0-beta", features = ["csr"] }
-codee = { version = "0.3.5", features = ["json_serde"] }
 console_error_panic_hook = "0.1.7"
 wasm-bindgen = "0.2.127"
 js-sys = "0.3.104"
-gloo-net = { version = "0.7.0", features = ["http", "json"] }
 gloo-storage = "0.4.0"
-web-sys = { version = "0.3.104", features = ["Window", "Document", "HtmlElement", "Location", "WebSocket", "MessageEvent", "CloseEvent", "ErrorEvent"] }
 pulldown-cmark = "0.13.4"
+
+[dependencies.serde]
+version = "1.0.229"
+features = ["derive"]
+
+[dependencies.leptos]
+version = "0.8.20"
+features = ["csr"]
+
+[dependencies.leptos-use]
+version = "0.19.0"
+features = ["use_websocket"]
+
+[dependencies.thaw]
+version = "0.5.0-beta"
+features = ["csr"]
+
+[dependencies.codee]
+version = "0.3.5"
+features = ["json_serde"]
+
+[dependencies.gloo-net]
+version = "0.7.0"
+features = [
+    "http",
+    "json",
+]
+
+[dependencies.web-sys]
+version = "0.3.104"
+features = [
+    "Window",
+    "Document",
+    "HtmlElement",
+    "Location",
+    "WebSocket",
+    "MessageEvent",
+    "CloseEvent",
+    "ErrorEvent",
+]
