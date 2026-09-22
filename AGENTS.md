@@ -11,14 +11,18 @@ Never confuse the two. Use the correct port when making HTTP requests.
 
 ## Linting
 
-Run clippy with warnings denied before committing. This is the gate the build must pass:
+Clippy warnings are denied workspace-wide via Cargo.toml — no flags required:
+
+- Root `Cargo.toml` declares `[workspace.lints.rust] warnings = "deny"` (the Cargo.toml equivalent of `-- -D warnings`).
+- Every workspace crate opts in with `[lints] workspace = true` in its own `Cargo.toml`.
+
+Run clippy without extra flags:
 
 ```
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets
 ```
 
 - `--all-targets` lints tests, benches, and examples, not just lib/bin code.
-- `-D warnings` promotes every warning to an error, so new lints fail the build.
 - Fix warnings by changing the code, not by adding `#[allow]` attributes. When a dependency API changes (e.g. an rmcp deprecation), migrate to the replacement type.
 
 ---

@@ -16,6 +16,9 @@ edition = "2024"
 license = "GPL-2.0"
 authors = ["Christian Kemper"]
 
+[workspace.lints.rust]
+warnings = "deny"
+
 [workspace.dependencies]
 serde_json = "1.0.150"
 thiserror = "2.0.18"
