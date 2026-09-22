@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 context-core = { path = "../context-core" }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"] }
