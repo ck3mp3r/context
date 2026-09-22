@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerConfig},
     tool, tool_handler, tool_router,
 };
 
@@ -361,8 +361,8 @@ impl<D: Database + 'static> McpServer<D> {
 
 #[tool_handler]
 impl<D: Database + 'static> ServerHandler for McpServer<D> {
-    fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::default();
         info.protocol_version = ProtocolVersion::LATEST;
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info.server_info = Implementation::from_build_env()

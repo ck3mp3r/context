@@ -9,6 +9,18 @@ Never confuse the two. Use the correct port when making HTTP requests.
 
 **IMPORTANT:** After code changes, the dev server must be rebuilt and restarted before testing via HTTP or MCP. Always ASK THE USER to restart the dev server — never assume it's running the latest code.
 
+## Linting
+
+Run clippy with warnings denied before committing. This is the gate the build must pass:
+
+```
+cargo clippy --all-targets -- -D warnings
+```
+
+- `--all-targets` lints tests, benches, and examples, not just lib/bin code.
+- `-D warnings` promotes every warning to an error, so new lints fail the build.
+- Fix warnings by changing the code, not by adding `#[allow]` attributes. When a dependency API changes (e.g. an rmcp deprecation), migrate to the replacement type.
+
 ---
 
 This document provides guidelines for writing tests in the c5t codebase. Follow these patterns to maintain consistency and avoid common pitfalls.
