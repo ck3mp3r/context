@@ -10,11 +10,11 @@ workspace = true
 
 [dependencies]
 context-core = { path = "../context-core" }
-base64 = "0.23.0"
-ignore = "0.4"
+base64 = "0.23.1"
+ignore = "0.4.33"
 sanitize-filename = "0.6"
 serde.workspace = true
-serde_yaml = "0.9"
+noyalib = { version = "0.0", features = ["compat-serde-yaml"] }
 sha2 = "0.11.0"
 thiserror.workspace = true
 

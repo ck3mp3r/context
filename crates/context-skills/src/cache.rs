@@ -21,6 +21,7 @@
 //! ```
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use noyalib::compat::serde_yaml;
 use serde::Deserialize;
 use std::fs;
 use std::io::Write;

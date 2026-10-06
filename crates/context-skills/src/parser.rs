@@ -3,6 +3,7 @@
 //! Parses SKILL.md files to extract ONLY name and description for DB indexing.
 //! The full SKILL.md content is stored as-is - LLMs parse frontmatter themselves.
 
+use noyalib::compat::serde_yaml;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use thiserror::Error;

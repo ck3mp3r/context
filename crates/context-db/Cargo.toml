@@ -13,8 +13,8 @@ context-core = { path = "../context-core" }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "migrate", "json", "chrono"] }
 chrono.workspace = true
 serde_json.workspace = true
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
-base64 = "0.23.0"
+base64 = "0.23.1"
