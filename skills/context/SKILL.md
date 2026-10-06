@@ -38,6 +38,27 @@ All entity IDs are **8-character lowercase hex strings** (e.g. `a1b2c3d4`).
 - Max **1 level deep**: tasks can have subtasks, subtasks cannot have subtasks
 - This is enforced at the DB layer — attempts will return an error
 
+### When to Break Tasks Into Subtasks
+
+A task that can be completed by a developer agent in one session is the right size. A task that cannot is too large. Break it into subtasks before writing any spec.
+
+**Signals that a task is too large:**
+
+- The task touches more than one layer (database + API, server + CLI, MCP + REST). Each layer gets its own subtask.
+- The task modifies more than 5 files. Review the file list — if it spans multiple modules or crates, decompose.
+- The task description approaches the 10,000 character limit. The DB enforces this as a CHECK constraint. If the spec is that long, the scope is too broad.
+- The task has more than 8 acceptance criteria. Each criterion adds implementation and test work. Split by concern.
+- The task fixes a bug and adds a feature. These are different concerns. Separate them.
+
+**How to decompose:**
+
+1. Create a parent task with objective and scope only (no files, criteria, or verification sections).
+2. Create one subtask per layer or logical concern. Each subtask gets a complete spec in its own description.
+3. Link subtasks with `parent_id`. Order with priority if there are dependencies.
+4. Note dependencies in the subtask's context (e.g., "Subtask A must be completed first — task ID xyz").
+
+**Example:** A task that fixes a state machine bypass in the DB layer, removes status fields from REST DTOs, adds a new REST endpoint, and updates the CLI client to use the new endpoint is four subtasks, not one task.
+
 ### Task Transitions
 
 State machine: `backlog → todo → in_progress → review → done`
@@ -103,7 +124,7 @@ A task has two fields the agent reads: `title` and `description`. A note has `ti
 
 #### Rule: Break Down, Do Not Externalize Specs
 
-If a task's spec does not fit in the `description` field, the task is too large. Break it into subtasks. Do not put the spec in a note — a spec split from its task is a spec the agent will not read.
+If a task's spec does not fit in the `description` field, the task is too large. Break it into subtasks. See "When to Break Tasks Into Subtasks" above for the signals that indicate decomposition is needed before you start writing the spec. Do not put the spec in a note — a spec split from its task is a spec the agent will not read.
 
 Notes are for research. The task description consumes the research and presents it as a self-contained spec.
 
@@ -271,6 +292,9 @@ Before transitioning a task to `todo`, verify it passes this checklist. Each ite
 - [ ] Independent — can be done without blocking on another task (or dependency noted with task ID)
 - [ ] Small — completable in one session by a developer agent
 - [ ] Testable — every criterion has a binary outcome and a verification command
+- [ ] Single layer — the task touches one layer only (DB, or API, or CLI, or MCP — not multiple)
+- [ ] File count — the task modifies 5 or fewer files
+- [ ] Criteria count — the task has 8 or fewer acceptance criteria
 
 **Spec completeness**
 - [ ] OBJECTIVE is one sentence, max 20 words, names actor + action + result
