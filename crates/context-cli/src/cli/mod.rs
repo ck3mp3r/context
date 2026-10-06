@@ -178,9 +178,6 @@ enum TaskCommands {
         /// New description
         #[arg(long)]
         description: Option<String>,
-        /// New status (backlog, todo, in_progress, review, done, cancelled)
-        #[arg(long)]
-        status: Option<String>,
         /// New priority (1-5)
         #[arg(long)]
         priority: Option<i32>,
@@ -1003,7 +1000,6 @@ pub async fn run() -> Result<()> {
                 id,
                 title,
                 description,
-                status,
                 priority,
                 tags,
                 external_ref,
@@ -1013,7 +1009,6 @@ pub async fn run() -> Result<()> {
                 let request = commands::task::UpdateTaskRequest {
                     title,
                     description,
-                    status,
                     priority,
                     parent_id: parent_id.map(|s| {
                         if s.is_empty() {
