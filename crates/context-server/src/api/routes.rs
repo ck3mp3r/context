@@ -11,12 +11,12 @@ use super::state::AppState;
 use super::static_assets::serve_frontend;
 use super::v1::{
     CreateNoteRequest, CreateProjectRequest, CreateRepoRequest, CreateSkillRequest,
-    CreateTaskListRequest, CreateTaskRequest, DisableSkillResponse, EnableSkillResponse,
-    ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest, PatchProjectRequest,
-    PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse, ReplaceSkillRequest,
-    RepoResponse, SkillResponse, TaskListResponse, TaskResponse, UpdateNoteRequest,
-    UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest, UpdateTaskListRequest,
-    UpdateTaskRequest,
+    CreateTaskListRequest, CreateTaskRequest, CreateTransitionRequest, DisableSkillResponse,
+    EnableSkillResponse, ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest,
+    PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse,
+    ReplaceSkillRequest, RepoResponse, SkillResponse, TaskListResponse, TaskResponse,
+    TransitionResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
+    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use context_core::Database;
@@ -74,6 +74,7 @@ macro_rules! routes {
          super::v1::patch_task,
          super::v1::delete_task,
          super::v1::get_task_transitions,
+         super::v1::transition_task,
          super::v1::list_notes,
          super::v1::get_note,
          super::v1::create_note,
@@ -117,6 +118,8 @@ macro_rules! routes {
             CreateTaskRequest,
             UpdateTaskRequest,
             PatchTaskRequest,
+            CreateTransitionRequest,
+            TransitionResponse,
             super::v1::PaginatedTasks,
             NoteResponse,
             CreateNoteRequest,
@@ -203,6 +206,7 @@ pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Syn
         patch "/tasks/{id}" => super::v1::patch_task,
         delete "/tasks/{id}" => super::v1::delete_task,
         get "/tasks/{id}/transitions" => super::v1::get_task_transitions,
+        post "/tasks/{id}/transitions" => super::v1::transition_task,
         // Notes
         get "/notes" => super::v1::list_notes,
         get "/notes/{id}" => super::v1::get_note,

@@ -7,6 +7,8 @@ mod skills;
 mod sync;
 mod task_lists;
 mod tasks;
+#[cfg(test)]
+mod tasks_test;
 
 pub use notes::*;
 pub use projects::*;

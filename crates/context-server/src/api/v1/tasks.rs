@@ -129,6 +129,13 @@ pub struct TransitionsQueryParams {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateTransitionRequest {
+    /// Target status (backlog, todo, in_progress, review, done, cancelled)
+    #[schema(example = "in_progress")]
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
     #[schema(example = "Complete the feature")]
     pub title: String,
@@ -151,8 +158,6 @@ pub struct UpdateTaskRequest {
     #[schema(example = "Updated title")]
     pub title: String,
     pub description: Option<String>,
-    #[schema(example = "done")]
-    pub status: Option<String>,
     pub priority: Option<i32>,
     #[schema(example = json!(["urgent", "bug-fix"]))]
     #[serde(default)]
@@ -171,9 +176,6 @@ pub struct PatchTaskRequest {
     pub title: Option<String>,
     /// Task description
     pub description: Option<String>,
-    /// Task status
-    #[schema(example = "done")]
-    pub status: Option<String>,
     /// Priority level
     pub priority: Option<i32>,
     /// Parent task ID (for subtasks). Use Some(None) or empty string to remove parent.
@@ -200,11 +202,6 @@ impl PatchTaskRequest {
         }
         if let Some(description) = self.description {
             target.description = Some(description);
-        }
-        if let Some(status_str) = self.status
-            && let Ok(status) = status_str.parse()
-        {
-            target.status = status;
         }
         if let Some(priority) = self.priority {
             target.priority = Some(priority);
@@ -469,11 +466,6 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
     task.external_refs = req.external_refs;
     task.updated_at = None;
 
-    if let Some(status_str) = req.status {
-        let new_status = parse_status(&status_str);
-        task.status = new_status;
-    }
-
     state.db().tasks().update(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -535,7 +527,7 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
     // Merge PATCH changes
     req.merge_into(&mut task);
 
-    // Save (repository will log transition if status changed)
+    // Persist the merged task
     state.db().tasks().update(&task).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -668,17 +660,92 @@ pub async fn get_task_transitions<D: Database, G: GitOps + Send + Sync>(
     }))
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
+/// Transition a task to a new status
+///
+/// Validates the transition against the task state machine and records it.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{id}/transitions",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    request_body = CreateTransitionRequest,
+    responses(
+        (status = 200, description = "Task transitioned", body = TransitionResponse),
+        (status = 400, description = "Invalid status or transition", body = ErrorResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn transition_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+    Json(req): Json<CreateTransitionRequest>,
+) -> Result<Json<TransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target_status = req
+        .status
+        .parse::<TaskStatus>()
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
 
-fn parse_status(s: &str) -> TaskStatus {
-    match s {
-        "todo" => TaskStatus::Todo,
-        "in_progress" => TaskStatus::InProgress,
-        "review" => TaskStatus::Review,
-        "done" => TaskStatus::Done,
-        "cancelled" => TaskStatus::Cancelled,
-        _ => TaskStatus::Backlog,
-    }
+    state
+        .db()
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&id), target_status.clone())
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Task '{}' not found", id),
+                }),
+            ),
+            DbError::Validation { message } => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: message }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
+
+    // Broadcast TaskUpdated notification
+    state.notifier().notify(UpdateMessage::TaskUpdated {
+        task_id: id.clone(),
+    });
+
+    // Return the most recent transition record for the target status.
+    // Ordering by timestamp alone is ambiguous at second resolution, so
+    // select the newest entry whose status matches the requested target.
+    let result = state
+        .db()
+        .tasks()
+        .get_transitions(&id, Some(100), Some(0))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    let transition = result
+        .items
+        .into_iter()
+        .find(|t| t.status == target_status)
+        .map(TransitionResponse::from)
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Transition was not recorded".to_string(),
+                }),
+            )
+        })?;
+
+    Ok(Json(transition))
 }
