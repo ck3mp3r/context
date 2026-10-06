@@ -296,6 +296,102 @@ impl std::str::FromStr for TaskStatus {
     }
 }
 
+/// The linear workflow order of active statuses.
+const WORKFLOW: [TaskStatus; 5] = [
+    TaskStatus::Backlog,
+    TaskStatus::Todo,
+    TaskStatus::InProgress,
+    TaskStatus::Review,
+    TaskStatus::Done,
+];
+
+impl TaskStatus {
+    /// Position of this status in the linear workflow
+    /// `backlog -> todo -> in_progress -> review -> done`.
+    /// Returns `None` for the side-state `cancelled`.
+    pub fn workflow_position(&self) -> Option<usize> {
+        WORKFLOW.iter().position(|status| status == self)
+    }
+
+    /// Returns `true` for terminal states (`done`, `cancelled`).
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
+    }
+
+    /// Returns `true` for non-terminal states.
+    pub fn is_active(&self) -> bool {
+        !self.is_terminal()
+    }
+
+    /// The next status in the linear workflow, if any.
+    pub fn forward_step(&self) -> Option<TaskStatus> {
+        let position = self.workflow_position()?;
+        WORKFLOW.get(position + 1).cloned()
+    }
+
+    /// The previous status in the linear workflow, if any.
+    pub fn backward_step(&self) -> Option<TaskStatus> {
+        let position = self.workflow_position()?;
+        position
+            .checked_sub(1)
+            .and_then(|p| WORKFLOW.get(p))
+            .cloned()
+    }
+
+    /// The status reached by skipping one forward step, if policy allows it.
+    /// Only `backlog -> in_progress` and `in_progress -> done` are permitted.
+    pub fn expedite_forward(&self) -> Option<TaskStatus> {
+        match self {
+            TaskStatus::Backlog => Some(TaskStatus::InProgress),
+            TaskStatus::InProgress => Some(TaskStatus::Done),
+            TaskStatus::Todo | TaskStatus::Review | TaskStatus::Done | TaskStatus::Cancelled => {
+                None
+            }
+        }
+    }
+
+    /// All non-terminal statuses, in workflow order.
+    pub fn active_states() -> Vec<TaskStatus> {
+        WORKFLOW[..4].to_vec()
+    }
+
+    /// All statuses, in workflow order with `cancelled` last.
+    pub fn all_states() -> Vec<TaskStatus> {
+        let mut states = WORKFLOW.to_vec();
+        states.push(TaskStatus::Cancelled);
+        states
+    }
+
+    /// The statuses reachable from this status in one transition.
+    ///
+    /// Transitions are derived from the linear workflow
+    /// `backlog -> todo -> in_progress -> review -> done` with `cancelled` as a
+    /// side-state:
+    /// 1. one step backward
+    /// 2. one step forward
+    /// 3. expedited forward (skip one step, policy-defined)
+    /// 4. cancel from any active state
+    /// 5. reopen from a terminal state to any active state
+    pub fn allowed_transitions(&self) -> Vec<TaskStatus> {
+        if self.is_terminal() {
+            return TaskStatus::active_states();
+        }
+
+        let mut allowed = Vec::new();
+        if let Some(previous) = self.backward_step() {
+            allowed.push(previous);
+        }
+        if let Some(next) = self.forward_step() {
+            allowed.push(next);
+        }
+        if let Some(expedited) = self.expedite_forward() {
+            allowed.push(expedited);
+        }
+        allowed.push(TaskStatus::Cancelled);
+        allowed
+    }
+}
+
 /// Statistics for tasks in a task list, grouped by status.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskStats {
@@ -481,5 +577,91 @@ description: Deploy applications to Kubernetes cluster
         // Test deserialization
         let deserialized: Skill = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, skill);
+    }
+
+    #[test]
+    fn test_task_status_workflow_position() {
+        assert_eq!(TaskStatus::Backlog.workflow_position(), Some(0));
+        assert_eq!(TaskStatus::Todo.workflow_position(), Some(1));
+        assert_eq!(TaskStatus::InProgress.workflow_position(), Some(2));
+        assert_eq!(TaskStatus::Review.workflow_position(), Some(3));
+        assert_eq!(TaskStatus::Done.workflow_position(), Some(4));
+        assert_eq!(TaskStatus::Cancelled.workflow_position(), None);
+    }
+
+    #[test]
+    fn test_task_status_is_terminal_and_is_active() {
+        assert!(!TaskStatus::Backlog.is_terminal());
+        assert!(!TaskStatus::Todo.is_terminal());
+        assert!(!TaskStatus::InProgress.is_terminal());
+        assert!(!TaskStatus::Review.is_terminal());
+        assert!(TaskStatus::Done.is_terminal());
+        assert!(TaskStatus::Cancelled.is_terminal());
+
+        assert!(TaskStatus::Backlog.is_active());
+        assert!(TaskStatus::Review.is_active());
+        assert!(!TaskStatus::Done.is_active());
+        assert!(!TaskStatus::Cancelled.is_active());
+    }
+
+    #[test]
+    fn test_task_status_forward_step() {
+        assert_eq!(TaskStatus::Backlog.forward_step(), Some(TaskStatus::Todo));
+        assert_eq!(
+            TaskStatus::Todo.forward_step(),
+            Some(TaskStatus::InProgress)
+        );
+        assert_eq!(
+            TaskStatus::InProgress.forward_step(),
+            Some(TaskStatus::Review)
+        );
+        assert_eq!(TaskStatus::Review.forward_step(), Some(TaskStatus::Done));
+        assert_eq!(TaskStatus::Done.forward_step(), None);
+        assert_eq!(TaskStatus::Cancelled.forward_step(), None);
+    }
+
+    #[test]
+    fn test_task_status_backward_step() {
+        assert_eq!(TaskStatus::Backlog.backward_step(), None);
+        assert_eq!(TaskStatus::Todo.backward_step(), Some(TaskStatus::Backlog));
+        assert_eq!(
+            TaskStatus::InProgress.backward_step(),
+            Some(TaskStatus::Todo)
+        );
+        assert_eq!(
+            TaskStatus::Review.backward_step(),
+            Some(TaskStatus::InProgress)
+        );
+        assert_eq!(TaskStatus::Done.backward_step(), Some(TaskStatus::Review));
+        assert_eq!(TaskStatus::Cancelled.backward_step(), None);
+    }
+
+    #[test]
+    fn test_task_status_expedite_forward() {
+        assert_eq!(
+            TaskStatus::Backlog.expedite_forward(),
+            Some(TaskStatus::InProgress)
+        );
+        assert_eq!(
+            TaskStatus::InProgress.expedite_forward(),
+            Some(TaskStatus::Done)
+        );
+        assert_eq!(TaskStatus::Todo.expedite_forward(), None);
+        assert_eq!(TaskStatus::Review.expedite_forward(), None);
+        assert_eq!(TaskStatus::Done.expedite_forward(), None);
+        assert_eq!(TaskStatus::Cancelled.expedite_forward(), None);
+    }
+
+    #[test]
+    fn test_task_status_active_states() {
+        assert_eq!(
+            TaskStatus::active_states(),
+            vec![
+                TaskStatus::Backlog,
+                TaskStatus::Todo,
+                TaskStatus::InProgress,
+                TaskStatus::Review,
+            ]
+        );
     }
 }

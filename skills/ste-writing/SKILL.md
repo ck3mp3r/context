@@ -27,15 +27,15 @@ Pick one word for one concept and use it **only** in that sense. Do not use the 
 
 | Use | Do not use |
 |-----|------------|
-| `test` (noun) | `test` (verb) — write "DO A TEST OF THE LIGHTS" |
-| `close` (verb, "to shut") | `close` (adjective) — write "NEAR" |
-| `check` (noun) | `check` (verb) — write "DO A CHECK" |
+| `test` (noun) | `test` (verb) — write "Do a test of the lights" |
+| `close` (verb, "to shut") | `close` (adjective) — write "near" |
+| `check` (noun) | `check` (verb) — write "Do a check" |
 | `start` | `begin`, `commence`, `initiate`, `originate` |
 | `make sure` | `ensure`, `verify` (unless a formal verification step) |
 | `do` | `achieve`, `carry out`, `accomplish`, `perform` |
 | `show` | `display`, `indicate`, `illustrate` (pick one per context) |
 | `use` | `utilize`, `employ`, `leverage` |
-| `about` (prep, "concerned with") | `about` (adv, "approximately") — write `APPROXIMATELY` |
+| `about` (prep, "concerned with") | `about` (adv, "approximately") — write `approximately` |
 | `end` | `finish`, `complete`, `terminate` |
 
 **Rule:** When you choose a word for a concept, stay with that word for the entire document. Do not alternate synonyms.
@@ -46,11 +46,11 @@ Write who does the action. Do not hide the actor.
 
 | STE | Not STE |
 |-----|---------|
-| INSTALL THE COMPONENT. | The component must be installed. |
-| THE SYSTEM SENDS THE DATA. | The data is sent by the system. |
-| YOU MUST REMOVE THE COVER. | The cover must be removed. |
+| Install the component. | The component must be installed. |
+| The system sends the data. | The data is sent by the system. |
+| You must remove the cover. | The cover must be removed. |
 
-**Exception:** Passive voice is permitted in descriptive text only when the actor is unknown or irrelevant: "DURING TRANSMISSION, THE DATA WAS CORRUPTED."
+**Exception:** Passive voice is permitted in descriptive text only when the actor is unknown or irrelevant: "During transmission, the data was corrupted."
 
 ### 1.3 Short sentences
 
@@ -68,8 +68,8 @@ Do not combine instructions with `and`, `then`, or semicolons.
 
 | STE | Not STE |
 |-----|---------|
-| REMOVE THE COVER. DISCONNECT THE CABLE. | Remove the cover and disconnect the cable. |
-| SET THE SWITCH TO ON. WAIT 5 SECONDS. | Set the switch to ON, then wait 5 seconds. |
+| Remove the cover. Disconnect the cable. | Remove the cover and disconnect the cable. |
+| Set the switch to ON. Wait 5 seconds. | Set the switch to ON, then wait 5 seconds. |
 
 ### 1.5 Articles required
 
@@ -80,8 +80,8 @@ Use `the`, `a`, or `an` before nouns. Omit articles only in:
 
 | STE | Not STE |
 |-----|---------|
-| INSTALL THE PUMP. | Install pump. |
-| EXAMINE THE SEAL FOR DAMAGE. | Examine seal for damage. |
+| Install the pump. | Install pump. |
+| Examine the seal for damage. | Examine seal for damage. |
 
 ### 1.6 One topic per paragraph
 
@@ -95,8 +95,8 @@ Put conditions the reader must know **before** they act at the **start** of the 
 
 | STE | Not STE |
 |-----|---------|
-| IF THE TEMPERATURE IS MORE THAN 80°C, STOP THE ENGINE. | Stop the engine if the temperature is more than 80°C. |
-| BEFORE YOU OPEN THE VALVE, MAKE SURE THE PRESSURE IS ZERO. | Make sure the pressure is zero before you open the valve. |
+| If the temperature is more than 80°C, stop the engine. | Stop the engine if the temperature is more than 80°C. |
+| Before you open the valve, make sure the pressure is zero. | Make sure the pressure is zero before you open the valve. |
 
 ### 1.8 No past tense in procedures
 
@@ -104,10 +104,10 @@ Procedures use the **imperative** (command) form. Do not use past tense for step
 
 | STE | Not STE |
 |-----|---------|
-| REMOVE THE BOLT. | Removed the bolt. |
-| INSTALL THE COVER. | The cover was installed. |
+| Remove the bolt. | Removed the bolt. |
+| Install the cover. | The cover was installed. |
 
-Descriptions may use simple present, simple past, or past participle (as adjective only): "THE DAMAGED WIRE CAUSED THE FAILURE."
+Descriptions may use simple present, simple past, or past participle (as adjective only): "The damaged wire caused the failure."
 
 ### 1.9 Simple words over complex
 
@@ -143,20 +143,20 @@ Apply these when writing technical docs, README sections, API docs, or runbooks.
 Safety-critical notes start with a **clear command or condition**, not an explanation.
 
 ```
-WARNING: IF HOT OIL TOUCHES YOUR SKIN, INJURIES CAN OCCUR.
-         MAKE SURE THE SYSTEM IS DEPRESSURIZED BEFORE YOU OPEN THE VALVE.
+WARNING: If hot oil touches your skin, injuries can occur.
+         Make sure the system is depressurized before you open the valve.
 
-CAUTION: DO NOT USE A WRENCH ON THE PLASTIC NUT. DAMAGE TO THE NUT CAN OCCUR.
+CAUTION: Do not use a wrench on the plastic nut. Damage to the nut can occur.
 ```
 
 ### 2.3 Step structure
 
 ```
-1. REMOVE THE TWO BOLTS THAT HOLD THE COVER.
-2. LIFT THE COVER FROM THE HOUSING.
-3. EXAMINE THE GASKET FOR DAMAGE.
-   - IF THE GASKET IS DAMAGED, INSTALL A NEW GASKET.
-   - IF THE GASKET IS NOT DAMAGED, INSTALL THE GASKET AGAIN.
+1. Remove the two bolts that hold the cover.
+2. Lift the cover from the housing.
+3. Examine the gasket for damage.
+   - If the gasket is damaged, install a new gasket.
+   - If the gasket is not damaged, install the gasket again.
 ```
 
 Each step: one action, one sentence. Sub-steps for conditional branches.
@@ -182,8 +182,8 @@ The objective names the actor, the action, and the result. Max 20 words.
 
 | STE | Not STE |
 |-----|---------|
-| ADD A `GET /health` ENDPOINT TO THE API THAT RETURNS HTTP 200 WHEN THE DATABASE IS REACHABLE. | Implement health check. |
-| REPLACE THE IN-MEMORY CACHE WITH A REDIS BACKEND SO THAT CACHE SURVIVES RESTARTS. | Migrate cache to Redis for persistence. |
+| Add a `GET /health` endpoint to the API that returns HTTP 200 when the database is reachable. | Implement health check. |
+| Replace the in-memory cache with a Redis backend so that cache survives restarts. | Migrate cache to Redis for persistence. |
 
 ### 3.3 Scope — explicit boundaries
 
@@ -192,12 +192,12 @@ List what the task includes and what it does **not** include. Ambiguity lives at
 ```
 SCOPE:
   INCLUDED:
-  - THE /health ENDPOINT ONLY
-  - DATABASE CONNECTIVITY CHECK
+  - The /health endpoint only
+  - Database connectivity check
   EXCLUDED:
-  - DEPENDENT-SERVICE CHECKS
-  - METRICS OR LOGGING
-  - AUTHENTICATION OF THE ENDPOINT
+  - Dependent-service checks
+  - Metrics or logging
+  - Authentication of the endpoint
 ```
 
 ### 3.4 Acceptance criteria — testable, binary
@@ -206,9 +206,9 @@ Each criterion is a single condition that is **true or false** after the task. W
 
 | STE | Not STE |
 |-----|---------|
-| A `GET /health` REQUEST RETURNS HTTP 200 WHEN THE DATABASE IS REACHABLE. | The endpoint should work. |
-| A `GET /health` REQUEST RETURNS HTTP 503 WHEN THE DATABASE IS NOT REACHABLE. | Handle database failures gracefully. |
-| THE RESPONSE BODY CONTAINS `{"status": "ok"}` OR `{"status": "down"}`. | Return appropriate status. |
+| A `GET /health` request returns HTTP 200 when the database is reachable. | The endpoint should work. |
+| A `GET /health` request returns HTTP 503 when the database is not reachable. | Handle database failures gracefully. |
+| The response body contains `{"status": "ok"}` or `{"status": "down"}`. | Return appropriate status. |
 
 Each criterion:
 - One sentence, max 20 words.
@@ -226,9 +226,9 @@ These words make criteria untestable. Do not use them.
 | `reasonable` | Subjective | State the threshold or limit. |
 | `as needed` | When is it needed? | State the trigger condition. |
 | `if necessary` | Who decides necessity? | State the condition or remove. |
-| `should` | Ambiguous — expectation or requirement? | Use `MUST` for requirements. |
-| `may` | Ambiguous — permission or possibility? | Use `CAN` for capability, `MUST` for requirement. |
-| `etc.` | Open-ended | List all items or state "ALL ITEMS IN SECTION X". |
+| `should` | Ambiguous — expectation or requirement? | Use `must` for requirements. |
+| `may` | Ambiguous — permission or possibility? | Use `can` for capability, `must` for requirement. |
+| `etc.` | Open-ended | List all items or state "all items in section X". |
 | `user-friendly` | Unmeasurable | State the measurable property. |
 | `performant` | Unmeasurable | State the target metric and threshold. |
 
@@ -237,10 +237,10 @@ These words make criteria untestable. Do not use them.
 One verification step per criterion. Name the action and the expected result.
 
 ```
-CRITERIA:  A GET /health REQUEST RETURNS HTTP 200 WHEN THE DATABASE IS REACHABLE.
+CRITERIA:  A GET /health request returns HTTP 200 when the database is reachable.
 VERIFY:    curl -i http://localhost:8080/health returns 200 with database running.
 
-CRITERIA:  A GET /health REQUEST RETURNS HTTP 503 WHEN THE DATABASE IS NOT REACHABLE.
+CRITERIA:  A GET /health request returns HTTP 503 when the database is not reachable.
 VERIFY:    Stop the database. curl -i http://localhost:8080/health returns 503.
 ```
 
@@ -257,8 +257,8 @@ Use only these forms: infinitive, imperative, simple present, simple past, past 
 | `add` | To put something in | `insert`, `append`, `attach` (choose one) |
 | `adjust` | To change to a specified value | `tune`, `calibrate` (unless precise) |
 | `change` | To make different | `modify`, `alter`, `update` (pick one per doc) |
-| `check` | Noun only: "DO A CHECK" | `check` as verb — use `EXAMINE` or `DO A CHECK` |
-| `close` | To shut (door, valve, circuit) | `close` as adjective — use `NEAR` |
+| `check` | Noun only: "do a check" | `check` as verb — use `examine` or `do a check` |
+| `close` | To shut (door, valve, circuit) | `close` as adjective — use `near` |
 | `connect` | To join physically or logically | `attach`, `link`, `couple` (pick one) |
 | `decrease` | To make less | `reduce`, `lower`, `diminish` |
 | `do` | To perform an action | `execute`, `perform`, `accomplish`, `carry out` |
@@ -272,7 +272,7 @@ Use only these forms: infinitive, imperative, simple present, simple past, past 
 | `show` | To display or present | `demonstrate`, `indicate`, `illustrate` |
 | `start` | To begin operation | `begin`, `commence`, `initiate`, `launch` |
 | `stop` | To end operation | `halt`, `terminate`, `cease` |
-| `test` | Noun only: "DO A TEST" | `test` as verb — use `DO A TEST` |
+| `test` | Noun only: "do a test" | `test` as verb — use `do a test` |
 | `use` | To employ for a purpose | `utilize`, `employ`, `leverage` |
 
 ### Quantity and comparison
@@ -281,7 +281,7 @@ Use only these forms: infinitive, imperative, simple present, simple past, past 
 |------|-----------------|-----------|
 | `more` | Greater in amount | `greater`, `higher`, `larger` (pick one per doc) |
 | `less` | Smaller in amount | `fewer` (for countable — but pick one per doc) |
-| `about` | Concerned with (prep) | `approximately` — use `APPROXIMATELY` for "roughly" |
+| `about` | Concerned with (prep) | `approximately` — use `approximately` for "roughly" |
 | `near` | Close to (prep/adj) | `close`, `adjacent` |
 | `before` | Earlier in time or order | `prior to`, `ahead of` |
 | `after` | Later in time or order | `following`, `subsequent to` |
@@ -329,9 +329,9 @@ Run this checklist against your text before you finish. Each item is a yes/no qu
 > The component should be removed from the housing and then inspected for any damage that might be visible. If damage is found, a replacement should be installed.
 
 **After (STE):**
-> 1. REMOVE THE COMPONENT FROM THE HOUSING.
-> 2. EXAMINE THE COMPONENT FOR DAMAGE.
-> 3. IF THE COMPONENT IS DAMAGED, INSTALL A NEW COMPONENT.
+> 1. Remove the component from the housing.
+> 2. Examine the component for damage.
+> 3. If the component is damaged, install a new component.
 
 Why: Active voice, imperative, one instruction per sentence, conditional clause first, no `should`, no `might be visible` (vague).
 
@@ -341,9 +341,9 @@ Why: Active voice, imperative, one instruction per sentence, conditional clause 
 > Implement a health check endpoint.
 
 **After (STE):**
-> OBJECTIVE: ADD A `GET /health` ENDPOINT TO THE API THAT RETURNS HTTP 200 WHEN THE DATABASE IS REACHABLE AND HTTP 503 WHEN THE DATABASE IS NOT REACHABLE.
+> OBJECTIVE: Add a `GET /health` endpoint to the API that returns HTTP 200 when the database is reachable and HTTP 503 when the database is not reachable.
 
-Why: Names the actor (implicit "you"), the action (`ADD`), and the exact result (status codes by condition). Testable.
+Why: Names the actor (implicit "you"), the action (`add`), and the exact result (status codes by condition). Testable.
 
 ### Example C — Acceptance criteria
 
@@ -355,16 +355,16 @@ Why: Names the actor (implicit "you"), the action (`ADD`), and the exact result 
 
 **After (STE):**
 > CRITERIA:
-> - A `GET /health` REQUEST RETURNS HTTP 200 WHEN THE DATABASE IS REACHABLE.
-> - A `GET /health` REQUEST RETURNS HTTP 503 WHEN THE DATABASE IS NOT REACHABLE.
-> - THE RESPONSE BODY IS `{"status": "ok"}` FOR HTTP 200.
-> - THE RESPONSE BODY IS `{"status": "down"}` FOR HTTP 503.
-> - THE ENDPOINT RESPONDS IN LESS THAN 500 MILLISECONDS.
+> - A `GET /health` request returns HTTP 200 when the database is reachable.
+> - A `GET /health` request returns HTTP 503 when the database is not reachable.
+> - The response body is `{"status": "ok"}` for HTTP 200.
+> - The response body is `{"status": "down"}` for HTTP 503.
+> - The endpoint responds in less than 500 milliseconds.
 >
 > VERIFICATION:
-> - WITH THE DATABASE RUNNING, `curl -i http://localhost:8080/health` RETURNS 200 AND BODY `{"status": "ok"}`.
-> - WITH THE DATABASE STOPPED, `curl -i http://localhost:8080/health` RETURNS 503 AND BODY `{"status": "down"}`.
-> - THE RESPONSE TIME IS LESS THAN 500 MILLISECONDS (MEASURE WITH `curl -w "%{time_total}"`).
+> - With the database running, `curl -i http://localhost:8080/health` returns 200 and body `{"status": "ok"}`.
+> - With the database stopped, `curl -i http://localhost:8080/health` returns 503 and body `{"status": "down"}`.
+> - The response time is less than 500 milliseconds (measure with `curl -w "%{time_total}"`).
 
 Why: Each criterion is binary. No `appropriate`, `gracefully`, `performant`, `etc.`. Each has a verification step with a concrete command and expected result.
 
@@ -375,20 +375,20 @@ Why: Each criterion is binary. No `appropriate`, `gracefully`, `performant`, `et
 
 **After (STE):**
 > ## Summary
-> REPLACE THE IN-MEMORY CACHE WITH A REDIS BACKEND SO THAT CACHE DATA SURVIVES PROCESS RESTARTS.
+> Replace the in-memory cache with a Redis backend so that cache data survives process restarts.
 >
 > ## Changes
-> - REMOVE THE IN-MEMORY HASHMAP CACHE.
-> - ADD A REDIS CLIENT (`redis-rs` 0.24).
-> - MOVE THE CACHE MODULE FROM `cache/memory.rs` TO `cache/redis.rs`.
+> - Remove the in-memory hashmap cache.
+> - Add a Redis client (`redis-rs` 0.24).
+> - Move the cache module from `cache/memory.rs` to `cache/redis.rs`.
 >
 > ## Criteria
-> - AFTER A PROCESS RESTART, THE CACHE CONTAINS THE DATA THAT WAS SET BEFORE THE RESTART.
-> - A `GET cache:key` COMMAND IN REDIS RETURNS THE VALUE THAT THE API SET.
+> - After a process restart, the cache contains the data that was set before the restart.
+> - A `GET cache:key` command in Redis returns the value that the API set.
 >
 > ## Verification
-> - SET A KEY THROUGH THE API. RESTART THE PROCESS. GET THE KEY THROUGH THE API. THE VALUE IS THE SAME.
-> - RUN `redis-cli GET cache:test_key`. THE VALUE MATCHES THE VALUE SET BY THE API.
+> - Set a key through the API. Restart the process. Get the key through the API. The value is the same.
+> - Run `redis-cli GET cache:test_key`. The value matches the value set by the API.
 
 Why: No `improvements` (vague), no `a few bugs` (unspecified), no `should be more reliable` (untestable). Each change is a single action. Each criterion is binary. Each verification names the action and expected result.
 

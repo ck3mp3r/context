@@ -17,42 +17,11 @@ pub struct SqliteTaskRepository<'a> {
 }
 
 /// Returns the allowed transitions from a given status.
+///
+/// Delegates to [`TaskStatus::allowed_transitions`] so the state machine has a
+/// single source of truth in `context-core`.
 fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
-    match current {
-        TaskStatus::Backlog => vec![
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::Todo => vec![
-            TaskStatus::Backlog,
-            TaskStatus::InProgress,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::InProgress => vec![
-            TaskStatus::Todo,
-            TaskStatus::Review,
-            TaskStatus::Done,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::Review => vec![
-            TaskStatus::InProgress,
-            TaskStatus::Done,
-            TaskStatus::Cancelled,
-        ],
-        TaskStatus::Done => vec![
-            TaskStatus::Backlog,
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Review,
-        ],
-        TaskStatus::Cancelled => vec![
-            TaskStatus::Backlog,
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Review,
-        ],
-    }
+    current.allowed_transitions()
 }
 
 fn validate_task(task: &Task) -> DbResult<()> {

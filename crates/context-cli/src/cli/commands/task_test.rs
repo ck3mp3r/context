@@ -19,7 +19,6 @@ fn test_update_request_parent_id_serialization() {
     let req1 = UpdateTaskRequest {
         title: None,
         description: None,
-        status: None,
         priority: None,
         parent_id: parent_id_empty,
         tags: None,
@@ -39,7 +38,6 @@ fn test_update_request_parent_id_serialization() {
     let req2 = UpdateTaskRequest {
         title: None,
         description: None,
-        status: None,
         priority: None,
         parent_id: parent_id_set,
         tags: None,
@@ -52,7 +50,6 @@ fn test_update_request_parent_id_serialization() {
     let req3 = UpdateTaskRequest {
         title: None,
         description: None,
-        status: None,
         priority: None,
         parent_id: None,
         tags: None,
@@ -187,7 +184,6 @@ async fn test_task_crud_operations() {
             "auth".to_string(),
             "enterprise".to_string(),
         ]),
-        status: None,
         parent_id: None,
         external_refs: None,
         list_id: None,
@@ -488,7 +484,6 @@ async fn test_subtasks_with_full_data() {
             parent_id: Some(None), // Explicitly remove parent
             title: None,
             description: None,
-            status: None,
             priority: None,
             tags: None,
             external_refs: None,
@@ -520,7 +515,6 @@ async fn test_error_handling() {
         UpdateTaskRequest {
             title: Some("New Title".to_string()),
             description: None,
-            status: None,
             priority: None,
             parent_id: None,
             tags: None,
@@ -585,22 +579,9 @@ async fn test_get_task_transitions() {
         .to_string();
 
     // Transition the task to in_progress
-    update_task(
-        &api_client,
-        &task_id,
-        UpdateTaskRequest {
-            status: Some("in_progress".to_string()),
-            title: None,
-            description: None,
-            priority: None,
-            parent_id: None,
-            tags: None,
-            external_refs: None,
-            list_id: None,
-        },
-    )
-    .await
-    .expect("Failed to transition task");
+    transition_task(&api_client, std::slice::from_ref(&task_id), "in_progress")
+        .await
+        .expect("Failed to transition task");
 
     // Get transitions (table format)
     let transitions_table = get_task_transitions(&api_client, &task_id, false)

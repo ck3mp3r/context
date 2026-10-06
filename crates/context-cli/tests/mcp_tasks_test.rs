@@ -13,7 +13,7 @@ use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::tasks::{
     CreateTaskParams, DeleteTaskParams, GetTaskParams, ListTasksParams, TaskTools,
-    TransitionTaskParams, UpdateTaskParams,
+    TransitionTaskParams, TransitionsGraphParams, UpdateTaskParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::ContentBlock;
@@ -413,6 +413,82 @@ async fn test_list_tasks_with_data() {
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(response["total"], 1);
+}
+
+// =============================================================================
+// Transition graph tool
+// =============================================================================
+
+fn text_of(result: &rmcp::model::CallToolResult) -> &str {
+    match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_transitions_graph_from_status() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = TransitionsGraphParams {
+        current_status: Some("backlog".to_string()),
+    };
+
+    let result = tools
+        .get_task_transitions_graph(Parameters(params))
+        .await
+        .unwrap();
+    let response: serde_json::Value = serde_json::from_str(text_of(&result)).unwrap();
+    assert_eq!(response["from"], "backlog");
+    let allowed: Vec<&str> = response["allowed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(allowed, vec!["todo", "in_progress", "cancelled"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_transitions_graph_full() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = TransitionsGraphParams {
+        current_status: None,
+    };
+
+    let result = tools
+        .get_task_transitions_graph(Parameters(params))
+        .await
+        .unwrap();
+    let response: serde_json::Value = serde_json::from_str(text_of(&result)).unwrap();
+    let transitions = response["transitions"].as_object().unwrap();
+    assert_eq!(transitions.len(), 6);
+    let in_progress: Vec<&str> = transitions["in_progress"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(in_progress, vec!["todo", "review", "done", "cancelled"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_task_transitions_graph_invalid_status() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = TransitionsGraphParams {
+        current_status: Some("invalid".to_string()),
+    };
+
+    let result = tools.get_task_transitions_graph(Parameters(params)).await;
+    assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]

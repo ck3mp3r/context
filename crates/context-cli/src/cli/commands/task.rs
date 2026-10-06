@@ -34,13 +34,16 @@ pub struct CreateTaskRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CreateTransitionRequest {
+    pub status: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,25 +165,21 @@ pub async fn transition_task(
     task_ids: &[String],
     status: &str,
 ) -> CliResult<String> {
-    // Transition each task via PATCH endpoint
+    // Transition each task via the validated transitions endpoint
     let mut results = Vec::new();
 
     for task_id in task_ids {
-        update_task(
-            api_client,
-            task_id,
-            UpdateTaskRequest {
-                title: None,
-                description: None,
-                status: Some(status.to_string()),
-                priority: None,
-                parent_id: None,
-                tags: None,
-                external_refs: None,
-                list_id: None,
-            },
-        )
-        .await?;
+        let request = CreateTransitionRequest {
+            status: status.to_string(),
+        };
+
+        let response = api_client
+            .post(&format!("/api/v1/tasks/{}/transitions", task_id))
+            .json(&request)
+            .send()
+            .await?;
+
+        let _: TransitionLog = ApiClient::handle_response(response).await?;
 
         results.push(format!("✓ Task {} transitioned to {}", task_id, status));
     }
