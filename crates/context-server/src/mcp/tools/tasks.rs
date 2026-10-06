@@ -142,6 +142,14 @@ pub struct TransitionTaskParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TransitionsGraphParams {
+    #[schemars(
+        description = "Optional status to query: 'backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled'. When provided, returns only the transitions allowed from that status. Omit to return the full transition graph."
+    )]
+    pub current_status: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteTaskParams {
     #[schemars(description = "Task ID to delete")]
     pub task_id: String,
@@ -356,6 +364,50 @@ impl<D: HasTasks + 'static> TaskTools<D> {
         }
 
         Ok(CallToolResult::success(vec![ContentBlock::text(message)]))
+    }
+
+    #[tool(
+        description = "Get the legal task status transition graph. Omit 'current_status' to return the full graph mapping every status to its allowed target statuses. Provide 'current_status' to return only the transitions allowed from that status. Use this to configure persona-based access control in agent harnesses."
+    )]
+    pub async fn get_task_transitions_graph(
+        &self,
+        params: Parameters<TransitionsGraphParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let response = match &params.0.current_status {
+            Some(status_str) => {
+                let status = status_str.parse::<TaskStatus>().map_err(|e| {
+                    McpError::invalid_params(
+                        "invalid_status",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?;
+                let allowed: Vec<String> = status
+                    .allowed_transitions()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                json!({
+                    "from": status.to_string(),
+                    "allowed": allowed,
+                })
+            }
+            None => {
+                let mut transitions = serde_json::Map::new();
+                for status in TaskStatus::all_states() {
+                    let allowed: Vec<String> = status
+                        .allowed_transitions()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect();
+                    transitions.insert(status.to_string(), json!(allowed));
+                }
+                json!({ "transitions": transitions })
+            }
+        };
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 
     #[tool(

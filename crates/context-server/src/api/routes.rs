@@ -75,6 +75,7 @@ macro_rules! routes {
          super::v1::delete_task,
          super::v1::get_task_transitions,
          super::v1::transition_task,
+         super::v1::get_transitions_graph,
          super::v1::list_notes,
          super::v1::get_note,
          super::v1::create_note,
@@ -120,6 +121,7 @@ macro_rules! routes {
             PatchTaskRequest,
             CreateTransitionRequest,
             TransitionResponse,
+            super::v1::TransitionsGraphResponse,
             super::v1::PaginatedTasks,
             NoteResponse,
             CreateNoteRequest,
@@ -207,6 +209,7 @@ pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Syn
         delete "/tasks/{id}" => super::v1::delete_task,
         get "/tasks/{id}/transitions" => super::v1::get_task_transitions,
         post "/tasks/{id}/transitions" => super::v1::transition_task,
+        get "/task-transitions" => super::v1::get_transitions_graph,
         // Notes
         get "/notes" => super::v1::list_notes,
         get "/notes/{id}" => super::v1::get_note,

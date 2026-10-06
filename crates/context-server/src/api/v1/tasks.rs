@@ -135,6 +135,29 @@ pub struct CreateTransitionRequest {
     pub status: String,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TransitionsGraphQueryParams {
+    /// Optional status to query (backlog, todo, in_progress, review, done, cancelled).
+    /// When provided, the response contains only the transitions allowed from that status.
+    #[param(example = "backlog")]
+    pub from: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TransitionsGraphResponse {
+    /// Source status (present only when `from` was provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "backlog")]
+    pub from: Option<String>,
+    /// Allowed target statuses from `from` (present only when `from` was provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = json!(["todo", "in_progress", "cancelled"]))]
+    pub allowed: Option<Vec<String>>,
+    /// Full transition graph (present only when `from` was omitted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transitions: Option<std::collections::BTreeMap<String, Vec<String>>>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
     #[schema(example = "Complete the feature")]
@@ -748,4 +771,58 @@ pub async fn transition_task<D: Database, G: GitOps + Send + Sync>(
         })?;
 
     Ok(Json(transition))
+}
+
+/// Get the task status transition graph
+///
+/// Returns the legal state transitions. With `?from=<status>`, returns only the
+/// transitions allowed from that status. Without `from`, returns the full graph.
+#[utoipa::path(
+    get,
+    path = "/api/v1/task-transitions",
+    tag = "tasks",
+    params(TransitionsGraphQueryParams),
+    responses(
+        (status = 200, description = "Transition graph", body = TransitionsGraphResponse),
+        (status = 400, description = "Invalid status", body = ErrorResponse)
+    )
+)]
+#[instrument(skip_all)]
+pub async fn get_transitions_graph<D: Database, G: GitOps + Send + Sync>(
+    State(_state): State<AppState<D, G>>,
+    Query(params): Query<TransitionsGraphQueryParams>,
+) -> Result<Json<TransitionsGraphResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match params.from {
+        Some(from) => {
+            let status = from
+                .parse::<TaskStatus>()
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+            let allowed = status
+                .allowed_transitions()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            Ok(Json(TransitionsGraphResponse {
+                from: Some(status.to_string()),
+                allowed: Some(allowed),
+                transitions: None,
+            }))
+        }
+        None => {
+            let mut transitions = std::collections::BTreeMap::new();
+            for status in TaskStatus::all_states() {
+                let allowed = status
+                    .allowed_transitions()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                transitions.insert(status.to_string(), allowed);
+            }
+            Ok(Json(TransitionsGraphResponse {
+                from: None,
+                allowed: None,
+                transitions: Some(transitions),
+            }))
+        }
+    }
 }

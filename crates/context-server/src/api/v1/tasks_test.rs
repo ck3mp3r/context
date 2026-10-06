@@ -265,6 +265,94 @@ async fn post_transition_invalid_status_returns_400() {
 }
 
 // =============================================================================
+// Transition graph endpoint
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_transitions_graph_from_status() {
+    let app = test_app().await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-transitions?from=backlog")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["from"], "backlog");
+    let allowed: Vec<&str> = body["allowed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(allowed, vec!["todo", "in_progress", "cancelled"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_transitions_graph_full() {
+    let app = test_app().await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-transitions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    let transitions = body["transitions"].as_object().unwrap();
+    assert_eq!(transitions.len(), 6);
+    for status in [
+        "backlog",
+        "todo",
+        "in_progress",
+        "review",
+        "done",
+        "cancelled",
+    ] {
+        assert!(
+            transitions.contains_key(status),
+            "missing status {}",
+            status
+        );
+    }
+    let in_progress: Vec<&str> = transitions["in_progress"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(in_progress, vec!["todo", "review", "done", "cancelled"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_transitions_graph_invalid_status_returns_400() {
+    let app = test_app().await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/task-transitions?from=invalid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// =============================================================================
 // OpenAPI registration
 // =============================================================================
 

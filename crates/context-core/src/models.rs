@@ -354,6 +354,42 @@ impl TaskStatus {
     pub fn active_states() -> Vec<TaskStatus> {
         WORKFLOW[..4].to_vec()
     }
+
+    /// All statuses, in workflow order with `cancelled` last.
+    pub fn all_states() -> Vec<TaskStatus> {
+        let mut states = WORKFLOW.to_vec();
+        states.push(TaskStatus::Cancelled);
+        states
+    }
+
+    /// The statuses reachable from this status in one transition.
+    ///
+    /// Transitions are derived from the linear workflow
+    /// `backlog -> todo -> in_progress -> review -> done` with `cancelled` as a
+    /// side-state:
+    /// 1. one step backward
+    /// 2. one step forward
+    /// 3. expedited forward (skip one step, policy-defined)
+    /// 4. cancel from any active state
+    /// 5. reopen from a terminal state to any active state
+    pub fn allowed_transitions(&self) -> Vec<TaskStatus> {
+        if self.is_terminal() {
+            return TaskStatus::active_states();
+        }
+
+        let mut allowed = Vec::new();
+        if let Some(previous) = self.backward_step() {
+            allowed.push(previous);
+        }
+        if let Some(next) = self.forward_step() {
+            allowed.push(next);
+        }
+        if let Some(expedited) = self.expedite_forward() {
+            allowed.push(expedited);
+        }
+        allowed.push(TaskStatus::Cancelled);
+        allowed
+    }
 }
 
 /// Statistics for tasks in a task list, grouped by status.

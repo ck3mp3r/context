@@ -273,6 +273,16 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_tools.delete_task(params).await
     }
 
+    #[tool(
+        description = "Get the legal task status transition graph. Omit 'current_status' for the full graph; provide it to get only the transitions allowed from that status."
+    )]
+    pub async fn get_task_transitions_graph(
+        &self,
+        params: Parameters<TransitionsGraphParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.get_task_transitions_graph(params).await
+    }
+
     // =========================================================================
     // Note Tools
     // =========================================================================
