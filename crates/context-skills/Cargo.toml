@@ -14,8 +14,8 @@ base64 = "0.23.1"
 ignore = "0.4.33"
 sanitize-filename = "0.6"
 serde.workspace = true
-noyalib = { version = "0.0", features = ["compat-serde-yaml"] }
-sha2 = "0.11.0"
+noyalib = { version = "0.0.57", features = ["compat-serde-yaml"] }
+sha2 = "0.11.1"
 thiserror.workspace = true
 
 [dev-dependencies]
