@@ -18,6 +18,9 @@ Distilled from the rust-unofficial *Rust Design Patterns* book (rust-unofficial.
 - **Easy doc initialization** — docs show working construction (`Default` + setters, or builder chains), not prose-only guidance.
 - **Temporary mutability** — scope a `&mut` borrow inside a block instead of carrying lifetime-wide `mut` bindings.
 - **Return consumed arg on error** — on failure, hand ownership back so callers retry without reallocating.
+- **Fluid API vs Builder** — consuming `self` setters (`with_`, `append_`) directly on the struct for infallible, simple construction; a separate `Builder` struct with `.build() -> Result<T>` when construction is complex, requires validation, or may fail (pairs with C-BUILDER).
+- **Function options with `impl Into<Options>`** — implement `From<Option<Options>>` so callers pass `None` for defaults without importing the struct: `fn process(txt: &str, opts: impl Into<ProcessOptions>)` accepts `None`, `Some(opts)`, or `ProcessOptions { ... }`.
+- **Typestate pattern** — encode a state machine as distinct types; transitions consume one state and return the next. Invalid transitions don't compile. Pairs with C-NEWTYPE and Effective Rust Item 1 (invalid states become inexpressible).
 
 ## Anti-patterns
 
@@ -33,3 +36,4 @@ The patterns book's catalog — Command, Interpreter, Strategy, Visitor, Builder
 
 - rust-unofficial.github.io/patterns/idioms/ — full idiom catalog
 - rust-unofficial.github.io/patterns/anti_patterns/ — full anti-pattern catalog
+- github.com/rust10x/rust10x — fluid API and function options patterns (AI-ingestible best practices)
