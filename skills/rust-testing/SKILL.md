@@ -57,7 +57,7 @@ Doc tests are skipped by nextest — run `cargo test --doc` separately wherever 
 
 Assert observable outcomes: return values, persisted state, output produced through the abstraction the code targets.
 
-Carry zero information — the compiler already enforces them:
+Never assert what the compiler already guarantees — these carry zero information:
 
 - `Send`/`Sync`/`Unpin`/`Clone` conformance probes (`fn assert_send<T: Send>() {}` style)
 - type-implements-trait assertions without calling anything

@@ -50,8 +50,9 @@ path = "junit.xml"
 
 ```rust
 #[automock]
+#[async_trait::async_trait]
 pub trait Client {
-    async fn fetch(&self, id: u64) -> Result<Item, ClientError>;  // async supported via #[async_trait] or trait-variant
+    async fn fetch(&self, id: u64) -> Result<Item, ClientError>;
 }
 
 #[test]
@@ -66,6 +67,8 @@ fn test_service_uses_client() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+Async traits require `#[async_trait]` or the `trait-variant` crate (`#[trait_variant::make(Trait: Send)]`) — `#[automock]` alone does not handle `async fn` in traits.
 
 **Ordering and verification:** `Sequence` enforces call order; `Checkpoint` waits until all expectations are met.
 
@@ -151,7 +154,7 @@ Command::cargo_bin(env!("CARGO_PKG_NAME"))?
 
 ## wiremock
 
-**When:** async HTTP clients (provider APIs, webhooks, ACP calls) without network — scripted responses plus request verification.
+**When:** async HTTP clients (provider APIs, webhooks, OAuth flows) without network — scripted responses plus request verification.
 
 **How:**
 

@@ -7,7 +7,7 @@ Generic Rust test patterns. Names are placeholders — wire them to your crate. 
 Dependencies enter through a trait taken by the constructor; the fake lives in the test file; the test asserts observable results, not internals.
 
 ```rust
-// src/lib.rs — production
+// production code (src/)
 pub trait Store {
     fn load(&self, key: &str) -> Result<Vec<u8>, StoreError>;
 }
@@ -47,23 +47,15 @@ impl Store for FailingStore {
 
 #[test]
 fn test_service_loads_via_store() -> Result<(), Box<dyn std::error::Error>> {
-    // -- Setup & Fixtures
     let service = Service::new(FakeStore(b"payload".to_vec()));
-
-    // -- Exec
     let got = service.load("k1")?;
-
-    // -- Check
     assert_eq!(got, b"payload");
     Ok(())
 }
 
 #[test]
 fn test_service_propagates_store_failure() -> Result<(), Box<dyn std::error::Error>> {
-    // -- Setup & Fixtures
     let service = Service::new(FailingStore);
-
-    // -- Exec & Check
     assert!(matches!(service.load("k1"), Err(StoreError::Unavailable)));
     Ok(())
 }
@@ -73,7 +65,6 @@ Notes:
 
 - Generic `Service<S: Store>` is static dispatch; reach for `dyn` only at framework or crate boundaries.
 - Controlled outcomes (the `FailingStore` case) are the main value of fakes: exercise error paths that real dependencies cannot trigger on demand.
-- Mutex poisoning makes `.lock().unwrap()` the standard exception to unwrap policies — treated as a fatal internal inconsistency.
 
 ## 2. Tokio time control (no real sleeps)
 
@@ -82,7 +73,6 @@ use std::time::Duration;
 
 #[tokio::test]
 async fn test_retry_timer_fires() -> Result<(), Box<dyn std::error::Error>> {
-    // -- Setup & Fixtures
     tokio::time::pause();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -92,11 +82,9 @@ async fn test_retry_timer_fires() -> Result<(), Box<dyn std::error::Error>> {
         tx.send(true).ok();
     });
 
-    // -- Exec
     tokio::time::advance(Duration::from_secs(60)).await;
     task.await.ok_or("task should complete")?;
 
-    // -- Check
     assert_eq!(rx.recv().await, Some(true));
     Ok(())
 }
@@ -121,7 +109,45 @@ Notes:
 
 Note: nextest skips doctests — cover them with `cargo test --doc` in CI or pre-push.
 
+## 4. CLI black-box test with assert_cmd
+
+Spawn the built binary, feed stdin, assert on stdout/stderr and exit code. Integration tier — each test is a real process spawn.
+
+```rust
+use assert_cmd::Command;
+use predicates::str::contains;
+
+#[test]
+fn test_cli_json_output() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))?
+        .arg("--output=json")
+        .write_stdin("input line\n")
+        .assert()
+        .success()
+        .stdout(contains("\"count\":"));
+    Ok(())
+}
+
+#[test]
+fn test_cli_rejects_bad_input() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))?
+        .arg("--input=/nonexistent")
+        .assert()
+        .failure()
+        .stderr(contains("no such file"));
+    Ok(())
+}
+```
+
+Notes:
+
+- `cargo_bin` resolves the current crate's binary target by name.
+- Spawns real processes — keep these in the integration tier behind a feature gate if default runs must stay fast.
+- Use `.timeout(Duration::from_secs(10))` for hangs, but prefer fixing the hang.
+
 ## Sources
 
 - doc.rust-lang.org/book/ch11-00-testing.html — Writing Automated Tests
-- github.com/LukeMathWalker/wiremock-rs, docs.rs/mockall, insta.rs, docs.rs/assert_cmd
+- doc.rust-lang.org/book/ch11-03-test-organization.html — Test Organization
+- docs.rs/assert_cmd — assert_cmd API
+- tokio.rs — tokio time control (`pause`, `advance`)
