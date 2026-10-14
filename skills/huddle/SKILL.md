@@ -60,10 +60,15 @@ As decisions are settled, persist them as c5t notes. Load the `context` skill fo
 ### Note Stack Structure
 
 - **One parent note per huddle session.** Create it at the start with the design tree overview and the huddle topic.
-- **Subnotes are max 1 level deep.** No sub-subnotes. Not every decision maps to a subnote — use judgment based on what is being planned.
-- **Subnote content**: the settled decision, the alternatives considered, and the rationale for why the chosen option won.
-- **Write when something is decided.** Create a subnote as each significant decision is settled, not in a batch at the end.
-- **Update the parent note at session end** with a summary of all settled decisions.
+- **Subnotes are max 1 level deep.** No sub-subnotes.
+- **Subnotes are earned, not automatic.** Create one only when the decision needs a re-readable spec: a real constraint, a live fork the user paused on, or facts worth keeping. If the decision and its rationale fit in one sentence, put that sentence on the parent's design tree instead — one subnote per round is capture error, not diligence.
+- **Titles carry the decision.** Never open the body by restating the title in a `Decision:` sentence. The body holds only what the title cannot: exact numbers, constraints, live alternatives, and why the winner won.
+- **Record only live alternatives.** An alternative is live when it was a serious candidate with a real objection actually overcome. Skip strawmen proposed and disposed within the same round — they add re-read cost with zero recall value.
+- **Keep the parent truthful.** Annotate each design-tree branch with its outcome as soon as it settles, so the parent is always the current overview. Never leave round-state placeholders ("round 1 in progress") once branches have settled.
+- **Format notes for scanning.** One `##` heading per concern, bullet lists for parallel items, numbered lists for sequences, fenced blocks for trees and file layouts, tables for constraint matrices. A run of `**Bold label:**` paragraphs is a missing heading — promote the labels.
+- **Write when something is decided, consolidate before closing.** Capture live as decisions settle, but run a consolidation pass before the huddle ends: merge micro-decision subnotes into one spec subnote (or into the tree), delete the now-redundant notes, and confirm a reader can recover the full state from the parent without fanning out.
+- **Facts are good subnotes.** Research findings — conventions, tool specifics, version constraints, source URLs — are dense, reusable beyond the huddle, and belong in a dedicated facts subnote.
+- **Update the parent note at session end** with the settled summary as tree annotations, not as a second copy of subnote content.
 
 ### Tags
 
