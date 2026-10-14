@@ -78,29 +78,6 @@ Async traits require `#[async_trait]` or the `trait-variant` crate (`#[trait_var
 - `#[double]` (mockall_double) swaps real and mock types per-test without touching production code paths.
 - For tiny traits, a hand-rolled struct with recorded calls (see recipes) is lighter and more readable than generated mocks.
 
-## proptest
-
-**When:** property-based testing with shrinking — invariants across an input space: round-trips (`decode(encode(s)) == s`), parser robustness (unicode, empty, oversized, negative), transformations that preserve sortedness, "never panics".
-
-**How:**
-
-```rust
-proptest! {
-    #[test]
-    fn test_serializer_round_trips(input in "[^\x00]{0,200}") {
-        prop_assert_eq!(decode(encode(input)), input);
-    }
-}
-```
-
-Strategies live under `proptest::collection` (`vec`), `proptest::option` (`of`), and `proptest::num` (numeric ranges); derive `Arbitrary` for custom input types.
-
-**Gotchas:**
-
-- Failure cases persist to `proptest-regressions/` — commit that directory; it replays minimal counterexamples in CI.
-- Heavy strategies blow the unit 1 s budget: bound collection sizes, or move heavy properties to the integration tier.
-- One failing assertion ends the case; assert one property per test for clean shrinking.
-
 ## insta
 
 **When:** the output is too large or too structural for literal `assert_eq!` — JSON/YAML payloads, rendered TUI frames, generated config or markdown. Golden-file workflow with managed diffs.
@@ -127,6 +104,29 @@ insta::assert_yaml_snapshot!(report, {
 - Redact nondeterminism; never snapshot raw timestamps/uuids.
 - Snapshot churn in PRs is a feature — the diff is the deliverable; review them deliberately.
 - Keep insta versions aligned across the team to avoid pending-file noise.
+
+## proptest
+
+**When:** property-based testing with shrinking — invariants across an input space: round-trips (`decode(encode(s)) == s`), parser robustness (unicode, empty, oversized, negative), transformations that preserve sortedness, "never panics".
+
+**How:**
+
+```rust
+proptest! {
+    #[test]
+    fn test_serializer_round_trips(input in "[^\x00]{0,200}") {
+        prop_assert_eq!(decode(encode(input)), input);
+    }
+}
+```
+
+Strategies live under `proptest::collection` (`vec`), `proptest::option` (`of`), and `proptest::num` (numeric ranges); derive `Arbitrary` for custom input types.
+
+**Gotchas:**
+
+- Failure cases persist to `proptest-regressions/` — commit that directory; it replays minimal counterexamples in CI.
+- Heavy strategies blow the unit 1 s budget: bound collection sizes, or move heavy properties to the integration tier.
+- One failing assertion ends the case; assert one property per test for clean shrinking.
 
 ## assert_cmd + predicates
 
@@ -181,47 +181,6 @@ assert_eq!(received.len(), 1);
 - Matchers are exact unless loosened (`any()`, `path_regex`).
 - Failure and latency injection: `set_delay`, error status codes — never real timeouts.
 
-## testcontainers-rs
-
-**When:** the integration tier needs a REAL service — Postgres, Redis, Kafka — where fakes stop being credible (SQL dialects, wire protocols, transactions).
-
-**How:** choose a module image or `GenericImage`, start via the async runner, read the mapped host port, connect the client under test; dropping ends the container.
-
-**Gotchas:**
-
-- Requires Docker — skip cleanly with a clear message when the daemon is absent; CI runners must provide it.
-- Use the image's wait strategy until actually ready (not merely bound) or connect-races appear.
-- Slow — integration tier only, and only where the double isn't credible enough.
-
-## Criterion
-
-**When:** performance baselines and statistical regression detection — comparing implementations, tracking hot paths over time.
-
-**How:**
-
-```rust
-criterion_group!(benches, bench_hot_path);
-criterion_main!(benches);
-
-fn bench_hot_path(c: &mut Criterion) {
-    c.bench_function("parse-1k", |b| b.iter(|| parse(&BIG_INPUT)));
-}
-```
-
-```toml
-[[bench]]
-name = "hot_path"
-harness = false
-```
-
-Run with `cargo bench`.
-
-**Gotchas:**
-
-- Shared CI runners are statistically noisy — pin baselines (`--save-baseline name`), compare explicitly.
-- Declares `Throughput` for meaningful bytes/sec or elems/sec numbers.
-- Benches sit outside pass/fail CI by design; gate regressions separately.
-
 ## cargo-llvm-cov
 
 **When:** line coverage as evidence of unexecuted code — a second quality dimension next to clippy.
@@ -246,5 +205,5 @@ Optional regression gate: `--fail-under-lines <N>`.
 ## Sources
 
 - nexte.st — cargo-nextest docs
-- docs.rs/mockall, docs.rs/proptest, docs.rs/insta, docs.rs/assert_cmd, docs.rs/wiremock
-- crates.io: testcontainers, criterion, cargo-llvm-cov (github.com/taiki-e/cargo-llvm-cov, github.com/bheisler/criterion.rs, github.com/testcontainers/testcontainers-rs)
+- docs.rs/mockall, docs.rs/insta, docs.rs/proptest, docs.rs/assert_cmd, docs.rs/wiremock
+- github.com/taiki-e/cargo-llvm-cov — cargo-llvm-cov

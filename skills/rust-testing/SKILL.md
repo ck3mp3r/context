@@ -1,6 +1,6 @@
 ---
 name: rust-testing
-description: Rust test design and tool selection — unit/integration/doc-test taxonomy, TDD workflow, trait-based dependency injection for mockability, speed budgets, flaky-test policy, and when to reach for nextest, Mockall, proptest, insta, assert_cmd, wiremock, testcontainers, Criterion, or cargo-llvm-cov. Use when writing idiomatic Rust tests, organizing or reviewing Rust test suites, choosing a Rust testing tool, or fixing flaky or slow tests.
+description: Rust test design and tool selection — unit/integration/doc-test taxonomy, TDD workflow, trait-based dependency injection for mockability, speed budgets, flaky-test policy, and when to reach for nextest, Mockall, insta, proptest, assert_cmd, wiremock, or cargo-llvm-cov. Use when writing idiomatic Rust tests, organizing or reviewing Rust test suites, choosing a Rust testing tool, or fixing flaky or slow tests.
 license: MIT
 metadata:
   author: ck3mp3r
@@ -109,13 +109,13 @@ If the public API cannot express the verification, the API is missing a method �
 |------|-------------------|
 | cargo-nextest | default runner beyond toy projects — isolation, filtersets, profiles, retries |
 | Mockall | large trait surfaces, or mocking traits from external crates |
-| proptest | property tests with shrinking — parsers, encoders, round-trips, invariants |
 | insta | snapshotting large structured output — JSON/YAML, TUI frames, generated config |
+| proptest | property tests with shrinking — parsers, encoders, round-trips, invariants |
 | assert_cmd + predicates | black-box tests of the built binary |
 | wiremock | async HTTP doubles with matchers and request verification |
-| testcontainers-rs | real backing services (DB, queue) in Docker for integration tiers |
-| Criterion | performance baselines and statistical regression detection |
 | cargo-llvm-cov | line coverage as a quality dimension |
+| Criterion | benchmarking — performance baselines and regression detection; see Criterion docs |
+| testcontainers-rs | real backing services (DB, queue) in Docker for integration tiers; see testcontainers-rs docs |
 
 - Details and per-tool gotchas: [references/toolbox.md](references/toolbox.md)
 - Copy-paste patterns: [references/recipes.md](references/recipes.md)
@@ -126,7 +126,6 @@ If the public API cannot express the verification, the API is missing a method �
 - The Rust Book, Test Organization: doc.rust-lang.org/book/ch11-03-test-organization.html
 - Command Line Applications in Rust — Testing: rust-cli.github.io/book/tutorial/testing.html
 - cargo-nextest: nexte.st
-- Mockall: docs.rs/mockall — proptest: docs.rs/proptest
-- insta: insta.rs — assert_cmd: docs.rs/assert_cmd
-- wiremock: docs.rs/wiremock — testcontainers-rs: github.com/testcontainers/testcontainers-rs
-- Criterion: github.com/bheisler/criterion.rs — cargo-llvm-cov: github.com/taiki-e/cargo-llvm-cov
+- Mockall: docs.rs/mockall — insta: insta.rs
+- proptest: docs.rs/proptest — assert_cmd: docs.rs/assert_cmd
+- wiremock: docs.rs/wiremock — cargo-llvm-cov: github.com/taiki-e/cargo-llvm-cov
