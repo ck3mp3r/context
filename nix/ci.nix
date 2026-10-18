@@ -1,4 +1,4 @@
-# Classic Nix shell for CI - just the toolchains needed for backend testing
+# CI shell for c5t - minimal tooling for builds
 {
   pkgs,
   inputs,
@@ -10,13 +10,15 @@ in
     name = "context-ci";
 
     buildInputs = [
+      # Rust toolchain (stable) with rustfmt and clippy
       toolchain
-      pkgs.cargo-tarpaulin
+      # Test runner with JUnit output for CI
+      pkgs.cargo-nextest
     ];
 
     shellHook = ''
       echo "CI Testing Environment"
       echo "Rust: $(rustc --version)"
-      echo ""
+      echo "cargo-nextest: $(cargo nextest --version)"
     '';
   }
