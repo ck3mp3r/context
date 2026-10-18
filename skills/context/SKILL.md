@@ -46,9 +46,11 @@ A task that can be completed by a developer agent in one session is the right si
 
 - The task touches more than one layer (database + API, server + CLI, MCP + REST). Each layer gets its own subtask.
 - The task modifies more than 5 files. Review the file list — if it spans multiple modules or crates, decompose.
-- The task description approaches the 10,000 character limit. The DB enforces this as a CHECK constraint. If the spec is that long, the scope is too broad.
+- The description would exceed ~7,000 characters. A spec that long cannot be written, read, or executed reliably in one session. Estimate the length before writing the full spec: if the draft would pass 7,000, decompose into parent + subtasks instead of compressing.
 - The task has more than 8 acceptance criteria. Each criterion adds implementation and test work. Split by concern.
 - The task fixes a bug and adds a feature. These are different concerns. Separate them.
+
+**Hard rule:** never create a task whose description approaches 10,000 characters. A description that long is a decomposition failure, not a compression exercise. Split the work into a parent task plus subtasks, and give each subtask its own complete spec.
 
 **How to decompose:**
 
@@ -124,7 +126,7 @@ A task has two fields the agent reads: `title` and `description`. A note has `ti
 
 #### Rule: Break Down, Do Not Externalize Specs
 
-If a task's spec does not fit in the `description` field, the task is too large. Break it into subtasks. See "When to Break Tasks Into Subtasks" above for the signals that indicate decomposition is needed before you start writing the spec. Do not put the spec in a note — a spec split from its task is a spec the agent will not read.
+If a task's spec does not fit in the `description` field, the task is too large. Break it into subtasks. Check the length BEFORE writing the full spec: if the draft would exceed ~7,000 characters, stop and decompose into parent + subtasks. Never write a description that approaches 10,000 characters, and never trim a bloated spec to squeeze it in — split the work instead. See "When to Break Tasks Into Subtasks" above for the signals that indicate decomposition is needed before you start writing the spec. Do not put the spec in a note — a spec split from its task is a spec the agent will not read.
 
 Notes are for research. The task description consumes the research and presents it as a self-contained spec.
 
@@ -295,6 +297,7 @@ Before transitioning a task to `todo`, verify it passes this checklist. Each ite
 - [ ] Single layer — the task touches one layer only (DB, or API, or CLI, or MCP — not multiple)
 - [ ] File count — the task modifies 5 or fewer files
 - [ ] Criteria count — the task has 8 or fewer acceptance criteria
+- [ ] Description length — the description is under ~7,000 characters (if the draft is longer, decompose into parent + subtasks)
 
 **Spec completeness**
 - [ ] OBJECTIVE is one sentence, max 20 words, names actor + action + result
