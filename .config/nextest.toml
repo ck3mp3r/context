@@ -1,0 +1,19 @@
+# cargo-nextest repository configuration.
+#
+# nextest runs every test in its own process, so the `#[serial]` tests that
+# mutate environment variables keep working without extra configuration.
+# nextest does not run doctests — use `cargo test --doc` for those.
+
+# Local development profile. nextest defaults (one process per test, one test
+# thread per CPU, no retries) give the fastest feedback, so nothing is
+# overridden here.
+[profile.default]
+
+# CI profile: a failing test is a real failure, so never retry. Emit a JUnit
+# XML report for CI test-result ingestion.
+[profile.ci]
+retries = 0
+
+# The path is relative to the profile store directory (target/nextest/ci),
+# so `../junit.xml` writes target/nextest/junit.xml.
+junit.path = "../junit.xml"

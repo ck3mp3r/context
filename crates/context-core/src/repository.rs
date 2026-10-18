@@ -31,6 +31,11 @@ pub trait ProjectRepository: Send + Sync {
         query: &str,
         project_query: Option<&ProjectQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
+    /// Hard-delete tombstones whose `deleted_at` is older than `before`.
+    ///
+    /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
+    /// NULL `deleted_at` are never touched. Cascades to child rows.
+    fn purge_deleted(&self, before: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for Repo operations.
@@ -44,6 +49,11 @@ pub trait RepoRepository: Send + Sync {
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Hard-delete tombstones whose `deleted_at` is older than `before`.
+    ///
+    /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
+    /// NULL `deleted_at` are never touched. Cascades to relationship rows.
+    fn purge_deleted(&self, before: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for TaskList operations.
@@ -62,6 +72,12 @@ pub trait TaskListRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Hard-delete tombstones whose `deleted_at` is older than `before`.
+    ///
+    /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
+    /// NULL `deleted_at` are never touched. Cascades to tasks and
+    /// relationship rows.
+    fn purge_deleted(&self, before: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 /// Repository for Task operations.
@@ -80,6 +96,11 @@ pub trait TaskRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Hard-delete tombstones whose `deleted_at` is older than `before`.
+    ///
+    /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
+    /// NULL `deleted_at` are never touched. Cascades to transition logs.
+    fn purge_deleted(&self, before: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn get_stats_for_list(&self, list_id: &str)
     -> impl Future<Output = DbResult<TaskStats>> + Send;
     fn transition_tasks(
@@ -111,6 +132,11 @@ pub trait NoteRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
     fn update(&self, note: &Note) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Hard-delete tombstones whose `deleted_at` is older than `before`.
+    ///
+    /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
+    /// NULL `deleted_at` are never touched. Cascades to relationship rows.
+    fn purge_deleted(&self, before: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
         &self,
         search_term: &str,
@@ -146,6 +172,12 @@ pub trait SkillRepository: Send + Sync {
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Hard-delete tombstones whose `deleted_at` is older than `before`.
+    ///
+    /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
+    /// NULL `deleted_at` are never touched. Cascades to attachments and
+    /// relationship rows.
+    fn purge_deleted(&self, before: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
         &self,
         search_term: &str,
@@ -177,6 +209,20 @@ pub trait SyncRepository: Send + Sync {
 
     fn export_all(&self, output_dir: &Path)
     -> impl Future<Output = DbResult<ExportSummary>> + Send;
+
+    /// Read the incremental export cutoff (`sync_state.last_synced_at`).
+    ///
+    /// Returns `None` when no export has run yet or when the schema version
+    /// changed since the last export. `None` means the next export is a full
+    /// export.
+    fn last_synced_at(&self) -> impl Future<Output = DbResult<Option<String>>> + Send;
+
+    /// Advance the incremental export cutoff after a successful export.
+    ///
+    /// Records `timestamp` as `last_synced_at` together with the current
+    /// schema version. When the previous cutoff was NULL, `timestamp` is also
+    /// recorded as `last_full_sync_at`.
+    fn set_last_synced_at(&self, timestamp: &str) -> impl Future<Output = DbResult<()>> + Send;
 }
 
 // =============================================================================
@@ -271,4 +317,10 @@ pub trait Database:
 {
     /// Run pending migrations.
     fn migrate(&self) -> DbResult<()>;
+
+    /// Get the current schema version.
+    ///
+    /// Returns the highest applied migration version. Returns `0` when no
+    /// migrations have been applied.
+    fn schema_version(&self) -> impl Future<Output = DbResult<i64>> + Send;
 }

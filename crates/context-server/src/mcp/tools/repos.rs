@@ -193,6 +193,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
             tags: params.0.tags.unwrap_or_default(),
             project_ids: params.0.project_ids.unwrap_or_default(),
             created_at: None, // Repository generates this
+            deleted_at: None,
         };
 
         let created = self.db.repos().create(&repo).await.map_err(map_db_error)?;

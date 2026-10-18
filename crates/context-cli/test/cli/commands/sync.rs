@@ -259,3 +259,130 @@ fn test_status_response_initialized() {
         .and_then(|v| v.as_bool());
     assert_eq!(git_clean, Some(true));
 }
+
+// =============================================================================
+// Output formatting tests against a mock API server
+// =============================================================================
+
+/// Start a mock API server that answers every sync request with `body`.
+async fn spawn_mock_api(body: serde_json::Value) -> String {
+    use axum::{
+        Json, Router,
+        routing::{get, post},
+    };
+
+    let handler = move || {
+        let body = body.clone();
+        async move { Json(body) }
+    };
+
+    let app = Router::new()
+        .route("/api/v1/sync/status", get(handler.clone()))
+        .route("/api/v1/sync/export", post(handler));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Failed to bind mock server");
+    let addr = listener.local_addr().expect("Failed to read mock address");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("Mock server failed");
+    });
+
+    format!("http://{}", addr)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_includes_last_synced_at() {
+    let body = serde_json::json!({
+        "message": "Sync status retrieved",
+        "data": {
+            "initialized": true,
+            "remote_url": "git@github.com:test/repo.git",
+            "last_synced_at": "2026-10-18 12:00:00",
+            "schema_version": 20261018000002i64,
+            "git": { "clean": true },
+            "database": {
+                "repos": 0,
+                "projects": 1,
+                "task_lists": 0,
+                "tasks": 0,
+                "notes": 0,
+                "skills": 0,
+                "attachments": 0,
+                "total": 1
+            },
+            "sync_files": {
+                "repos": 0,
+                "projects": 1,
+                "task_lists": 0,
+                "tasks": 0,
+                "notes": 0,
+                "skills": 0,
+                "attachments": 0,
+                "total": 1
+            }
+        }
+    });
+
+    let url = spawn_mock_api(body).await;
+    let api_client = ApiClient::new(Some(url));
+
+    let output = status(&api_client).await.expect("status should succeed");
+
+    assert!(
+        output.contains("last_synced_at"),
+        "status output must label last_synced_at, got: {}",
+        output
+    );
+    assert!(
+        output.contains("2026-10-18 12:00:00"),
+        "status output must show the last sync timestamp, got: {}",
+        output
+    );
+    assert!(
+        output.contains("schema_version"),
+        "status output must label schema_version, got: {}",
+        output
+    );
+    assert!(
+        output.contains("20261018000002"),
+        "status output must show the local schema version, got: {}",
+        output
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_shows_change_count() {
+    let body = serde_json::json!({
+        "message": "Export completed",
+        "data": {
+            "changes": 5,
+            "exported": {
+                "repos": 0,
+                "projects": 1,
+                "task_lists": 0,
+                "tasks": 4,
+                "notes": 0,
+                "skills": 0,
+                "attachments": 0,
+                "total": 5
+            }
+        }
+    });
+
+    let url = spawn_mock_api(body).await;
+    let api_client = ApiClient::new(Some(url));
+
+    let output = export(&api_client, None, false)
+        .await
+        .expect("export should succeed");
+
+    assert!(
+        output.contains("5 changes"),
+        "export output must show the incremental change count, got: {}",
+        output
+    );
+}

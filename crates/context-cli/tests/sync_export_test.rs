@@ -56,6 +56,7 @@ async fn test_export_with_data() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -70,6 +71,7 @@ async fn test_export_with_data() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -136,6 +138,7 @@ async fn test_export_includes_relationships() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -147,6 +150,7 @@ async fn test_export_includes_relationships() {
         tags: vec!["test".to_string()],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
 
@@ -163,6 +167,7 @@ async fn test_export_includes_relationships() {
         subnote_count: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -228,6 +233,7 @@ async fn test_export_skills_with_data() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -253,6 +259,7 @@ Do something useful.
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -293,6 +300,7 @@ async fn test_export_skills_preserves_relationships() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project1).await.unwrap();
 
@@ -307,6 +315,7 @@ async fn test_export_skills_preserves_relationships() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project2).await.unwrap();
 
@@ -332,6 +341,7 @@ Test instructions.
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -357,6 +367,7 @@ Test instructions.
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill_no_projects).await.unwrap();
 
@@ -418,6 +429,7 @@ origin:
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -497,6 +509,7 @@ Run scripts/deploy.sh
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -511,6 +524,7 @@ Run scripts/deploy.sh
         mime_type: Some("text/x-shellscript".to_string()),
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills()
         .create_attachment(&script_attachment)
@@ -527,6 +541,7 @@ Run scripts/deploy.sh
         mime_type: Some("text/markdown".to_string()),
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills()
         .create_attachment(&reference_attachment)

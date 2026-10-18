@@ -316,6 +316,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
             subnote_count: None,
             created_at: None, // Will be set by DB
             updated_at: None, // Will be set by DB
+            deleted_at: None,
         };
 
         let created = self.db.notes().create(&note).await.map_err(map_db_error)?;

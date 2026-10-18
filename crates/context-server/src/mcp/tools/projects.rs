@@ -198,6 +198,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
             note_ids: vec![],
             created_at: None, // Repository generates this
             updated_at: None, // Repository generates this
+            deleted_at: None,
         };
 
         let created = self

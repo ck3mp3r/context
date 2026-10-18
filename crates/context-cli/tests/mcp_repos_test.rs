@@ -98,6 +98,7 @@ async fn test_get_repo() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
     let db = Arc::new(db);
@@ -143,6 +144,7 @@ async fn test_update_repo() {
         tags: vec!["original".to_string()],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
     let db = Arc::new(db);
@@ -191,6 +193,7 @@ async fn test_delete_repo() {
         tags: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
     let db = Arc::new(db);
@@ -203,8 +206,12 @@ async fn test_delete_repo() {
         .await;
     assert!(result.is_ok());
 
-    let result = db.repos().get("12345678").await;
-    assert!(result.is_err());
+    let deleted_at: Option<String> = sqlx::query_scalar("SELECT deleted_at FROM repo WHERE id = ?")
+        .bind("12345678")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert!(deleted_at.is_some(), "repo should be soft-deleted");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -231,6 +238,7 @@ async fn test_list_repos_with_data() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
     let db = Arc::new(db);
@@ -268,6 +276,7 @@ async fn test_list_repos_pagination() {
             tags: vec![],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.repos().create(&repo).await.unwrap();
     }

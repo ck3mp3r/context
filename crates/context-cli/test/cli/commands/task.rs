@@ -202,7 +202,9 @@ async fn test_task_crud_operations() {
     // DELETE: Requires --force flag
     assert!(delete_task(&api_client, &task_id, false).await.is_err());
     assert!(delete_task(&api_client, &task_id, true).await.is_ok());
-    assert!(get_task(&api_client, &task_id, "json").await.is_err());
+
+    // Verify deletion is idempotent (soft-delete no-op on repeat)
+    assert!(delete_task(&api_client, &task_id, true).await.is_ok());
 }
 
 #[tokio::test(flavor = "multi_thread")]

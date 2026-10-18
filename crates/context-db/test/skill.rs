@@ -1,7 +1,8 @@
 //! Tests for SqliteSkillRepository.
 
 use crate::SqliteDatabase;
-use context_core::{Database, HasSkills, Skill, SkillQuery, SkillRepository};
+use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
+use context_core::{Database, HasSkills, Skill, SkillAttachment, SkillQuery, SkillRepository};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -37,6 +38,7 @@ Use Rust book for learning systems programming.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
 
     skills.create(&skill).await.expect("Create should succeed");
@@ -89,6 +91,7 @@ Test instructions for the first skill.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -113,6 +116,7 @@ Test instructions for the second skill.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -146,6 +150,7 @@ Test instructions for original skill.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -186,6 +191,7 @@ Test instructions.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -194,8 +200,225 @@ Test instructions.
         .await
         .expect("Delete should succeed");
 
-    let result = skills.get("skl00005").await;
-    assert!(result.is_err());
+    let deleted_at = read_deleted_at(db.pool(), "skill", "skl00005").await;
+    assert!(deleted_at.is_some(), "skill should be soft-deleted");
+
+    let updated_at = read_updated_at(db.pool(), "skill", "skl00005").await;
+    assert_ne!(
+        updated_at,
+        Some("2025-01-01 00:00:00".to_string()),
+        "updated_at should be bumped by the soft-delete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_delete_cascades_to_relationships_and_attachments() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    sqlx::query(
+        "INSERT INTO project (id, title, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind("projskll")
+    .bind("Skill Project")
+    .bind("[]")
+    .bind("2025-01-01 00:00:00")
+    .bind("2025-01-01 00:00:00")
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let skill = Skill {
+        id: "skl00006".to_string(),
+        name: "cascade-skill".to_string(),
+        description: "Desc".to_string(),
+        content: "---\nname: cascade-skill\ndescription: Desc\n---\n\n# Cascade Skill\n"
+            .to_string(),
+        tags: vec![],
+        project_ids: vec!["projskll".to_string()],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    skills.create(&skill).await.expect("Create should succeed");
+
+    let attachment = SkillAttachment {
+        id: "att00001".to_string(),
+        skill_id: "skl00006".to_string(),
+        type_: "script".to_string(),
+        filename: "deploy.sh".to_string(),
+        content: "ZWNobyBoaQ==".to_string(),
+        content_hash: "hash0001".to_string(),
+        mime_type: Some("text/x-shellscript".to_string()),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    skills
+        .create_attachment(&attachment)
+        .await
+        .expect("Create attachment should succeed");
+
+    assert_eq!(
+        count_rows(db.pool(), "project_skill", "skill_id = ?", "skl00006").await,
+        1,
+        "project_skill row should exist before delete"
+    );
+
+    skills
+        .delete("skl00006")
+        .await
+        .expect("Delete should succeed");
+
+    assert!(
+        read_deleted_at(db.pool(), "skill", "skl00006")
+            .await
+            .is_some(),
+        "skill should be soft-deleted"
+    );
+    assert_eq!(
+        count_rows(db.pool(), "project_skill", "skill_id = ?", "skl00006").await,
+        0,
+        "project_skill rows should be hard-deleted"
+    );
+    assert_eq!(
+        count_rows(db.pool(), "skill_attachment", "skill_id = ?", "skl00006").await,
+        0,
+        "skill_attachment rows should be hard-deleted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_already_deleted_is_noop() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let skill = Skill {
+        id: "skl00007".to_string(),
+        name: "noop-skill".to_string(),
+        description: "Desc".to_string(),
+        content: "---\nname: noop-skill\ndescription: Desc\n---\n\n# Noop Skill\n".to_string(),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    skills.create(&skill).await.expect("Create should succeed");
+
+    skills.delete("skl00007").await.unwrap();
+    let first_deleted_at = read_deleted_at(db.pool(), "skill", "skl00007").await;
+    let first_updated_at = read_updated_at(db.pool(), "skill", "skl00007").await;
+
+    skills
+        .delete("skl00007")
+        .await
+        .expect("Second delete should be a no-op");
+
+    assert_eq!(
+        read_deleted_at(db.pool(), "skill", "skl00007").await,
+        first_deleted_at,
+        "deleted_at should not change on a repeated delete"
+    );
+    assert_eq!(
+        read_updated_at(db.pool(), "skill", "skl00007").await,
+        first_updated_at,
+        "updated_at should not be bumped on a repeated delete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_nonexistent_skill_returns_not_found() {
+    let db = setup_db().await;
+
+    let result = db.skills().delete("nonexist").await;
+
+    assert!(
+        matches!(result, Err(context_core::DbError::NotFound { .. })),
+        "deleting a missing skill should return NotFound, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_attachment_soft_deletes_and_is_idempotent() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let skill = Skill {
+        id: "skl00008".to_string(),
+        name: "attachment-skill".to_string(),
+        description: "Desc".to_string(),
+        content: "---\nname: attachment-skill\ndescription: Desc\n---\n\n# Attachment Skill\n"
+            .to_string(),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    skills.create(&skill).await.expect("Create should succeed");
+
+    let attachment = SkillAttachment {
+        id: "att00002".to_string(),
+        skill_id: "skl00008".to_string(),
+        type_: "reference".to_string(),
+        filename: "notes.md".to_string(),
+        content: "IyBOb3Rlcw==".to_string(),
+        content_hash: "hash0002".to_string(),
+        mime_type: Some("text/markdown".to_string()),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    skills.create_attachment(&attachment).await.unwrap();
+
+    skills.delete_attachment("att00002").await.unwrap();
+    let first_deleted_at = read_deleted_at(db.pool(), "skill_attachment", "att00002").await;
+    let first_updated_at = read_updated_at(db.pool(), "skill_attachment", "att00002").await;
+
+    assert!(
+        first_deleted_at.is_some(),
+        "attachment should be soft-deleted"
+    );
+
+    skills
+        .delete_attachment("att00002")
+        .await
+        .expect("Second delete should be a no-op");
+
+    assert_eq!(
+        read_deleted_at(db.pool(), "skill_attachment", "att00002").await,
+        first_deleted_at,
+        "deleted_at should not change on a repeated delete"
+    );
+    assert_eq!(
+        read_updated_at(db.pool(), "skill_attachment", "att00002").await,
+        first_updated_at,
+        "updated_at should not be bumped on a repeated delete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_nonexistent_attachment_returns_not_found() {
+    let db = setup_db().await;
+
+    let result = db.skills().delete_attachment("nonexist").await;
+
+    assert!(
+        matches!(result, Err(context_core::DbError::NotFound { .. })),
+        "deleting a missing attachment should return NotFound, got: {:?}",
+        result
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -225,6 +448,7 @@ Test instructions for API design.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -249,6 +473,7 @@ Test instructions for database.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -273,6 +498,7 @@ Test instructions for frontend.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill3).await.unwrap();
 
@@ -326,6 +552,7 @@ Test instructions.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -350,6 +577,7 @@ Test instructions.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -374,6 +602,7 @@ Test instructions.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill3).await.unwrap();
 
@@ -440,6 +669,7 @@ Test instructions for API design.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -464,6 +694,7 @@ Test instructions for API testing.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -488,6 +719,7 @@ Test instructions for frontend APIs.
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     skills.create(&skill3).await.unwrap();
 
@@ -551,6 +783,7 @@ name: test
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
 
     let skill_id = skill.id.clone();
@@ -568,5 +801,219 @@ name: test
     assert!(
         get_result.is_err(),
         "Skill should not exist after failed transaction"
+    );
+}
+
+fn make_skill(id: &str, name: &str) -> Skill {
+    Skill {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: "Test skill".to_string(),
+        content: format!(
+            "---\nname: {}\ndescription: Test skill\n---\n\n# Test\n",
+            name
+        ),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_soft_deleted_returns_not_found() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills
+        .create(&make_skill("skldel02", "deleted-skill"))
+        .await
+        .expect("Create should succeed");
+    skills
+        .delete("skldel02")
+        .await
+        .expect("Delete should succeed");
+
+    let result = skills.get("skldel02").await;
+    assert!(
+        matches!(result, Err(context_core::DbError::NotFound { .. })),
+        "get on a soft-deleted skill should return NotFound, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_excludes_soft_deleted() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills
+        .create(&make_skill("skllive1", "live-skill"))
+        .await
+        .expect("Create should succeed");
+    skills
+        .create(&make_skill("skldead1", "dead-skill"))
+        .await
+        .expect("Create should succeed");
+    skills
+        .delete("skldead1")
+        .await
+        .expect("Delete should succeed");
+
+    let result = skills.list(None).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1, "list should exclude tombstones");
+    assert_eq!(result.items[0].id, "skllive1");
+    assert_eq!(result.total, 1, "list total should exclude tombstones");
+    assert_eq!(
+        skills.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude tombstones"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_attachments_excludes_soft_deleted() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills
+        .create(&make_skill("sklatt01", "attachment-skill"))
+        .await
+        .expect("Create should succeed");
+
+    let attachment = SkillAttachment {
+        id: "attdel01".to_string(),
+        skill_id: "sklatt01".to_string(),
+        type_: "script".to_string(),
+        filename: "run.sh".to_string(),
+        content: "IyEvYmluL2Jhc2g=".to_string(),
+        content_hash: "hashdel".to_string(),
+        mime_type: Some("text/x-shellscript".to_string()),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    skills
+        .create_attachment(&attachment)
+        .await
+        .expect("Create attachment should succeed");
+
+    let before = skills.get("sklatt01").await.expect("Get should succeed");
+    assert_eq!(before.scripts, vec!["run.sh".to_string()]);
+
+    skills
+        .delete_attachment("attdel01")
+        .await
+        .expect("Delete attachment should succeed");
+
+    let after = skills.get("sklatt01").await.expect("Get should succeed");
+    assert!(
+        after.scripts.is_empty(),
+        "load_attachments must exclude soft-deleted attachments, got: {:?}",
+        after.scripts
+    );
+
+    let attachments = skills
+        .get_attachments("sklatt01")
+        .await
+        .expect("Get attachments should succeed");
+    assert!(
+        attachments.is_empty(),
+        "get_attachments must exclude soft-deleted attachments, got: {:?}",
+        attachments
+    );
+}
+
+// =============================================================================
+// Tombstone purge tests
+// =============================================================================
+
+fn make_purge_skill(id: &str) -> Skill {
+    Skill {
+        id: id.to_string(),
+        name: format!("skill-{}", id),
+        description: "Purge test skill".to_string(),
+        content: format!(
+            "---\nname: skill-{}\ndescription: Purge test skill\n---\n",
+            id
+        ),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_purge_deleted_removes_old_tombstones() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills.create(&make_purge_skill("sklprg01")).await.unwrap();
+    skills
+        .create_attachment(&SkillAttachment {
+            id: "attprg01".to_string(),
+            skill_id: "sklprg01".to_string(),
+            type_: "script".to_string(),
+            filename: "purge.sh".to_string(),
+            content: "ZWNobyBoaQ==".to_string(),
+            content_hash: "hashprg1".to_string(),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
+
+    skills.delete("sklprg01").await.unwrap();
+    sqlx::query("UPDATE skill SET deleted_at = '2020-01-01 00:00:00' WHERE id = ?")
+        .bind("sklprg01")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    skills
+        .purge_deleted("2021-01-01 00:00:00")
+        .await
+        .expect("purge should succeed");
+
+    assert_eq!(
+        count_rows(db.pool(), "skill", "id = ?", "sklprg01").await,
+        0,
+        "an old skill tombstone must be hard-deleted"
+    );
+    assert_eq!(
+        count_rows(db.pool(), "skill_attachment", "skill_id = ?", "sklprg01").await,
+        0,
+        "attachments of a purged skill must be hard-deleted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_purge_deleted_preserves_recent_tombstones() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills.create(&make_purge_skill("sklprg02")).await.unwrap();
+    skills.delete("sklprg02").await.unwrap();
+
+    skills
+        .purge_deleted("2021-01-01 00:00:00")
+        .await
+        .expect("purge should succeed");
+
+    assert_eq!(
+        count_rows(db.pool(), "skill", "id = ?", "sklprg02").await,
+        1,
+        "a tombstone inside the retention period must be kept"
     );
 }

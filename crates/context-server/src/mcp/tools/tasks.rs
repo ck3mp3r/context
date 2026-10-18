@@ -267,6 +267,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
             external_refs: params.0.external_refs.clone().unwrap_or_default(),
             created_at: None, // Will be set by DB
             updated_at: None, // Will be set by DB
+            deleted_at: None,
         };
 
         let created = self.db.tasks().create(&task).await.map_err(map_db_error)?;

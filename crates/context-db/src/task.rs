@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause};
+use super::helpers::{build_limit_offset_clause, build_order_clause, soft_delete_row};
 use context_core::{
     DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
     TransitionLog,
@@ -181,7 +181,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     async fn get(&self, id: &str) -> DbResult<Task> {
         let row = sqlx::query(
             "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at
-             FROM task WHERE id = ?",
+             FROM task WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -217,6 +217,9 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         // Build filter conditions
         let mut conditions: Vec<String> = Vec::new();
         let mut bind_values: Vec<String> = Vec::new();
+
+        // Soft-deleted rows are tombstones and must never appear in list results.
+        conditions.push("deleted_at IS NULL".to_string());
 
         if let Some(list_id) = &query.list_id {
             conditions.push("list_id = ?".to_string());
@@ -271,7 +274,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         let (sql, count_sql) = if needs_json_each {
             let select_cols = if needs_activity_column {
                 "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id), t.updated_at) AS last_activity_at"
+                 COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id AND deleted_at IS NULL), t.updated_at) AS last_activity_at"
             } else {
                 "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.description, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at"
             };
@@ -297,7 +300,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         } else {
             let select_cols = if needs_activity_column {
                 "task.id, task.list_id, task.parent_id, task.title, task.description, task.status, task.priority, task.tags, task.external_refs, task.created_at, task.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM task AS child WHERE child.parent_id = task.id), task.updated_at) AS last_activity_at"
+                 COALESCE((SELECT MAX(updated_at) FROM task AS child WHERE child.parent_id = task.id AND child.deleted_at IS NULL), task.updated_at) AS last_activity_at"
             } else {
                 "id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at"
             };
@@ -378,7 +381,10 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         };
 
         let mut bind_values: Vec<String> = vec![fts_query];
-        let mut where_conditions: Vec<String> = vec!["task_fts MATCH ?".to_string()];
+        let mut where_conditions: Vec<String> = vec![
+            "task_fts MATCH ?".to_string(),
+            "t.deleted_at IS NULL".to_string(),
+        ];
 
         // Add list_id filter if specified (REQUIRED for tasks)
         if let Some(ref list_id) = query.list_id {
@@ -506,7 +512,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     }
 
     async fn count(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task WHERE deleted_at IS NULL")
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -601,20 +607,84 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
-        let result = sqlx::query("DELETE FROM task WHERE id = ?")
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let deleted = soft_delete_row(&mut tx, "task", "Task", id, true).await?;
+
+        if !deleted {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        }
+
+        // Cascade: soft-delete every descendant task, recursively.
+        // UNION (not UNION ALL) discards rows already in the result set, so a
+        // cyclic parent_id chain terminates instead of recursing forever.
+        sqlx::query(
+            "WITH RECURSIVE descendants(id) AS (
+                 SELECT id FROM task WHERE parent_id = ?
+                 UNION
+                 SELECT t.id FROM task t JOIN descendants d ON t.parent_id = d.id
+             )
+             UPDATE task SET deleted_at = datetime('now'), updated_at = datetime('now')
+             WHERE id IN (SELECT id FROM descendants) AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Hard-delete the transition log rows for the deleted task.
+        sqlx::query("DELETE FROM task_transition_log WHERE task_id = ?")
             .bind(id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
 
-        if result.rows_affected() == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Task".to_string(),
-                id: id.to_string(),
-            });
-        }
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn purge_deleted(&self, before: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Transition logs for the purged tasks.
+        sqlx::query(
+            "DELETE FROM task_transition_log
+             WHERE task_id IN (
+                 SELECT id FROM task WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query("DELETE FROM task WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+            .bind(before)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -626,7 +696,7 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
                 status,
                 COUNT(*) as count
             FROM task
-            WHERE list_id = ?
+            WHERE list_id = ? AND deleted_at IS NULL
             GROUP BY status
             "#,
         )
@@ -954,5 +1024,6 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> Task {
         },
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+        deleted_at: None,
     }
 }

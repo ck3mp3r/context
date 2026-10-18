@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::build_limit_offset_clause;
+use super::helpers::{build_limit_offset_clause, soft_delete_row};
 use context_core::{DbError, DbResult, ListResult, SkillRepository};
 use context_core::{SKILL_DESCRIPTION_MAX, Skill, SkillAttachment, SkillQuery};
 use context_core::{current_timestamp, generate_entity_id};
@@ -36,6 +36,7 @@ fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
         assets: vec![],      // Loaded separately via skill_attachment table
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+        deleted_at: None,
     }
 }
 
@@ -162,11 +163,15 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             assets: skill.assets.clone(),
             created_at: Some(created_at),
             updated_at: Some(updated_at),
+            deleted_at: None,
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<Skill> {
-        let sql = format!("SELECT {} FROM skill WHERE id = ?", SKILL_COLS);
+        let sql = format!(
+            "SELECT {} FROM skill WHERE id = ? AND deleted_at IS NULL",
+            SKILL_COLS
+        );
         let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(id)
             .fetch_optional(self.pool)
@@ -234,6 +239,8 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         } else {
             (SKILL_COLS.to_string(), "FROM skill".to_string(), "")
         };
+        // Soft-deleted rows are tombstones and must never appear in results.
+        where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
         let where_clause = if !where_conditions.is_empty() {
             format!("WHERE {}", where_conditions.join(" AND "))
         } else {
@@ -302,7 +309,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     }
 
     async fn count(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM skill")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM skill WHERE deleted_at IS NULL")
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -376,19 +383,91 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
-        let result = sqlx::query("DELETE FROM skill WHERE id = ?")
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let deleted = soft_delete_row(&mut tx, "skill", "Skill", id, true).await?;
+
+        if !deleted {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        }
+
+        // Hard-delete M:N relationship rows for the skill.
+        sqlx::query("DELETE FROM project_skill WHERE skill_id = ?")
             .bind(id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
-        if result.rows_affected() == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Skill".to_string(),
-                id: id.to_string(),
-            });
-        }
+
+        // Hard-delete the skill's attachments.
+        sqlx::query("DELETE FROM skill_attachment WHERE skill_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn purge_deleted(&self, before: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Project links for the purged skills.
+        sqlx::query(
+            "DELETE FROM project_skill
+             WHERE skill_id IN (
+                 SELECT id FROM skill WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Attachments of the purged skills, plus attachment tombstones that
+        // outlived the retention period on their own.
+        sqlx::query(
+            "DELETE FROM skill_attachment
+             WHERE skill_id IN (
+                 SELECT id FROM skill WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )
+             OR (deleted_at IS NOT NULL AND deleted_at < ?)",
+        )
+        .bind(before)
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query("DELETE FROM skill WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+            .bind(before)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -404,6 +483,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         let mut bind_values: Vec<String> = Vec::new();
         let mut where_conditions: Vec<String> = Vec::new();
         where_conditions.push("(name LIKE ? OR description LIKE ? OR content LIKE ?)".to_string());
+        where_conditions.push("deleted_at IS NULL".to_string());
         let like_term = format!("%{}%", search_term);
         bind_values.push(like_term.clone());
         bind_values.push(like_term.clone());
@@ -448,7 +528,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
 
     async fn get_attachments(&self, skill_id: &str) -> DbResult<Vec<SkillAttachment>> {
         let rows = sqlx::query(
-            "SELECT id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at FROM skill_attachment WHERE skill_id = ? ORDER BY type, filename"
+            "SELECT id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at FROM skill_attachment WHERE skill_id = ? AND deleted_at IS NULL ORDER BY type, filename"
         )
         .bind(skill_id)
         .fetch_all(self.pool)
@@ -469,6 +549,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 mime_type: row.get("mime_type"),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
+                deleted_at: None,
             })
             .collect();
 
@@ -476,12 +557,13 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     }
 
     async fn count_attachments(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM skill_attachment")
-            .fetch_one(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM skill_attachment WHERE deleted_at IS NULL")
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
         Ok(count as usize)
     }
 
@@ -534,6 +616,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             mime_type: attachment.mime_type.clone(),
             created_at: Some(created_at),
             updated_at: Some(updated_at),
+            deleted_at: None,
         })
     }
 
@@ -562,13 +645,15 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
     }
 
     async fn delete_attachment(&self, id: &str) -> DbResult<()> {
-        sqlx::query("DELETE FROM skill_attachment WHERE id = ?")
-            .bind(id)
-            .execute(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        soft_delete_row(&mut tx, "skill_attachment", "SkillAttachment", id, true).await?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -598,7 +683,7 @@ impl<'a> SqliteSkillRepository<'a> {
         skill_id: &str,
     ) -> DbResult<(Vec<String>, Vec<String>, Vec<String>)> {
         let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT type, filename FROM skill_attachment WHERE skill_id = ? ORDER BY filename",
+            "SELECT type, filename FROM skill_attachment WHERE skill_id = ? AND deleted_at IS NULL ORDER BY filename",
         )
         .bind(skill_id)
         .fetch_all(self.pool)

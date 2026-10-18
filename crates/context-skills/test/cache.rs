@@ -1,30 +1,19 @@
 use super::*;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use context_core::SkillAttachment;
+use context_core::clear_base_path;
 use context_core::generate_entity_id;
 use context_core::set_base_path;
 use std::fs;
-use std::sync::Once;
+use tempfile::TempDir;
 
-/// Global test setup - runs once across all tests in this module.
+/// Create an isolated skills base directory for one test.
 ///
-/// Sets a shared base path for all cache tests to avoid race conditions
-/// when tests run in parallel. Each test uses unique skill names to
-/// avoid conflicts.
-static INIT: Once = Once::new();
-
-fn setup_test_env() {
-    INIT.call_once(|| {
-        // Set a global test base path that all tests will share
-        let test_base = std::env::temp_dir().join("c5t-cache-test-global");
-        set_base_path(test_base.clone());
-
-        // Clean up any previous test artifacts
-        let _ = std::fs::remove_dir_all(&test_base);
-
-        // Create fresh base directory
-        std::fs::create_dir_all(&test_base).expect("Failed to create test base directory");
-    });
+/// Every call returns a fresh temporary directory, so no two tests - and no two
+/// test processes under cargo-nextest - share a filesystem path. The directory
+/// is removed when the returned `TempDir` is dropped.
+fn test_base_dir() -> TempDir {
+    TempDir::new().expect("Failed to create test temp dir")
 }
 
 #[test]
@@ -70,7 +59,7 @@ description: No name field
 
 #[test]
 fn test_extract_attachments_creates_skill_md() {
-    setup_test_env();
+    let base_dir = test_base_dir();
 
     // Use unique skill name to avoid conflicts with parallel tests
     let unique_id = generate_entity_id();
@@ -102,16 +91,12 @@ This is a test skill for cache validation."#,
         mime_type: Some("text/x-shellscript".to_string()),
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     }];
 
     // Extract attachments - should use skill_name for directory
-    let cache_dir = extract_attachments(
-        &get_skills_cache_dir(),
-        &skill_name,
-        &skill_content,
-        &attachments,
-    )
-    .unwrap();
+    let cache_dir =
+        extract_attachments(base_dir.path(), &skill_name, &skill_content, &attachments).unwrap();
 
     // Verify cache directory uses skill name (not ID)
     assert!(cache_dir.to_string_lossy().ends_with(&skill_name));
@@ -130,7 +115,9 @@ This is a test skill for cache validation."#,
     assert_eq!(script_read, script_content);
 
     // Cleanup - remove this test's cache directory
-    invalidate_cache(&skill_name).unwrap();
+    SkillCache::new(base_dir.path().to_path_buf())
+        .invalidate(&skill_name)
+        .unwrap();
     assert!(!cache_dir.exists());
 }
 
@@ -152,7 +139,7 @@ fn test_get_skill_cache_dir() {
 
 #[test]
 fn test_extract_attachments() {
-    setup_test_env();
+    let base_dir = test_base_dir();
 
     // Use unique skill name to avoid conflicts with parallel tests
     let unique_id = generate_entity_id();
@@ -187,6 +174,7 @@ Test content"#,
             mime_type: Some("text/x-shellscript".to_string()),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         },
         SkillAttachment {
             id: generate_entity_id(),
@@ -198,6 +186,7 @@ Test content"#,
             mime_type: Some("text/markdown".to_string()),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         },
         SkillAttachment {
             id: generate_entity_id(),
@@ -209,17 +198,13 @@ Test content"#,
             mime_type: Some("application/xml".to_string()),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         },
     ];
 
     // Extract attachments
-    let cache_dir = extract_attachments(
-        &get_skills_cache_dir(),
-        &skill_name,
-        &skill_content,
-        &attachments,
-    )
-    .unwrap();
+    let cache_dir =
+        extract_attachments(base_dir.path(), &skill_name, &skill_content, &attachments).unwrap();
 
     // Verify cache uses skill name
     assert!(cache_dir.to_string_lossy().ends_with(&skill_name));
@@ -254,13 +239,16 @@ Test content"#,
     }
 
     // Cleanup - remove this test's cache directory
-    invalidate_cache(&skill_name).unwrap();
+    SkillCache::new(base_dir.path().to_path_buf())
+        .invalidate(&skill_name)
+        .unwrap();
     assert!(!cache_dir.exists());
 }
 
 #[test]
 fn test_invalidate_cache() {
-    setup_test_env();
+    let base_dir = test_base_dir();
+    set_base_path(base_dir.path().to_path_buf());
 
     // Use unique skill name to avoid conflicts with parallel tests
     let unique_id = generate_entity_id();
@@ -278,6 +266,8 @@ fn test_invalidate_cache() {
 
     // Invalidating non-existent cache should not error
     invalidate_cache(&skill_name).unwrap();
+
+    clear_base_path();
 }
 
 #[test]
@@ -311,6 +301,7 @@ Test content"#,
         mime_type: Some("text/markdown".to_string()),
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     }];
 
     // Extract with custom base directory

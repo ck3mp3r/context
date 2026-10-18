@@ -349,6 +349,7 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
         note_ids: vec![],
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
+        deleted_at: None,
     };
 
     let created_project = state

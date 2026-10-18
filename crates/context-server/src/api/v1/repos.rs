@@ -295,6 +295,7 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         tags: req.tags,
         project_ids: req.project_ids,
         created_at: None, // Repository will generate this
+        deleted_at: None,
     };
 
     let created_repo = state.db().repos().create(&repo).await.map_err(|e| {

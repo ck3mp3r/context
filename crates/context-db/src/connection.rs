@@ -2,6 +2,7 @@
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{SqlitePool, migrate::MigrateDatabase};
+use std::future::Future;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -94,6 +95,22 @@ impl SqliteDatabase {
 
         Ok(())
     }
+
+    /// Get the current schema version from `_sqlx_migrations`.
+    ///
+    /// Returns the highest applied migration version (a timestamp). Returns `0`
+    /// when no migrations have been applied.
+    pub async fn schema_version_async(&self) -> DbResult<i64> {
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations WHERE success = 1")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+
+        Ok(version.unwrap_or(0))
+    }
 }
 
 impl HasProjects for SqliteDatabase {
@@ -158,5 +175,9 @@ impl Database for SqliteDatabase {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async { self.migrate_async().await })
         })
+    }
+
+    fn schema_version(&self) -> impl Future<Output = DbResult<i64>> + Send {
+        self.schema_version_async()
     }
 }

@@ -346,6 +346,7 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         assets: vec![],
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     };
     let created = repo.create(&skill).await.map_err(|e| match e {
         DbError::Validation { .. } => (

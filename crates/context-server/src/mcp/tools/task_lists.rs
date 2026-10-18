@@ -241,6 +241,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
             created_at: None, // Repository generates
             updated_at: None, // Repository generates
             archived_at: None,
+            deleted_at: None,
         };
 
         let created = self

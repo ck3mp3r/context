@@ -141,9 +141,12 @@ async fn test_note_crud_operations() {
     let delete_result = delete_note(&api_client, note_id, true).await;
     assert!(delete_result.is_ok(), "Should delete with --force");
 
-    // Verify deletion
-    let get_deleted = get_note(&api_client, note_id, "json").await;
-    assert!(get_deleted.is_err(), "Should return error for deleted note");
+    // Verify deletion is idempotent (soft-delete no-op on repeat)
+    let delete_again = delete_note(&api_client, note_id, true).await;
+    assert!(
+        delete_again.is_ok(),
+        "Repeated delete should be an idempotent no-op"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

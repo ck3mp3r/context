@@ -7,6 +7,7 @@ use context_core::{
     TaskListRepository, TaskRepository,
 };
 use miette::Diagnostic;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
@@ -53,6 +54,34 @@ pub enum SyncError {
     #[error("IO error: {0}")]
     #[diagnostic(code(c5t::sync::io))]
     Io(#[from] std::io::Error),
+
+    #[error("JSON error: {0}")]
+    #[diagnostic(code(c5t::sync::json))]
+    Json(#[from] serde_json::Error),
+
+    #[error(
+        "Sync schema version {sync_version} is newer than local schema version {local_version}; \
+         upgrade this machine before importing"
+    )]
+    #[diagnostic(code(c5t::sync::schema_version_mismatch))]
+    SchemaVersionMismatch {
+        sync_version: i64,
+        local_version: i64,
+    },
+}
+
+/// Name of the sync metadata file in the sync directory.
+const SYNC_META_FILE: &str = "sync_meta.json";
+
+/// Metadata written to `sync_meta.json` in the sync directory.
+///
+/// Records the schema version of the machine that produced the export so that
+/// importers running an older schema can refuse the import instead of failing
+/// with a cryptic SQL error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncMeta {
+    /// Schema version of the machine that produced the export.
+    pub schema_version: i64,
 }
 
 /// Sync manager handles all sync operations.
@@ -206,6 +235,21 @@ impl<G: GitOps> SyncManager<G> {
             return Err(SyncError::NotInitialized);
         }
 
+        // Capture the cutoff before the export query runs. Any row written
+        // after this instant is picked up by the next export.
+        let cutoff = context_core::current_timestamp();
+
+        // Purge tombstones older than the retention period before the export
+        // query runs, so purged entities never appear in the export.
+        let purge_before = context_core::purge_cutoff(context_core::purge_retention_days());
+        tracing::info!(before = %purge_before, "Purging expired tombstones");
+        db.projects().purge_deleted(&purge_before).await?;
+        db.task_lists().purge_deleted(&purge_before).await?;
+        db.tasks().purge_deleted(&purge_before).await?;
+        db.notes().purge_deleted(&purge_before).await?;
+        db.repos().purge_deleted(&purge_before).await?;
+        db.skills().purge_deleted(&purge_before).await?;
+
         // Export to JSONL using sync repository
         tracing::info!("Exporting database to JSONL files");
         let summary = db.sync().export_all(&self.sync_dir).await?;
@@ -218,6 +262,13 @@ impl<G: GitOps> SyncManager<G> {
             skills = summary.skills,
             "Export complete"
         );
+
+        // Record the schema version so importers can detect newer schemas.
+        let schema_version = db.schema_version().await?;
+        let meta = SyncMeta { schema_version };
+        let meta_path = self.sync_dir.join(SYNC_META_FILE);
+        std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+        tracing::debug!(schema_version, "Wrote sync metadata");
 
         // Add all JSONL files (git add .)
         tracing::debug!("Adding all files to git");
@@ -255,6 +306,12 @@ impl<G: GitOps> SyncManager<G> {
             }
             Err(e) => return Err(e.into()),
         }
+
+        // Advance the incremental cutoff only after the export is committed and
+        // pushed. A failure above leaves the cutoff untouched, so the next
+        // export re-exports the same entities.
+        db.sync().set_last_synced_at(&cutoff).await?;
+        tracing::debug!(cutoff = %cutoff, "Advanced incremental export cutoff");
 
         Ok(summary)
     }
@@ -315,6 +372,9 @@ impl<G: GitOps> SyncManager<G> {
             tracing::info!("Pull complete");
         }
 
+        // Refuse to import data produced by a newer schema.
+        self.check_schema_version(db).await?;
+
         // Import from JSONL using sync repository
         tracing::info!("Importing JSONL files to database");
         let summary = db.sync().import_all(&self.sync_dir).await?;
@@ -332,6 +392,9 @@ impl<G: GitOps> SyncManager<G> {
 
     /// Get sync status.
     pub async fn status<D: Database>(&self, db: &D) -> Result<SyncStatus, SyncError> {
+        let last_synced_at = db.sync().last_synced_at().await?;
+        let schema_version = db.schema_version().await?;
+
         if !self.is_initialized() {
             return Ok(SyncStatus {
                 initialized: false,
@@ -339,6 +402,8 @@ impl<G: GitOps> SyncManager<G> {
                 git_status: None,
                 db_counts: None,
                 jsonl_counts: None,
+                last_synced_at,
+                schema_version,
             });
         }
 
@@ -378,6 +443,8 @@ impl<G: GitOps> SyncManager<G> {
             }),
             db_counts: Some(db_counts),
             jsonl_counts,
+            last_synced_at,
+            schema_version,
         })
     }
 
@@ -387,6 +454,41 @@ impl<G: GitOps> SyncManager<G> {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
         }
+    }
+
+    /// Refuse to import when the sync directory was produced by a newer schema.
+    ///
+    /// A missing `sync_meta.json` means a first sync or a legacy repo, so the
+    /// import proceeds.
+    async fn check_schema_version<D: Database>(&self, db: &D) -> Result<(), SyncError> {
+        let meta_path = self.sync_dir.join(SYNC_META_FILE);
+        if !meta_path.exists() {
+            tracing::debug!("No sync metadata found; skipping schema version check");
+            return Ok(());
+        }
+
+        let content = std::fs::read_to_string(&meta_path)?;
+        let meta: SyncMeta = serde_json::from_str(&content)?;
+        let local_version = db.schema_version().await?;
+
+        if meta.schema_version > local_version {
+            tracing::error!(
+                sync_version = meta.schema_version,
+                local_version,
+                "Refusing import: sync schema is newer than local schema"
+            );
+            return Err(SyncError::SchemaVersionMismatch {
+                sync_version: meta.schema_version,
+                local_version,
+            });
+        }
+
+        tracing::debug!(
+            sync_version = meta.schema_version,
+            local_version,
+            "Schema version check passed"
+        );
+        Ok(())
     }
 
     /// Count entities in JSONL files.
@@ -425,6 +527,10 @@ pub struct SyncStatus {
     pub git_status: Option<GitStatus>,
     pub db_counts: Option<EntityCounts>,
     pub jsonl_counts: Option<EntityCounts>,
+    /// Timestamp of the last successful incremental export, if any.
+    pub last_synced_at: Option<String>,
+    /// Local database schema version.
+    pub schema_version: i64,
 }
 
 /// Git repository status.

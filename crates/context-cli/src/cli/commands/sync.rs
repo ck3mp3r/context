@@ -123,6 +123,13 @@ pub async fn export(
     if let Some(data) = &sync_response.data
         && let Some(exported) = data.get("exported")
     {
+        let changes = data
+            .get("changes")
+            .and_then(|v| v.as_u64())
+            .or_else(|| exported.get("total").and_then(|v| v.as_u64()))
+            .unwrap_or(0);
+        output.push_str(&format!("{} changes\n\n", changes));
+
         let rows = vec![
             SyncCountRow {
                 item: "Repos".to_string(),
@@ -356,7 +363,16 @@ fn format_sync_status(response: &SyncResponse) -> String {
             .unwrap_or(false);
 
         if !initialized {
-            return "Sync not initialized. Run: c5t sync init\n".to_string();
+            output.push_str("Sync not initialized. Run: c5t sync init\n");
+            let last_synced_at = data
+                .get("last_synced_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("never");
+            output.push_str(&format!("last_synced_at: {}\n", last_synced_at));
+            if let Some(schema_version) = data.get("schema_version").and_then(|v| v.as_i64()) {
+                output.push_str(&format!("schema_version: {}\n", schema_version));
+            }
+            return output;
         }
 
         // Remote URL and Git Status
@@ -375,6 +391,16 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     "✗ Uncommitted changes"
                 }
             ));
+        }
+
+        let last_synced_at = data
+            .get("last_synced_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("never");
+        output.push_str(&format!("last_synced_at: {}\n", last_synced_at));
+
+        if let Some(schema_version) = data.get("schema_version").and_then(|v| v.as_i64()) {
+            output.push_str(&format!("schema_version: {}\n\n", schema_version));
         }
 
         // Build table data

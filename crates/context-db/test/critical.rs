@@ -68,6 +68,7 @@ async fn task_list_create_with_relationships() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -145,6 +146,7 @@ async fn task_list_update_replaces_relationships() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -164,6 +166,7 @@ async fn task_list_update_replaces_relationships() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:01".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Update should succeed");
@@ -198,6 +201,7 @@ async fn task_list_create_validates_repo_ids() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await;
 
@@ -224,6 +228,7 @@ async fn task_list_create_validates_project_ids() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await;
 
@@ -250,6 +255,7 @@ async fn task_list_list_with_tag_filter() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -268,6 +274,7 @@ async fn task_list_list_with_tag_filter() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -334,6 +341,7 @@ async fn task_list_archive_sets_archived_at() {
             created_at: None,
             updated_at: None,
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -380,6 +388,7 @@ async fn task_list_archive_twice_is_idempotent() {
             created_at: None,
             updated_at: None,
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -439,6 +448,7 @@ async fn task_list_unarchive_clears_archived_at() {
             created_at: None,
             updated_at: None,
             archived_at: Some("2025-01-01 12:00:00".to_string()),
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -502,6 +512,7 @@ async fn task_list_belongs_to_one_project() {
             created_at: None,
             updated_at: None,
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");
@@ -554,6 +565,7 @@ async fn task_list_can_change_project() {
             created_at: None,
             updated_at: None,
             archived_at: None,
+            deleted_at: None,
         })
         .await
         .expect("Create should succeed");

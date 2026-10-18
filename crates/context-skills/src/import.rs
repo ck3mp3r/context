@@ -163,6 +163,7 @@ pub async fn import_skill<D: HasSkills + HasProjects>(
                 .collect(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         };
 
         // Check if we need to update (skill exists and upsert is true)
@@ -206,6 +207,7 @@ pub async fn import_skill<D: HasSkills + HasProjects>(
                 mime_type: attachment_data.mime_type,
                 created_at: None,
                 updated_at: None,
+                deleted_at: None,
             };
             db.skills()
                 .create_attachment(&attachment)

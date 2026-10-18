@@ -4,16 +4,15 @@
 //! and sync them via Git to enable multi-machine synchronization.
 
 mod export;
-#[cfg(test)]
-mod export_test;
 mod git;
-#[cfg(test)]
-mod git_test;
 mod import;
-#[cfg(test)]
-mod import_test;
 mod manager;
+
 #[cfg(test)]
+#[path = "../test/git.rs"]
+mod git_test;
+#[cfg(test)]
+#[path = "../test/manager.rs"]
 mod manager_test;
 
 pub use export::{ExportError, export_all};

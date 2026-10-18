@@ -17,33 +17,33 @@ pub struct PageParams<'a> {
 }
 
 #[cfg(test)]
-#[path = "note_test.rs"]
+#[path = "../../../test/cli/commands/note.rs"]
 mod note_test;
 
 #[cfg(test)]
-#[path = "skill_test.rs"]
+#[path = "../../../test/cli/commands/skill.rs"]
 mod skill_test;
 
 #[cfg(test)]
-#[path = "project_test.rs"]
+#[path = "../../../test/cli/commands/project.rs"]
 mod project_test;
 
 #[cfg(test)]
-#[path = "repo_test.rs"]
+#[path = "../../../test/cli/commands/repo.rs"]
 mod repo_test;
 
 #[cfg(test)]
-#[path = "task_test.rs"]
+#[path = "../../../test/cli/commands/task.rs"]
 mod task_test;
 
 #[cfg(test)]
-#[path = "task_list_test.rs"]
+#[path = "../../../test/cli/commands/task_list.rs"]
 mod task_list_test;
 
 #[cfg(test)]
-#[path = "sync_test.rs"]
+#[path = "../../../test/cli/commands/sync.rs"]
 mod sync_test;
 
 #[cfg(test)]
-#[path = "api_test.rs"]
+#[path = "../../../test/cli/commands/api.rs"]
 mod api_test;

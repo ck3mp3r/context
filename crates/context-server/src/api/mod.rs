@@ -4,9 +4,11 @@
 
 mod handlers;
 #[cfg(test)]
+#[path = "../../test/api/test.rs"]
 mod mod_test;
 pub mod notifier;
 #[cfg(test)]
+#[path = "../../test/api/notifier.rs"]
 mod notifier_test;
 pub mod routes;
 mod state;
@@ -14,6 +16,7 @@ mod state;
 pub mod static_assets;
 #[cfg(test)]
 #[cfg(feature = "embed-frontend")]
+#[path = "../../test/api/static_assets.rs"]
 mod static_assets_test;
 pub mod v1;
 mod websocket;

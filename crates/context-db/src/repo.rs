@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::build_limit_offset_clause;
+use super::helpers::{build_limit_offset_clause, soft_delete_row};
 use context_core::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
 use context_core::{current_timestamp, generate_entity_id};
 
@@ -92,11 +92,14 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             tags: repo.tags.clone(),
             project_ids: repo.project_ids.clone(),
             created_at,
+            deleted_at: None,
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<Repo> {
-        let row = sqlx::query("SELECT id, remote, path, tags, created_at FROM repo WHERE id = ?")
+        let row = sqlx::query(
+            "SELECT id, remote, path, tags, created_at FROM repo WHERE id = ? AND deleted_at IS NULL",
+        )
             .bind(id)
             .fetch_optional(self.pool)
             .await
@@ -129,6 +132,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             tags,
             project_ids,
             created_at: row.get("created_at"),
+            deleted_at: None,
         })
     }
 
@@ -202,6 +206,9 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 )
             };
 
+        // Soft-deleted rows are tombstones and must never appear in results.
+        where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
+
         // Build WHERE clause
         let where_clause = if !where_conditions.is_empty() {
             format!("WHERE {}", where_conditions.join(" AND "))
@@ -274,6 +281,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                     tags,
                     project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
+                    deleted_at: None,
                 }
             })
             .collect();
@@ -300,7 +308,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn count(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM repo")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM repo WHERE deleted_at IS NULL")
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -370,20 +378,72 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
-        let result = sqlx::query("DELETE FROM repo WHERE id = ?")
-            .bind(id)
-            .execute(self.pool)
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // The repo table has no updated_at column, so only deleted_at is set.
+        let deleted = soft_delete_row(&mut tx, "repo", "Repo", id, false).await?;
+
+        if !deleted {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        }
+
+        // Hard-delete M:N relationship rows for the repo.
+        for table in ["project_repo", "task_list_repo", "note_repo"] {
+            let sql = format!("DELETE FROM {} WHERE repo_id = ?", table);
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn purge_deleted(&self, before: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // M:N relationship rows for the purged repos.
+        for table in ["project_repo", "task_list_repo", "note_repo"] {
+            let sql = format!(
+                "DELETE FROM {} WHERE repo_id IN (
+                     SELECT id FROM repo WHERE deleted_at IS NOT NULL AND deleted_at < ?
+                 )",
+                table
+            );
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(before)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        sqlx::query("DELETE FROM repo WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+            .bind(before)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
 
-        if result.rows_affected() == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Repo".to_string(),
-                id: id.to_string(),
-            });
-        }
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }

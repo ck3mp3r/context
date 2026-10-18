@@ -403,6 +403,7 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
         external_refs: req.external_refs,
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
+        deleted_at: None,
     };
 
     let created_task = state.db().tasks().create(&task).await.map_err(|e| {

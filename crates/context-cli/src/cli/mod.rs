@@ -6,11 +6,11 @@ pub mod utils;
 use commands::PageParams;
 
 #[cfg(test)]
-#[path = "utils_test.rs"]
+#[path = "../../test/cli/utils.rs"]
 mod utils_test;
 
 #[cfg(test)]
-#[path = "api_client_test.rs"]
+#[path = "../../test/cli/api_client.rs"]
 mod api_client_test;
 
 use clap::{Parser, Subcommand};

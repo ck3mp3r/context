@@ -359,6 +359,7 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         subnote_count: None,
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
+        deleted_at: None,
     };
 
     let created_note = state.db().notes().create(&note).await.map_err(|e| {

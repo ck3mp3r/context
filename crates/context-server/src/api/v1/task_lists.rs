@@ -371,6 +371,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
         archived_at: None,
+        deleted_at: None,
     };
 
     let created_list = state.db().task_lists().create(&list).await.map_err(|e| {

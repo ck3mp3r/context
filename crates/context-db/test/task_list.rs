@@ -1,9 +1,10 @@
 //! Tests for SqliteTaskListRepository FTS5 search.
 
 use crate::SqliteDatabase;
+use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
 use context_core::{
-    Database, HasProjects, HasTaskLists, Project, ProjectRepository, TaskList, TaskListQuery,
-    TaskListRepository, TaskListStatus,
+    Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task, TaskList,
+    TaskListQuery, TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
 };
 
 async fn setup_db() -> SqliteDatabase {
@@ -26,6 +27,7 @@ async fn create_test_project(db: &SqliteDatabase, id: &str) -> Project {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
     project
@@ -55,6 +57,7 @@ async fn fts5_search_finds_task_list_by_title() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -72,6 +75,7 @@ async fn fts5_search_finds_task_list_by_title() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -106,6 +110,7 @@ async fn fts5_search_finds_task_list_by_description() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -123,6 +128,7 @@ async fn fts5_search_finds_task_list_by_description() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -157,6 +163,7 @@ async fn fts5_search_finds_task_list_by_notes() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -174,6 +181,7 @@ async fn fts5_search_finds_task_list_by_notes() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -208,6 +216,7 @@ async fn fts5_search_finds_task_list_by_tags() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -225,6 +234,7 @@ async fn fts5_search_finds_task_list_by_tags() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -259,6 +269,7 @@ async fn fts5_search_finds_task_list_by_external_refs() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -276,6 +287,7 @@ async fn fts5_search_finds_task_list_by_external_refs() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -310,6 +322,7 @@ async fn fts5_search_boolean_operators() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -327,6 +340,7 @@ async fn fts5_search_boolean_operators() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -344,6 +358,7 @@ async fn fts5_search_boolean_operators() {
         created_at: Some("2025-01-01 00:00:02".to_string()),
         updated_at: Some("2025-01-01 00:00:02".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -378,6 +393,7 @@ async fn fts5_search_phrase_query() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -395,6 +411,7 @@ async fn fts5_search_phrase_query() {
         created_at: Some("2025-01-01 00:00:01".to_string()),
         updated_at: Some("2025-01-01 00:00:01".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -429,6 +446,7 @@ async fn fts5_search_handles_special_characters() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     })
     .await
     .unwrap();
@@ -441,4 +459,278 @@ async fn fts5_search_handles_special_characters() {
 
     // Should match "test" after sanitization
     assert_eq!(result.items.len(), 1);
+}
+
+// =============================================================================
+// Soft-delete Tests
+// =============================================================================
+
+fn make_task(id: &str, list_id: &str, title: &str) -> Task {
+    Task {
+        id: id.to_string(),
+        list_id: list_id.to_string(),
+        parent_id: None,
+        title: title.to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_list_delete_soft_deletes_and_cascades_to_tasks() {
+    let db = setup_db().await;
+    let project = create_test_project(&db, "proj0002").await;
+    let task_lists = db.task_lists();
+
+    task_lists
+        .create(&TaskList {
+            id: "listdel1".to_string(),
+            title: "Delete List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
+            archived_at: None,
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
+
+    db.tasks()
+        .create(&make_task("tskdel01", "listdel1", "Task To Delete"))
+        .await
+        .unwrap();
+
+    task_lists.delete("listdel1").await.unwrap();
+
+    assert!(
+        read_deleted_at(db.pool(), "task_list", "listdel1")
+            .await
+            .is_some(),
+        "task list should be soft-deleted"
+    );
+    assert_ne!(
+        read_updated_at(db.pool(), "task_list", "listdel1").await,
+        Some("2025-01-01 00:00:00".to_string()),
+        "updated_at should be bumped by the soft-delete"
+    );
+    assert!(
+        read_deleted_at(db.pool(), "task", "tskdel01")
+            .await
+            .is_some(),
+        "task in the list should be soft-deleted"
+    );
+    assert_eq!(
+        count_rows(db.pool(), "task_list_repo", "task_list_id = ?", "listdel1").await,
+        0,
+        "task_list_repo rows should be hard-deleted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_already_deleted_is_noop() {
+    let db = setup_db().await;
+    let project = create_test_project(&db, "proj0003").await;
+    let task_lists = db.task_lists();
+
+    task_lists
+        .create(&TaskList {
+            id: "listnoop".to_string(),
+            title: "Noop List".to_string(),
+            description: None,
+            notes: None,
+            tags: vec![],
+            external_refs: vec![],
+            status: TaskListStatus::Active,
+            repo_ids: vec![],
+            project_id: project.id.clone(),
+            created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: Some("2025-01-01 00:00:00".to_string()),
+            archived_at: None,
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
+
+    task_lists.delete("listnoop").await.unwrap();
+    let first_deleted_at = read_deleted_at(db.pool(), "task_list", "listnoop").await;
+    let first_updated_at = read_updated_at(db.pool(), "task_list", "listnoop").await;
+
+    task_lists
+        .delete("listnoop")
+        .await
+        .expect("Second delete should be a no-op");
+
+    assert_eq!(
+        read_deleted_at(db.pool(), "task_list", "listnoop").await,
+        first_deleted_at,
+        "deleted_at should not change on a repeated delete"
+    );
+    assert_eq!(
+        read_updated_at(db.pool(), "task_list", "listnoop").await,
+        first_updated_at,
+        "updated_at should not be bumped on a repeated delete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_nonexistent_task_list_returns_not_found() {
+    let db = setup_db().await;
+
+    let result = db.task_lists().delete("nonexist").await;
+
+    assert!(
+        matches!(result, Err(context_core::DbError::NotFound { .. })),
+        "deleting a missing task list should return NotFound, got: {:?}",
+        result
+    );
+}
+
+fn make_task_list(id: &str, project_id: &str, title: &str) -> TaskList {
+    TaskList {
+        id: id.to_string(),
+        title: title.to_string(),
+        description: None,
+        notes: None,
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskListStatus::Active,
+        repo_ids: vec![],
+        project_id: project_id.to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        archived_at: None,
+        deleted_at: None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_soft_deleted_returns_not_found() {
+    let db = setup_db().await;
+    create_test_project(&db, "proj0004").await;
+    let task_lists = db.task_lists();
+
+    task_lists
+        .create(&make_task_list("listdel2", "proj0004", "Deleted List"))
+        .await
+        .expect("Create should succeed");
+    task_lists
+        .delete("listdel2")
+        .await
+        .expect("Delete should succeed");
+
+    let result = task_lists.get("listdel2").await;
+    assert!(
+        matches!(result, Err(context_core::DbError::NotFound { .. })),
+        "get on a soft-deleted task list should return NotFound, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_excludes_soft_deleted() {
+    let db = setup_db().await;
+    create_test_project(&db, "proj0005").await;
+    let task_lists = db.task_lists();
+
+    task_lists
+        .create(&make_task_list("listlive", "proj0005", "Live List"))
+        .await
+        .expect("Create should succeed");
+    task_lists
+        .create(&make_task_list("listdead", "proj0005", "Dead List"))
+        .await
+        .expect("Create should succeed");
+    task_lists
+        .delete("listdead")
+        .await
+        .expect("Delete should succeed");
+
+    let result = task_lists.list(None).await.expect("List should succeed");
+    assert_eq!(result.items.len(), 1, "list should exclude tombstones");
+    assert_eq!(result.items[0].id, "listlive");
+    assert_eq!(result.total, 1, "list total should exclude tombstones");
+    assert_eq!(
+        task_lists.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude tombstones"
+    );
+}
+
+// =============================================================================
+// Tombstone purge tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_purge_deleted_removes_old_tombstones() {
+    let db = setup_db().await;
+    create_test_project(&db, "projprg1").await;
+    let task_lists = db.task_lists();
+
+    task_lists
+        .create(&make_task_list("listprg1", "projprg1", "Old Tombstone"))
+        .await
+        .unwrap();
+    db.tasks()
+        .create(&make_task("tskprg01", "listprg1", "Child Task"))
+        .await
+        .unwrap();
+
+    task_lists.delete("listprg1").await.unwrap();
+    sqlx::query("UPDATE task_list SET deleted_at = '2020-01-01 00:00:00' WHERE id = ?")
+        .bind("listprg1")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    task_lists
+        .purge_deleted("2021-01-01 00:00:00")
+        .await
+        .expect("purge should succeed");
+
+    assert_eq!(
+        count_rows(db.pool(), "task_list", "id = ?", "listprg1").await,
+        0,
+        "an old task list tombstone must be hard-deleted"
+    );
+    assert_eq!(
+        count_rows(db.pool(), "task", "id = ?", "tskprg01").await,
+        0,
+        "tasks in a purged list must be hard-deleted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_purge_deleted_preserves_recent_tombstones() {
+    let db = setup_db().await;
+    create_test_project(&db, "projprg2").await;
+    let task_lists = db.task_lists();
+
+    task_lists
+        .create(&make_task_list("listprg2", "projprg2", "Recent Tombstone"))
+        .await
+        .unwrap();
+    task_lists.delete("listprg2").await.unwrap();
+
+    task_lists
+        .purge_deleted("2021-01-01 00:00:00")
+        .await
+        .expect("purge should succeed");
+
+    assert_eq!(
+        count_rows(db.pool(), "task_list", "id = ?", "listprg2").await,
+        1,
+        "a tombstone inside the retention period must be kept"
+    );
 }

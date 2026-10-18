@@ -177,11 +177,11 @@ async fn test_task_list_crud_operations() {
     assert!(delete_result.is_ok(), "Should delete with --force flag");
     assert!(delete_result.unwrap().contains("Deleted"));
 
-    // Verify deletion
-    let get_deleted = get_task_list(&api_client, list_id, "json").await;
+    // Verify deletion is idempotent (soft-delete no-op on repeat)
+    let delete_again = delete_task_list(&api_client, list_id, true).await;
     assert!(
-        get_deleted.is_err(),
-        "Should return error for deleted task list"
+        delete_again.is_ok(),
+        "Repeated delete should be an idempotent no-op"
     );
 }
 

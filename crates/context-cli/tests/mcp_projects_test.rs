@@ -67,6 +67,7 @@ async fn test_list_projects_with_data() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
 
     db.projects().create(&project).await.unwrap();
@@ -116,6 +117,7 @@ async fn test_get_project() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -221,6 +223,7 @@ async fn test_update_project() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -281,6 +284,7 @@ async fn test_delete_project() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -295,8 +299,13 @@ async fn test_delete_project() {
         .await;
     assert!(result.is_ok());
 
-    let result = db.projects().get("12345678").await;
-    assert!(result.is_err());
+    let deleted_at: Option<String> =
+        sqlx::query_scalar("SELECT deleted_at FROM project WHERE id = ?")
+            .bind("12345678")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert!(deleted_at.is_some(), "project should be soft-deleted");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -333,6 +342,7 @@ async fn test_list_projects_pagination() {
             note_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.projects().create(&project).await.unwrap();
     }
@@ -378,6 +388,7 @@ async fn test_list_projects_search() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -426,6 +437,7 @@ async fn test_list_projects_sorting() {
             note_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.projects().create(&project).await.unwrap();
     }
@@ -476,6 +488,7 @@ async fn test_list_projects_tag_filter() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -554,6 +567,7 @@ async fn test_list_projects_with_project_ids_filter() {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
