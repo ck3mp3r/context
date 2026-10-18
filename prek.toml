@@ -1,51 +1,36 @@
+default_install_hook_types = ["pre-commit", "pre-push"]
+
 [[repos]]
 repo = "builtin"
 hooks = [
-  { id = "trailing-whitespace" },
-  { id = "end-of-file-fixer" },
-  { id = "check-merge-conflict" },
-  { id = "check-toml" },
-  { id = "check-yaml" },
-  { id = "check-json" },
+  { id = "trailing-whitespace", files = { glob = "*.{rs,toml,yml,yaml,md,json}" } },
 ]
 
 [[repos]]
 repo = "local"
-hooks = [
-  {
-    id = "rustfmt",
-    name = "rustfmt",
-    language = "system",
-    entry = "sh -c 'cargo fmt && git diff --name-only | xargs git add'",
-    types = ["rust"],
-    stages = ["pre-commit", "pre-push"],
-    pass_filenames = false,
-  },
-  {
-    id = "clippy",
-    name = "clippy",
-    language = "system",
-    entry = "cargo clippy --all-targets",
-    types = ["rust"],
-    stages = ["pre-commit", "pre-push"],
-    pass_filenames = false,
-  },
-  {
-    id = "nix-fmt",
-    name = "nix-fmt",
-    language = "system",
-    entry = "nix fmt .",
-    types = ["nix"],
-    stages = ["pre-commit", "pre-push"],
-    pass_filenames = false,
-  },
-  {
-    id = "tests",
-    name = "tests",
-    language = "system",
-    entry = "cargo test",
-    stages = ["pre-commit", "pre-push"],
-    always_run = true,
-    pass_filenames = false,
-  },
-]
+
+[[repos.hooks]]
+id = "rustfmt"
+name = "cargo fmt"
+language = "system"
+entry = "cargo fmt"
+files = "\\.rs$"
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "clippy"
+name = "cargo clippy"
+language = "system"
+entry = "cargo clippy --all-targets"
+files = "\\.rs$"
+pass_filenames = false
+stages = ["pre-push"]
+
+[[repos.hooks]]
+id = "tests"
+name = "cargo nextest"
+language = "system"
+entry = "cargo nextest run --workspace --profile ci"
+stages = ["pre-push"]
+pass_filenames = false
